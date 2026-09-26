@@ -1,0 +1,17 @@
+name: CTI deterministic checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tools/check.cjs
+      - run: node tools/hardening-check.cjs

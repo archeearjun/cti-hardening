@@ -1,0 +1,73 @@
+{
+  "status": "PASS",
+  "tests": [
+    {
+      "name": "172 virtualized question cards do not shrink the declared count to visible cards",
+      "status": "PASS"
+    },
+    {
+      "name": "Content(29) with one typed text block captures all 28 questions including part 29",
+      "status": "PASS"
+    },
+    {
+      "name": "Missing final question in a mixed editor stays incomplete",
+      "status": "PASS"
+    },
+    {
+      "name": "Identical prompt wording in distinct observed question IDs remains distinct",
+      "status": "PASS"
+    },
+    {
+      "name": "Response-body stall is bounded even after HTTP headers arrive",
+      "status": "PASS"
+    },
+    {
+      "name": "Stage deadline is honored inside a single fetch",
+      "status": "PASS"
+    },
+    {
+      "name": "Oversize streamed body stops without consuming the whole asset",
+      "status": "PASS"
+    },
+    {
+      "name": "Signed URL identity preserves rendition query and ignores credentials only on recognized hosts",
+      "status": "PASS"
+    },
+    {
+      "name": "Cache reuses successful byte proof but retries a failed signed URL",
+      "status": "PASS"
+    },
+    {
+      "name": "ZIP resolution rejects external URLs and ambiguous normalized paths",
+      "status": "PASS"
+    },
+    {
+      "name": "Reading check delivery compiles and advertises the canonical release",
+      "status": "PASS"
+    },
+    {
+      "name": "Missing asset/link checks cannot default to verified",
+      "status": "PASS"
+    },
+    {
+      "name": "One matching behavior setting cannot hide another uncaptured source setting",
+      "status": "PASS"
+    },
+    {
+      "name": "Missing submission evidence remains uncertainty, not a confirmed mutation",
+      "status": "PASS"
+    },
+    {
+      "name": "Changed passing threshold on a graded source is compared",
+      "status": "PASS"
+    },
+    {
+      "name": "Observed written questions do not acquire a fabricated answer-key requirement",
+      "status": "PASS"
+    },
+    {
+      "name": "Math mixed numbers normalize without concatenating the whole and fraction",
+      "status": "PASS"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "reports": [
+    {
+      "suite": "fast",
+      "passed": 200,
+      "failed": 0,
+      "failures": [],
+      "skipped": [
+        "IMS discussion / raw XML and incomplete-source safeguards",
+        "IMSCC / synthetic manifest analysis",
+        "IMSCC / advanced metrics: orphan, plugin, unknown, extension, empty",
+        "IMSCC / z-score imbalance and lexical-variance regression",
+        "IMSCC / invalid XML root rejected",
+        "IMSCC / empty, malformed, and invalid-evidence resilience",
+        "IMSCC / hierarchy depth safety limit",
+        "Stored web-link XML / exact URL recovery and unsafe-input rejection",
+        "Assignment XML / instruction body and malformed-source safeguards"
+      ]
+    },
+    {
+      "suite": "sourceContract",
+      "passed": 23,
+      "failed": 0,
+      "failures": [],
+      "skipped": []
+    }
+  ],
+  "integration": "NOT_RUN_REQUIRES_GOOGLE_SERVICES",
+  "fullGolden": "NOT_RUN_REQUIRES_GOOGLE_SERVICES"
+}
