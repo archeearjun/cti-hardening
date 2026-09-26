@@ -601,9 +601,9 @@
 <p class="app-subtitle">One course workspace for source-package intelligence, live LMS ground truth, Coursera fidelity, operations, lineage, and transformation — without losing the existing CTI workflows.</p>
 </div>
 <div aria-label="Current release versions" class="release-stack">
-<span class="release-chip">Gateway <b>v7.9.31</b></span>
-<span class="release-chip">QA engine <b>v7.9.31</b></span>
-<span class="release-chip">Coursera <b>v6.13.27</b></span><span class="release-chip">Brightspace source <b>v1.0.5</b></span><span class="release-chip" id="ctiArchitectureChip">Architecture <b>checking…</b></span>
+<span class="release-chip">Gateway <b>v8.0.0</b></span>
+<span class="release-chip">QA engine <b>v8.0.0</b></span>
+<span class="release-chip">Coursera <b>v6.14.0</b></span><span class="release-chip">Brightspace source <b>v1.0.5</b></span><span class="release-chip" id="ctiArchitectureChip">Architecture <b>checking…</b></span>
 </div>
 </header>
 <div aria-labelledby="workflowSelectorTitle" class="workflow-selector">
@@ -796,14 +796,14 @@
 </div>
 <div style="display: flex; justify-content: space-between; align-items: flex-end; color: #9CA3AF; font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
 <div>Total App Loads: <b id="visitCount" style="color: #4B5563;">...</b></div>
-<div style="text-align: right;">Universal CTI Gateway v7.9.31<br/>Built: <span id="deployTime">Fetching build time...</span></div>
+<div style="text-align: right;">Universal CTI Gateway v8.0.0<br/>Built: <span id="deployTime">Fetching build time...</span></div>
 </div>
 </div>
 <script>
  // ===================================================================
- // CTI v7 Evidence Integrity shell + preserved IMSCC/Macmillan interaction layer
+ // CTI v8 Evidence Integrity shell + preserved IMSCC/Macmillan interaction layer
  // ===================================================================
- var CTI_UX_RELEASE = 'v7.9.31';
+ var CTI_UX_RELEASE = 'v8.0.0';
  window.addEventListener('load', function(){ setTimeout(ctiLoadBootstrap_, 0); });
  var ctiModalReturnFocus = {};
  var qaRunInProgress = false;
@@ -1283,6 +1283,7 @@
      var html = "<div style='background:"+palette[0]+";border:2px solid "+palette[2]+";color:"+palette[1]+";padding:14px;border-radius:10px;margin-bottom:14px;'>";
      html += "<div style='font-size:15px;font-weight:850;'>"+palette[3]+" CTI NEXT ACTION: "+escapeHtml(title)+"</div>";
      html += "<div style='margin-top:5px;font-size:12px;'>"+escapeHtml(op.recommendationReason||'')+"</div>";
+     if(res.summary && res.summary.headlineText) html += "<div style='margin-top:8px;background:#fff;padding:9px;border-radius:7px;font-size:13px;font-weight:800;color:"+(Number(res.summary.criticalBlockers||0)>0?'#991B1B':'#166534')+";'>"+escapeHtml(res.summary.headlineText)+"</div>";
      if(op.diagnosticRecommendationCode && op.diagnosticRecommendationCode !== code) html += "<div style='margin-top:7px;background:#fff;padding:8px 9px;border-radius:7px;font-size:11px;color:#475569;'><b>Technical diagnosis:</b> "+escapeHtml(op.diagnosticRecommendationCode)+" — CTI still considers these ingestion-origin blockers; only the operator action changed because repeating the same latest ingestion would not help.</div>";
      html += "<div style='margin-top:8px;font-size:12px;' title='Match shows how much source material CTI can positively match. Coverage shows how much of the comparison has enough direct evidence for a confident verdict.'><b>Policy-adjusted source match:</b> "+Number(op.adjustedObservedFidelity||0)+"% · <b>Policy-adjusted coverage:</b> "+Number(op.adjustedEvidenceCoverage||0)+"% <span style='cursor:help;'>ⓘ</span></div>"; if(res.summary){ html += "<div style='margin-top:3px;font-size:11px;opacity:.88;'><b>Raw observed match:</b> "+Number(res.summary.observedFidelity||0)+"% · <b>Raw evidence coverage:</b> "+Number(res.summary.evidenceCoverage||0)+"%</div>"; }
      if(blockers.length) html += "<div style='margin-top:10px;background:#fff;padding:9px;border-radius:7px;color:#991B1B;'><b>Fix / investigate first ("+blockers.length+"):</b><br>"+escapeHtml(blockers.slice(0,12).join(' · '))+(blockers.length>12?' · …':'')+"</div>";
@@ -2455,6 +2456,7 @@
      if(res.operationalPolicy){ var topOp=res.operationalPolicy; text += "ASSIGNMENT OWNER SUMMARY\n"; text += "NEXT ACTION: " + (topOp.recommendationCode||'REVIEW') + " — " + (topOp.recommendationLabel||'') + "\nWHY: " + (topOp.recommendationReason||'') + "\n"; if(topOp.diagnosticRecommendationCode && topOp.diagnosticRecommendationCode !== topOp.recommendationCode) text += "TECHNICAL DIAGNOSIS: " + topOp.diagnosticRecommendationCode + " — " + (topOp.diagnosticRecommendationReason||'') + "\n"; text += "\n"; }
 
      if (res.summary) {
+       if (s.headlineText) text += s.headlineText + "\n";
        text += "Observed Match: " + s.observedFidelity + "% (how much source material CTI can positively match; not a quality score)\n";
        text += "Evidence Coverage: " + s.evidenceCoverage + "% (how much of the comparison has enough direct evidence for a confident verdict; low coverage means uncertainty, not automatically missing content)\n";
        text += "Verified: " + s.verified + " | Partial: " + s.partial + " | Unverified: " + s.unverified + " | Missing: " + s.missing + " | Ingestion Failures: " + (s.ingestionFailures || 0) + " | Behavior Mutations: " + (s.behaviorMutations || 0) + " | Repackaged: " + (s.repackaged || 0) + " | Native Transformations: " + (s.expectedTransformations || 0) + " | Intentional Exclusions: " + (s.intentionalExclusions || 0) + " | Type Mutations: " + s.mutations + " | Moved: " + s.moved + "\n";
@@ -4075,6 +4077,43 @@
     return normalizeZipPath_(base + cleanHref);
  }
 
+ function resolveZipEntryV8_(zipLookup, zipPaths, manifestPath, href) {
+    var resolved = resolveZipHref_(manifestPath, href);
+    var tried = [], seen = Object.create(null);
+    function add(v, method) {
+      v = normalizeZipPath_(String(v || ''));
+      if (!v) return;
+      var k = v.toLowerCase();
+      if (seen[k]) return;
+      seen[k] = true; tried.push({key:k, path:v, method:method});
+    }
+    add(resolved, 'EXACT_NORMALIZED');
+    var raw = String(href || '').split('#')[0].split('?')[0];
+    try { add(resolveZipHref_(manifestPath, decodeURIComponent(raw)), 'URL_DECODED'); } catch (e) {}
+    // D2L packages can serialize a semicolon-delimited virtual segment with the
+    // slash on the ZIP side but not in the manifest (or vice versa).
+    (tried.slice()).forEach(function(c) {
+      add(c.path.replace(/;([^/])/g, ';/$1'), 'SEMICOLON_SLASH_NORMALIZED');
+      add(c.path.replace(/;\//g, ';'), 'SEMICOLON_SLASH_NORMALIZED');
+    });
+    for (var i=0;i<tried.length;i++) {
+      if (zipLookup[tried[i].key]) return {path:zipLookup[tried[i].key],method:tried[i].method,ambiguous:false,resolved:tried[i].path};
+    }
+    var clean = raw.replace(/\\/g,'/');
+    try { clean = decodeURIComponent(clean); } catch (e) {}
+    var baseName = clean.split('/').pop();
+    if (baseName) {
+      var lower = baseName.toLowerCase();
+      var candidates = (zipPaths || []).filter(function(p) {
+        var n = String(p || '').replace(/\\/g,'/').split('/').pop().toLowerCase();
+        return n === lower;
+      });
+      if (candidates.length === 1) return {path:candidates[0],method:'UNIQUE_BASENAME_FALLBACK',ambiguous:false,resolved:resolved||clean};
+      if (candidates.length > 1) return {path:null,method:'AMBIGUOUS_BASENAME',ambiguous:true,candidates:candidates.slice(0,12),resolved:resolved||clean};
+    }
+    return {path:null,method:'UNRESOLVED',ambiguous:false,resolved:resolved||clean};
+ }
+
  function uniqueStrings_(values, limit) {
     var seen = Object.create(null), out = [];
     (values || []).forEach(function(value) {
@@ -4873,7 +4912,8 @@
     };
 
     var zipLookup = Object.create(null);
-    Object.keys(zip.files).forEach(function(path) {
+    var zipPaths = Object.keys(zip.files);
+    zipPaths.forEach(function(path) {
       zipLookup[normalizeZipPath_(path).toLowerCase()] = path;
     });
 
@@ -4934,7 +4974,8 @@
         if (onProgress && Date.now() - lastProgressPaint >= 100) { await new Promise(function(resolve) { setTimeout(resolve, 0); }); lastProgressPaint = Date.now(); }
 
         var resolved = resolveZipHref_(manifestPath, href);
-        var exactPath = resolved ? zipLookup[resolved.toLowerCase()] : null;
+        var zipResolution = resolveZipEntryV8_(zipLookup, zipPaths, manifestPath, href);
+        var exactPath = zipResolution.path;
         var cleanHref = href.split('#')[0].split('?')[0];
         var name = cleanHref.split('/').pop() || cleanHref;
         var dot = name.lastIndexOf('.');
@@ -4946,7 +4987,10 @@
           name: name,
           extension: extension,
           presentInPackage: !!exactPath,
-          kind: 'asset'
+          kind: 'asset',
+          pathResolutionMethod: zipResolution.method,
+          pathResolutionAmbiguous: zipResolution.ambiguous === true,
+          pathResolutionCandidates: zipResolution.candidates || []
         };
 
         if (exactPath && !zip.files[exactPath].dir) {
