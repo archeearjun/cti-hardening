@@ -1,0 +1,6285 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 30px 20px; background-color: #F9FAFB; color: #111827; }
+   .container { max-width: 950px; margin: 0 auto; background: #FFFFFF; padding: 40px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06); border: 1px solid #E5E7EB; }
+   
+   h1 { color: #111827; margin-top: 0; font-size: 24px; display: flex; align-items: center; gap: 10px; }
+   h3 { color: #111827; font-size: 18px; margin-top: 0; margin-bottom: 15px; font-weight: 600; }
+   h4 { color: #111827; font-size: 15px; font-weight: 600; margin-top: 0; }
+   
+   .stage { padding: 25px; margin-bottom: 25px; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; transition: all 0.3s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+   .stage.active { border-left: 4px solid #4F46E5; }
+   .stage.complete { border-left: 4px solid #10B981; background: #F0FDF4; border-color: #A7F3D0; }
+  
+   button { background-color: #4F46E5; color: white; border: none; padding: 10px 18px; font-size: 14px; font-weight: 500; border-radius: 6px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+   button:hover:not(:disabled) { background-color: #4338CA; }
+   button:disabled { background-color: #9CA3AF; cursor: not-allowed; }
+   
+   .btn-secondary { background-color: #FFFFFF; color: #374151; border: 1px solid #D1D5DB; }
+   .btn-secondary:hover:not(:disabled) { background-color: #F3F4F6; color: #111827; }
+   
+   .btn-sm { padding: 6px 12px; font-size: 12px; }
+   .btn-danger { color: #DC2626; border-color: transparent; background: transparent; padding: 6px 12px; width: 100%; text-align: left; justify-content: flex-start;}
+   .btn-danger:hover { background-color: #FEE2E2; }
+   
+   .status { margin-top: 15px; font-size: 14px; color: #4B5563; }
+   .error { color: #B91C1C; background: #FEF2F2; padding: 12px; border-radius: 6px; border: 1px solid #FCA5A5; display: block; }
+   .warning-pill { background: #FEF3C7; color: #92400E; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; margin-left: 8px; border: 1px solid #FDE68A;}
+
+   input[type="file"], input[type="text"], input[type="date"], select { 
+       width: 100%; padding: 10px 12px; margin-top: 6px; margin-bottom: 16px; 
+       box-sizing: border-box; border: 1px solid #D1D5DB; border-radius: 6px; 
+       font-size: 14px; color: #111827; background-color: #FFFFFF; transition: all 0.2s;
+   }
+   input[type="file"] { padding: 8px; background-color: #F9FAFB; }
+   input:focus, select:focus { outline: none; border-color: #4F46E5; box-shadow: 0 0 0 3px rgba(79,70,229,0.2); }
+   
+   .form-label { font-weight: 600; font-size: 13px; color: #374151; display: block; }
+   .dual-input { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 5px; }
+   .dual-input div { flex: 1; min-width: 260px; }
+
+   .workflow-selector { background: #F3F4F6; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px solid #E5E7EB; }
+   .workflow-selector label { margin-right: 24px; cursor: pointer; font-weight: 500; font-size: 14px; color: #374151; display: inline-flex; align-items: center; gap: 6px; }
+   .workflow-selector input[type="radio"] { margin: 0; width: 16px; height: 16px; accent-color: #4F46E5; }
+
+   .insight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 20px 0; }
+   .insight-card { padding: 20px; border-radius: 8px; border-top: 4px solid #E5E7EB; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); background: #FFFFFF; border-left: 1px solid #E5E7EB; border-right: 1px solid #E5E7EB; border-bottom: 1px solid #E5E7EB;}
+   
+   .insight-high { border-top-color: #EF4444; }
+   .insight-medium { border-top-color: #F59E0B; }
+   .insight-low { border-top-color: #10B981; }
+   
+   .insight-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items:center; color: #111827;}
+   .metric-pill { background: #F3F4F6; padding: 4px 10px; border-radius: 9999px; font-weight: 600; font-size: 12px; color: #4B5563; }
+   
+   .info-icon { color: #6B7280; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; margin-left: 6px; transition: color 0.2s; font-size: 14px; font-style: normal; }
+   .info-icon:hover { color: #111827; }
+
+   .db-row { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px 0; border-bottom: 1px solid #E5E7EB; }
+   .db-row:last-child { border-bottom: none; }
+   .db-filename { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; font-weight: 600; color: #111827; }
+   .date-badge { background: #F3F4F6; color: #4B5563; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+   .drive-link { color: #4F46E5; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; text-decoration: none; padding: 4px 8px; border-radius: 6px; transition: background 0.2s;}
+   .drive-link:hover { background: #EEF2FF; }
+   
+   details.partner-accordion { background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+   details.partner-accordion summary { background: #F9FAFB; padding: 15px 20px; font-size: 16px; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; }
+   details[open].partner-accordion summary { border-bottom-color: #E5E7EB; }
+   details.partner-accordion summary::after { content: "▼"; font-size: 12px; color: #6B7280; transition: transform 0.2s; }
+   details[open].partner-accordion summary::after { transform: rotate(180deg); }
+   .partner-accordion-content { padding: 0 20px; }
+
+   .action-group { display: flex; align-items: center; gap: 8px; position: relative; flex-wrap: wrap; }
+   
+   .kebab-menu { background: transparent; border: none; color: #6B7280; padding: 6px; border-radius: 4px; width: 32px; height: 32px; font-size: 18px; cursor: pointer; }
+   .kebab-menu:hover { background: #F3F4F6; color: #111827; }
+   
+   .dropdown-content { display: none; position: absolute; right: 0; top: 36px; background-color: #FFFFFF; min-width: 160px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 1px solid #E5E7EB; border-radius: 6px; z-index: 50; padding: 4px 0; }
+   .dropdown-content button { width: 100%; text-align: left; padding: 8px 16px; background: transparent; color: #374151; border: none; border-radius: 0; justify-content: flex-start; font-weight: 400;}
+   .dropdown-content button:hover { background-color: #F3F4F6; color: #111827; }
+   
+   .math-proof-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; background: #FFFFFF; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden;}
+   .math-proof-table th { background: #F9FAFB; text-align: left; padding: 12px 16px; border-bottom: 1px solid #E5E7EB; color: #374151; font-weight: 600; }
+   .math-proof-table td { padding: 12px 16px; border-bottom: 1px solid #E5E7EB; color: #111827; }
+   
+   .course-viewer { background: #111827; color: #E5E7EB; padding: 24px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; max-height: 400px; overflow-y: auto; }
+   .tree-ul { list-style-type: none; margin: 0; padding: 0; }
+   .tree-ul ul { padding-left: 24px; display: none; border-left: 1px dashed #374151; margin-left: 8px; }
+   .tree-item { padding: 6px 0; font-size: 13px; }
+   .tree-caret { cursor: pointer; user-select: none; display: flex; align-items: center; color: #D1D5DB; font-weight: 500;}
+   .tree-caret:hover { color: #FFFFFF; }
+   .tree-caret::before { content: "\25B6"; color: #6B7280; display: inline-block; margin-right: 10px; font-size: 10px; transition: transform 0.2s; }
+   .tree-caret-down::before { transform: rotate(90deg); color: #9CA3AF; }
+   .tree-icon { margin-right: 10px; font-size: 14px; opacity: 0.8; }
+
+   .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(17, 24, 39, 0.7); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(2px);}
+   .modal-content { background: #fff; padding: 25px; border-radius: 8px; max-width: 500px; width: 100%; font-size: 13px; line-height: 1.5; color: #202124; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+   .modal-content h3 { margin-top: 0; color: #111827; font-size: 18px; margin-bottom: 20px;}
+   .duplicate-card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px; margin-bottom: 12px; background: #FFFFFF; }
+   .duplicate-card.blocked { border-color: #FCA5A5; background: #FEF2F2; }
+   .duplicate-file { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+   .duplicate-note { margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: #FEF3C7; color: #92400E; }
+   
+   details.qa-dropdown { background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; margin-top: 16px; overflow: hidden; }
+   details.qa-dropdown summary { background: #FFFFFF; color: #111827; font-weight: 600; padding: 16px; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; }
+   details[open].qa-dropdown summary { border-bottom-color: #E5E7EB; }
+   details.qa-dropdown summary::-webkit-details-marker { display: none; }
+   details.qa-dropdown .qa-content { padding: 20px; font-size: 14px; color: #374151; }
+   
+   code.prompt-code { background: #F3F4F6; padding: 16px; border-radius: 6px; font-size: 13px; display: block; margin: 8px 0 20px 0; white-space: pre-wrap; border-left: 4px solid #4F46E5; line-height: 1.5; color: #111827; font-family: ui-monospace, SFMono-Regular, Consolas, monospace;}
+   .prompt-label { font-size: 14px; font-weight: 600; color: #374151; margin-top: 16px; display: flex; justify-content: space-between; align-items: center;}
+   .gpt-link { color: #4F46E5; font-weight: 600; text-decoration: none; }
+   .gpt-link:hover { text-decoration: underline; }
+
+   .svg-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+   .svg-sm { width: 16px; height: 16px; }
+
+   .qa-box { border: 1px solid #E5E7EB; padding: 15px; border-radius: 8px; background: #FFFFFF; margin-bottom: 15px; }
+   .qa-box-red { border-color: #FCA5A5; background: #FEF2F2; }
+   .qa-box-orange { border-color: #FDE68A; background: #FEF3C7; }
+   .qa-box-gray { border-color: #D1D5DB; background: #F9FAFB; }
+ 
+
+   /* =====================================================================
+      Gateway v7.9.31 — work orchestration + existing structural-authority safeguards.
+      The semantic QA layer and embedded v6.13.27 extractor add capless adaptive destination crawling, source→destination transformation-family verification for chunked lessons, current-state behavior/asset evidence, runtime diagnostics, longitudinal evidence memory, and source-package diagnostics while preserving Excel structural authority.
+      ===================================================================== */
+   :root {
+     --cti-bg:#F5F7FB; --cti-surface:#FFFFFF; --cti-surface-soft:#F8FAFC;
+     --cti-text:#172033; --cti-muted:#667085; --cti-border:#DDE3EC;
+     --cti-primary:#4F46E5; --cti-primary-dark:#4338CA; --cti-primary-soft:#EEF2FF;
+     --cti-success:#087A55; --cti-success-soft:#ECFDF3; --cti-warning:#9A5B08;
+     --cti-warning-soft:#FFFAEB; --cti-danger:#B42318; --cti-danger-soft:#FEF3F2;
+     --cti-info:#175CD3; --cti-info-soft:#EFF8FF; --cti-radius:12px;
+     --cti-shadow:0 1px 2px rgba(16,24,40,.05),0 6px 18px rgba(16,24,40,.05);
+   }
+   * { box-sizing:border-box; }
+   html { scroll-behavior:smooth; }
+   body { background:var(--cti-bg); color:var(--cti-text); padding:24px 18px 40px; line-height:1.45; }
+   body.modal-open { overflow:hidden; }
+   .container { max-width:1180px; padding:32px; border-radius:16px; border-color:var(--cti-border); box-shadow:var(--cti-shadow); }
+   h1,h2,h3,h4 { letter-spacing:-.01em; }
+   h1 { font-size:26px; }
+   h3 { font-size:18px; }
+   a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+     outline:3px solid rgba(79,70,229,.28); outline-offset:2px;
+   }
+   button { min-height:40px; border-radius:8px; padding:9px 16px; font-weight:650; }
+   button:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 2px 5px rgba(16,24,40,.12); }
+   button:active:not(:disabled) { transform:translateY(0); box-shadow:none; }
+   button:disabled { opacity:.62; background:#98A2B3; cursor:not-allowed; box-shadow:none; }
+   .btn-secondary { background:#fff; border-color:#C8D0DC; }
+   .btn-secondary:hover:not(:disabled) { background:#F8FAFC; border-color:#98A2B3; }
+   .btn-sm { min-height:34px; padding:6px 11px; }
+   input[type="file"], input[type="text"], input[type="date"], select {
+     min-height:44px; border-color:#C8D0DC; border-radius:8px; margin-top:7px; margin-bottom:14px;
+   }
+   input[type="file"] { padding:7px; }
+   input::file-selector-button { border:1px solid #C8D0DC; background:#fff; border-radius:6px; padding:7px 10px; margin-right:10px; cursor:pointer; color:#344054; font-weight:600; }
+   input::file-selector-button:hover { background:#F2F4F7; }
+   .form-label { font-size:13px; color:#344054; }
+   .helper-text { color:var(--cti-muted); font-size:12px; margin:-6px 0 14px; }
+   .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+
+   .app-header { display:flex; justify-content:space-between; gap:22px; align-items:flex-start; margin-bottom:26px; }
+   .app-header-main { min-width:0; }
+   .app-kicker { color:var(--cti-primary); text-transform:uppercase; letter-spacing:.08em; font-size:11px; font-weight:800; margin-bottom:7px; }
+   .app-subtitle { color:var(--cti-muted); max-width:740px; margin:8px 0 0; font-size:14px; }
+   .release-stack { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+   .release-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border:1px solid #D0D5DD; border-radius:999px; background:#fff; color:#475467; font-size:11px; font-weight:650; white-space:nowrap; }
+
+   .workflow-selector { padding:18px; background:#F8FAFC; border-color:var(--cti-border); border-radius:12px; }
+   .workflow-selector h3 { margin-bottom:12px; }
+   .workflow-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+   .workflow-option { margin:0!important; display:flex!important; align-items:flex-start!important; gap:10px!important; padding:14px; background:#fff; border:1px solid #D0D5DD; border-radius:10px; cursor:pointer; transition:.18s ease; }
+   .workflow-option:hover { border-color:#A5B4FC; background:#FAFBFF; }
+   .workflow-option:has(input:checked) { border-color:var(--cti-primary); box-shadow:0 0 0 3px rgba(79,70,229,.1); background:var(--cti-primary-soft); }
+   .workflow-option input { margin-top:2px!important; flex:0 0 auto; }
+   .workflow-option-title { display:block; color:#1D2939; font-weight:700; font-size:14px; }
+   .workflow-option-copy { display:block; margin-top:3px; color:#667085; font-size:12px; font-weight:450; line-height:1.45; }
+
+   .stage { padding:22px; margin-bottom:20px; border-radius:12px; border-color:var(--cti-border); box-shadow:none; }
+   .stage:hover { border-color:#CBD5E1; }
+   .stage.active { border-left-width:4px; box-shadow:0 1px 3px rgba(79,70,229,.07); }
+   .stage.complete { border-left-width:4px; }
+   .stage-eyebrow { display:flex; align-items:center; gap:7px; color:#667085; font-size:11px; text-transform:uppercase; letter-spacing:.07em; font-weight:800; margin-bottom:6px; }
+   .stage-step { display:inline-flex; width:22px; height:22px; border-radius:50%; align-items:center; justify-content:center; background:#EAECF0; color:#475467; font-size:11px; font-weight:800; }
+   .stage.active .stage-step { background:var(--cti-primary-soft); color:var(--cti-primary); }
+   .stage.complete .stage-step { background:#D1FADF; color:#067647; }
+   .action-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
+   .action-toolbar .toolbar-search { margin-left:auto; min-width:260px; flex:1 1 280px; max-width:390px; }
+   .action-toolbar .toolbar-search input { margin:0; }
+   .status { min-height:20px; }
+   .status-card { display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border:1px solid #D0D5DD; border-radius:9px; background:#F8FAFC; color:#475467; margin-top:12px; }
+   .status-card.info { background:var(--cti-info-soft); border-color:#B2DDFF; color:#1849A9; }
+   .status-card.success { background:var(--cti-success-soft); border-color:#ABEFC6; color:#05603A; }
+   .status-card.warning { background:var(--cti-warning-soft); border-color:#FEDF89; color:#854A0E; }
+   .status-card.error { background:var(--cti-danger-soft); border-color:#FECDCA; color:#912018; }
+   .busy-spinner { width:16px; height:16px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:cti-spin .72s linear infinite; flex:0 0 auto; margin-top:1px; }
+   @keyframes cti-spin { to { transform:rotate(360deg); } }
+
+   .insight-grid { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+   .insight-card { border-top-width:3px; border-radius:10px; box-shadow:none; transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease; }
+   .insight-card:hover { transform:translateY(-2px); box-shadow:var(--cti-shadow); }
+   details.partner-accordion { border-radius:10px; border-color:var(--cti-border); box-shadow:none; }
+   details.partner-accordion summary { padding:14px 16px; }
+   .db-row { padding:16px 0; }
+   .action-group { row-gap:7px; }
+   .kebab-menu { min-height:34px; }
+
+   .modal-overlay { padding:20px; background:rgba(15,23,42,.66); }
+   .modal-content { max-width:560px; width:min(100%,560px); max-height:min(88vh,920px); overflow:auto; padding:0; border-radius:14px; color:var(--cti-text); box-shadow:0 24px 48px -12px rgba(16,24,40,.28); border:1px solid rgba(255,255,255,.32); }
+   #auditModal .modal-content, #duplicateModal .modal-content { width:min(100%,860px); max-width:860px!important; }
+   #postQaModal .modal-content { width:min(100%,1020px); max-width:1020px!important; max-height:92vh!important; }
+   .modal-header { position:sticky; top:0; z-index:8; display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:18px 20px; background:rgba(255,255,255,.97); backdrop-filter:blur(8px); border-bottom:1px solid var(--cti-border); }
+   .modal-header h3 { margin:0; font-size:18px; }
+   .modal-header-copy { color:#667085; font-size:12px; margin-top:3px; }
+   .modal-body { padding:20px; }
+   .modal-footer { position:sticky; bottom:0; z-index:7; display:flex; justify-content:flex-end; gap:9px; padding:14px 20px; border-top:1px solid var(--cti-border); background:rgba(255,255,255,.97); }
+   .modal-close { width:36px; min-width:36px; height:36px; min-height:36px; padding:0; border:1px solid #D0D5DD; background:#fff; color:#475467; border-radius:8px; font-size:22px; line-height:1; box-shadow:none; }
+   .modal-close:hover:not(:disabled) { background:#F2F4F7; color:#101828; transform:none; box-shadow:none; }
+   details.qa-dropdown { border-radius:10px; }
+   details.qa-dropdown summary { min-height:48px; padding:13px 15px; }
+   details.qa-dropdown summary::after { content:'▾'; color:#98A2B3; font-size:13px; margin-left:12px; transition:transform .15s; }
+   details[open].qa-dropdown summary::after { transform:rotate(180deg); }
+   details.qa-dropdown .qa-content { padding:16px; }
+   #postQaResults { scroll-margin-top:84px; }
+   .qa-readiness { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:4px 0 13px; }
+   .qa-step-card { padding:10px 11px; border:1px solid #D0D5DD; border-radius:9px; background:#F8FAFC; min-width:0; }
+   .qa-step-card strong { display:block; font-size:12px; color:#344054; margin-bottom:2px; }
+   .qa-step-card span { color:#667085; font-size:11px; display:block; overflow-wrap:anywhere; }
+   .qa-step-card.ready { border-color:#ABEFC6; background:#ECFDF3; }
+   .qa-step-card.ready strong { color:#05603A; }
+   .qa-step-card.pending { border-color:#FEDF89; background:#FFFAEB; }
+   .qa-step-card.pending strong { color:#854A0E; }
+   .qa-run-status { min-height:0; margin:10px 0 0; }
+
+   .toast-region { position:fixed; right:18px; bottom:18px; z-index:5000; width:min(390px,calc(100vw - 36px)); display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+   .toast { pointer-events:auto; display:flex; align-items:flex-start; gap:10px; padding:12px 13px; background:#fff; border:1px solid #D0D5DD; border-left-width:4px; border-radius:10px; box-shadow:0 12px 28px rgba(16,24,40,.17); color:#344054; font-size:13px; animation:cti-toast-in .18s ease-out; }
+   .toast.success { border-left-color:#12B76A; }
+   .toast.warning { border-left-color:#F79009; }
+   .toast.error { border-left-color:#F04438; }
+   .toast.info { border-left-color:#2E90FA; }
+   .toast-copy { flex:1; min-width:0; overflow-wrap:anywhere; }
+   .toast-close { flex:0 0 auto; width:26px; min-width:26px; height:26px; min-height:26px; padding:0; color:#667085; background:transparent; border:0; font-size:18px; }
+   .toast-close:hover:not(:disabled) { background:#F2F4F7; transform:none; box-shadow:none; }
+   @keyframes cti-toast-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+   .empty-state { padding:26px; text-align:center; border:1px dashed #D0D5DD; border-radius:10px; background:#F8FAFC; color:#667085; }
+   .empty-state strong { color:#344054; display:block; margin-bottom:4px; }
+
+   .work-queue-stage { border-left:4px solid #0EA5E9; background:linear-gradient(180deg,#FFFFFF 0%,#F8FCFF 100%); }
+   .work-toolbar { display:grid; grid-template-columns:minmax(220px,1.4fr) minmax(170px,.9fr) minmax(150px,.8fr) minmax(150px,.8fr) auto; gap:10px; align-items:end; margin:16px 0; }
+   .work-toolbar .form-label { margin-bottom:2px; }
+   .work-toolbar select, .work-toolbar input { margin:0; }
+   .work-summary-grid { display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px; margin:14px 0 18px; }
+   .work-kpi { border:1px solid #D0D5DD; border-radius:10px; background:#fff; padding:12px; min-width:0; }
+   .work-kpi strong { display:block; font-size:20px; color:#101828; line-height:1.1; }
+   .work-kpi span { display:block; color:#667085; font-size:11px; margin-top:4px; }
+   .work-kpi.attention { border-color:#FEC84B; background:#FFFAEB; }
+   .work-kpi.success { border-color:#ABEFC6; background:#ECFDF3; }
+   .work-owner-group { border:1px solid #D0D5DD; border-radius:12px; background:#fff; margin-bottom:12px; overflow:hidden; }
+   .work-owner-group > summary { padding:13px 15px; background:#F8FAFC; cursor:pointer; font-weight:750; list-style:none; display:flex; justify-content:space-between; gap:12px; align-items:center; }
+   .work-owner-group > summary::-webkit-details-marker { display:none; }
+   .work-owner-body { padding:12px; }
+   .work-item { border:1px solid #E4E7EC; border-radius:11px; padding:14px; margin-bottom:10px; background:#fff; }
+   .work-item:last-child { margin-bottom:0; }
+   .work-item.excluded { opacity:.68; background:#F9FAFB; }
+   .work-item-head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+   .work-title { font-weight:760; color:#101828; font-size:14px; }
+   .work-code { font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; color:#475467; font-size:12px; font-weight:700; }
+   .work-meta { color:#667085; font-size:11px; margin-top:4px; display:flex; gap:9px; flex-wrap:wrap; }
+   .work-badges { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+   .work-badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; font-size:10px; font-weight:750; border:1px solid #D0D5DD; background:#F9FAFB; color:#475467; }
+   .work-badge.primary { border-color:#B2DDFF; background:#EFF8FF; color:#175CD3; }
+   .work-badge.warning { border-color:#FEDF89; background:#FFFAEB; color:#854A0E; }
+   .work-badge.danger { border-color:#FECDCA; background:#FEF3F2; color:#B42318; }
+   .work-badge.success { border-color:#ABEFC6; background:#ECFDF3; color:#067647; }
+   .work-badge.muted { border-color:#EAECF0; background:#F9FAFB; color:#667085; }
+   .work-next { margin:11px 0; border-radius:9px; padding:10px 12px; background:#EEF4FF; border:1px solid #C7D7FE; color:#3538CD; font-size:12px; font-weight:700; }
+   .work-next.warning { background:#FFFAEB; border-color:#FEDF89; color:#854A0E; }
+   .work-next.danger { background:#FEF3F2; border-color:#FECDCA; color:#B42318; }
+   .work-next.success { background:#ECFDF3; border-color:#ABEFC6; color:#067647; }
+   .work-next.muted { background:#F9FAFB; border-color:#EAECF0; color:#667085; }
+   .work-metrics { display:grid; grid-template-columns:repeat(6,minmax(84px,1fr)); gap:6px; margin:9px 0; }
+   .work-metric { background:#F8FAFC; border:1px solid #EAECF0; border-radius:8px; padding:7px 8px; min-width:0; }
+   .work-metric b { display:block; color:#344054; font-size:12px; }
+   .work-metric span { color:#667085; font-size:9px; text-transform:uppercase; letter-spacing:.04em; }
+   .work-delta { font-size:10px; font-weight:700; margin-left:3px; }
+   .work-delta.good { color:#067647; }
+   .work-delta.bad { color:#B42318; }
+   .work-delta.neutral { color:#667085; }
+   .work-actions { display:flex; gap:7px; flex-wrap:wrap; margin:10px 0 4px; }
+   .work-progress { display:grid; grid-template-columns:repeat(6,minmax(138px,1fr)); gap:8px; padding-top:10px; margin-top:10px; border-top:1px solid #EAECF0; }
+   .work-progress label { display:block; color:#667085; font-size:10px; font-weight:700; }
+   .work-progress select { margin:4px 0 0; min-height:34px; padding:5px 7px; font-size:11px; }
+   .work-evidence-checklist { margin-top:12px; border:1px solid #D0D5DD; border-radius:8px; background:#F8FAFC; }
+   .work-evidence-checklist > summary { cursor:pointer; padding:10px 12px; color:#344054; font-size:12px; font-weight:700; }
+   .work-evidence-checklist summary small { display:block; margin:4px 0 0 15px; color:#667085; font-weight:400; }
+   .work-evidence-body { padding:0 12px 12px; }
+   .work-evidence-body p { color:#667085; font-size:12px; line-height:1.5; }
+   .work-evidence-body fieldset { border:0; padding:0; margin:12px 0 0; min-width:0; }
+   .work-evidence-body legend { padding:0; color:#344054; font-size:12px; font-weight:700; }
+   .work-evidence-body label { display:flex; align-items:flex-start; gap:8px; padding:5px 0; font-size:12px; color:#344054; cursor:pointer; }
+   .work-evidence-body input[type=checkbox] { width:16px; height:16px; min-height:16px; margin:1px 0 0; flex:0 0 auto; }
+   .work-evidence-message { min-height:18px; font-size:12px; color:#475467; }
+   .work-evidence-message.error { color:#B42318; }
+   .work-unresolved { border:1px solid #FEDF89; background:#FFFAEB; color:#854A0E; border-radius:9px; padding:10px 12px; margin:10px 0; font-size:12px; }
+   .work-source-note { color:#667085; font-size:11px; margin-top:8px; }
+
+   @media (max-width: 820px) {
+     body { padding:12px 10px 28px; }
+     .container { padding:20px 16px; border-radius:12px; }
+     .app-header { flex-direction:column; }
+     .release-stack { justify-content:flex-start; }
+     .workflow-options { grid-template-columns:1fr; }
+     .dual-input { gap:0; }
+     .dual-input > div { min-width:100%; }
+     .action-toolbar .toolbar-search { order:10; max-width:none; min-width:100%; }
+     .qa-readiness { grid-template-columns:1fr; }
+     .work-toolbar { grid-template-columns:1fr; }
+     .work-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+     .work-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+     .work-progress { grid-template-columns:1fr; }
+     .modal-overlay { padding:0; align-items:stretch; }
+     .modal-content, #auditModal .modal-content, #duplicateModal .modal-content, #postQaModal .modal-content { width:100%!important; max-width:none!important; max-height:100vh!important; min-height:100vh; border-radius:0; }
+     .modal-header { padding:14px 15px; }
+     .modal-body { padding:15px; }
+     .modal-footer { padding:12px 15px; }
+     .math-proof-table { font-size:12px; }
+     .math-proof-table th,.math-proof-table td { padding:9px 10px; }
+     .action-group { width:100%; }
+     .action-group > button:not(.kebab-menu) { flex:1 1 auto; }
+   }
+
+ 
+.cti-workspace-nav{position:sticky;top:0;z-index:40;display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;margin:0 0 14px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border:1px solid var(--cti-border,#D0D5DD);border-radius:12px;box-shadow:0 4px 14px rgba(16,24,40,.06)}
+.cti-workspace-nav button{background:#fff;color:#344054;border:1px solid #D0D5DD;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;min-height:34px}
+.cti-workspace-nav button:hover{border-color:#84ADFF;color:#1849A9;background:#EFF8FF}
+</style>
+</head>
+<body>
+<div aria-atomic="false" aria-live="polite" aria-relevant="additions" class="toast-region" id="toastRegion"></div>
+<div aria-hidden="true" aria-labelledby="messageModalTitle" aria-modal="true" class="modal-overlay" id="messageModal" role="dialog">
+<div class="modal-content">
+<div class="modal-header">
+<div><h3 id="messageModalTitle">Notice</h3><div class="modal-header-copy" id="messageModalSubtitle"></div></div>
+<button aria-label="Close notice" class="modal-close" onclick="closeMessageModal()" type="button">×</button>
+</div>
+<div class="modal-body"><div id="messageModalBody" style="white-space:pre-wrap; font-size:14px; color:#344054;"></div></div>
+<div class="modal-footer"><button onclick="closeMessageModal()" type="button">Close</button></div>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="ifsModalTitle" aria-modal="true" class="modal-overlay" id="ifsModal" role="dialog">
+<div class="modal-content">
+<div class="modal-header"><div><h3 id="ifsModalTitle">Ingestion Friction Score (IFS)</h3><div class="modal-header-copy">How CTI estimates technical ingestion effort.</div></div><button aria-label="Close IFS explanation" class="modal-close" onclick="closeIfsModal()" type="button">×</button></div>
+<div class="modal-body">
+<p>The IFS is a deterministic workload/friction index for source-package complexity. It is <b>not</b> a probability of Smart Ingestion failure and it is not a trained ML score. Larger healthy courses can score higher simply because they contain more work.</p>
+<b>Weighting Formula:</b>
+<ul style="padding-left: 20px; margin-bottom: 20px;">
+<li><b>LTI Plugins (x10):</b> High tech/auth blockers.</li>
+<li><b>Empty Folders (x5):</b> Missing content mapping.</li>
+<li><b>Unknown Items (x3):</b> Unrecognized LMS formats.</li>
+<li><b>Assessments (x2):</b> Requires manual logic QA.</li>
+<li><b>Discussions (x1.5):</b> Formatting checks.</li>
+<li><b>Web Links (x1):</b> URL validation.</li>
+<li><b>WebContent (x0.5):</b> HTML/PDF ingest.</li>
+</ul>
+<b>Workload Tiers:</b>
+<p><span style="color:#10B981; font-weight:bold;">Low (&lt; 20):</span> lower expected handling effort.<br/><span style="color:#F59E0B; font-weight:bold;">Medium (20 - 50):</span> standard review effort.<br/><span style="color:#EF4444; font-weight:bold;">High (&gt; 50):</span> higher handling effort / triage priority.</p><p style="font-size:12px;color:#6B7280;">KEEP/REVIEW/REINGEST decisions come from Post-Ingestion QA evidence, not from IFS.</p>
+</div><div class="modal-footer"><button onclick="closeIfsModal()">Understood</button></div>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="csModalTitle" aria-modal="true" class="modal-overlay" id="csModal" role="dialog">
+<div class="modal-content">
+<div class="modal-header"><div><h3 id="csModalTitle">Feature Title</h3><div class="modal-header-copy">Technical method used by CTI.</div></div><button aria-label="Close feature explanation" class="modal-close" onclick="closeCsModal()" type="button">×</button></div>
+<div class="modal-body"><div id="csModalBody" style="font-size:14px; line-height:1.65;">Body</div></div>
+<div class="modal-footer"><button onclick="closeCsModal()">Understood</button></div>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="editModalTitle" aria-modal="true" class="modal-overlay" id="editModal" role="dialog">
+<div class="modal-content">
+<div class="modal-header"><div><h3 id="editModalTitle">Edit Package Details</h3><div class="modal-header-copy">Changes are saved only when you press Save changes.</div></div><button aria-label="Close package editor" class="modal-close" onclick="closeEditModal()" type="button">×</button></div>
+<div class="modal-body">
+<span class="form-label">University / Partner Name</span>
+<input id="editPartnerInput" list="partnerOptions" type="text"/>
+<span class="form-label">Assignment Owner</span>
+<input id="editOwnerInput" list="ownerOptions" type="text"/>
+<div class="dual-input">
+<div>
+<span class="form-label">Assigned Date</span>
+<input id="editAssignedDateInput" type="date"/>
+</div>
+<div>
+<span class="form-label">Deadline</span>
+<input id="editDeadlineInput" type="date"/>
+</div>
+</div>
+<span class="form-label">Current Status</span>
+<select id="editStatusInput">
+<option value="In Queue">In Queue</option>
+<option value="In Progress">In Progress</option>
+<option value="QA Review">QA Review</option>
+<option value="Blocked">Blocked - Partner Ping</option>
+<option value="Completed">Completed</option>
+</select>
+<span class="form-label">Drive Folder Link</span>
+<input id="editDriveLinkInput" type="text"/>
+</div>
+<div class="modal-footer"><button class="btn-secondary" onclick="closeEditModal()">Cancel</button><button id="saveEditBtn" onclick="saveEditMetadata()">Save Changes</button></div>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="auditTitle" aria-modal="true" class="modal-overlay" id="auditModal" role="dialog">
+<div class="modal-content" style="max-width: 750px; max-height: 85vh; overflow-y: auto;">
+<div class="modal-header"><div><h3 id="auditTitle">Deep Architecture Audit</h3><div class="modal-header-copy">Structural and pedagogical diagnostics for the selected package.</div></div><button aria-label="Close deep audit" class="modal-close" onclick="closeAuditModal()" type="button">×</button></div>
+<div class="modal-body"><div id="auditContent" style="font-size:14px; line-height:1.6; color:#374151;"></div></div>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="postQaTitle" aria-modal="true" class="modal-overlay" id="postQaModal" role="dialog">
+<div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+<div class="modal-header"><div><h3 id="postQaTitle">Post-Ingestion QA</h3><div class="modal-header-copy">Safe workspace: backdrop clicks do nothing, and this package's QA state is kept while the page stays open.</div></div><button aria-label="Close Post-Ingestion QA" class="modal-close" onclick="closePostQaModal()" title="Close" type="button">×</button></div>
+<div class="modal-body">
+<details class="qa-dropdown" id="qaEvidenceMemoryPanel" style="margin-bottom:16px; border-color:#C7D2FE;">
+<summary style="background:#EEF2FF; color:#3730A3;">🧠 QA Evidence Memory <span id="qaHistoryCount" style="font-weight:400; color:#6B7280;"></span></summary>
+<div class="qa-content">
+<div style="font-size:12px; color:#4B5563; margin-bottom:8px;">Successful QA runs are stored append-only with Gateway/engine/extractor versions and default to <b>UNREVIEWED</b>. Future ML should train only on human-confirmed labels, not raw automated verdicts.</div>
+<div id="qaHistoryList" style="font-size:12px; color:#374151;">No stored QA runs yet for this package.</div>
+</div>
+</details>
+<details class="qa-dropdown" style="margin-top: 0; margin-bottom: 20px; border-color: #A7F3D0; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1);">
+<summary style="background: #F0FDF4; color: #065F46;">
+<div style="display:flex; align-items:center; gap:8px;">
+<svg class="svg-sm" viewbox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+<b>Need a fresh fingerprint? Coursera Extractor v6.13.27</b>
+</div>
+</summary>
+<div class="qa-content" style="background:#FFFFFF; border-top: 1px solid #A7F3D0;">
+<p style="margin-top:0; font-size:13px; color:#374151;">Coursera's Excel export remains the authoritative structural inventory. CTI v7 retains durable QA Evidence Memory, snapshot-coherence checks, import-generation lineage (G0/G1/…), and Raw → Ops-prepared → Published stage tracking. The embedded v6.13.27 / schema 33 crawler remains read-only, queues every eligible destination item (no arbitrary 48-item primary cap), scales its bounded wall-clock budget to the destination surface, records whether every eligible target was attempted, and captures native assignment behavior, learner-only semantics, assets, structured assessments, rubrics and payload evidence. JSON enriches evidence but never invents structural Coursera items.</p>
+<ol style="margin-top:0; padding-left:20px; font-size:13px; color:#4B5563; line-height:1.6;">
+<li>Run it once from the Coursera <b>Course Outline</b> or the assessment editor you want checked first. Keep that tab in the foreground while it runs. V6.13.10 passively captures accessible plugin configuration and frame diagnostics, records inaccessible frames without assuming failure or success, reuses captured evidence, separates answer choices from grading feedback, and recognizes explicitly identified written-response prompts without inventing answer keys. It preserves assignment text and settings across question navigation, prioritizes untouched items during bounded recovery, and reports runtime phases and remaining evidence gaps. It retains the single-run lock, stability waits, weak-item retry, and learner-facing Discussion prompt capture. It never invokes Save, Publish, Delete, Move, Archive, grading, or other mutating controls.</li>
+<li>Press <b>F12</b> to open Developer Tools, and click the <b>Console</b> tab.</li>
+<li>Copy the script below, paste it into the console, and press <b>Enter</b>.</li>
+<li>Upload the resulting <code>Coursera_&lt;courseId&gt;_ITEM_FINGERPRINT_*.json</code> together with the matching Coursera Excel export below. Excel remains authoritative for structure; JSON supplies payload/enrichment evidence.</li>
+</ol>
+<div style="margin-top:12px; border:1px solid #D1FAE5; border-radius:8px; background:#F8FFFB; padding:12px;">
+<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+<div>
+<div style="font-size:12px; color:#065F46; font-weight:700;">Extractor <code style="font-size:12px;">v6.13.27</code> · latest script · schema 33</div>
+<div id="courseraExtractorDeliveryStatus" role="status" style="font-size:11px;color:#475569;margin-top:4px;">CTI page v7.9.31 · Copy Latest Script fetches the extractor stored in the deployed Code.gs.</div>
+<div style="font-size:11px; color:#6B7280; margin-top:3px;">Build: <code style="font-size:10px;">v6.13.27-memory-cleanup-20260922</code></div><div style="font-size:11px;color:#475569;margin-top:4px;">Downloads now include platform + human course name + unique course ID + local timestamp/timezone + extractor version/schema, so you can identify them from the filename alone.</div>
+</div>
+<button class="btn-secondary btn-sm" data-build="v6.13.27-memory-cleanup-20260922" data-version="v6.13.27" onclick="copyExtractorScript(this)" style="background:#FFFFFF; white-space:nowrap;">📋 Copy Latest Script</button>
+</div>
+<div style="margin-top:10px;"><button class="btn-secondary btn-sm" data-build="v6.13.27-memory-cleanup-20260922" data-version="v6.13.27" data-scope="reading-attachments" onclick="copyExtractorScript(this)" style="background:#FFFFFF; white-space:nowrap;">Copy Reading Attachment Check</button><p style="font-size:12px;color:#475569;margin:6px 0;">For one loaded reading: checks its attachment URLs and downloads a separate diagnostic JSON. Keep your full course capture; this check does not replace it.</p></div>
+<details id="extractorScriptDetails" ontoggle="if(this.open) ctiLoadCanonicalExtractor_('coursera','extractorScriptCode')" style="margin-top:10px;">
+<summary style="cursor:pointer; color:#4B5563; font-size:12px; user-select:none;">Show script source <span style="color:#9CA3AF;">(advanced / version verification)</span></summary>
+<code id="extractorScriptCode" style="display:block; margin-top:8px; max-height:360px; background:#111827; color:#A7F3D0; padding:12px; border-radius:6px; font-family:ui-monospace, monospace; font-size:11px; overflow:auto; white-space:pre;">Coursera extractor source is canonical in Code.gs and loads on demand. Use “Copy Latest Script” or open this panel to load it.</code>
+</details>
+</div>
+</div>
+</details>
+<details class="qa-dropdown" style="margin-top:0; margin-bottom:20px; border-color:#93C5FD; box-shadow:0 1px 3px rgba(37,99,235,0.08);">
+<summary style="background:#EFF6FF; color:#1E40AF;">
+<div style="display:flex;align-items:center;gap:8px;"><b>🌐 CTI Source LMS Ground-Truth Extractor — Brightspace v1.0.5</b></div>
+</summary>
+<div class="qa-content" style="background:#FFFFFF; border-top:1px solid #BFDBFE;">
+<p style="margin-top:0;font-size:13px;color:#374151;"><b>This is the live-source bridge.</b> The IMSCC/package fingerprint remains the immutable record of what was supplied for ingestion. This optional Brightspace capture adds what the authorized source LMS currently exposes: hierarchy, definitions, quiz questions, file-page text, explicit SCORM/LTI carriers, and embedded Brightspace Practice/runtime evidence. CTI uses it to enrich matching evidence and surfaces live-only source drift separately; it does not silently turn unmatched live topics into automatic re-ingestion findings.</p>
+<div style="background:#F8FAFC;border:1px solid #CBD5E1;border-radius:7px;padding:10px 12px;font-size:12px;color:#475569;margin:10px 0;"><b>Safety boundary:</b> GET-only, same-origin, permission-respecting. 401/403 means unavailable. It does not fetch learner submissions, attempts, grades, posts, classlists, or rendered dynamic assignment/quiz/discussion pages. External URLs and SCORM/LTI launch identifiers are recorded but not executed.</div>
+<ol style="margin:0 0 10px 0;padding-left:20px;font-size:13px;color:#4B5563;line-height:1.6;">
+<li>Open the intended Brightspace course Home or Content page.</li>
+<li>Open Developer Tools → Console.</li>
+<li>Copy the script below, paste it, and press Enter.</li>
+<li>Upload the one resulting <code>CTI_Brightspace_Source_Ground_Truth_*_v1_0_0.json</code> in the optional source-ground-truth field below.</li>
+</ol>
+<div style="border:1px solid #DBEAFE;border-radius:8px;background:#F8FBFF;padding:12px;">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+<div><div style="font-size:12px;color:#1E40AF;font-weight:700;">Brightspace source extractor <code>v1.0.5</code> · schema 2</div><div style="font-size:11px;color:#6B7280;margin-top:3px;">Build: <code style="font-size:10px;">v1.0.5-question-coverage-20260922</code></div><div style="font-size:11px;color:#475569;margin-top:4px;">Downloads use the same searchable convention: platform + course name + Brightspace OrgUnit + local timestamp/timezone + version/schema.</div></div>
+<button class="btn-secondary btn-sm" data-build="v1.0.5-question-coverage-20260922" data-version="v1.0.5" onclick="copyBrightspaceGroundTruthScript(this)" style="background:#FFFFFF;white-space:nowrap;">📋 Copy Brightspace Script</button>
+</div>
+<details id="brightspaceGroundTruthScriptDetails" ontoggle="if(this.open) ctiLoadCanonicalExtractor_('brightspace','brightspaceGroundTruthScriptCode')" style="margin-top:10px;">
+<summary style="cursor:pointer;color:#4B5563;font-size:12px;user-select:none;">Show script source <span style="color:#9CA3AF;">(advanced / version verification)</span></summary>
+<code id="brightspaceGroundTruthScriptCode" style="display:block;margin-top:8px;max-height:360px;background:#111827;color:#BFDBFE;padding:12px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px;overflow:auto;white-space:pre;">Brightspace extractor source is canonical in Code.gs and loads on demand. Use “Copy Brightspace Script” or open this panel to load it.</code>
+</details>
+</div>
+</div>
+</details>
+<div style="background: #F9FAFB; padding: 15px; border-radius: 8px; border: 1px solid #E5E7EB; margin-bottom: 20px;">
+<span class="form-label" style="margin-top:0;">What do you want to check?</span>
+<select id="qaComparisonMode" onchange="toggleQaComparisonMode(); updateQaOperatorGuidance();" style="width:100%; margin-bottom:12px;">
+<option selected="" value="single">Check the current Coursera course against the source — use this most of the time</option>
+<option value="lifecycle">Compare BEFORE vs AFTER within the same Smart Ingestion attempt</option>
+</select>
+<div style="font-size:11px; color:#6B7280; margin:-5px 0 14px 0;"><b>Use the first option</b> for QA immediately after import/re-ingestion, after manual cleanup, or after publishing. <b>Use Before vs After</b> only when both snapshots belong to the same Smart Ingestion attempt. Do not use it to compare a published old import with a published re-ingested import.</div>
+<div style="background:#FFFFFF; border:1px solid #CBD5E1; border-radius:8px; padding:12px; margin-bottom:14px;">
+<div style="font-weight:750; color:#1F2937; margin-bottom:8px;">Did Smart Ingestion run again since the last saved CTI QA?</div>
+<select id="qaGenerationSelect" onchange="toggleQaManualGeneration(); updateQaOperatorGuidance();" style="width:100%; margin-bottom:8px;">
+<option selected="" value="">Choose what happened…</option>
+<option value="same">No — this is the same Smart Ingestion attempt</option>
+<option value="reimport">Yes — Smart Ingestion was run again once since the last saved QA</option>
+<option value="original">This is the original import — no re-ingestion has happened</option>
+<option value="manual">Advanced — I want to choose the import attempt number myself</option>
+</select>
+<div id="qaManualGenerationWrap" style="display:none; margin-top:6px;">
+<span class="form-label">Advanced import attempt</span>
+<select id="qaManualGenerationSelect" onchange="updateQaOperatorGuidance();">
+<option value="G0">Original import</option>
+<option value="G1">First re-ingestion</option>
+<option value="G2">Second re-ingestion</option>
+<option value="G3">Third re-ingestion</option>
+</select>
+</div>
+<div style="font-size:11px; color:#64748B;">You no longer need to work out G0/G1/G2. CTI keeps those internal IDs in Evidence Memory. A new Excel/JSON export, extractor run, source re-scan, or QA rerun does <b>not</b> count as another Smart Ingestion attempt.</div>
+</div>
+<div style="background:#FFF7ED; border:1px solid #FDBA74; border-radius:8px; padding:12px; margin-bottom:14px;">
+<div style="font-weight:750; color:#9A3412; margin-bottom:8px;">Is this shell already from the latest Smart Ingestion available to your team? <span title="This prevents CTI from telling you to run the same Smart Ingestion again when the same engine would reproduce the same result." style="cursor:help;">ⓘ</span></div>
+<select id="qaIngestionCapabilitySelect" onchange="updateQaOperatorGuidance();" style="width:100%; margin-bottom:7px;">
+<option selected="" value="">Choose one…</option>
+<option value="legacy">No — this is an older/import-only shell and the latest Smart Ingestion has not been applied yet</option>
+<option value="latest">Yes — this shell already came from the latest Smart Ingestion currently available</option>
+<option value="unknown">I do not know</option>
+</select>
+<div style="font-size:11px;color:#7C2D12;">CTI will still diagnose ingestion-origin defects either way. This answer changes only the <b>next action</b>: re-ingest once when a newer pass is available, or move to manual remediation when the latest pass is already applied.</div>
+</div>
+<div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:12px; margin-bottom:14px;">
+<span class="form-label" style="margin-top:0; color:#1E3A8A;">Live source LMS ground truth — Brightspace JSON <i>(Optional but recommended when available)</i></span>
+<input accept=".json" id="qaBrightspaceSourceInput" style="margin-bottom:6px; background:#FFFFFF;" type="file"/>
+<div style="font-size:11px; color:#475569;">Use the <b>v1.0.5 / schema 2</b> capture from the same Brightspace title. CTI keeps the stored IMSCC/package fingerprint as historical ingestion evidence and uses this file as live-source corroboration/enrichment. Live-only LMS topics are reported as source drift rather than silently added to the re-ingestion denominator.</div>
+</div>
+<div id="qaSingleSnapshotPanel">
+<span class="form-label" style="margin-top:0;">What state is the Coursera course in right now?</span>
+<select id="qaSnapshotMode" onchange="updateQaOperatorGuidance();" style="width:100%; margin-bottom:12px;">
+<option selected="" value="raw">Just imported / re-ingested — still unpublished</option>
+<option value="ops">I made manual fixes / cleanup — still unpublished</option>
+<option value="published">Published / learner-facing</option>
+<option value="auto">I am not sure — let CTI detect the publication state</option>
+</select>
+<select aria-hidden="true" id="qaLineageStageSelect" style="display:none;"><option value="AUTO">AUTO</option><option value="RAW_UNPUBLISHED">RAW_UNPUBLISHED</option><option value="OPS_PREPARED_UNPUBLISHED">OPS_PREPARED_UNPUBLISHED</option><option value="PUBLISHED">PUBLISHED</option></select>
+<div id="qaOperatorGuidance" style="background:#EFF6FF;border:1px solid #BFDBFE;color:#1E3A8A;padding:10px 11px;border-radius:7px;font-size:12px;margin-bottom:14px;">Choose what happened to Smart Ingestion above. CTI will then tell you exactly what it is about to record.</div>
+<span class="form-label" style="margin-top:0;">1. Coursera Excel export — <b>Required</b></span>
+<input accept=".xlsx" id="qaExcelInput" style="margin-bottom: 15px;" type="file"/>
+<span class="form-label">2. Coursera Item Fingerprint JSON — <i>Recommended</i></span>
+<input accept=".json" id="qaJsonInput" style="margin-bottom: 15px;" type="file"/>
+<details style="margin-bottom:12px;"><summary>Attach reading recovery JSON (optional)</summary><label for="qaRecoveryInput">Reading recovery JSON</label><input accept=".json" id="qaRecoveryInput" type="file"/><div style="font-size:11px;color:#475569;">Use with its original full capture. CTI checks the course, baseline capture time and each recovered editor identity; other items keep their original capture time.</div></details>
+<div aria-live="polite" class="qa-readiness" id="qaSingleReadiness"></div>
+<button id="runPostQaBtn" onclick="runPostQa()" style="width:100%; margin:0;">Run Source → Current Coursera QA</button>
+<div aria-live="polite" class="qa-run-status" id="qaSingleRunStatus" role="status"></div>
+</div>
+<div id="qaLifecyclePanel" style="display:none;">
+<div id="qaLifecycleGuidance" style="background:#EFF6FF; border:1px solid #BFDBFE; padding:10px 11px; border-radius:7px; font-size:12px; color:#1E3A8A; margin-bottom:14px;">
+<b>Before vs After means one import attempt.</b> The first pair must be evidence captured immediately after that Smart Ingestion run. The second pair is the same Coursera import later, after manual cleanup and/or publishing. If Smart Ingestion ran again between the two snapshots, do not use this mode.
+          </div>
+<div style="border-left:4px solid #3B82F6; padding-left:12px; margin-bottom:16px;">
+<div style="font-weight:700; color:#1E40AF; margin-bottom:8px;">BEFORE — immediately after Smart Ingestion, unpublished <span style="font-weight:400;color:#64748B;">(internal: C0)</span></div>
+<span class="form-label">Before Excel export</span><input accept=".xlsx" id="qaRawExcelInput" style="margin-bottom:10px;" type="file"/>
+<span class="form-label">Before Fingerprint JSON</span><input accept=".json" id="qaRawJsonInput" style="margin-bottom:4px;" type="file"/>
+<details style="margin-bottom:12px;"><summary>Attach reading recovery JSON (optional)</summary><label for="qaRawRecoveryInput">Reading recovery JSON</label><input accept=".json" id="qaRawRecoveryInput" type="file"/><div style="font-size:11px;color:#475569;">Use with its original full capture. CTI checks the course, baseline capture time and each recovered editor identity; other items keep their original capture time.</div></details>
+</div>
+<div style="border-left:4px solid #8B5CF6; padding-left:12px; margin-bottom:16px;">
+<div style="font-weight:700; color:#6D28D9; margin-bottom:8px;">AFTER — same import after cleanup and/or publishing <span style="font-weight:400;color:#64748B;">(internal: C1)</span></div>
+<span class="form-label">After Excel export</span><input accept=".xlsx" id="qaCurrentExcelInput" style="margin-bottom:10px;" type="file"/>
+<span class="form-label">After Fingerprint JSON</span><input accept=".json" id="qaCurrentJsonInput" style="margin-bottom:4px;" type="file"/>
+<details style="margin-bottom:12px;"><summary>Attach reading recovery JSON (optional)</summary><label for="qaCurrentRecoveryInput">Reading recovery JSON</label><input accept=".json" id="qaCurrentRecoveryInput" type="file"/><div style="font-size:11px;color:#475569;">Use with its original full capture. CTI checks the course, baseline capture time and each recovered editor identity; other items keep their original capture time.</div></details>
+</div>
+<div aria-live="polite" class="qa-readiness" id="qaLifecycleReadiness"></div>
+<button id="runLifecycleQaBtn" onclick="runLifecycleQa()" style="width:100%; margin:0; background:#6D28D9;">Compare BEFORE → AFTER</button>
+<div aria-live="polite" class="qa-run-status" id="qaLifecycleRunStatus" role="status"></div>
+</div>
+</div>
+<div id="postQaResults"></div>
+<div id="aiQaRemediationOutput" style="margin-top:15px;"></div>
+</div>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="duplicateModalTitle" aria-modal="true" class="modal-overlay" id="duplicateModal" role="dialog">
+<div class="modal-content" style="max-width: 820px; max-height: 88vh; overflow-y: auto;">
+<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #E5E7EB; padding-bottom:15px; margin-bottom:15px; gap:15px;">
+<div>
+<h3 id="duplicateModalTitle" style="margin:0 0 4px 0;">Review Duplicate Entries</h3>
+<div style="color:#6B7280;">Records from the same partner are grouped by semantic package identity (browser suffixes and DEV/NCE filename variants normalize together).</div>
+</div>
+<button aria-label="Close duplicate review" class="modal-close" onclick="closeDuplicateModal()" type="button">×</button>
+</div>
+<div id="duplicateModalContent"></div>
+<div id="duplicateModalActions" style="display:none; gap:10px; justify-content:flex-end; border-top:1px solid #E5E7EB; padding-top:15px; margin-top:15px;">
+<button class="btn-secondary" onclick="closeDuplicateModal()">Cancel</button>
+<button id="archiveDuplicatesBtn" onclick="runDuplicateCleanup()" style="background:#B45309;">Archive Selected Duplicates</button>
+</div>
+</div>
+</div>
+<input accept=".imscc,.zip,.xml" id="updateFileInput" onchange="handleUpdateFile(this)" style="display:none" type="file"/>
+<input accept=".imscc,.zip,.xml" id="bulkUpdateFileInput" multiple="" onchange="handleBulkUpdate(this)" style="display:none" type="file"/>
+<div class="container">
+<header class="app-header">
+<div class="app-header-main">
+<div class="app-kicker">Course Transformation Intelligence</div>
+<h1 style="margin-bottom:0;"><svg class="svg-icon" viewbox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>CTI Evidence Integrity Platform</h1>
+<p class="app-subtitle">One course workspace for source-package intelligence, live LMS ground truth, Coursera fidelity, operations, lineage, and transformation — without losing the existing CTI workflows.</p>
+</div>
+<div aria-label="Current release versions" class="release-stack">
+<span class="release-chip">Gateway <b>v7.9.31</b></span>
+<span class="release-chip">QA engine <b>v7.9.31</b></span>
+<span class="release-chip">Coursera <b>v6.13.27</b></span><span class="release-chip">Brightspace source <b>v1.0.5</b></span><span class="release-chip" id="ctiArchitectureChip">Architecture <b>checking…</b></span>
+</div>
+</header>
+<div aria-labelledby="workflowSelectorTitle" class="workflow-selector">
+<h3 id="workflowSelectorTitle">Choose a workflow</h3>
+<div class="workflow-options">
+<label class="workflow-option">
+<input checked="" name="workflowType" onchange="toggleWorkflow()" type="radio" value="imscc"/>
+<span><span class="workflow-option-title">IMSCC / LMS package intelligence</span><span class="workflow-option-copy">Scan source architecture, store its immutable fingerprint, review the course library, and run post-ingestion fidelity QA.</span></span>
+</label>
+<label class="workflow-option">
+<input name="workflowType" onchange="toggleWorkflow()" type="radio" value="macmillan"/>
+<span><span class="workflow-option-title">Macmillan staged spreadsheet workflow</span><span class="workflow-option-copy">Split the master manifest, validate GPT turnaround files, and complete the existing Stages 1–5 pipeline.</span></span>
+</label>
+</div>
+</div>
+<div id="workflow-imscc">
+<nav aria-label="CTI LMS workspace navigation" class="cti-workspace-nav">
+<button onclick="ctiScrollWorkspace_('stage0')" type="button">Source Package</button>
+<button onclick="ctiScrollWorkspace_('stage0_work')" type="button">Work Queue</button>
+<button onclick="ctiScrollWorkspace_('stage0_db')" type="button">Course Library</button>
+</nav>
+<div class="stage active" id="stage0">
+<div class="stage-eyebrow"><span class="stage-step">1</span> Source package</div><h3>Analyze &amp; fingerprint an LMS package</h3>
+<p style="color: #4B5563; margin-bottom: 20px;">Deep-scan a standard LMS package to map its internal directory, profile risk, and save it to the workspace database.</p>
+<div class="dual-input">
+<div>
+<span class="form-label">University / Partner Name</span>
+<input id="partnerTagInput" list="partnerOptions" placeholder="e.g., Marshall University" type="text"/>
+<datalist id="partnerOptions"></datalist>
+</div>
+<div>
+<span class="form-label">Assigned Date</span>
+<input id="assignedDateInput" type="date"/>
+</div>
+</div>
+<div class="dual-input">
+<div>
+<span class="form-label">Assignment Owner</span>
+<input id="ownerInput" list="ownerOptions" placeholder="Type or select owner" type="text"/>
+<datalist id="ownerOptions"></datalist>
+</div>
+<div>
+<span class="form-label">Assignment Deadline</span>
+<input id="deadlineInput" type="date"/>
+</div>
+<div>
+<span class="form-label">Current Status</span>
+<select id="statusInput">
+<option value="In Queue">In Queue</option>
+<option value="In Progress">In Progress</option>
+<option value="QA Review">QA Review</option>
+<option value="Blocked">Blocked - Partner Ping</option>
+<option value="Completed">Completed</option>
+</select>
+</div>
+</div>
+<div style="margin-bottom: 10px;">
+<span class="form-label">Drive Folder Link (Optional)</span>
+<input id="driveLinkInput" inputmode="url" placeholder="https://drive.google.com/…" type="url"/>
+</div>
+<div>
+<span class="form-label">Upload Cartridge / Manifest File</span>
+<input accept=".imscc,.zip,.xml" id="imsccFile" type="file"/>
+</div>
+<button id="analyzeImsccBtn" onclick="processImscc()" style="margin-top:20px;">
+<svg class="svg-icon svg-sm" viewbox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+       Analyze Package Hierarchy
+     </button>
+<div aria-live="polite" class="status" id="imsccStatus" role="status"></div>
+</div>
+<div class="stage work-queue-stage" id="stage0_work">
+<div class="stage-eyebrow"><span class="stage-step">W</span> Work orchestration</div>
+<h3>Smart Ingestion Redo Work Queue</h3>
+<p style="color:#4B5563; margin-bottom:8px;">Join the Master Planner to the partner catalog, SCORM flags, and the exact CTI source fingerprint. The queue tells each owner what package is evidenced in the planner and what to do next.</p>
+<div class="work-source-note"><b>Default campaign:</b> May–June 2026 work. A package counts as re-scanned only when CTI records a real source scan on/after the redo baseline configured in the backend.<br/><b>Import Only rule:</b> when the planner explicitly says <i>Import Only</i> and the catalog import is Complete, CTI audits the existing Coursera raw/unpublished shell before recommending any Smart Ingestion re-run.<br/><b>NAIT redo policy:</b> Instructor Resources and Archive stay visible in the QA report but do <i>not</i> force re-ingestion; Student Resources and core learner-facing modules remain in the decision gate.<br/><b>Interactive runtime rule:</b> external Rise/Storyline/SCORM inventory is supplemental, not exhaustive. CTI uses both source-package runtime evidence and optional Brightspace live-source ground truth; any positive runtime signal requires a source-LMS/Coursera launch check before KEEP.</div>
+<div class="work-toolbar">
+<div><label class="form-label" for="workPartnerFilter">Partner</label><select id="workPartnerFilter" onchange="fetchRedoWorkQueue()"><option value="Northern Alberta Institute of Technology">Northern Alberta Institute of Technology</option><option value="Marshall University">Marshall University</option></select></div>
+<div><label class="form-label" for="workOwnerFilter">Owner</label><select id="workOwnerFilter" onchange="fetchRedoWorkQueue()"><option value="">All owners</option></select></div>
+<div><label class="form-label" for="workFromDate">Assigned from</label><input id="workFromDate" type="date" value="2026-05-01"/></div>
+<div><label class="form-label" for="workToDate">Assigned to</label><input id="workToDate" type="date" value="2026-06-30"/></div>
+<button class="btn-secondary" id="refreshWorkQueueBtn" onclick="fetchRedoWorkQueue()">↻ Refresh Work Queue</button>
+</div>
+<div aria-live="polite" class="status" id="workQueueStatus" role="status"></div>
+<div class="work-summary-grid" id="workQueueSummary" style="display:none;"></div>
+<div id="workQueueUnresolved"></div>
+<div id="workQueueList"></div>
+</div>
+<div class="stage" id="stage0_db" style="border-left-color: #6B7280; background: #FFFFFF;">
+<h3>
+       CTI Course Library &amp; Ingestion Insights 
+       <span class="info-icon" onclick="openIfsModal()" title="What is the IFS?"><svg class="svg-icon svg-sm" viewbox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4 M12 8h.01"></path></svg></span>
+</h3>
+<p style="color:#4B5563; margin-bottom:20px;">Find saved source fingerprints, inspect ingestion risk, and launch post-ingestion QA from the exact course record.</p>
+<div class="action-toolbar">
+<button class="btn-secondary" id="refreshLibraryBtn" onclick="fetchPartnerAnalytics()">
+<svg class="svg-icon svg-sm" viewbox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+         Refresh Course Library
+       </button>
+<button class="btn-secondary" onclick="document.getElementById('bulkUpdateFileInput').click()" style="border-color:#3B82F6; color:#3B82F6;">
+         🔄 Bulk Re-Scan
+       </button>
+<button class="btn-secondary" id="duplicateReviewBtn" onclick="openDuplicateReview()" style="border-color:#B45309; color:#B45309;">
+         🧹 Review Duplicates <span id="duplicateCountBadge" style="display:none; background:#FEF3C7; color:#92400E; border-radius:9999px; padding:1px 7px; font-size:11px;">0</span>
+</button>
+<button class="btn-secondary" id="syncCatalogsBtn" onclick="syncCatalogs()" style="border-color:#10B981; color:#10B981;">
+         🔗 Sync Catalogs
+       </button>
+<button class="btn-secondary" id="systemHealthBtn" onclick="runSystemHealthCheck()" style="border-color:#0F766E; color:#0F766E;">
+         🩺 System Health
+       </button>
+<span class="info-icon" onclick="alert('When is a re-scan needed?\n\nOnly when you want the newest parsing rules applied to an older saved record. The database stores the extracted blueprint, not the original package, so the source file must be selected again.\n\nYou do not re-enter partner, assignment, owner, status, deadline, or Drive-link metadata. Bulk Re-Scan first matches the exact filename, then ignores browser suffixes such as (1), (2), or (3). Ambiguous matches are reported and left unchanged.')" title="How does re-scan work?">
+<svg class="svg-icon svg-sm" viewbox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4 M12 8h.01"></path></svg>
+</span>
+<div class="toolbar-search"><label class="sr-only" for="searchPackagesInput">Search the course library</label><input aria-label="Search the course library" id="searchPackagesInput" oninput="filterPackages()" placeholder="Search course, title, filename, partner, owner, status, UUID…" type="search"/></div>
+</div>
+<div aria-live="polite" class="status" id="dbAnalyticsStatus" role="status"></div>
+<div id="courseViewerContainer" style="display:none; margin-top: 20px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<h4 id="viewerTitle" style="margin: 0;">Interactive Course Architecture</h4>
+<div style="display:flex; gap:10px;">
+<button class="btn-secondary btn-sm" onclick="exportToGoogleSheet(this)">📊 Export to Google Sheets</button>
+<button class="btn-secondary btn-sm" onclick="copyBlueprintText(this)">📋 Copy Format</button>
+</div>
+</div>
+<div class="course-viewer" id="courseViewerBox"></div>
+<div style="display:flex; gap:10px; margin-top:16px;">
+<button class="btn-secondary" onclick="closeViewerAndScroll()" style="border-color:#4F46E5; color:#4F46E5;">⬆️ Close &amp; Back to File</button>
+<button class="btn-secondary" onclick="document.getElementById('courseViewerContainer').style.display='none'">Close Viewer</button>
+</div>
+</div>
+</div>
+</div>
+<!-- MACMILLAN WORKFLOW -->
+<div id="workflow-macmillan" style="display:none;">
+<div class="stage active" id="stage1">
+<div class="stage-eyebrow"><span class="stage-step">1</span> Macmillan workflow</div><h3>Master Manifest Summary</h3>
+<p style="color: #4B5563;">Upload the raw course assembly Excel manifest (.xlsx).</p>
+<input accept=".xlsx" id="masterFile" type="file"/>
+<button id="stage1Btn" onclick="processStage1()">Analyze Master Structure</button>
+<div aria-live="polite" class="status" id="status1" role="status"></div>
+</div>
+<div class="stage" id="stage2">
+<div class="stage-eyebrow"><span class="stage-step">2</span> Macmillan workflow</div><h3>Partner Setup &amp; Structure Triage</h3>
+<p style="color: #4B5563;">Upload split instruction screenshot for visual reference (Optional):</p>
+<input accept="image/*" id="imgFile" onchange="previewImage(this)" type="file"/>
+<div class="img-preview-box" id="previewBox" style="display:none;">
+<span class="form-label">Uploaded Split Instruction Reference:</span>
+<img alt="Split Instructions" id="previewImg" src="" style="max-width:100%;"/>
+</div>
+<hr style="margin: 25px 0; border: 0; border-top: 1px solid #E5E7EB;"/>
+<span class="form-label">Global Partner Name</span>
+<input id="partnerNameInput" oninput="updateDownstreamLabels()" placeholder="e.g., Macmillan Learning" type="text"/>
+<h4 style="margin-top: 20px;">Configure Specialization Titles &amp; Start Anchors</h4>
+<span class="form-label">Number of Specializations</span>
+<select id="numSpecsSelect" onchange="renderSplitSelectors()" style="width: 220px;">
+<option value="1">1 (Single Full Specialization)</option>
+<option selected="" value="2">2 Specializations</option>
+<option value="3">3 Specializations</option>
+<option value="4">4 Specializations</option>
+</select>
+<div class="dual-input" id="anchorsContainer"></div>
+<button disabled="" id="stage2Btn" onclick="processStage2(null)">Split Specializations &amp; Analyze</button>
+<div aria-live="polite" class="status" id="status2" role="status"></div>
+</div>
+<div class="stage" id="stage3">
+<div class="stage-eyebrow"><span class="stage-step">3</span> Macmillan workflow</div><h3>Metadata GPT Turnaround</h3>
+<p style="color: #4B5563;">Run the extracted files through the <a class="gpt-link" href="https://chatgpt.com/g/g-6a2c1bbc0bd0819198a59440f059e21f-module-metadata-builder" rel="noopener noreferrer" target="_blank">Module Metadata Builder GPT</a>.</p>
+<div id="dynamicPromptsMeta"><i>Prompts will generate after Stage 2 split...</i></div>
+<div class="dual-input" id="metaContainer"></div>
+<button disabled="" id="stage3Btn" onclick="processStage3()">Verify Metadata Outputs</button>
+<div aria-live="polite" class="status" id="status3" role="status"></div>
+</div>
+<div class="stage" id="stage4">
+<div class="stage-eyebrow"><span class="stage-step">4</span> Macmillan workflow</div><h3>Merge GPT Turnaround</h3>
+<p style="color: #4B5563;">Merge structure + metadata using the <a class="gpt-link" href="https://chatgpt.com/g/g-6a81c6a170c88191a20e889262a28d69-manuscript-outline-extractor" rel="noopener noreferrer" target="_blank">Data Merge Agent</a>.</p>
+<div id="dynamicPromptsMerge"><i>Prompts will generate after Stage 2 split...</i></div>
+<div class="dual-input" id="mergeContainer"></div>
+<button disabled="" id="stage4Btn" onclick="processStage4()">Cross-check Merged Outputs</button>
+<div aria-live="polite" class="status" id="status4" role="status"></div>
+</div>
+<div class="stage" id="stage5">
+<div class="stage-eyebrow"><span class="stage-step">5</span> Macmillan workflow</div><h3>Content Map Generation</h3>
+<p style="color: #4B5563;">Generate final Content Maps using the <a class="gpt-link" href="https://chatgpt.com/g/g-69a5fdc3d3c081918683edd8a3c13e90-course-to-specialization-content-map-creator" rel="noopener noreferrer" target="_blank">Content Map Creator GPT</a>.</p>
+<div id="dynamicPromptsMap"><i>Prompts will generate after Stage 2 split...</i></div>
+<div class="dual-input" id="mapContainer"></div>
+<button disabled="" id="stage5Btn" onclick="processStage5()">Run Final Content-Map QA</button>
+<div aria-live="polite" class="status" id="status5" role="status"></div>
+<div id="finalDownloadBox"></div>
+</div>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: flex-end; color: #9CA3AF; font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
+<div>Total App Loads: <b id="visitCount" style="color: #4B5563;">...</b></div>
+<div style="text-align: right;">Universal CTI Gateway v7.9.31<br/>Built: <span id="deployTime">Fetching build time...</span></div>
+</div>
+</div>
+<script>
+ // ===================================================================
+ // CTI v7 Evidence Integrity shell + preserved IMSCC/Macmillan interaction layer
+ // ===================================================================
+ var CTI_UX_RELEASE = 'v7.9.31';
+ window.addEventListener('load', function(){ setTimeout(ctiLoadBootstrap_, 0); });
+ var ctiModalReturnFocus = {};
+ var qaRunInProgress = false;
+ var ctiPartnerContentMaps = {};
+ var editInitialState = '';
+ var nativeAlert = window.alert ? window.alert.bind(window) : function(){};
+
+ function ctiVisibleModal() {
+   var modals = Array.from(document.querySelectorAll('.modal-overlay'));
+   for (var i = modals.length - 1; i >= 0; i--) {
+     if (getComputedStyle(modals[i]).display !== 'none') return modals[i];
+   }
+   return null;
+ }
+
+ function ctiFocusable(root) {
+   if (!root) return [];
+   return Array.from(root.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'))
+     .filter(function(el) { return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length); });
+ }
+
+ function ctiOpenModal(id, triggerEl) {
+   var modal = document.getElementById(id);
+   if (!modal) return;
+   ctiModalReturnFocus[id] = triggerEl || document.activeElement;
+   modal.style.display = 'flex';
+   modal.setAttribute('aria-hidden', 'false');
+   document.body.classList.add('modal-open');
+   setTimeout(function() {
+     var focusable = ctiFocusable(modal);
+     if (focusable.length) focusable[0].focus();
+   }, 0);
+ }
+
+ function ctiCloseModal(id) {
+   var modal = document.getElementById(id);
+   if (!modal) return;
+   modal.style.display = 'none';
+   modal.setAttribute('aria-hidden', 'true');
+   if (!ctiVisibleModal()) document.body.classList.remove('modal-open');
+   var previous = ctiModalReturnFocus[id];
+   delete ctiModalReturnFocus[id];
+   if (previous && typeof previous.focus === 'function' && document.contains(previous)) {
+     try { previous.focus(); } catch (e) {}
+   }
+ }
+
+ function showToast(message, type, timeoutMs) {
+   var region = document.getElementById('toastRegion');
+   if (!region) return nativeAlert(String(message || ''));
+   type = ['success','warning','error','info'].indexOf(type) > -1 ? type : 'info';
+   var toast = document.createElement('div');
+   toast.className = 'toast ' + type;
+   toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+   var icon = document.createElement('span');
+   icon.setAttribute('aria-hidden','true');
+   icon.textContent = type === 'success' ? '✓' : (type === 'warning' ? '!' : (type === 'error' ? '×' : 'i'));
+   icon.style.fontWeight = '800';
+   var copy = document.createElement('div');
+   copy.className = 'toast-copy';
+   copy.textContent = String(message || '');
+   var close = document.createElement('button');
+   close.type = 'button'; close.className = 'toast-close'; close.setAttribute('aria-label','Dismiss notification'); close.textContent = '×';
+   close.onclick = function(){ toast.remove(); };
+   toast.appendChild(icon); toast.appendChild(copy); toast.appendChild(close); region.appendChild(toast);
+   var lifetime = Number(timeoutMs) || (type === 'error' ? 8500 : 5200);
+   setTimeout(function(){ if (toast.isConnected) toast.remove(); }, lifetime);
+ }
+
+ function showMessageModal(title, message, subtitle) {
+   document.getElementById('messageModalTitle').textContent = title || 'Notice';
+   document.getElementById('messageModalBody').textContent = String(message || '');
+   document.getElementById('messageModalSubtitle').textContent = subtitle || '';
+   ctiOpenModal('messageModal');
+ }
+ function closeMessageModal() { ctiCloseModal('messageModal'); }
+
+ function ctiAlert(message) {
+   var text = String(message == null ? '' : message);
+   var lower = text.toLowerCase();
+   var type = /error|failed|failure|cannot|could not/.test(lower) ? 'error' : (/complete|copied|saved|success/.test(lower) ? 'success' : (/please|select|upload|warning|blocked|review/.test(lower) ? 'warning' : 'info'));
+   if (text.length > 180 || text.indexOf('\n') > -1) {
+     showMessageModal(type === 'error' ? 'Something needs attention' : 'CTI notice', text, type === 'error' ? 'Nothing was changed unless the message says otherwise.' : '');
+   } else showToast(text, type);
+ }
+ window.alert = ctiAlert;
+
+ function setButtonBusy(buttonOrId, busy, busyText) {
+   var btn = typeof buttonOrId === 'string' ? document.getElementById(buttonOrId) : buttonOrId;
+   if (!btn) return;
+   if (busy) {
+     if (!btn.dataset.ctiIdleHtml) btn.dataset.ctiIdleHtml = btn.innerHTML;
+     btn.disabled = true;
+     btn.setAttribute('aria-busy','true');
+     btn.innerHTML = '<span class="busy-spinner" aria-hidden="true"></span><span>' + escapeHtml(busyText || 'Working…') + '</span>';
+   } else {
+     btn.disabled = false;
+     btn.removeAttribute('aria-busy');
+     if (btn.dataset.ctiIdleHtml) { btn.innerHTML = btn.dataset.ctiIdleHtml; delete btn.dataset.ctiIdleHtml; }
+   }
+ }
+
+ function renderStatus(targetId, message, type, busy) {
+   var el = document.getElementById(targetId);
+   if (!el) return;
+   if (!message) { el.innerHTML = ''; return; }
+   var cls = ['success','warning','error','info'].indexOf(type) > -1 ? type : 'info';
+   el.innerHTML = '<div class="status-card ' + cls + '">' + (busy ? '<span class="busy-spinner" aria-hidden="true"></span>' : '') + '<div>' + escapeHtml(message) + '</div></div>';
+ }
+
+ function validateChosenFile(inputId, extension, label, maxMb) {
+   var input = document.getElementById(inputId);
+   if (!input || !input.files || !input.files.length) return { ok:false, reason:'Not selected' };
+   var file = input.files[0];
+   if (extension && !String(file.name || '').toLowerCase().endsWith(extension.toLowerCase())) return { ok:false, reason:(label || 'File') + ' must be ' + extension };
+   var limitMb = Number(maxMb || 25);
+   if (file.size > limitMb * 1024 * 1024) return { ok:false, reason:(label || 'File') + ' is larger than ' + limitMb + ' MB' };
+   return { ok:true, file:file };
+ }
+
+ function qaReadinessCard(title, state, detail) {
+   return '<div class="qa-step-card ' + (state ? 'ready' : 'pending') + '"><strong>' + (state ? '✓ ' : '• ') + escapeHtml(title) + '</strong><span>' + escapeHtml(detail || (state ? 'Ready' : 'Required')) + '</span></div>';
+ }
+
+ function updateQaReadiness() {
+   var singleTarget = document.getElementById('qaSingleReadiness');
+   var lifeTarget = document.getElementById('qaLifecycleReadiness');
+   var singleExcel = validateChosenFile('qaExcelInput','.xlsx','Coursera Excel');
+   var singleJson = validateChosenFile('qaJsonInput','.json','Fingerprint JSON');
+   var sourceLive = validateChosenFile('qaBrightspaceSourceInput','.json','Brightspace source ground truth',40);
+   if (singleTarget) {
+     singleTarget.innerHTML = qaReadinessCard('Saved source fingerprint', !!currentPostQaUuid, currentPostQaUuid ? 'Immutable package fingerprint loaded' : 'Open QA from a saved course') +
+       qaReadinessCard('Live source ground truth', sourceLive.ok, sourceLive.ok ? sourceLive.file.name : 'Optional Brightspace v1.0.5 JSON') +
+       qaReadinessCard('Coursera structure', singleExcel.ok, singleExcel.ok ? singleExcel.file.name : 'Upload matching .xlsx') +
+       qaReadinessCard('Payload evidence', singleJson.ok, singleJson.ok ? singleJson.file.name : 'Upload v6.13.27 JSON (recommended)');
+   }
+   var singleBtn = document.getElementById('runPostQaBtn');
+   if (singleBtn && !qaRunInProgress) {
+     singleBtn.disabled = !(currentPostQaUuid && singleExcel.ok);
+     singleBtn.title = singleBtn.disabled ? 'Choose the Coursera Excel export first; it is the structural authority. JSON is optional enrichment.' : '';
+   }
+
+   var rawExcel = validateChosenFile('qaRawExcelInput','.xlsx','C0 Excel');
+   var rawJson = validateChosenFile('qaRawJsonInput','.json','C0 JSON');
+   var currentExcel = validateChosenFile('qaCurrentExcelInput','.xlsx','C1 Excel');
+   var currentJson = validateChosenFile('qaCurrentJsonInput','.json','C1 JSON');
+   var rawReady = rawExcel.ok && rawJson.ok, currentReady = currentExcel.ok && currentJson.ok;
+   if (lifeTarget) {
+     lifeTarget.innerHTML = qaReadinessCard('C0 Raw pair', rawReady, rawReady ? 'XLSX + JSON selected' : 'Both C0 files required') +
+       qaReadinessCard('C1 Ops pair', currentReady, currentReady ? 'XLSX + JSON selected' : 'Both C1 files required') +
+       qaReadinessCard('Source evidence', !!currentPostQaUuid, currentPostQaUuid ? ('Package fingerprint' + (sourceLive.ok ? ' + Brightspace live ground truth' : '')) : 'Open QA from a saved course');
+   }
+   var lifeBtn = document.getElementById('runLifecycleQaBtn');
+   if (lifeBtn && !qaRunInProgress) {
+     lifeBtn.disabled = !(currentPostQaUuid && rawReady && currentReady);
+     lifeBtn.title = lifeBtn.disabled ? 'Choose all four lifecycle files first.' : '';
+   }
+ }
+
+ function setQaBusy(isBusy, mode, message) {
+   qaRunInProgress = !!isBusy;
+   var ids = ['qaComparisonMode','qaSnapshotMode','qaGenerationSelect','qaIngestionCapabilitySelect','qaLineageStageSelect','qaRecoveryInput','qaRawRecoveryInput','qaCurrentRecoveryInput','qaBrightspaceSourceInput','qaExcelInput','qaJsonInput','qaRawExcelInput','qaRawJsonInput','qaCurrentExcelInput','qaCurrentJsonInput'];
+   ids.forEach(function(id){ var el=document.getElementById(id); if(el) el.disabled=!!isBusy; });
+   setButtonBusy('runPostQaBtn', isBusy && mode === 'single', message || 'Comparing…');
+   setButtonBusy('runLifecycleQaBtn', isBusy && mode === 'lifecycle', message || 'Comparing lifecycle…');
+   if (isBusy) {
+     var other = mode === 'single' ? document.getElementById('runLifecycleQaBtn') : document.getElementById('runPostQaBtn');
+     if (other) other.disabled = true;
+   } else updateQaReadiness();
+ }
+
+ function currentEditState() {
+   return JSON.stringify({
+     partner:(document.getElementById('editPartnerInput')||{}).value||'',
+     owner:(document.getElementById('editOwnerInput')||{}).value||'',
+     assigned:(document.getElementById('editAssignedDateInput')||{}).value||'',
+     deadline:(document.getElementById('editDeadlineInput')||{}).value||'',
+     status:(document.getElementById('editStatusInput')||{}).value||'',
+     drive:(document.getElementById('editDriveLinkInput')||{}).value||''
+   });
+ }
+ function isEditDirty() { return !!editInitialState && currentEditState() !== editInitialState; }
+
+ function enhanceFormLabels() {
+   Array.from(document.querySelectorAll('.form-label')).forEach(function(label) {
+     var next = label.nextElementSibling;
+     if (!next || !/^(INPUT|SELECT|TEXTAREA)$/.test(next.tagName)) return;
+     var text = (label.textContent || '').replace(/\s+/g,' ').trim();
+     if (text && !next.getAttribute('aria-label')) next.setAttribute('aria-label', text);
+   });
+   Array.from(document.querySelectorAll('button.kebab-menu')).forEach(function(btn){ btn.setAttribute('aria-label','More package actions'); btn.title='More package actions'; });
+ }
+
+ function initUxEnhancements() {
+   ['qaRecoveryInput','qaRawRecoveryInput','qaCurrentRecoveryInput','qaBrightspaceSourceInput','qaExcelInput','qaJsonInput','qaRawExcelInput','qaRawJsonInput','qaCurrentExcelInput','qaCurrentJsonInput'].forEach(function(id){
+     var el=document.getElementById(id); if(el) el.addEventListener('change', updateQaReadiness);
+   });
+   var mode=document.getElementById('qaComparisonMode'); if(mode) mode.addEventListener('change',updateQaReadiness);
+   var snapshot=document.getElementById('qaSnapshotMode'); if(snapshot) snapshot.addEventListener('change',updateQaReadiness);
+   enhanceFormLabels(); updateQaReadiness();
+ }
+
+ document.addEventListener('keydown', function(event) {
+   var modal = ctiVisibleModal();
+   if (!modal) return;
+   if (event.key === 'Escape') {
+     event.preventDefault();
+     if (modal.id === 'postQaModal') return closePostQaModal();
+     if (modal.id === 'duplicateModal') return closeDuplicateModal();
+     if (modal.id === 'editModal') return closeEditModal();
+     if (modal.id === 'auditModal') return closeAuditModal();
+     if (modal.id === 'ifsModal') return closeIfsModal();
+     if (modal.id === 'csModal') return closeCsModal();
+     if (modal.id === 'messageModal') return closeMessageModal();
+   }
+   if (event.key === 'Tab') {
+     var focusable = ctiFocusable(modal);
+     if (!focusable.length) return;
+     var first=focusable[0], last=focusable[focusable.length-1];
+     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+   }
+ });
+
+ function escapeHtml(unsafe) {
+    if(!unsafe) return "";
+    return (unsafe).toString()
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+ }
+
+ function sanitizeHTML(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var allowed = { H4: true, UL: true, OL: true, LI: true, P: true, STRONG: true, B: true, EM: true, I: true, BR: true };
+    Array.from(doc.body.querySelectorAll('*')).forEach(function(el) {
+      if (!allowed[el.tagName]) {
+        el.replaceWith(document.createTextNode(el.textContent || ''));
+        return;
+      }
+      while (el.attributes.length) el.removeAttribute(el.attributes[0].name);
+    });
+    return doc.body.innerHTML;
+ }
+
+ function safeDriveUrl(value) {
+    var url = String(value || '').trim();
+    return /^https:\/\/(drive|docs)\.google\.com\//i.test(url) ? url : '';
+ }
+
+ function toggleWorkflow() {
+   var isImscc = document.querySelector('input[name="workflowType"][value="imscc"]').checked;
+   document.getElementById('workflow-imscc').style.display = isImscc ? 'block' : 'none';
+   document.getElementById('workflow-macmillan').style.display = isImscc ? 'none' : 'block';
+ }
+
+ function toggleKebab(id) {
+    var dropdown = document.getElementById('kebab-menu-' + id);
+    var isVisible = dropdown.style.display === 'block';
+    var allDropdowns = document.querySelectorAll('.dropdown-content');
+    allDropdowns.forEach(function(el) { el.style.display = 'none'; });
+    if (!isVisible) dropdown.style.display = 'block';
+ }
+
+ window.onclick = function(event) {
+    if (!event.target.matches('.kebab-menu')) {
+      var dropdowns = document.querySelectorAll('.dropdown-content');
+      dropdowns.forEach(function(el) { el.style.display = 'none'; });
+    }
+ }
+
+ var currentViewedTree = null; 
+ var currentViewerRow = null; 
+ var globalDbState = {};
+ var packageByUuid = {};
+ var updateContext = { uuid: null, expectedFileName: null, version: null };
+ var editContext = { uuid: null, version: null }; 
+ var lastAuditResult = null;
+ var lastPostQaResult = null;
+ var lastLifecycleQaResult = null;
+ var postQaDraftUuid = null;
+ var activeScanRequestId = 0;
+ var activeAuditRequestId = 0;
+ var specDownloadNames = {};
+ var pendingDashboardNotice = '';
+ var bulkScanActive = false;
+ var duplicatePreviewToken = '';
+ var duplicateCleanupActive = false;
+ var redoWorkItemsByKey = {};
+ var redoWorkLastResponse = null;
+ var redoWorkLoading = false;
+ var redoWorkSaving = Object.create(null);
+ var redoWorkChecklistOpen = Object.create(null);
+ var redoWorkChecklistNotice = Object.create(null);
+ var currentFileId = null;
+ var extractedModules = [];
+ var currentNumSpecs = 2;
+ var currentSpecNames = [];
+
+ function exactFileKey(fileName) {
+     return String(fileName || '').trim().replace(/\s+/g, ' ').toLowerCase();
+ }
+
+ function canonicalFileKey(fileName) {
+     var name = String(fileName || '').trim().replace(/\s+/g, ' ');
+     var dot = name.lastIndexOf('.');
+     var extension = dot > 0 ? name.slice(dot).toLowerCase() : '';
+     var stem = dot > 0 ? name.slice(0, dot) : name;
+     var previous;
+     do {
+       previous = stem;
+       stem = stem.replace(/\s*\(\d+\)\s*$/, '').trim();
+     } while (stem !== previous);
+     return (stem + extension).toLowerCase();
+ }
+
+ function semanticPackageKey(fileName) {
+     var name = String(fileName || '').trim().toLowerCase().replace(/\s+/g, ' ');
+     name = name.replace(/\.(imscc|zip|xml|xlsx)$/i, '').trim();
+     var previous;
+     do {
+       previous = name;
+       name = name.replace(/\s*\(\d+\)\s*$/, '').trim();
+     } while (name !== previous);
+     name = name.replace(/\s*-?\s*(?:dev|development)\s*\(nce\)?\s*(?:-?\s*clxt)?\s*$/i, '').trim();
+     name = name.replace(/b0rl/g, 'borl');
+     name = name.replace(/[\s\-]+/g, '');
+     return name || canonicalFileKey(fileName);
+ }
+
+ function removeDownloadSuffix(fileName) {
+     var name = String(fileName || '').trim().replace(/\s+/g, ' ');
+     var dot = name.lastIndexOf('.');
+     var extension = dot > 0 ? name.slice(dot) : '';
+     var stem = dot > 0 ? name.slice(0, dot) : name;
+     var previous;
+     do {
+       previous = stem;
+       stem = stem.replace(/\s*\(\d+\)\s*$/, '').trim();
+     } while (stem !== previous);
+     return stem + extension;
+ }
+ 
+ function openIfsModal() { ctiOpenModal('ifsModal'); }
+ function closeIfsModal() { ctiCloseModal('ifsModal'); }
+
+ function openCsModal(type) {
+     var title = "", body = "";
+     if (type === 'zscore') {
+         title = "Module Imbalance Diagnostic";
+         body = "For courses with at least five top-level modules, CTI compares descendant counts and flags only stronger outliers (Z > 1.75 and at least 3 items above the mean). This is a structural review signal, not proof of cognitive overload.";
+     } else if (type === 'orphan') {
+         title = "Graph Theory Orphan Detection";
+         body = "Traverses the IMS manifest organization plus declared dependency edges and counts manifest resources that are not reachable from that graph. These are orphaned resources requiring review; they are not automatically learner-visible loss or proven storage waste.";
+     } else if (type === 'ttr') {
+         title = "Title-Label Lexical Diversity (TTR)";
+         body = "Calculates Type-Token Ratio across source item titles only when the sample is large enough (at least 20 title tokens and 8 titled nodes). Low TTR is an AI-context warning for repetitive labels; it does not prove poor content or guarantee hallucination.";
+     } else if (type === 'vector') {
+         title = "Structural Profile Similarity";
+         body = "Compares log-scaled structural feature profiles (content, assessments, discussions, links, LTI, empty/unknown/orphan/runtime signals and overall size) with cosine similarity. It is a candidate-similarity signal, not proof that two courses are duplicates; identity still comes from package/title evidence.";
+     } else if (type === 'perceptron') {
+         title = "Deterministic Labor Heuristic";
+         body = "A fixed mathematical heuristic using IFS, item volume, LTI and empty-folder counts. It is not a trained neural network and has no learned calibration dataset. Treat it as a planning estimate until CTI has enough human-confirmed historical labor data to fit and validate a real model.";
+     }
+     document.getElementById('csModalTitle').innerText = title;
+     document.getElementById('csModalBody').innerHTML = body;
+     ctiOpenModal('csModal');
+ }
+ function closeCsModal() { ctiCloseModal('csModal'); }
+
+ // === POST-INGESTION QA LOGIC ===
+ var currentPostQaUuid = null;
+ function openPostQaModal(uuid) {
+     var switchingPackage = postQaDraftUuid !== uuid;
+     currentPostQaUuid = uuid;
+     postQaDraftUuid = uuid;
+     var pkg = packageByUuid[uuid];
+     if (!pkg) return alert('This record is no longer available. Refresh the course library and try again.');
+     document.getElementById('postQaTitle').innerText = "Post-Ingestion QA: " + (pkg.realTitle || pkg.name);
+     if (switchingPackage) {
+       document.getElementById('qaComparisonMode').value = 'single';
+       document.getElementById('qaExcelInput').value = '';
+       document.getElementById('qaJsonInput').value = '';
+       var sourceGtInput=document.getElementById('qaBrightspaceSourceInput'); if(sourceGtInput) sourceGtInput.value='';
+       document.getElementById('qaSnapshotMode').value = 'raw';
+       var genSel=document.getElementById('qaGenerationSelect'); if(genSel) genSel.value='';
+       var manualGen=document.getElementById('qaManualGenerationSelect'); if(manualGen) manualGen.value='G0';
+       var stageSel=document.getElementById('qaLineageStageSelect'); if(stageSel) stageSel.value='RAW_UNPUBLISHED';
+       ['qaRecoveryInput','qaRawRecoveryInput','qaCurrentRecoveryInput','qaRawExcelInput','qaRawJsonInput','qaCurrentExcelInput','qaCurrentJsonInput'].forEach(function(id){ var el = document.getElementById(id); if (el) el.value = ''; });
+       lastPostQaResult = null;
+       lastLifecycleQaResult = null;
+       document.getElementById('postQaResults').innerHTML = '';
+       document.getElementById('aiQaRemediationOutput').innerHTML = '';
+       renderStatus('qaSingleRunStatus','', 'info');
+       renderStatus('qaLifecycleRunStatus','', 'info');
+     }
+     toggleQaComparisonMode();
+     toggleQaManualGeneration();
+     updateQaOperatorGuidance();
+     updateQaReadiness();
+     loadQaEvidenceHistory();
+     ctiOpenModal('postQaModal');
+ }
+ function toggleQaComparisonMode() {
+     var mode = (document.getElementById('qaComparisonMode') || {}).value || 'single';
+     var single = document.getElementById('qaSingleSnapshotPanel');
+     var lifecycle = document.getElementById('qaLifecyclePanel');
+     if (single) single.style.display = mode === 'single' ? 'block' : 'none';
+     if (lifecycle) lifecycle.style.display = mode === 'lifecycle' ? 'block' : 'none';
+     // Preserve completed results when switching modes so users can compare
+     // single-snapshot and lifecycle evidence without losing work.
+     updateQaReadiness();
+ }
+ function toggleQaManualGeneration() {
+     var sel = document.getElementById('qaGenerationSelect');
+     var wrap = document.getElementById('qaManualGenerationWrap');
+     if (wrap) wrap.style.display = sel && sel.value === 'manual' ? 'block' : 'none';
+ }
+ function qaImportEventMeta() {
+     var choice = (document.getElementById('qaGenerationSelect') || {}).value || '';
+     var meta = { generation:'auto', importEvent:'AUTO', stage:'AUTO' };
+     if (choice === 'same') meta.importEvent = 'SAME_IMPORT';
+     else if (choice === 'reimport') meta.importEvent = 'REIMPORT_ONCE';
+     else if (choice === 'original') meta.importEvent = 'ORIGINAL_IMPORT';
+     else if (choice === 'manual') { meta.importEvent = 'MANUAL'; meta.generation = (document.getElementById('qaManualGenerationSelect') || {}).value || 'G0'; }
+     return meta;
+ }
+ function qaHumanAttemptLabel(generation) {
+     var g = Number(generation || 0);
+     return g <= 0 ? 'Original import' : ('Re-ingestion ' + g);
+ }
+ function qaHumanStageLabel(stage) {
+     var map = {RAW_UNPUBLISHED:'Just after Smart Ingestion · unpublished', OPS_PREPARED_UNPUBLISHED:'After cleanup · unpublished', PUBLISHED:'Published learner state', LIFECYCLE_COMPARISON:'Before vs After · same import attempt'};
+     return map[String(stage || '')] || String(stage || 'Saved QA');
+ }
+ function updateQaOperatorGuidance() {
+     var mode = (document.getElementById('qaComparisonMode') || {}).value || 'single';
+     var eventChoice = (document.getElementById('qaGenerationSelect') || {}).value || '';
+     var ingestionChoice = (document.getElementById('qaIngestionCapabilitySelect') || {}).value || '';
+     var state = (document.getElementById('qaSnapshotMode') || {}).value || 'raw';
+     var target = document.getElementById('qaOperatorGuidance');
+     if (!eventChoice || !ingestionChoice) {
+       if (target) target.innerHTML = '<b>Two workflow facts matter:</b> tell CTI whether Smart Ingestion ran again since the last QA, and whether this shell already came from the latest Smart Ingestion available. CTI cannot infer either safely from export files.';
+       return;
+     }
+     var attempt = eventChoice === 'reimport' ? 'the <b>next re-ingestion attempt</b>' : eventChoice === 'original' ? 'the <b>original import</b>' : eventChoice === 'manual' ? '<b>' + escapeHtml((document.getElementById('qaManualGenerationSelect') || {}).selectedOptions?.[0]?.text || 'chosen import attempt') + '</b>' : 'the <b>same import attempt already active in Evidence Memory</b>';
+     if (mode === 'lifecycle') {
+       if (target) target.innerHTML = 'CTI will treat both BEFORE and AFTER files as ' + attempt + '. Smart Ingestion must <b>not</b> have run between those two snapshots.';
+       return;
+     }
+     var stateText = state === 'raw' ? 'immediately after Smart Ingestion and still unpublished' : state === 'ops' ? 'after manual cleanup but still unpublished' : state === 'published' ? 'published / learner-facing' : 'with publication state auto-detected';
+     var ingestionText = ingestionChoice === 'latest' ? 'This is already the <b>latest available Smart Ingestion</b>, so CTI will not recommend repeating the same ingestion if defects remain.' : ingestionChoice === 'legacy' ? 'This is an <b>older/import-only shell</b>, so a material ingestion defect can justify one re-ingestion with the latest capability.' : 'The Smart Ingestion capability is <b>unknown</b>, so CTI will diagnose defects but ask you to confirm version/actionability before re-ingesting.';
+     if (target) target.innerHTML = 'CTI will compare the immutable source package with the Coursera course <b>' + stateText + '</b> and record it as ' + attempt + '.<br><span style="display:block;margin-top:6px;">' + ingestionText + '</span>';
+ }
+ function qaBuildLineageMetaFromUi() {
+     var meta = qaImportEventMeta();
+     var state = (document.getElementById('qaSnapshotMode') || {}).value || 'raw';
+     meta.stage = state === 'raw' ? 'RAW_UNPUBLISHED' : state === 'ops' ? 'OPS_PREPARED_UNPUBLISHED' : state === 'published' ? 'PUBLISHED' : 'AUTO';
+     var ingestionChoice = (document.getElementById('qaIngestionCapabilitySelect') || {}).value || 'unknown';
+     meta.ingestionCapabilityStatus = ingestionChoice === 'latest' ? 'LATEST_APPLIED' : ingestionChoice === 'legacy' ? 'LEGACY_OR_OUTDATED' : 'UNKNOWN';
+     return meta;
+ }
+ function qaOperatorActionSummaryHtml(res) {
+     var op = res && res.operationalPolicy || null;
+     if (!op) return '';
+     var code = String(op.recommendationCode || 'REVIEW');
+     var palette = code === 'KEEP' ? ['#ECFDF3','#065F46','#A7F3D0','✅'] : code === 'REINGEST' ? ['#FEF2F2','#991B1B','#FCA5A5','⛔'] : code === 'MANUAL_REMEDIATION' ? ['#FFF7ED','#9A3412','#FDBA74','🛠️'] : ['#FFFBEB','#92400E','#FCD34D','🟠'];
+     var title = code === 'KEEP' ? 'KEEP CANDIDATE — NO CURRENT BLOCKER FOUND' : code === 'REINGEST' ? 'RE-INGEST ONCE WITH LATEST SMART INGESTION' : code === 'MANUAL_REMEDIATION' ? 'MANUAL FIXES REQUIRED — DO NOT LOOP RE-INGESTION' : 'MANUAL CHECKS REQUIRED BEFORE YOU FINISH';
+     function uniq(values){ var seen={}; return (values||[]).filter(function(v){v=String(v||'').trim(); if(!v||seen[v]) return false; seen[v]=true; return true;}); }
+     var blockers = uniq([].concat(op.ingestionFailureNames||[],op.extraIngestionFailureNames||[],op.learnerFacingMissingNames||[],op.hardPayloadLossNames||[],op.readinessCriticalNames||[]));
+     var manualChanges = uniq([].concat(op.manualRemovalNames||[],op.manualRegressionNames||[]));
+     var manual = uniq([].concat(op.behaviorMutationNames||[],op.behaviorUnverifiedNames||[],op.runtimeReviewNames||[],op.hiddenDependencyNames||[],op.readinessReviewNames||[]));
+     (res.itemResults || []).forEach(function(item){ if(['TYPE_MUTATION','PARTIAL','UNVERIFIED','STATE_MUTATION','MANUAL_REMOVAL_REVIEW'].indexOf(String(item.verdict||''))>-1) manual.push(item.sourceName||item.courseraName||'Untitled'); });
+     manual = uniq(manual);
+     var html = "<div style='background:"+palette[0]+";border:2px solid "+palette[2]+";color:"+palette[1]+";padding:14px;border-radius:10px;margin-bottom:14px;'>";
+     html += "<div style='font-size:15px;font-weight:850;'>"+palette[3]+" CTI NEXT ACTION: "+escapeHtml(title)+"</div>";
+     html += "<div style='margin-top:5px;font-size:12px;'>"+escapeHtml(op.recommendationReason||'')+"</div>";
+     if(op.diagnosticRecommendationCode && op.diagnosticRecommendationCode !== code) html += "<div style='margin-top:7px;background:#fff;padding:8px 9px;border-radius:7px;font-size:11px;color:#475569;'><b>Technical diagnosis:</b> "+escapeHtml(op.diagnosticRecommendationCode)+" — CTI still considers these ingestion-origin blockers; only the operator action changed because repeating the same latest ingestion would not help.</div>";
+     html += "<div style='margin-top:8px;font-size:12px;' title='Match shows how much source material CTI can positively match. Coverage shows how much of the comparison has enough direct evidence for a confident verdict.'><b>Policy-adjusted source match:</b> "+Number(op.adjustedObservedFidelity||0)+"% · <b>Policy-adjusted coverage:</b> "+Number(op.adjustedEvidenceCoverage||0)+"% <span style='cursor:help;'>ⓘ</span></div>"; if(res.summary){ html += "<div style='margin-top:3px;font-size:11px;opacity:.88;'><b>Raw observed match:</b> "+Number(res.summary.observedFidelity||0)+"% · <b>Raw evidence coverage:</b> "+Number(res.summary.evidenceCoverage||0)+"%</div>"; }
+     if(blockers.length) html += "<div style='margin-top:10px;background:#fff;padding:9px;border-radius:7px;color:#991B1B;'><b>Fix / investigate first ("+blockers.length+"):</b><br>"+escapeHtml(blockers.slice(0,12).join(' · '))+(blockers.length>12?' · …':'')+"</div>";
+     if(manualChanges.length) html += "<div style='margin-top:8px;background:#fff;padding:9px;border-radius:7px;color:#7C3AED;'><b>Changes made after Smart Ingestion — confirm these were intentional ("+manualChanges.length+"):</b><br>"+escapeHtml(manualChanges.slice(0,12).join(' · '))+(manualChanges.length>12?' · …':'')+"<br><span style='font-size:11px;color:#6D28D9;'>CTI found these in the saved raw snapshot of the same import attempt. They are not a reason to re-run Smart Ingestion by themselves.</span></div>";
+     if(manual.length) html += "<div style='margin-top:8px;background:#fff;padding:9px;border-radius:7px;color:#92400E;'><b>Manually verify before completion ("+manual.length+"):</b><br>"+escapeHtml(manual.slice(0,12).join(' · '))+(manual.length>12?' · …':'')+"</div>";
+     if(!blockers.length && !manual.length) html += "<div style='margin-top:8px;background:#fff;padding:9px;border-radius:7px;'><b>No item-level blocker or manual-check list remains in the current evidence.</b></div>";
+     html += "<div style='margin-top:8px;font-size:11px;opacity:.88;'>Technical evidence and every item-level finding remain below. Runtime inventory N/A is never proof that no runtime exists; known source-LMS runtime still requires launch verification before completion.</div></div>";
+     return html;
+ }
+ function qaLifecycleActionSummaryHtml(res) {
+     var items = res && res.lifecycleItems || [];
+     var regressions = items.filter(function(i){return ['REGRESSION','RUBRIC_MUTATION','CONTENT_MUTATION'].indexOf(String(i.primaryLifecycleVerdict||''))>-1;});
+     var persistent = items.filter(function(i){return String(i.primaryLifecycleVerdict||'')==='PERSISTENT_MISSING';});
+     var improved = items.filter(function(i){return String(i.primaryLifecycleVerdict||'')==='IMPROVED_OR_RESOLVED';});
+     var html = "<div style='background:#F8FAFC;border:1px solid #CBD5E1;padding:12px;border-radius:9px;margin-bottom:12px;'>";
+     html += "<div style='font-size:15px;font-weight:800;color:#111827;'>What changed from BEFORE → AFTER?</div>";
+     html += "<div style='margin-top:6px;font-size:12px;color:#374151;'><b>Worse / needs attention:</b> "+regressions.length+" · <b>Still missing:</b> "+persistent.length+" · <b>Improved/resolved:</b> "+improved.length+"</div>";
+     if(regressions.length) html += "<div style='margin-top:8px;color:#991B1B;font-size:12px;'><b>Review first:</b> "+escapeHtml(regressions.slice(0,10).map(function(i){return i.sourceName||'Untitled';}).join(' · '))+"</div>";
+     if(persistent.length) html += "<div style='margin-top:6px;color:#92400E;font-size:12px;'><b>Still absent in both snapshots:</b> "+escapeHtml(persistent.slice(0,10).map(function(i){return i.sourceName||'Untitled';}).join(' · '))+"</div>";
+     html += "<div style='margin-top:7px;font-size:11px;color:#64748B;'>This mode explains change within one Smart Ingestion attempt. It is not a published-old-import vs published-re-ingested-import comparison.</div></div>";
+     return html;
+ }
+ function downloadVisibleQaReport() {
+     var el = document.getElementById('postQaResults');
+     var text = lastPostQaResult ? buildPostQaText_(lastPostQaResult) : (el ? String(el.innerText || '').trim() : '');
+     if (!text) return alert('No QA report is visible yet.');
+     var blob = new Blob([text + '\n'], {type:'text/plain;charset=utf-8'});
+     var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href=url;
+     a.download = 'CTI_QA_Report_' + new Date().toISOString().replace(/[:.]/g,'-') + '.txt';
+     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){URL.revokeObjectURL(url);},500);
+ }
+ function openSavedQaReport(runId, button) {
+     if (!currentPostQaUuid || !runId) return;
+     var old = button ? button.innerText : ''; if(button){button.disabled=true;button.innerText='Opening…';}
+     google.script.run.withSuccessHandler(function(res){
+       if(button){button.disabled=false;button.innerText=old;}
+       if(!res || !res.success) return showToast((res&&res.error)||'Could not open the saved QA report.','error',7000);
+       var result = res.result || {}; result.savedReportContext = {runId:res.runId,timestamp:res.timestamp,generation:res.generation,snapshotStage:res.snapshotStage,reportFormatVersion:res.reportFormatVersion};
+       if(res.mode==='LIFECYCLE'){ lastLifecycleQaResult=result; lastPostQaResult=null; renderLifecycleQaResults(result); }
+       else { lastPostQaResult=result; lastLifecycleQaResult=null; renderPostQaResults(result); }
+       var resultEl=document.getElementById('postQaResults'); if(resultEl) resultEl.scrollIntoView({behavior:'smooth',block:'start'});
+       showToast('Opened saved QA report ' + res.runId + '.','success',4500);
+     }).withFailureHandler(function(err){if(button){button.disabled=false;button.innerText=old;} showToast(err.message||'Could not open the saved QA report.','error',7000);}).getQaStoredRun(currentPostQaUuid,runId);
+ }
+ function closePostQaModal() {
+     if (qaRunInProgress) {
+       showToast('QA is still running. Wait for it to finish before closing this workspace.', 'warning', 6500);
+       return;
+     }
+     ctiCloseModal('postQaModal');
+ }
+
+ function loadQaEvidenceHistory() {
+     var target = document.getElementById('qaHistoryList');
+     var count = document.getElementById('qaHistoryCount');
+     if (!target || !currentPostQaUuid) return;
+     target.innerHTML = "<span style='color:#6B7280;'>Loading saved QA history…</span>";
+     google.script.run
+       .withSuccessHandler(function(res) {
+         if (!res || !res.success) {
+           target.innerHTML = "<span style='color:#B91C1C;'>Could not load QA history.</span>";
+           return;
+         }
+         var runs = res.runs || [];
+         if (count) count.textContent = runs.length ? '(' + runs.length + ' recent)' : '';
+         if (!runs.length) {
+           target.textContent = 'No stored QA runs yet for this package.';
+           return;
+         }
+         var html = '';
+         runs.forEach(function(r) {
+           var when = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
+           var score = r.mode === 'LIFECYCLE'
+             ? ('S→C0 ' + (r.sourceToC0 == null ? '—' : r.sourceToC0 + '%') + ' · S→C1 ' + (r.sourceToC1 == null ? '—' : r.sourceToC1 + '%'))
+             : ('Observed ' + (r.sourceToC0 != null ? r.sourceToC0 + '%' : (r.sourceToC1 != null ? r.sourceToC1 + '%' : '—')));
+           html += "<div style='padding:9px 0; border-top:1px solid #E5E7EB;'>";
+           var lineageLabel = qaHumanAttemptLabel(r.generation) + ' · ' + qaHumanStageLabel(r.snapshotStage || r.mode || '');
+           html += "<div style='display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;'><b>" + escapeHtml(lineageLabel) + "</b><span style='color:#6B7280;'>" + escapeHtml(when) + "</span></div>";
+           html += "<div style='margin-top:2px;'>" + escapeHtml(score) + " · <code>" + escapeHtml(r.gatewayRelease || '') + "</code> · extractor " + escapeHtml(r.extractorVersion || '') + " / schema " + escapeHtml(String(r.extractorSchema || '')) + "</div>";
+           if (r.liveSourcePlatform) html += "<div style='font-size:11px;color:#1E40AF;margin-top:3px;'>Live source: <b>" + escapeHtml(r.liveSourcePlatform) + "</b>" + (r.liveSourceSchema ? " / schema " + escapeHtml(String(r.liveSourceSchema)) : "") + (r.liveSourceFile ? " · " + escapeHtml(r.liveSourceFile) : "") + "</div>";
+           if (r.generationWarning) html += "<div style='color:#92400E; margin-top:5px;'>" + escapeHtml(r.generationWarning) + "</div>";
+           if (r.generationProvenance) html += "<div style='font-size:11px; color:#6B7280;'>Import-attempt record: " + escapeHtml(r.generationProvenance) + " · internal " + escapeHtml(r.generationLabel || ('G'+Number(r.generation||0))) + "</div>";
+           if (r.repairCandidate) {
+             html += "<div style='background:#FFFBEB; color:#92400E; padding:8px; margin-top:5px;'>Possible legacy repeated-export lineage. Repair to G" + Number(r.repairCandidate.toGeneration) + " only if no Smart Ingestion reimport occurred. Stored QA evidence is preserved. <button type='button' data-lineage-repair='" + escapeHtml(r.runId) + "'>Repair repeated-export lineage</button></div>";
+           }
+           if (r.delta) {
+             function deltaText(label,obj,suffix){ if(!obj || obj.before==null || obj.after==null) return ''; var sign=obj.delta>0?'+':''; return label+' '+obj.before+(suffix||'')+' → '+obj.after+(suffix||'')+' ('+sign+obj.delta+(suffix||'')+')'; }
+             var bits=[deltaText('Fidelity',r.delta.observedFidelity,'%'),deltaText('Coverage',r.delta.evidenceCoverage,'%'),deltaText('Failures',r.delta.ingestionFailures,''),deltaText('Missing',r.delta.missing,'')].filter(Boolean);
+             if(bits.length) { var deltaLabel = r.delta.kind === 'GENERATION_STAGE_DELTA' ? 'Stage delta' : 'Reimport delta'; var evo=r.delta.itemEvolution||null; var evoText=evo ? (' · items improved '+Number(evo.fixedOrImproved||0)+' · regressed '+Number(evo.regressed||0)) : ''; var improvedNames=evo&&Array.isArray(evo.changes)?evo.changes.filter(function(c){return c.change==='FIXED_OR_IMPROVED';}).map(function(c){return c.sourceName||'Untitled';}).slice(0,8):[]; var regressedNames=evo&&Array.isArray(evo.changes)?evo.changes.filter(function(c){return c.change==='REGRESSED';}).map(function(c){return c.sourceName||'Untitled';}).slice(0,8):[]; html += "<div style='margin-top:4px; padding:5px 7px; border-radius:5px; background:#F5F3FF; color:#5B21B6; font-size:11px;'><b>" + deltaLabel + ":</b> " + escapeHtml(bits.join(' · ') + evoText) + (improvedNames.length?"<br><b>Improved:</b> "+escapeHtml(improvedNames.join(' · ')):"") + (regressedNames.length?"<br><b>Regressed:</b> "+escapeHtml(regressedNames.join(' · ')):"") + "</div>"; }
+           }
+           var manualAttr=r.manualChangeAttribution||{}; var manualCount=Number(manualAttr.attributedCount||0);
+           html += "<div style='font-size:11px; color:#6B7280; margin-top:4px;'>Run " + escapeHtml(r.runId || '') + (r.sourceScanId ? ' · source '+escapeHtml(r.sourceScanId) : '') + (r.generationSiProvenanceSourceRunId ? ' · SI memory '+escapeHtml(r.generationSiProvenanceSourceRunId) : '') + (manualCount ? ' · manual Δ '+manualCount : '') + " · review=" + escapeHtml(r.reviewStatus || 'UNREVIEWED') + "</div>"; if(r.reportAvailable) html += "<button type='button' class='btn-secondary btn-sm' style='margin-top:6px;' data-open-qa-report='" + escapeHtml(r.runId || '') + "'>Open saved report</button>"; html += "</div>";
+         });
+         target.innerHTML = html;
+         target.querySelectorAll('[data-lineage-repair]').forEach(function(button) {
+           button.addEventListener('click', function() { repairQaRepeatedExportLineage(button.getAttribute('data-lineage-repair'), button); });
+         });
+       })
+       .withFailureHandler(function() { target.innerHTML = "<span style='color:#B91C1C;'>Could not load QA history.</span>"; })
+       .getQaRunHistory(currentPostQaUuid, 10);
+ }
+
+ function repairQaRepeatedExportLineage(runId, button) {
+     if (!currentPostQaUuid || qaRunInProgress) return;
+     if (!confirm('Confirm that NO Smart Ingestion reimport occurred before this run. Repair only its generation metadata and keep the stored QA evidence?')) return;
+     button.disabled = true;
+     google.script.run.withSuccessHandler(function(res) {
+       if (!res || !res.success) { button.disabled = false; showToast((res && res.error) || 'Lineage repair failed.', 'error', 7000); return; }
+       showToast('Lineage repaired to G' + res.generation + '. Stored QA evidence preserved.', 'success', 6000);
+       loadQaEvidenceHistory();
+     }).withFailureHandler(function(err) { button.disabled = false; showToast(err.message || 'Lineage repair failed.', 'error', 7000); })
+       .repairQaRepeatedExportLineage(currentPostQaUuid, runId, true);
+ }
+
+ function qaPersistenceBanner(res) {
+     var p = res && res.persistence;
+     if (!p) return '';
+     if (p.status === 'SAVED') {
+       var lin=p.lineage||{}; var linText=lin.generationLabel ? (' · <b>'+escapeHtml(qaHumanAttemptLabel(lin.generation))+' · '+escapeHtml(qaHumanStageLabel(lin.stage||''))+'</b> <span style="color:#64748B;">('+escapeHtml(lin.generationLabel)+')</span>') : '';
+       var deltaText=p.delta && p.delta.observedFidelity && p.delta.observedFidelity.before!=null ? (' · '+(p.delta.kind === 'GENERATION_STAGE_DELTA' ? 'stage' : 'reimport')+' fidelity '+p.delta.observedFidelity.before+'% → '+p.delta.observedFidelity.after+'%') : '';
+       return "<div style='background:#ECFDF5; border:1px solid #A7F3D0; color:#065F46; padding:9px 11px; border-radius:7px; margin-bottom:12px; font-size:12px;'><b>🧠 Evidence Memory:</b> saved as <code>" + escapeHtml(p.runId || '') + "</code>" + linText + (lin.generationWarning ? "<div style='color:#92400E;'>"+escapeHtml(lin.generationWarning)+"</div>" : '') + escapeHtml(deltaText) + ". Review state: <b>UNREVIEWED</b>.</div>";
+     }
+     return "<div style='background:#FEF2F2; border:1px solid #FECACA; color:#991B1B; padding:9px 11px; border-radius:7px; margin-bottom:12px; font-size:12px;'><b>Evidence Memory save failed:</b> " + escapeHtml(p.error || 'Unknown storage error') + ". The QA result itself is still valid.</div>";
+ }
+
+ function copyExtractorScript(btn) {
+     var old=btn.innerText; btn.disabled=true; btn.innerText='Loading current Coursera extractor…';
+     ctiLoadCanonicalExtractor_('coursera','extractorScriptCode',function(res,err){
+       if(!res || !res.script){btn.disabled=false;btn.innerText=old;return alert(err||'Coursera extractor is unavailable.');}
+       var expectedVersion=btn.getAttribute('data-version')||''; var expectedBuild=btn.getAttribute('data-build')||'';
+       if((expectedVersion && res.version!==expectedVersion) || (expectedBuild && res.buildId!==expectedBuild) || res.script.indexOf(res.version)===-1 || res.script.indexOf(res.buildId)===-1){
+         delete ctiCanonicalExtractorCache_.coursera;btn.disabled=false;btn.innerText=old;
+         return alert('The page and deployed Coursera extractor do not match. Replace Code.gs and Index, update the existing web-app deployment to a new version, then reload its URL. Nothing was copied.');
+       }
+       var script=res.script;
+       var readingCheck=btn.getAttribute('data-scope')==='reading-attachments';
+       try{if(readingCheck)script=ctiReadingAttachmentCheckScript_(res);}catch(error){btn.disabled=false;btn.innerText=old;return alert(error.message);}
+       navigator.clipboard.writeText(script).then(function(){
+         var status=document.getElementById('courseraExtractorDeliveryStatus');if(status)status.textContent='Copied '+(readingCheck?'reading attachment check ':'')+res.version+' · deployed CTI '+(res.gatewayRelease||'not recorded')+' · '+res.buildId;
+         btn.disabled=false; btn.innerText='✓ Copied '+(res.version||'Coursera'); btn.style.color='#059669';
+         setTimeout(function(){btn.innerText=old;btn.style.color='';},2200);
+       }).catch(function(e){btn.disabled=false;btn.innerText=old;alert('Copy failed: '+e.message);});
+     },true);
+ }
+ 
+ function ctiReadingAttachmentCheckScript_(res) {
+     var marker='  const id = courseId();',source=String(res && res.script || ''),offset=source.indexOf(marker);
+     if(offset<0 || source.indexOf(marker,offset+marker.length)!==-1 || res.version!=='v6.13.27' || res.buildId!=='v6.13.27-memory-cleanup-20260922')throw Error('The reading check and deployed extractor do not match. Reload the updated app.');
+     return source.slice(0,offset).replace(/__CTI_LAST_/g,'__CTI_READING_CHECK_LAST_').replace(/__cti_download_panel/g,'__cti_reading_download_panel')+"  const id=courseId(),route=authoringItemRouteV61311(location.href),template=certifiedReadingRouteV61311(id);\n  if(!id || !route || route.typeName!=='supplement' || !template)throw Error('Open the loaded Coursera reading you want to check, then run this script.');\n  const fp={id:route.itemId,name:String(document.title || 'Current reading'),typeName:'supplement',payload:{}},startedAt=new Date().toISOString();\n  const recorder=installReadOnlyNetworkRecorder();let recovery,network;\n  try {\n    recorder.setActive(fp);\n    ctiProgressUpdateV1({phase:'Check reading attachments',detail:'Waiting for this reading and its attachment URLs.'});\n    recovery=await recoverReadingRouteV61311(fp,id,template,{recorder,reuseMounted:true,initialCount:0,deadline:Date.now()+28000});\n    if(mergeReadingRecoveryV61311(fp,recovery))network=mergeReadingNetworkV61312(fp,recorder,0,recovery);\n  } finally {recorder.restore();}\n  const check={kind:'CTI_COURSERA_READING_ATTACHMENT_CHECK',version:'v6.13.27',buildId:'v6.13.27-memory-cleanup-20260922',\n    scope:'SINGLE_READING_CHECK_NOT_A_FULL_COURSE_CAPTURE',courseId:id,itemId:fp.id,startedAt,finishedAt:new Date().toISOString(),\n    captured:recovery.captured,reason:recovery.reason,elapsedMs:Date.now()-nowForLock,payload:fp.payload,\n    attachmentCoverage:fp.payload.readingAttachmentEvidence || null,networkCapture:network && network.networkCapture || null,\n    wholeCourseRecaptured:false,binaryContentVerified:false};\n  window.__CTI_READING_ATTACHMENT_CHECK_RESULT=check;\n  console.log('CTI reading attachment check',check);\n  downloadJson(ctiCourseraExportName(id,'READING_ATTACHMENT_CHECK_'+fp.id),check);\n  const gaps=!check.captured || !check.attachmentCoverage || check.attachmentCoverage.unresolvedLabels.length || (check.networkCapture && (check.networkCapture.omittedResponses || check.networkCapture.pendingRequests));\n  ctiProgress.finish(gaps?'review':'success','Reading check downloaded. Keep your existing full course capture.',check.attachmentCoverage?check.attachmentCoverage.resolvedLabelCount+'/'+check.attachmentCoverage.observedLabelCount+' observed attachment labels have download URLs':'Reading evidence unavailable');\n  } finally {\n    if(ctiProgress && ctiProgress.snapshot().outcome==='running')ctiProgress.finish('error','The reading check did not finish. See the console error.');\n    releaseCtiRunLock();\n  }\n})();\n";
+ }
+
+ function ctiApiCall_(method, args, onSuccess, onFailure) {
+     args = Array.isArray(args) ? args : [];
+     var runner = google.script.run
+       .withSuccessHandler(function(res){ if (typeof onSuccess === 'function') onSuccess(res); })
+       .withFailureHandler(function(err){ if (typeof onFailure === 'function') onFailure(err); else showToast((err && err.message) || 'CTI server call failed.','error',7000); });
+     // Deliberate allow-list. Apps Script's google.script.run is a special proxy;
+     // explicit dispatch is safer than reflective invocation and prevents arbitrary server calls.
+     if (method === 'getCtiExtractor') return runner.getCtiExtractor(args[0]);
+     if (method === 'getCtiBootstrap') return runner.getCtiBootstrap();
+     if (typeof onFailure === 'function') onFailure({message:'Unknown CTI server method: ' + method});
+ }
+
+ var ctiCanonicalExtractorCache_ = {};
+ function ctiLoadCanonicalExtractor_(platform, codeId, done, forceRefresh) {
+     platform = String(platform || '').toLowerCase();
+     if (forceRefresh) delete ctiCanonicalExtractorCache_[platform];
+     if (!forceRefresh && ctiCanonicalExtractorCache_[platform]) {
+       var cached=ctiCanonicalExtractorCache_[platform];
+       var el=document.getElementById(codeId); if(el && cached.script) el.textContent=cached.script;
+       if(typeof done==='function') done(cached); return;
+     }
+     ctiApiCall_('getCtiExtractor',[platform],function(res){
+       if(!res || !res.success) return (typeof done==='function' ? done(null,(res&&res.error)||'Extractor unavailable') : showToast((res&&res.error)||'Extractor unavailable','error',7000));
+       ctiCanonicalExtractorCache_[platform]=res;
+       var el=document.getElementById(codeId); if(el && res.script) el.textContent=res.script;
+       if(typeof done==='function') done(res);
+     },function(err){ if(typeof done==='function') done(null,(err&&err.message)||'Extractor load failed'); });
+ }
+
+ function copyBrightspaceGroundTruthScript(btn) {
+     var old=btn.innerText; btn.disabled=true; btn.innerText='Loading current Brightspace extractor…';
+     ctiLoadCanonicalExtractor_('brightspace','brightspaceGroundTruthScriptCode',function(res,err){
+       if(!res || !res.script){btn.disabled=false;btn.innerText=old;return alert(err||'Brightspace source ground-truth script is unavailable.');}
+       navigator.clipboard.writeText(res.script).then(function(){
+         btn.disabled=false; btn.innerText='✓ Copied Brightspace '+(res.version||''); btn.style.color='#059669';
+         setTimeout(function(){btn.innerText=old;btn.style.color='';},2200);
+       }).catch(function(e){btn.disabled=false;btn.innerText=old;alert('Copy failed: '+e.message);});
+     },true);
+ }
+
+ function ctiLoadBootstrap_() {
+   ctiApiCall_('getCtiBootstrap',[],function(res){
+     var chip=document.getElementById('ctiArchitectureChip');
+     if(!chip) return;
+     if(!res || !res.success){chip.innerHTML='Architecture <b>unavailable</b>';return;}
+     var release=res.release||{};
+     chip.innerHTML='Architecture <b>'+escapeHtml(release.architecture||'v7')+'</b>';
+     chip.title='Gateway '+(release.gateway||'')+' · QA '+(release.qaEngine||'')+' · Brightspace '+((release.brightspaceExtractor||{}).version||'');
+   },function(){var chip=document.getElementById('ctiArchitectureChip');if(chip)chip.innerHTML='Architecture <b>offline</b>';});
+ }
+
+ function ctiScrollWorkspace_(id) {
+   var el=document.getElementById(id); if(!el)return;
+   el.scrollIntoView({behavior:'smooth',block:'start'});
+   try{history.replaceState(null,'','#'+id);}catch(e){}
+ }
+
+
+ function runPostQa() {
+     if (qaRunInProgress) return showToast('A QA comparison is already running.', 'warning');
+     var excelCheck = validateChosenFile('qaExcelInput','.xlsx','Coursera Excel');
+     var jsonCheck = validateChosenFile('qaJsonInput','.json','Fingerprint JSON');
+     var recoveryCheck=validateChosenFile('qaRecoveryInput','.json','Reading recovery JSON');
+     var recoverySelected=!!((document.getElementById('qaRecoveryInput')||{}).files||[]).length;
+     if(recoverySelected && (!recoveryCheck.ok || !jsonCheck.ok))return alert('Attach a valid reading recovery JSON together with its original full fingerprint JSON.');
+     var sourceLiveCheck = validateChosenFile('qaBrightspaceSourceInput','.json','Brightspace source ground truth',40);
+     var sourceLiveSelected = !!((document.getElementById('qaBrightspaceSourceInput') || {}).files || []).length;
+     if (sourceLiveSelected && !sourceLiveCheck.ok) return alert('Choose a valid Brightspace source ground-truth JSON. ' + sourceLiveCheck.reason + '.');
+     var stateChoice = (document.getElementById('qaSnapshotMode') || {}).value || 'raw';
+     var snapshotMode = stateChoice === 'raw' ? 'raw' :
+       (stateChoice === 'published' ? 'published' :
+       (stateChoice === 'auto' ? 'auto' : 'ops'));
+     var lineageMeta = qaBuildLineageMetaFromUi();
+     var importChoice = (document.getElementById('qaGenerationSelect') || {}).value || '';
+     var ingestionChoice = (document.getElementById('qaIngestionCapabilitySelect') || {}).value || '';
+     if (!importChoice) return alert('Before running QA, tell CTI whether Smart Ingestion ran again since the last saved CTI QA.');
+     if (!ingestionChoice) return alert('Before running QA, tell CTI whether this shell already came from the latest Smart Ingestion available to your team.');
+     var excelFile = excelCheck.ok ? excelCheck.file : null;
+     var jsonFile = jsonCheck.ok ? jsonCheck.file : null;
+     var sourceLiveFile = sourceLiveCheck.ok ? sourceLiveCheck.file : null;
+
+     if (!excelFile) return alert("Choose the Coursera Excel export first. Excel is required as structural authority; fingerprint JSON is optional payload enrichment.");
+     if (!currentPostQaUuid) return alert("Open Post-Ingestion QA from a saved course so CTI can load its immutable source fingerprint.");
+
+     setQaBusy(true, 'single', 'Comparing source → snapshot…');
+     renderStatus('qaSingleRunStatus', 'Reading the selected evidence and running deterministic Item Fidelity QA. Your previous result will remain visible until the new comparison completes.', 'info', true);
+     document.getElementById('aiQaRemediationOutput').innerHTML = '';
+
+     var excelBase64 = null, excelName = null;
+     var jsonBase64 = null, jsonName = null, readingRecoveryBase64=null, readingRecoveryName=null;
+     var sourceLiveBase64 = null, sourceLiveName = null;
+
+     function fail(message) {
+       setQaBusy(false, 'single');
+       renderStatus('qaSingleRunStatus', message, 'error', false);
+     }
+
+     var processFiles = function() {
+         if (excelFile && !excelBase64) {
+             readFileAsBase64('qaExcelInput', function(b64, name, err) {
+                 if (!b64) return fail(err || 'Could not read the Coursera Excel file. Re-select it and try again.');
+                 excelBase64 = b64; excelName = name;
+                 processFiles();
+             });
+             return;
+         }
+         if (jsonFile && !jsonBase64) {
+             readFileAsBase64('qaJsonInput', function(b64, name, err) {
+                 if (!b64) return fail(err || 'Could not read the fingerprint JSON. Re-select it and try again.');
+                 jsonBase64 = b64; jsonName = name;
+                 processFiles();
+             });
+             return;
+         }
+         if (recoverySelected && !readingRecoveryBase64) {
+             readFileAsBase64('qaRecoveryInput',function(b64,name,err){
+                 if(!b64)return fail(err || 'Could not read the recovery JSON.');
+                 readingRecoveryBase64=b64;readingRecoveryName=name;processFiles();
+             });return;
+         }
+         if (sourceLiveFile && !sourceLiveBase64) {
+             readFileAsBase64('qaBrightspaceSourceInput', function(b64, name, err) {
+                 if (!b64) return fail(err || 'Could not read the Brightspace source ground-truth JSON. Re-select it and try again.');
+                 sourceLiveBase64 = b64; sourceLiveName = name;
+                 processFiles();
+             });
+             return;
+         }
+
+         renderStatus('qaSingleRunStatus', sourceLiveFile ? 'Evidence loaded. Comparing package source + live Brightspace ground truth → Coursera structure, payload, assessments, runtime signals, links, and publication state…' : 'Evidence loaded. Comparing source structure, payload, assessments, assets, links, and publication state…', 'info', true);
+         google.script.run
+             .withSuccessHandler(function(res) {
+                 setQaBusy(false, 'single');
+                 if(!res || !res.success) {
+                     renderStatus('qaSingleRunStatus', (res && res.error) || 'Item Fidelity QA did not complete.', 'error', false);
+                     return;
+                 }
+                 lastPostQaResult = res;
+                 lastLifecycleQaResult = null;
+                 renderPostQaResults(res);
+                 renderStatus('qaSingleRunStatus', 'Comparison complete. The result has been rendered below and its evidence-memory status is shown in the report.', 'success', false);
+                 loadQaEvidenceHistory();
+                 refreshWorkQueueForPackageUuid_(currentPostQaUuid);
+                 var resultEl = document.getElementById('postQaResults');
+                 if (resultEl) resultEl.scrollIntoView({behavior:'smooth', block:'start'});
+             })
+             .withFailureHandler(function(e) {
+                 fail('The QA service failed before returning a result. ' + (e && e.message ? e.message : 'Try again.'));
+             })
+             .runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, currentPostQaUuid, snapshotMode, true, JSON.stringify(lineageMeta), sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName);
+     };
+
+     processFiles();
+ }
+
+
+ function runLifecycleQa() {
+     if (qaRunInProgress) return showToast('A QA comparison is already running.', 'warning');
+     var checks = [
+       ['qaRawExcelInput','.xlsx','C0 Raw Excel'],
+       ['qaRawJsonInput','.json','C0 Raw JSON'],
+       ['qaCurrentExcelInput','.xlsx','C1 Current Excel'],
+       ['qaCurrentJsonInput','.json','C1 Current JSON']
+     ];
+     for (var i = 0; i < checks.length; i++) {
+       var check = validateChosenFile(checks[i][0], checks[i][1], checks[i][2]);
+       if (!check.ok) return alert('Choose a valid ' + checks[i][2] + '. ' + check.reason + '.');
+     }
+     if (!currentPostQaUuid) return alert("Open Before vs After QA from a saved course so CTI can use its immutable source fingerprint.");
+     var importChoice = (document.getElementById('qaGenerationSelect') || {}).value || '';
+     var ingestionChoice = (document.getElementById('qaIngestionCapabilitySelect') || {}).value || '';
+     if (!importChoice) return alert('Before running QA, tell CTI whether Smart Ingestion ran again since the last saved CTI QA.');
+     if (!ingestionChoice) return alert('Before running QA, tell CTI whether this shell already came from the latest Smart Ingestion available to your team.');
+     var lifecycleLineageMeta = qaBuildLineageMetaFromUi();
+     var sourceLiveCheck = validateChosenFile('qaBrightspaceSourceInput','.json','Brightspace source ground truth',40);
+     var sourceLiveSelected = !!((document.getElementById('qaBrightspaceSourceInput') || {}).files || []).length;
+     if (sourceLiveSelected && !sourceLiveCheck.ok) return alert('Choose a valid Brightspace source ground-truth JSON. ' + sourceLiveCheck.reason + '.');
+
+     setQaBusy(true, 'lifecycle', 'Comparing C0 → C1…');
+     renderStatus('qaLifecycleRunStatus', 'Reading both coherent snapshot pairs. CTI will independently compare S0→C0 and S0→C1, then derive C0→C1 lifecycle changes.', 'info', true);
+     document.getElementById('aiQaRemediationOutput').innerHTML = '';
+
+     var payload = {};
+     var queue = [
+       {id:'qaRawExcelInput', b64:'rawExcelBase64', name:'rawExcelName'},
+       {id:'qaRawJsonInput', b64:'rawJsonBase64', name:'rawJsonName'},
+       {id:'qaCurrentExcelInput', b64:'currentExcelBase64', name:'currentExcelName'},
+       {id:'qaCurrentJsonInput', b64:'currentJsonBase64', name:'currentJsonName'}
+     ];
+
+     var recoveryInputs=[{id:'qaRawRecoveryInput',b64:'rawRecoveryBase64',name:'rawRecoveryName'},{id:'qaCurrentRecoveryInput',b64:'currentRecoveryBase64',name:'currentRecoveryName'}];
+     for(var ri=0;ri<recoveryInputs.length;ri++){
+       var re=recoveryInputs[ri],selected=!!((document.getElementById(re.id)||{}).files||[]).length;
+       if(selected){var checkRecovery=validateChosenFile(re.id,'.json','Reading recovery JSON');if(!checkRecovery.ok){setQaBusy(false,'lifecycle');return alert(checkRecovery.reason);}queue.push(re);}
+     }
+
+     function fail(message) {
+       setQaBusy(false, 'lifecycle');
+       renderStatus('qaLifecycleRunStatus', message, 'error', false);
+     }
+
+     function next(idx) {
+       if (idx >= queue.length) {
+         if (sourceLiveCheck.ok && !payload.sourceLiveBase64) {
+           readFileAsBase64('qaBrightspaceSourceInput', function(b64, name, err) {
+             if (!b64) return fail(err || 'Could not read the Brightspace source ground-truth JSON. Re-select it and try again.');
+             payload.sourceLiveBase64=b64; payload.sourceLiveName=name; next(idx);
+           });
+           return;
+         }
+         renderStatus('qaLifecycleRunStatus', sourceLiveCheck.ok ? 'All snapshot files and Brightspace source ground truth are loaded. Validating coherence and deriving lifecycle mutations…' : 'All four files are loaded. Validating snapshot coherence and deriving lifecycle mutations…', 'info', true);
+         google.script.run
+           .withSuccessHandler(function(res) {
+             setQaBusy(false, 'lifecycle');
+             if (!res || !res.success) {
+               renderStatus('qaLifecycleRunStatus', (res && res.error) || 'Lifecycle QA failed.', 'error', false);
+               return;
+             }
+             lastLifecycleQaResult = res;
+             lastPostQaResult = null;
+             renderLifecycleQaResults(res);
+             renderStatus('qaLifecycleRunStatus', 'Lifecycle comparison complete. C0 and C1 input coherence passed the server checks shown in the report.', 'success', false);
+             loadQaEvidenceHistory();
+             var resultEl = document.getElementById('postQaResults');
+             if (resultEl) resultEl.scrollIntoView({behavior:'smooth', block:'start'});
+           })
+           .withFailureHandler(function(e) {
+             fail('The lifecycle QA service failed before returning a result. ' + (e && e.message ? e.message : 'Try again.'));
+           })
+           .runPostIngestionLifecycleQa(
+             payload.rawExcelBase64, payload.rawExcelName,
+             payload.rawJsonBase64, payload.rawJsonName,
+             payload.currentExcelBase64, payload.currentExcelName,
+             payload.currentJsonBase64, payload.currentJsonName,
+             currentPostQaUuid, JSON.stringify(lifecycleLineageMeta),
+             payload.sourceLiveBase64 || null, payload.sourceLiveName || null,
+             payload.rawRecoveryBase64 || null,payload.rawRecoveryName || null,
+             payload.currentRecoveryBase64 || null,payload.currentRecoveryName || null
+           );
+         return;
+       }
+       var q = queue[idx];
+       readFileAsBase64(q.id, function(b64, name, err) {
+         if (!b64) return fail(err || ('Could not read ' + (name || 'a lifecycle file') + '. Re-select the file and try again.'));
+         payload[q.b64] = b64;
+         payload[q.name] = name;
+         next(idx + 1);
+       });
+     }
+     next(0);
+ }
+
+ function lifecycleBadgeStyle(verdict) {
+     var v = String(verdict || 'STABLE');
+     var map = {
+       REGRESSION:['#FEE2E2','#991B1B'],
+       RUBRIC_MUTATION:['#FEF3C7','#92400E'],
+       CONTENT_MUTATION:['#FEF3C7','#92400E'],
+       STRUCTURE_MUTATION:['#FEF3C7','#92400E'],
+       PERSISTENT_MISSING:['#FEE2E2','#991B1B'],
+       PERSISTED_INTENTIONAL_EXCLUSION:['#ECFDF5','#065F46'],
+       IMPROVED_OR_RESOLVED:['#ECFDF5','#065F46'],
+       STATE_MUTATION:['#EFF6FF','#1E40AF'],
+       CURRENT_ONLY:['#F3F4F6','#374151'],
+       RAW_ONLY:['#F3F4F6','#374151'],
+       STABLE:['#F3F4F6','#374151']
+     };
+     return map[v] || map.STABLE;
+ }
+
+ function coherenceHtml(coh, label) {
+     if (!coh) return '';
+     var status = coh.status || 'UNVERIFIED';
+     var palette = status === 'PASS' ? ['#ECFDF5','#065F46','#A7F3D0'] : status === 'FAIL' ? ['#FEF2F2','#991B1B','#FCA5A5'] : ['#FFFBEB','#92400E','#FCD34D'];
+     var extra = '';
+     if (coh.idOverlapPercent != null) extra += ' · ID overlap <b>' + escapeHtml(String(coh.idOverlapPercent)) + '%</b>';
+     if (coh.jsonCourseId) extra += ' · JSON course <code>' + escapeHtml(coh.jsonCourseId) + '</code>';
+     return "<div style='background:" + palette[0] + ";color:" + palette[1] + ";border:1px solid " + palette[2] + ";padding:8px 10px;border-radius:6px;font-size:11px;margin-bottom:8px;'><b>" + escapeHtml(label) + " coherence: " + escapeHtml(status) + "</b>" + extra + "<br>" + escapeHtml(coh.reason || '') + "</div>";
+ }
+
+ function renderLifecycleQaResults(res) {
+     var ls = res.lifecycleSummary || {};
+     var raw = res.rawSnapshot || {};
+     var cur = res.currentSnapshot || {};
+     var rawS = raw.summary || {}, curS = cur.summary || {};
+     var html = qaPersistenceBanner(res);
+     if (res.liveSourceGroundTruth) {
+       var lg=res.liveSourceGroundTruth, liveReview=(lg.status==='REVIEW');
+       html += "<div style='background:"+(liveReview?'#FFFBEB':'#ECFDF5')+";border:1px solid "+(liveReview?'#FCD34D':'#A7F3D0')+";color:"+(liveReview?'#92400E':'#065F46')+";padding:9px 11px;border-radius:7px;margin-bottom:10px;font-size:12px;'><b>Shared live Brightspace evidence: "+escapeHtml(lg.status||'')+"</b> · matched "+escapeHtml(String(lg.matchedSourceItems||0))+" · live-only "+escapeHtml(String(lg.liveOnlyCount||0))+" · contradictions "+escapeHtml(String(lg.contradictionCount||0))+"</div>";
+     }
+
+     if(res.savedReportContext) html += "<div style='background:#EEF2FF;border:1px solid #C7D2FE;color:#3730A3;padding:9px 11px;border-radius:7px;margin-bottom:10px;font-size:12px;'><b>Opened from QA Evidence Memory:</b> "+escapeHtml(res.savedReportContext.runId||'')+" · "+escapeHtml(qaHumanAttemptLabel(res.savedReportContext.generation))+" · "+escapeHtml(qaHumanStageLabel(res.savedReportContext.snapshotStage))+"</div>";
+     html += qaLifecycleActionSummaryHtml(res);
+     html += "<div style='display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;'>";
+     html += "<div><b>Lifecycle:</b> S0 Source → C0 Raw → C1 Ops-prepared<br><span style='font-size:11px;color:#6B7280;'>Gateway " + escapeHtml(res.gatewayRelease || '') + " · engine " + escapeHtml(res.engineBuildId || '') + " · extractor v6.13.27/schema 33</span></div>";
+     html += "<div style='display:flex;gap:6px;'><button onclick='copyLifecycleQaToClipboard(this)' class='btn-secondary btn-sm'>📋 Copy Report</button><button onclick='downloadVisibleQaReport()' class='btn-secondary btn-sm'>⬇ Download .txt</button></div></div>";
+
+     html += coherenceHtml(raw.inputCoherence, 'C0 Raw');
+     html += coherenceHtml(cur.inputCoherence, 'C1 Current');
+
+     html += "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:12px 0;'>";
+     html += "<div class='qa-box' style='background:#EFF6FF;border-color:#BFDBFE;'><div style='font-size:11px;color:#1E40AF;'>SOURCE → C0 RAW</div><div style='font-size:24px;font-weight:800;color:#1E3A8A;'>" + escapeHtml(String(rawS.observedFidelity == null ? '—' : rawS.observedFidelity + '%')) + "</div><div style='font-size:11px;color:#3B82F6;'>Verified " + escapeHtml(String(rawS.verified || 0)) + " · Missing " + escapeHtml(String(rawS.missing || 0)) + " · Repackaged " + escapeHtml(String(rawS.repackaged || 0)) + "</div></div>";
+     html += "<div class='qa-box' style='background:#F5F3FF;border-color:#DDD6FE;'><div style='font-size:11px;color:#6D28D9;'>SOURCE → C1 CURRENT</div><div style='font-size:24px;font-weight:800;color:#5B21B6;'>" + escapeHtml(String(curS.observedFidelity == null ? '—' : curS.observedFidelity + '%')) + "</div><div style='font-size:11px;color:#7C3AED;'>Verified " + escapeHtml(String(curS.verified || 0)) + " · Missing " + escapeHtml(String(curS.missing || 0)) + " · Repackaged " + escapeHtml(String(curS.repackaged || 0)) + "</div></div>";
+     html += "<div class='qa-box' style='background:#F9FAFB;border-color:#D1D5DB;'><div style='font-size:11px;color:#374151;'>C0 → C1 LIFECYCLE</div><div style='font-size:14px;font-weight:700;color:#111827;margin-top:5px;'>Published changes: " + escapeHtml(String(ls.publicationStateMutations || 0)) + "</div><div style='font-size:11px;color:#6B7280;margin-top:3px;'>Rubric changes " + escapeHtml(String(ls.rubricMutations || 0)) + " · Regressions " + escapeHtml(String(ls.regressions || 0)) + " · Persistent missing " + escapeHtml(String(ls.persistentMissing || 0)) + "</div></div>";
+     html += "</div>";
+
+     if (ls.persistedIntentionalExclusions) {
+       html += "<div style='background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;padding:10px 11px;border-radius:7px;font-size:12px;margin-bottom:12px;'><b>Lifecycle provenance preserved:</b> " + escapeHtml(String(ls.persistedIntentionalExclusions)) + " C1 absence(s) inherit an explicit C0 intentional-exclusion finding and are not treated as newly missing.</div>";
+     }
+
+     html += "<div style='overflow-x:auto;'><table class='math-proof-table' style='width:100%;font-size:11px;'><tr><th>Source item</th><th>C0</th><th>C1</th><th>Lifecycle interpretation</th><th>Observed changes / owner action</th></tr>";
+     (res.lifecycleItems || []).forEach(function(item) {
+       var badge = lifecycleBadgeStyle(item.primaryLifecycleVerdict);
+       var changes = (item.notes || []).map(function(n){ return escapeHtml(n); }).join('<br>');
+       if (!changes) changes = 'No material C0→C1 change detected.';
+       var pub = '';
+       if (item.rawPublished !== null || item.currentPublished !== null) pub = '<br><span style="color:#6B7280;">Publication: ' + (item.rawPublished === null ? '?' : (item.rawPublished ? 'published' : 'unpublished')) + ' → ' + (item.currentPublished === null ? '?' : (item.currentPublished ? 'published' : 'unpublished')) + '</span>';
+       var rubric = '';
+       if (item.rawRubricCount != null || item.currentRubricCount != null) rubric = '<br><span style="color:#6B7280;">Rubrics: ' + escapeHtml(String(item.rawRubricCount == null ? '?' : item.rawRubricCount)) + ' → ' + escapeHtml(String(item.currentRubricCount == null ? '?' : item.currentRubricCount)) + '</span>';
+       html += "<tr><td><b>" + escapeHtml(item.sourceName || '') + "</b><br><span style='color:#6B7280;'>" + escapeHtml(item.sourceType || '') + (item.sourcePath ? ' @ ' + escapeHtml(item.sourcePath) : '') + "</span></td>";
+       html += "<td>" + escapeHtml(item.rawVerdict || '') + (item.rawFidelity == null ? '' : '<br>' + escapeHtml(String(item.rawFidelity)) + '%') + "</td>";
+       html += "<td>" + escapeHtml(item.currentVerdict || '') + (item.effectiveCurrentVerdict && item.effectiveCurrentVerdict !== item.currentVerdict ? '<br><span style="color:#065F46;">effective: ' + escapeHtml(item.effectiveCurrentVerdict) + '</span>' : '') + (item.currentFidelity == null ? '' : '<br>' + escapeHtml(String(item.currentFidelity)) + '%') + "</td>";
+       html += "<td><span style='display:inline-block;background:" + badge[0] + ";color:" + badge[1] + ";border-radius:999px;padding:3px 7px;font-weight:700;'>" + escapeHtml(item.primaryLifecycleVerdict || '') + "</span>" + pub + rubric + "</td>";
+       html += "<td>" + changes + "<br><span style='color:#374151;font-weight:600;'>Owner:</span> " + escapeHtml(item.ownerAction || '') + "</td></tr>";
+     });
+     html += "</table></div>";
+     html += "<div style='margin-top:12px;font-size:11px;color:#6B7280;'>Lifecycle rules are evidence-preserving: C0 claims never override contradictory C1 payload, but explicit C0 provenance can prevent an unchanged C1 absence from being mislabelled as a new loss.</div>";
+     document.getElementById('postQaResults').innerHTML = html;
+ }
+
+ function copyLifecycleQaToClipboard(btn) {
+     if (!lastLifecycleQaResult) return alert('No lifecycle result to copy.');
+     var res = lastLifecycleQaResult, ls = res.lifecycleSummary || {};
+     var raw = res.rawSnapshot || {}, cur = res.currentSnapshot || {};
+     var text = 'CTI BEFORE → AFTER QA REPORT (SAME SMART INGESTION ATTEMPT)\n';
+     text += 'Model: ' + (res.lifecycleModel || 'S0_SOURCE -> C0_RAW -> C1_OPS') + '\n';
+     text += 'Gateway: ' + (res.gatewayRelease || '') + ' | QA engine: ' + (res.engineBuildId || '') + '\n';
+     text += 'C0 captured extractor: ' + qaCapturedExtractorLabel_(raw) + '\n';
+     text += 'C1 captured extractor: ' + qaCapturedExtractorLabel_(cur) + '\n';
+     text += 'C0 INPUT EVIDENCE\n' + qaCaptureInputsText_(raw) + '\n';
+     text += 'C1 INPUT EVIDENCE\n' + qaCaptureInputsText_(cur) + '\n';
+     if (raw.inputCoherence) text += 'C0 input coherence: ' + raw.inputCoherence.status + ' | ID overlap=' + (raw.inputCoherence.idOverlapPercent == null ? 'n/a' : raw.inputCoherence.idOverlapPercent + '%') + ' | ' + (raw.inputCoherence.reason || '') + '\n';
+     if (cur.inputCoherence) text += 'C1 input coherence: ' + cur.inputCoherence.status + ' | ID overlap=' + (cur.inputCoherence.idOverlapPercent == null ? 'n/a' : cur.inputCoherence.idOverlapPercent + '%') + ' | ' + (cur.inputCoherence.reason || '') + '\n';
+     text += 'Source→C0 observed match: ' + ((raw.summary || {}).observedFidelity == null ? 'n/a' : raw.summary.observedFidelity + '%') + '\n';
+     text += 'Source→C1 observed match: ' + ((cur.summary || {}).observedFidelity == null ? 'n/a' : cur.summary.observedFidelity + '%') + '\n';
+     text += 'C0→C1: publication=' + (ls.publicationStateMutations || 0) + ' | rubric=' + (ls.rubricMutations || 0) + ' | content=' + (ls.contentMutations || 0) + ' | structure=' + (ls.structureMutations || 0) + ' | regressions=' + (ls.regressions || 0) + ' | improved=' + (ls.improvedOrResolved || 0) + ' | persisted exclusions=' + (ls.persistedIntentionalExclusions || 0) + ' | persistent missing=' + (ls.persistentMissing || 0) + '\n\n';
+     (res.lifecycleItems || []).forEach(function(item) {
+       text += item.primaryLifecycleVerdict + ' — ' + (item.sourceName || '') + '\n';
+       text += '  C0: ' + (item.rawVerdict || '') + (item.rawFidelity == null ? '' : ' ' + item.rawFidelity + '%') + ' | C1: ' + (item.currentVerdict || '') + (item.currentFidelity == null ? '' : ' ' + item.currentFidelity + '%');
+       if (item.effectiveCurrentVerdict && item.effectiveCurrentVerdict !== item.currentVerdict) text += ' | effective C1: ' + item.effectiveCurrentVerdict;
+       text += '\n';
+       if (item.rawPublished !== null || item.currentPublished !== null) text += '  Publication: ' + (item.rawPublished === null ? '?' : (item.rawPublished ? 'PUBLISHED' : 'UNPUBLISHED')) + ' -> ' + (item.currentPublished === null ? '?' : (item.currentPublished ? 'PUBLISHED' : 'UNPUBLISHED')) + '\n';
+       if (item.rawRubricCount != null || item.currentRubricCount != null) text += '  Rubrics: ' + (item.rawRubricCount == null ? '?' : item.rawRubricCount) + ' -> ' + (item.currentRubricCount == null ? '?' : item.currentRubricCount) + '\n';
+       (item.notes || []).forEach(function(n){ text += '  - ' + n + '\n'; });
+       text += '  Owner: ' + (item.ownerAction || '') + '\n\n';
+     });
+     navigator.clipboard.writeText(text).then(function(){ var old=btn.innerText; btn.innerText='✓ Copied'; setTimeout(function(){btn.innerText=old;},1600); }).catch(function(e){ alert('Copy failed: ' + e.message); });
+ }
+
+ function qaSourceAssetProvenanceText_(e) {
+   return (e.matches||[]).map(function(m){return '  Source file: '+m.destinationFile+' | SHA-256: '+m.sha256+'\n'+(m.sources||[]).map(function(s){return '    '+s.sourcePath+' → '+s.sourceName+' | '+s.filePath+'\n';}).join('');}).join('');
+ }
+ function qaExternalWebpageDiagnosticText_(e) {
+   return '  External webpage evidence: '+e.status+' | '+e.reasonCode+' — '+e.reason+'\n' +
+     '    Source resource type: '+(e.sourceTypeRaw||'not recorded')+' | Source URL(s): '+((e.sourceUrls||[]).join(' ; ')||'not captured')+'\n' +
+     '    Captured URL(s): '+((e.capturedUrls||[]).join(' ; ')||'not available')+' | link confidence: '+(e.linkEvidenceConfidence==null?'unknown':Math.round(e.linkEvidenceConfidence*100)+'%')+' | Plugin marker: '+(e.configurationMarkerObserved?'observed':'not observed')+'\n'+
+     (e.runtime?'    Frame evidence: readable='+e.runtime.readableFrames+' | inaccessible='+e.runtime.inaccessibleFrames+' | playback='+e.runtime.playbackStatus+' | launch='+e.runtime.launchStatus+'\n':'');
+ }
+ function qaExternalWebpageDiagnosticHtml_(e) {
+   return escapeHtml(qaExternalWebpageDiagnosticText_(e)).replace(/\n/g,'<br>');
+ }
+ function qaMissingScopeText_(res) {
+   res=res||{};
+   var rows=(res.itemResults||[]).filter(function(r){return r.verdict==='MISSING';});
+   var exempt=rows.filter(function(r){return r.operationalPolicy&&r.operationalPolicy.inDecisionGate===false;}).length;
+   var total=res.summary&&res.summary.missing!=null?Number(res.summary.missing):rows.length;
+   if(!total)return '';
+   var policy=res.operationalPolicy||{},gate=policy.learnerFacingMissing;
+   return 'Missing rows across all source areas: '+total+' | excluded from automatic redo: '+exempt+(gate!=null?' | learner-facing missing in decision gate: '+Number(gate):'')+'. These are item-match counts, not a count of required course edits. Unread editors remain evidence gaps; zero missing in the decision gate does not establish complete preservation.';
+ }
+ function qaAssessmentAnswerEvidenceText_(sa) {
+   if(sa.answerEvidenceApplicable===false)return 'N/A (written-response questions; grading still requires review)';
+   return sa.answerEvidenceCoverage==null?'not recorded':Math.round(Number(sa.answerEvidenceCoverage||0)*100)+'%';
+ }
+ function qaAssessmentEvidenceText_(sa) {
+   sa=sa||{};var lines=[];
+   if(sa.reason)lines.push('Assessment evidence: '+sa.status+' — '+sa.reason);
+   if((sa.unmatchedSourceQuestions||[]).length)lines.push('Unmatched source question(s): '+sa.unmatchedSourceQuestions.join(', '));
+   if((sa.unmatchedCourseraQuestions||[]).length)lines.push('Unmatched Coursera question(s): '+sa.unmatchedCourseraQuestions.join(', '));
+   if((sa.sourceMediaQuestionNumbers||[]).length)lines.push('Question media: '+(sa.questionMediaStatus||'UNVERIFIED')+' | source question(s): '+sa.sourceMediaQuestionNumbers.join(', '));
+   (sa.sourcePackageMediaGaps||[]).forEach(function(m){
+     lines.push('Source Q'+m.question+' media '+m.status+' | reference: '+(m.ref||'not recorded')+' | expected package path: '+(m.expectedPath||'not recorded')+((m.candidates||[]).length?' | candidate paths: '+m.candidates.join(' ; '):''));
+   });
+   return lines.join('\n');
+ }
+ function qaOwnerTasksText(res) {
+    var lines=['OWNER TASKS — what to do and where'],refresh=[],tasks=[],byKey=Object.create(null);
+    function add(severity,path,name,id,action,sourceLabel) {
+      if(['CRITICAL','REVIEW','EVIDENCE'].indexOf(severity)===-1||!action) return;
+      var key=JSON.stringify([id||'',path,name,severity,action]);
+      // Without stable destination identity, keep separate source tasks.
+      if(!id) key+=':'+tasks.length;
+      var task=byKey[key];
+      if(!task){task={severity:severity,path:path,name:name,id:id,action:action,sources:[]};byKey[key]=task;tasks.push(task);}
+      if(sourceLabel && task.sources.indexOf(sourceLabel)===-1) task.sources.push(sourceLabel);
+    }
+    (res.itemResults||[]).forEach(function(r){
+      var a=r.ownerAction||{},check=r.checks&&r.checks.structuredAssessment;
+      if(check&&check.sourceAnswerRefreshRequired && refresh.indexOf(r.sourceName)===-1) refresh.push(r.sourceName);
+      if(check&&check.sourceAnswerRefreshRequired && r.verdict==='UNVERIFIED' && !(r.checks.destinationReadiness||[]).length && (r.issues||[]).every(function(x){return x==='PAYLOAD_UNVERIFIED';})) return;
+      add(a.severity||'REVIEW',r.courseraPath||r.sourcePath||'Root',r.courseraName||r.sourceName,r.courseraId||'',a.action,(r.sourcePath||'Root')+' → '+r.sourceName+(r.sourceId?' ['+r.sourceId+']':''));
+    });
+    if(refresh.length) lines.push('[EVIDENCE] Refresh the same original IMSCC once: use Re-Scan on its existing CTI package row, select the original .imscc file, and wait for completion. Then repeat QA. Legacy answer evidence affects: '+refresh.join('; ')+'. No answer change is established solely by this evidence gap.');
+    var sourceCarriers=(res.injected||[]).filter(function(i){return i.classification==='SOURCE_ASSET_CARRIER' && !(i.operationalPolicy&&i.operationalPolicy.classification==='NON_LFM_POLICY_EXEMPT');});
+    if(sourceCarriers.length)lines.push('[REVIEW] Source attachment placement and visibility: '+sourceCarriers.length+' destination item(s) contain exact source-file matches. Review their organization and any answer-key visibility in the additional-items section. File provenance is verified; the intended learner visibility and surrounding item content remain separate checks.');
+    (res.destinationReadiness&&res.destinationReadiness.findings||[]).forEach(function(f){
+      if((res.itemResults||[]).some(function(r){return (r.checks&&r.checks.destinationReadiness||[]).some(function(x){return x.code===f.code&&x.itemName===f.itemName&&x.path===f.path;});})) return;
+      add(f.severity,f.path||'Course',f.itemName,f.itemId||'',f.action,'');
+    });
+    tasks.forEach(function(t){
+      lines.push('['+t.severity+'] '+t.path+' → '+t.name+(t.id&&!/^cti-aggregate:/.test(t.id)?' ['+t.id+']':'')+'\n  '+t.action+(t.sources.length>1?'\n  Applies to source items: '+t.sources.join('; '):''));
+    });
+    if(lines.length===1) lines.push('No active owner task is recorded. This does not establish unobserved content as complete.');
+    return lines.join('\n')+'\n\n';
+ }
+ function qaCapturedExtractorLabel_(res) {
+    var meta=(res.stats&&res.stats.extractorMeta)||{},crawl=meta.activeSpaCrawl||{},review=res.captureReadiness||{};
+    return String(crawl.buildId||meta.buildId||crawl.version||meta.extractor||review.observedBuild||'Not recorded');
+ }
+ function qaCaptureInputsText_(res) {
+    res=res||{};
+    var meta=(res.stats&&res.stats.extractorMeta)||{},review=res.captureReadiness||{};
+    var lines=['CAPTURE INPUTS','Coursera captured extractor: '+qaCapturedExtractorLabel_(res)];
+    if(meta.capturedAt)lines.push('Coursera capture time: '+meta.capturedAt);
+    var recovery=meta.supplementalReadingRecovery;
+    if(recovery){
+      lines.push('Recovery baseline capture: '+recovery.baselineCapture);
+      lines.push('Reading recovery: '+recovery.recoveredEditors+'/'+recovery.requested+' editors | version='+recovery.version+' | captured='+recovery.finishedAt+' | file='+recovery.fileName);
+      lines.push(recovery.meaning);
+      (recovery.payloadGaps||[]).forEach(function(g){lines.push('  Recovered editor '+g.id+' | '+g.code+' | '+g.reason);});
+    }
+    if(review.expectedVersion)lines.push('Available Coursera extractor: '+review.expectedVersion+' | capture status='+review.status);
+    if(review.action)lines.push('ACTION: '+review.action);
+    if(review.traversal&&review.traversal.recorded)lines.push('Item editors observed: '+review.traversal.visited+'/'+review.traversal.eligible+' | unresolved='+review.traversal.unresolvedCount+(review.traversal.unresolvedItemIds.length?' | unresolved IDs: '+review.traversal.unresolvedItemIds.join(', '):''));
+    (review.observedEmptySourceAssessments||[]).forEach(function(q){lines.push('  '+q.name+(q.id?' ['+q.id+']':'')+': destination editor confirmed empty | matched source questions='+q.sourceQuestions+' | review content and intended placement');});
+    (review.assessmentGaps||[]).forEach(function(q){lines.push('  '+q.name+(q.id?' ['+q.id+']':'')+': source questions='+Number(q.sourceQuestions||0)+' | captured questions='+q.captured+' | destination declared='+(q.declaredObserved===false?'not observed':q.declared)+(q.answerEvidenceOnly?' | answer evidence or applicability needs review':q.answerEvidenceIncomplete?' | answer evidence incomplete':''));});
+    var live=res.liveSourceGroundTruth||(res.summary&&res.summary.liveSourceGroundTruth)||(res.stats&&res.stats.sourceGroundTruth);
+    if(!live){lines.push('Live Brightspace file: not recorded in this report. A console completion message does not attach its JSON to QA.');return lines.join('\n')+'\n\n';}
+    lines.push('Live Brightspace file: '+String(live.fileName||'Included')+' | extractor='+String(live.buildId||live.extractor||'Not recorded')+' | captured='+String(live.capturedAt||'Not recorded'));
+    lines.push('Live-source corroboration: '+String(live.status||'RECORDED')+' | matched package items='+Number(live.matchedSourceItems||0)+' | live-only='+Number(live.liveOnlyCount||0)+' | contradictions='+Number(live.contradictionCount||0)+' | permission blocks='+Number(live.permissionBlocks||0));
+    var quiz=live.quizCapture;
+    if(quiz){
+      lines.push('Brightspace quiz evidence: '+quiz.capturedQuestionDefinitions+' question definitions across '+quiz.quizzes+' quizzes | quizzes needing evidence review='+quiz.quizEvidenceGaps);
+      (quiz.items||[]).forEach(function(q){lines.push('  '+q.name+' ['+q.id+']: captured definitions='+q.capturedQuestionDefinitions+' | description states='+(q.descriptionQuestionCount==null?'not observed':q.descriptionQuestionCount)+' | '+q.status);});
+      lines.push(quiz.countMeaning);
+    }
+    if(live.matchedBundledAssetCount)lines.push('Matched package attachments='+Number(live.matchedBundledAssetCount)+' (identity matched; file content not verified by this match).');
+    (live.evidenceReviews||[]).forEach(function(x){lines.push('  Live-source evidence review: '+String(x.sourceName||'')+' | '+String(x.kind||'')+' | '+String(x.reason||''));});
+    (live.warnings||[]).forEach(function(w){lines.push('  Brightspace capture note: '+String(w));});
+    (live.contradictions||[]).forEach(function(x){lines.push('  Package/live finding: '+String(x.sourceName||'Untitled')+' | '+String(x.kind||'CONTRADICTION')+(x.liveTopic?' → '+x.liveTopic:'')+(x.decisionRelevant===false?' [policy-exempt]':''));});
+    (live.liveOnlyItems||[]).forEach(function(x){lines.push('  Live-only item: '+String(x.title||'Untitled')+' @ '+String(x.path||'Root')+(x.decisionRelevant===false?' [policy-exempt]':''));});
+    return lines.join('\n')+'\n\n';
+ }
+ function qaCaptureInputsHtml_(res) {
+    res=res||{};
+    var review=res.captureReadiness||{},needsAction=!!review.action;
+    var live=res.liveSourceGroundTruth||(res.summary&&res.summary.liveSourceGroundTruth)||(res.stats&&res.stats.sourceGroundTruth);
+    var h="<section style='margin-bottom:12px;padding:12px;border:1px solid "+(needsAction?'#FCD34D':'#CBD5E1')+";border-radius:8px;background:"+(needsAction?'#FFFBEB':'#F8FAFC')+";font-size:12px;'><b>Capture inputs</b><div style='margin-top:5px;'>Coursera: "+escapeHtml(qaCapturedExtractorLabel_(res))+"</div>";
+    if(review.action)h+="<p style='color:#92400E;line-height:1.5;'><b>Evidence action:</b> "+escapeHtml(review.action)+"</p>";
+    h+="<div>Live Brightspace JSON: "+(live?escapeHtml(live.fileName||'Included'):'not recorded in this report')+"</div>";
+    if(live&&live.quizCapture)h+="<div>Brightspace: "+Number(live.quizCapture.capturedQuestionDefinitions||0)+" captured question definitions across "+Number(live.quizCapture.quizzes||0)+" quizzes · "+Number(live.quizCapture.quizEvidenceGaps||0)+" quizzes need evidence review.</div>";
+    return h+"<details style='margin-top:7px;'><summary style='cursor:pointer;'>Show capture versions and Brightspace evidence</summary><div style='margin-top:6px;white-space:pre-wrap;'>"+escapeHtml(qaCaptureInputsText_(res))+"</div></details></section>";
+ }
+ function qaAssessmentScoreLabel_(a) {
+    a=a||{};var value=a.fidelity!=null?a.fidelity:a.similarity;
+    if(value==null)return '';
+    if(a.status==='UNVERIFIED')return 'not verified';
+    var pct=Math.max(0,Math.min(100,Number(value)*100));
+    return (a.status!=='VERIFIED' && pct>=99.95?'<100':pct.toFixed(1).replace(/\.0$/,''))+'% observed-field match';
+ }
+ function qaQuestionDifferenceText_(q) {
+    if(!q)return '';
+    var d=q.details||{},lines=[],normalization=d.optionFeedbackNormalization;
+    if(!(q.mismatches||[]).length && !normalization && !d.optionCaptureIssue)return '';
+    if(d.optionCaptureIssue)lines.push('Capture evidence gap: '+d.optionCaptureIssue+'. Raw answer and feedback text remain below for inspection; no answer-key change is proven.');
+    if(normalization){
+      lines.push('Option feedback separated from answer text: '+normalization.basis+'. Correctness markers were retained.');
+      (normalization.changes||[]).forEach(function(o){lines.push('  Raw captured row '+JSON.stringify(o.rawText)+' → answer text '+JSON.stringify(o.normalizedText)+' | feedback '+JSON.stringify(o.feedbackText));});
+    }
+    lines.push('Source prompt: '+String(q.prompt||'Not captured'));
+    lines.push('Coursera prompt: '+String(q.courseraPrompt||'Not captured'));
+    if(Array.isArray(d.sourceCorrectAnswers))lines.push('Source correct answer(s): '+JSON.stringify(d.sourceCorrectAnswers));
+    if(Array.isArray(d.courseraCorrectAnswers))lines.push((normalization?'Coursera correct answer(s) after feedback separation: ':'Captured Coursera correct answer(s): ')+(d.courseraAnswerTextReliable===false?'Not observed':JSON.stringify(d.courseraCorrectAnswers)));
+    if(!Array.isArray(d.sourceCorrectAnswers) && !Array.isArray(d.courseraCorrectAnswers)) {
+      (d.correctAnswerPairs||[]).forEach(function(p){lines.push('Matched answer evidence: source '+JSON.stringify(p.source||'')+' → Coursera '+JSON.stringify(p.coursera||''));});
+    }
+    function options(label,rows){if(!Array.isArray(rows))return;lines.push(label+':');rows.forEach(function(o,i){lines.push('  '+(i+1)+'. '+String(o.text||o.label||'')+(o.description&&String(o.text||'').indexOf(o.description)===-1?' — '+o.description:'')+(o.correct===true?' [marked correct]':o.correct===false?' [marked incorrect]':' [correctness not observed]'));});}
+    options('Source options',d.sourceOptions);options(normalization?'Coursera options after feedback separation':'Captured Coursera options',d.courseraOptions);
+    if(!Array.isArray(d.sourceOptions) && !Array.isArray(d.courseraOptions)) {
+      (d.optionPairs||[]).forEach(function(p){lines.push('Matched option evidence: source '+JSON.stringify(p.source||'')+' → Coursera '+JSON.stringify(p.coursera||''));});
+    }
+    if((q.mismatches||[]).indexOf('TYPE')>=0)lines.push('Question type: source '+String(q.sourceType||'unknown')+' → Coursera '+String(q.courseraType||'unknown'));
+    if((q.mismatches||[]).indexOf('POINTS')>=0)lines.push('Points: source '+String(d.pointsSource)+' → Coursera '+String(d.pointsCoursera));
+    if(d.sourceAnswerTextReliable!=null||d.courseraAnswerTextReliable!=null)lines.push('Answer evidence marked reliable: source '+String(d.sourceAnswerTextReliable)+' | Coursera '+String(d.courseraAnswerTextReliable));
+    return lines.join('\n');
+ }
+ function qaQuestionDifferenceHtml_(q) {
+    var text=qaQuestionDifferenceText_(q);
+    return text?"<details style='margin:6px 0 10px;padding:8px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:6px;'><summary style='cursor:pointer;font-weight:700;'>Inspect source and captured Coursera evidence</summary><div style='white-space:pre-wrap;line-height:1.5;margin-top:7px;'>"+escapeHtml(text)+"</div></details>":'';
+ }
+ function qaDestinationOutlineHtml(res) {
+    var view=res.ownerView;
+    if(!view||!Array.isArray(view.items)) return '';
+    var esc=escapeHtml, groups=[], byPath=Object.create(null);
+    view.items.forEach(function(row){var path=row.path||'Root';if(!byPath[path]){byPath[path]=[];groups.push(path);}byPath[path].push(row);});
+    var labels={REPAIR_OR_CONFIRM:'Repair / confirm finding',REVIEW:'Review required',EVIDENCE_NEEDED:'Evidence needed',VERIFIED_EVIDENCE:'Verified evidence',NOT_SOURCE_VERIFIED:'Not source-verified'};
+    var colors={REPAIR_OR_CONFIRM:'#b91c1c',REVIEW:'#92400e',EVIDENCE_NEEDED:'#4338ca',VERIFIED_EVIDENCE:'#047857',NOT_SOURCE_VERIFIED:'#475569'};
+    var h="<section style='border:1px solid #cbd5e1;border-radius:10px;padding:16px;margin:14px 0;background:#fff'><h3 style='margin:0 0 8px'>Coursera course outline — owner view</h3><p style='font-size:12px;color:#475569'>"+esc(view.authority)+" Verified evidence applies to the recorded checks; it is not a guarantee that every field or interaction is complete. Shared lesson checks can span several items.</p>";
+    groups.forEach(function(path){
+      var rows=byPath[path];
+      h+="<details style='border-top:1px solid #e2e8f0;padding:10px 0'><summary style='cursor:pointer;font-weight:700'>"+esc(path)+" <span style='color:#64748b;font-weight:400'>· "+rows.length+" items</span></summary>";
+      rows.forEach(function(row){
+        h+="<article style='margin:10px 0 0 14px;border-left:3px solid "+(colors[row.status]||'#64748b')+";padding:10px 14px;background:#f8fafc'><div style='display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap'><b>"+esc(row.name)+"</b><span style='color:"+(colors[row.status]||'#475569')+"'>"+esc(labels[row.status]||row.status)+"</span></div><div style='font-size:12px;color:#64748b;margin:5px 0'>"+esc(row.type)+" · ID "+esc(row.id)+" · "+(row.published===true?'Published':row.published===false?'Unpublished':'Publication not observed')+"</div>";
+        if(row.sourceNames.length) h+="<div style='font-size:12px'>Source mapping: "+esc(row.sourceNames.join('; '))+"</div>";
+        (row.actions||[]).forEach(function(a){if(a.severity==='NONE') return;h+="<p style='font-size:13px;line-height:1.5'><b>"+esc(a.sourceName)+" — "+esc(a.verdict)+":</b> "+esc(a.action)+"</p>";});
+        if(row.excerpt) h+="<details style='font-size:12px;margin-top:8px'><summary style='cursor:pointer'>Captured text excerpt — may be incomplete</summary><p style='white-space:pre-wrap'>"+esc(row.excerpt)+"</p></details>";
+        h+='</article>';
+      }); h+='</details>';
+    });
+    if((view.unmappedSource||[]).length){h+="<details style='border-top:1px solid #e2e8f0;padding-top:10px'><summary style='cursor:pointer;font-weight:700'>Source items without a confirmed destination</summary>";view.unmappedSource.forEach(function(r){h+="<p><b>"+esc(r.path+' → '+r.name)+"</b><br>"+esc(r.verdict)+" — "+esc(r.action)+"</p>";});h+='</details>';}
+    return h+'</section>';
+ }
+
+ function renderPostQaResults(res) {
+     var summary = res.summary || {};
+     var html = qaPersistenceBanner(res);
+     html += qaCaptureInputsHtml_(res);
+     if (res.liveSourceGroundTruth) {
+       var lg=res.liveSourceGroundTruth, liveReview=(lg.status==='REVIEW');
+       var bg=liveReview?'#FFFBEB':'#ECFDF5', border=liveReview?'#FCD34D':'#A7F3D0', fg=liveReview?'#92400E':'#065F46';
+       html += "<details class='qa-dropdown' style='margin-bottom:12px;border-color:"+border+";'><summary style='background:"+bg+";color:"+fg+";'><b>Live Brightspace ground truth: "+escapeHtml(lg.status||'')+"</b> · matched "+escapeHtml(String(lg.matchedSourceItems||0))+" · live-only "+escapeHtml(String(lg.liveOnlyCount||0))+" · contradictions "+escapeHtml(String(lg.contradictionCount||0))+" · permission blocks "+escapeHtml(String(lg.permissionBlocks||0))+"</summary><div class='qa-content'><div style='font-size:12px;color:#64748B;margin-bottom:8px;'>The immutable IMSCC/package remains the ingestion denominator. Live-only items do not become automatic missing/re-ingest findings.</div>"; if((lg.liveOnlyItems||[]).length){ html += "<b style='font-size:12px;'>Live-only drift</b><ul style='font-size:12px;margin-top:5px;'>"+(lg.liveOnlyItems||[]).slice(0,20).map(function(x){return "<li>"+escapeHtml((x.title||'Untitled')+' @ '+(x.path||'Root')+(x.decisionRelevant===false?' [policy-exempt]':''))+"</li>";}).join('')+"</ul>"; } if((lg.contradictions||[]).length){ html += "<b style='font-size:12px;'>Package ↔ live contradictions</b><ul style='font-size:12px;margin-top:5px;'>"+(lg.contradictions||[]).slice(0,20).map(function(x){return "<li>"+escapeHtml((x.sourceName||'Untitled')+' — '+(x.kind||'CONTRADICTION')+(x.liveTopic?' → '+x.liveTopic:''))+"</li>";}).join('')+"</ul>"; } html += "</div></details>";
+     }
+
+     if(res.savedReportContext) html += "<div style='background:#EEF2FF;border:1px solid #C7D2FE;color:#3730A3;padding:9px 11px;border-radius:7px;margin-bottom:10px;font-size:12px;'><b>Opened from QA Evidence Memory:</b> "+escapeHtml(res.savedReportContext.runId||'')+" · "+escapeHtml(qaHumanAttemptLabel(res.savedReportContext.generation))+" · "+escapeHtml(qaHumanStageLabel(res.savedReportContext.snapshotStage))+"</div>";
+     html += qaOperatorActionSummaryHtml(res);
+     html += qaDestinationOutlineHtml(res);
+     html += "<details style='margin:0 0 12px 0;border:1px solid #CBD5E1;border-radius:8px;background:#F8FAFC;'><summary style='cursor:pointer;padding:10px 12px;font-weight:750;color:#334155;'>Need help reading this report? Definitions in plain language ⓘ</summary><div style='padding:0 12px 12px 12px;font-size:12px;color:#475569;line-height:1.55;'><b>Observed Match</b> — how much source material CTI can positively match to the current Coursera shell. It is not a quality score.<br><b>Evidence Coverage</b> — how much of the comparison has enough direct evidence for CTI to make a confident call. Low coverage means uncertainty; it does not automatically mean content is missing.<br><b>Verified</b> — CTI has enough positive evidence that the item survived acceptably.<br><b>Partial</b> — some content matched, but a meaningful difference or missing payload still needs attention.<br><b>Unverified</b> — CTI cannot prove either success or failure from the available evidence; inspect only if the item matters to publication.<br><b>Hard payload loss</b> — CTI has positive evidence that learner-facing content, an asset, an answer, or other required payload did not survive correctly.<br><b>Repackaged</b> — source payload was found in a different destination item or consolidated structure; this is not automatically a defect.<br><b>Transformation family</b> — one source item was intentionally split into several Coursera items. CTI checks the family together before deciding whether content is actually missing.<br><b>Runtime review</b> — an interactive item must be launched because structure/text alone cannot prove that the experience works.</div></details>";
+
+     html += "<div style='display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; flex-wrap:wrap;'>";
+     html += "<div style='font-size:14px;'>Analyzed <b>" + (res.stats.coursera || 0) + "</b> Coursera items (" + escapeHtml(res.stats.source || '') + ") against <b>" + (res.stats.originalCore || res.stats.original || 0) + "</b> source items.</div>";
+     html += "<div style='display:flex;gap:6px;'><button onclick='copyPostQaToClipboard(this)' class='btn-secondary btn-sm'>📋 Copy Report</button><button onclick='downloadVisibleQaReport()' class='btn-secondary btn-sm'>⬇ Download .txt</button></div>";
+     html += "</div>";
+
+     if (res.snapshotContext) {
+       var snap = res.snapshotContext;
+       var rawSnap = snap.mode === 'RAW_INGESTION';
+       html += "<div style='background:" + (rawSnap ? "#EFF6FF" : "#F9FAFB") + "; border:1px solid " + (rawSnap ? "#93C5FD" : "#D1D5DB") + "; padding:11px 12px; border-radius:7px; margin-bottom:12px; font-size:12px; color:" + (rawSnap ? "#1E3A8A" : "#374151") + ";'>";
+       html += "<b>Snapshot:</b> " + escapeHtml(snap.label || snap.mode || '') + (snap.inferred ? " <span style='color:#6B7280;'>(auto-detected)</span>" : "") + ". " + escapeHtml(snap.reason || '');
+       if (rawSnap) html += "<br><b>Publication policy:</b> unpublished items are recorded as raw-ingestion state and are <b>not</b> scored as content loss.";
+       html += "</div>";
+     }
+
+     if (res.inputCoherence) {
+       html += coherenceHtml(res.inputCoherence, 'Snapshot input');
+     }
+
+     if (res.stats && res.stats.sourceGroundTruth) {
+       var gt=res.stats.sourceGroundTruth;
+       var drift=(res.sourceGroundTruth && res.sourceGroundTruth.liveOnlyLearnerFacing) || [];
+       var driftAssess=(res.sourceGroundTruth && res.sourceGroundTruth.sourcePackageAssessmentDrift) || [];
+       html += "<div style='background:#EFF6FF;border:1px solid #93C5FD;color:#1E3A8A;padding:12px;border-radius:8px;margin-bottom:15px;font-size:12px;'>";
+       html += "<div style='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;'><div><b>🌐 Live Source Ground Truth: Brightspace</b><br><span style='color:#475569;'>" + escapeHtml((gt.course && gt.course.title) || '') + " · Org Unit " + escapeHtml((gt.course && gt.course.orgUnitId) || '') + "</span></div><span style='font-weight:700;'>" + escapeHtml(String(gt.extractor || '')) + "</span></div>";
+       html += "<div style='margin-top:7px;color:#475569;'><b>Corroboration:</b> " + Number(gt.matchedTopics || 0) + " live topics matched package source items · " + Number(gt.enrichedItems || 0) + " items enriched · runtime " + Number(gt.runtimeEnriched || 0) + " · assessments " + Number(gt.assessmentEnriched || 0) + " · text " + Number(gt.textEnriched || 0) + " · links " + Number(gt.linkEnriched || 0) + ".</div>";
+       html += "<div style='margin-top:5px;color:#475569;'><b>Live-source drift:</b> " + Number(gt.liveOnlyLearnerFacingCount || 0) + " learner-facing Brightspace topics were not safely matched to the stored package fingerprint. These are review evidence only; CTI does not silently add them to the re-ingestion denominator.</div>";
+       if (driftAssess.length) html += "<div style='margin-top:5px;color:#92400E;'><b>Package ↔ live assessment drift:</b> " + escapeHtml(driftAssess.map(function(x){return x.name + ' (' + x.sourcePackageQuestionCount + ' → ' + x.brightspaceQuestionCount + ')';}).join(', ')) + "</div>";
+       if (drift.length) html += "<details style='margin-top:7px;'><summary style='cursor:pointer;font-weight:700;'>Show live-only learner-facing topics (" + drift.length + ")</summary><div style='margin-top:5px;color:#475569;'>" + drift.slice(0,30).map(function(x){return '• ' + escapeHtml(x.title || '') + ' — ' + escapeHtml(x.path || '');}).join('<br>') + (drift.length>30?'<br>… and '+(drift.length-30)+' more':'') + "</div></details>";
+       if (Number(gt.permissionBlocks || 0)>0) html += "<div style='margin-top:5px;color:#92400E;'><b>Permission boundary:</b> " + Number(gt.permissionBlocks || 0) + " source resources returned 401/403 and remain unverified.</div>";
+       html += "</div>";
+     }
+
+     if (res.courseLevelFailure && res.courseLevelFailure.detected) {
+       html += "<div style='background:#7F1D1D;color:#FFFFFF;border:1px solid #991B1B;padding:12px;border-radius:8px;margin-bottom:15px;font-size:12px;'><b>COURSE-LEVEL INGESTION FAILURE:</b> " + escapeHtml(res.courseLevelFailure.code || '') + "<br>" + escapeHtml(res.courseLevelFailure.reason || '') + "</div>";
+     }
+
+     if (res.operationalPolicy) {
+       var op = res.operationalPolicy;
+       var opCode = op.recommendationCode || 'REVIEW';
+       var opBg = opCode === 'KEEP' ? '#ECFDF3' : (opCode === 'REINGEST' ? '#FEF2F2' : (opCode === 'MANUAL_REMEDIATION' ? '#FFF7ED' : '#FFFBEB'));
+       var opBorder = opCode === 'KEEP' ? '#A7F3D0' : (opCode === 'REINGEST' ? '#FCA5A5' : (opCode === 'MANUAL_REMEDIATION' ? '#FDBA74' : '#FCD34D'));
+       var opColor = opCode === 'KEEP' ? '#065F46' : (opCode === 'REINGEST' ? '#991B1B' : (opCode === 'MANUAL_REMEDIATION' ? '#9A3412' : '#92400E'));
+       html += "<div style='background:" + opBg + "; border:1px solid " + opBorder + "; color:" + opColor + "; padding:12px; border-radius:8px; margin-bottom:15px; font-size:12px;'>";
+       html += "<div style='display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;'><div><b>Detailed decision basis (Operational redo decision):</b> " + escapeHtml(op.recommendationLabel || opCode) + "<br><span style='color:#4B5563;'>" + escapeHtml(op.recommendationReason || '') + "</span></div><span style='font-weight:800;font-size:13px;'>" + escapeHtml(opCode) + "</span></div>";
+       html += "<div style='margin-top:8px;color:#4B5563;'><b>Policy-adjusted:</b> Observed Match " + Number(op.adjustedObservedFidelity || 0) + "% · Evidence Coverage " + Number(op.adjustedEvidenceCoverage || 0) + "% · Gate source items " + Number(op.gateSourceItems || 0) + " · Policy-exempt source items " + Number(op.policyExemptSourceItems || 0) + "</div>";
+       html += "<div style='margin-top:5px;color:#4B5563;'><b>Decision findings:</b> matched ingestion failures " + Number(op.learnerFacingIngestionFailures || 0) + " · broken destination extras " + Number(op.learnerFacingExtraIngestionFailures || 0) + " · behavior mutations " + Number(op.learnerFacingBehaviorMutations || 0) + " · behavior unverified " + Number(op.learnerFacingBehaviorUnverified || 0) + " · runtime reviews " + Number(op.learnerFacingRuntimeReviews || 0) + " · external runtime packages " + Number(op.externalRuntimePackageCount || 0) + " · learner-facing missing " + Number(op.learnerFacingMissing || 0) + " · hard payload loss " + Number(op.learnerFacingHardPayloadLoss || 0) + " · manual removals " + Number(op.learnerFacingManualRemovals || 0) + " · manual regressions " + Number(op.learnerFacingManualRegressions || 0) + " · hidden-dependency reviews " + Number(op.hiddenDependencyReviews || 0) + " · type mutations " + Number(op.learnerFacingTypeMutations || 0) + " · partial " + Number(op.learnerFacingPartial || 0) + " · unverified " + Number(op.learnerFacingUnverified || 0) + " · learner-facing extras " + Number(op.learnerFacingExtraReview || 0) + "</div>";
+       if ((op.ingestionFailureNames || []).length) html += "<div style='margin-top:5px;color:#991B1B;'><b>Explicit matched ingestion failures:</b> " + escapeHtml(op.ingestionFailureNames.join(', ')) + "</div>";
+       if ((op.extraIngestionFailureNames || []).length) html += "<div style='margin-top:5px;color:#991B1B;'><b>Broken unmatched Coursera ingestion artifacts:</b> " + escapeHtml(op.extraIngestionFailureNames.join(', ')) + "</div>";
+       if ((op.behaviorMutationNames || []).length) html += "<div style='margin-top:5px;color:#991B1B;'><b>Proven behavior mutations:</b> " + escapeHtml(op.behaviorMutationNames.join(', ')) + "</div>";
+       if ((op.behaviorUnverifiedNames || []).length) html += "<div style='margin-top:5px;color:#92400E;'><b>Assignment behavior not provable from exported source evidence:</b> " + escapeHtml(op.behaviorUnverifiedNames.join(', ')) + " — verify source-LMS submission/grading behavior before KEEP.</div>";
+       if ((op.runtimeReviewNames || []).length) html += "<div style='margin-top:5px;color:#92400E;'><b>Interactive/runtime launch checks:</b> " + escapeHtml(op.runtimeReviewNames.join(', ')) + "</div>";
+       if (op.externalRuntimeEvidence && op.externalRuntimeEvidence.required) html += "<div style='margin-top:5px;color:#92400E;'><b>External runtime inventory:</b> Rise " + Number(op.externalRuntimeEvidence.riseCount || 0) + " · Storyline " + Number(op.externalRuntimeEvidence.storylineCount || 0) + " — launch verification required before KEEP.</div>";
+       else if (op.externalRuntimeEvidence && op.externalRuntimeEvidence.warning) html += "<div style='margin-top:5px;color:#6B7280;'><b>Runtime inventory warning:</b> " + escapeHtml(op.externalRuntimeEvidence.warning) + "</div>";
+       if ((op.learnerFacingMissingNames || []).length) html += "<div style='margin-top:5px;color:#991B1B;'><b>Missing in decision gate:</b> " + escapeHtml(op.learnerFacingMissingNames.join(', ')) + "</div>";
+       if ((op.manualRemovalNames || []).length) html += "<div style='margin-top:5px;color:#7C3AED;'><b>Manual removals since raw snapshot:</b> " + escapeHtml(op.manualRemovalNames.join(', ')) + " — confirm these deletions were intentional; do not re-ingest solely for them.</div>";
+       if ((op.manualRegressionNames || []).length) html += "<div style='margin-top:5px;color:#7C3AED;'><b>Manual regressions since raw snapshot:</b> " + escapeHtml(op.manualRegressionNames.join(', ')) + " — compare with the saved raw snapshot and repair the manual change if needed.</div>";
+       if ((op.hiddenDependencyNames || []).length) html += "<div style='margin-top:5px;color:#92400E;'><b>Hidden dependencies requiring parent/payload review:</b> " + escapeHtml(op.hiddenDependencyNames.join(', ')) + "</div>";
+       if ((op.policyExemptNames || []).length) html += "<details style='margin-top:7px;'><summary style='cursor:pointer;font-weight:700;'>Policy-exempt source findings (still visible for audit)</summary><div style='margin-top:5px;color:#6B7280;'>" + escapeHtml(op.policyExemptNames.join(', ')) + "</div></details>";
+       html += "<div style='margin-top:7px;color:#6B7280;'>" + escapeHtml(op.description || '') + "</div></div>";
+     }
+
+
+     if (res.currentStateResolution && (res.currentStateResolution.resolutions || []).length) {
+       var csr = res.currentStateResolution || {};
+       var rs = csr.resolutions || [];
+       var resolved = rs.filter(function(r){return /^RESOLVED/.test(String(r.status||''));});
+       var active = rs.filter(function(r){return r.severity==='REVIEW';});
+       var gaps = rs.filter(function(r){return r.severity==='EVIDENCE';});
+       html += "<details class='qa-dropdown' style='margin-bottom:12px;border-color:#A7F3D0;'><summary style='background:#F0FDF4;color:#166534;'>🧭 Current-State Resolution — resolved " + resolved.length + " · still/review " + active.length + " · evidence gaps " + gaps.length + "</summary><div class='qa-content'>";
+       html += "<div style='font-size:12px;color:#475569;margin-bottom:9px;'>Historical Smart Ingestion findings are reconciled against what CTI can observe <b>now</b>. A historical warning no longer remains open merely because it existed in the raw import.</div>";
+       rs.slice(0,80).forEach(function(r){
+         var status=String(r.status||'');
+         var tone=/^RESOLVED/.test(status)?'#065F46':(r.severity==='REVIEW'?'#92400E':'#475569');
+         var icon=/^RESOLVED/.test(status)?'✅':(r.severity==='REVIEW'?'🟠':'🔎');
+         html += "<div style='padding:8px 0;border-top:1px solid #E5E7EB;font-size:12px;color:"+tone+";'><b>"+icon+" "+escapeHtml(r.currentItemName||r.subject||r.claimType||'Finding')+"</b> — "+escapeHtml(status)+"<br><span style='color:#475569;'>"+escapeHtml(r.detail||'')+"</span>";
+         if (r.action) html += "<br><b>Action:</b> "+escapeHtml(r.action);
+         if ((r.evidence||[]).length) html += "<details style='margin-top:4px;'><summary style='cursor:pointer;'>Evidence</summary><pre style='white-space:pre-wrap;margin:5px 0 0;'>"+escapeHtml(JSON.stringify(r.evidence,null,2))+"</pre></details>";
+         html += "</div>";
+       });
+       html += "</div></details>";
+     }
+
+     if (res.destinationReadiness) {
+       var dr=res.destinationReadiness||{};
+       var drColor=dr.status==='BLOCKED'?'#991B1B':(dr.status==='REVIEW'?'#92400E':'#065F46');
+       var drBg=dr.status==='BLOCKED'?'#FEF2F2':(dr.status==='REVIEW'?'#FFFBEB':'#ECFDF3');
+       html += "<details class='qa-dropdown' style='margin-bottom:12px;border-color:#CBD5E1;'><summary style='background:"+drBg+";color:"+drColor+";'>🚦 Destination Readiness — "+escapeHtml(dr.status||'')+" · critical "+Number(dr.criticalCount||0)+" · manual repair "+Number(dr.manualRepairCount||0)+" · review "+Number(dr.reviewCount||0)+" · evidence gaps "+Number(dr.evidenceGapCount||0)+"</summary><div class='qa-content'>";
+       if((dr.findings||[]).length){ html += (dr.findings||[]).slice(0,80).map(function(f){var c=f.severity==='CRITICAL'?'#991B1B':f.severity==='REVIEW'?'#92400E':'#475569';return "<div style='padding:7px 0;border-bottom:1px solid #E5E7EB;font-size:12px;color:"+c+";'><b>"+escapeHtml(f.code||'READINESS')+"</b>"+(f.itemName?" · "+escapeHtml(f.itemName):"")+(f.path?" @ "+escapeHtml(f.path):"")+"<br><span style='color:#475569;'>"+escapeHtml(f.detail||'')+"</span>"+(f.action?"<br><b>Action:</b> "+escapeHtml(f.action):"")+"</div>";}).join(''); }
+       html += "</div></details>";
+     }
+
+     if (res.ingestionIntelligence && res.ingestionIntelligence.detected) {
+       var intel = res.ingestionIntelligence;
+       var counts = intel.categoryCounts || {};
+       html += "<details class='qa-dropdown' style='margin-bottom:12px; border-color:#93C5FD;'><summary style='background:#EFF6FF; color:#1E40AF;'>🧭 Smart Ingestion Provenance v2 — " + escapeHtml(String(intel.claims ? intel.claims.length : 0)) + " parsed claims</summary><div class='qa-content'>";
+       html += "<div style='font-size:12px; color:#374151; margin-bottom:8px;'><b>Trust model:</b> Coursera's Author Alignment Report explains what Smart Ingestion says it did. CTI keeps those statements as provenance and independently verifies payload whenever possible.</div>";
+       if(intel.provenanceMemory && intel.provenanceMemory.inherited) html += "<div style='font-size:12px;background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE;padding:8px;border-radius:7px;margin-bottom:8px;'><b>Generation memory active:</b> "+Number(intel.provenanceMemory.inheritedClaimCount||0)+" Smart Ingestion provenance claim(s) were inherited from saved run "+escapeHtml(intel.provenanceMemory.sourceRunId||'')+". Deleting the [DELETE ME] report during cleanup does not erase G"+escapeHtml(String((res.generationEvidenceContext||{}).generation ?? ''))+" ingestion history.</div>";
+       html += "<div style='display:flex; gap:10px; flex-wrap:wrap; font-size:11px; margin-bottom:8px;'>";
+       Object.keys(counts).sort().forEach(function(k){ html += "<span style='background:#F3F4F6; border-radius:999px; padding:3px 7px;'>" + escapeHtml(k) + " <b>" + escapeHtml(String(counts[k])) + "</b></span>"; });
+       html += "</div>";
+       (intel.claims || []).slice(0,8).forEach(function(c){ html += "<div style='font-size:11px; padding:5px 0; border-top:1px solid #E5E7EB;'><b>" + escapeHtml(c.type || '') + "</b>" + (c.subject ? " · " + escapeHtml(c.subject) : "") + (c.target ? " → " + escapeHtml(c.target) : "") + "<br><span style='color:#6B7280;'>" + escapeHtml(c.excerpt || '') + "</span></div>"; });
+       if ((intel.claims || []).length > 8) html += "<div style='font-size:11px; color:#6B7280; margin-top:6px;'>+ " + escapeHtml(String(intel.claims.length - 8)) + " additional parsed provenance claims retained in the QA result.</div>";
+       html += "</div></details>";
+     }
+
+     if (res.summary) {
+       html += "<div style='display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:15px;'>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#111827;'>" + summary.observedFidelity + "%</div><div style='font-size:11px; color:#6B7280;'>Observed Match</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#4F46E5;'>" + summary.evidenceCoverage + "%</div><div style='font-size:11px; color:#6B7280;'>Evidence Coverage</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#047857;'>" + summary.verified + "</div><div style='font-size:11px; color:#6B7280;'>Verified</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#047857;'>" + (summary.repackaged || 0) + "</div><div style='font-size:11px; color:#6B7280;'>Repackaged</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#047857;'>" + (summary.expectedTransformations || 0) + "</div><div style='font-size:11px; color:#6B7280;'>Native Transformations</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#1D4ED8;'>" + (summary.intentionalExclusions || 0) + "</div><div style='font-size:11px; color:#6B7280;'>Intentional Exclusions</div></div>";
+       if (summary.rawUnpublished) html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#7C3AED;'>" + summary.rawUnpublished + "</div><div style='font-size:11px; color:#6B7280;'>Raw Unpublished</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#B45309;'>" + (summary.partial + summary.moved + (summary.stateMutations || 0) + (summary.repackaged || 0) + (summary.intentionalExclusions || 0) + (summary.runtimeReviews || 0)) + "</div><div style='font-size:11px; color:#6B7280;'>Needs Review</div></div>";
+       html += "<div class='qa-box' style='margin:0; text-align:center;'><div style='font-size:24px; font-weight:700; color:#B91C1C;'>" + ((summary.missing || 0) + (summary.mutations || 0) + (summary.ingestionFailures || 0) + (summary.behaviorMutations || 0)) + "</div><div style='font-size:11px; color:#6B7280;'>Audit flags (all source areas)</div></div>";
+       if (summary.ingestionFailures) html += "<div class='qa-box' style='margin:0; text-align:center;background:#FEF2F2;border-color:#FCA5A5;'><div style='font-size:24px; font-weight:800; color:#991B1B;'>" + summary.ingestionFailures + "</div><div style='font-size:11px; color:#991B1B;'>Ingestion Failures</div></div>";
+       if (summary.behaviorMutations) html += "<div class='qa-box' style='margin:0; text-align:center;background:#FFF7ED;border-color:#FDBA74;'><div style='font-size:24px; font-weight:800; color:#9A3412;'>" + summary.behaviorMutations + "</div><div style='font-size:11px; color:#9A3412;'>Behavior Mutations</div></div>";
+       if (summary.runtimeReviews) html += "<div class='qa-box' style='margin:0; text-align:center;background:#FFFBEB;border-color:#FCD34D;'><div style='font-size:24px; font-weight:800; color:#92400E;'>" + summary.runtimeReviews + "</div><div style='font-size:11px; color:#92400E;'>Runtime Reviews</div></div>";
+       html += "</div>";
+
+       html += "<div style='background:#EEF2FF; border:1px solid #C7D2FE; color:#3730A3; padding:10px 12px; border-radius:6px; margin-bottom:15px; font-size:12px;'>";
+       if(qaMissingScopeText_(res))html+="<div style='margin-bottom:6px;'>"+escapeHtml(qaMissingScopeText_(res))+"</div>";
+       html += "<b>How to read this:</b> Observed Match measures the dimensions we could actually compare. Evidence Coverage tells you how much of the full item (structure, type, placement, assets, links, text, publication) Coursera exposed. A 100% fidelity result with 45% coverage is <i>not</i> a full-fidelity guarantee.";
+       html += "</div>";
+
+       html += "<div style='background:#FFFFFF; border:1px solid #E5E7EB; border-radius:8px; padding:12px; margin-bottom:15px;'>";
+       html += "<div style='font-size:13px; font-weight:700; color:#111827; margin-bottom:8px;'>Assignment Owner Action Queue</div>";
+       html += "<div style='display:flex; gap:14px; flex-wrap:wrap; font-size:12px;'>";
+       html += "<span style='color:#B91C1C;'><b>" + (summary.ownerCritical || 0) + "</b> fix before completion</span>";
+       html += "<span style='color:#B45309;'><b>" + (summary.ownerReview || 0) + "</b> review</span>";
+       html += "<span style='color:#4F46E5;'><b>" + (summary.ownerEvidence || 0) + "</b> automated verification incomplete</span>";
+       html += "</div></div>";
+     }
+
+     if (res.stats && res.stats.extractorMeta && Object.keys(res.stats.extractorMeta).length) {
+       var meta = res.stats.extractorMeta;
+       if(meta.supplementalReadingRecovery)html+="<p><b>Original full-capture counters:</b> the diagnostics below retain the earlier crawl. Combined editor coverage and the later reading recovery are shown under Capture inputs.</p>";
+       if (Number(meta.fingerprintCount || 0) === 0) {
+         html += "<div style='background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B; padding:12px; border-radius:6px; margin-bottom:15px; font-size:12px;'><b>Extractor warning:</b> The uploaded Live JSON contained zero Coursera item fingerprints. Structural results can still come from Excel, but the headline fidelity score is provisional and payload evidence cannot be trusted until the extractor succeeds.</div>";
+       }
+       html += "<details class='qa-dropdown' style='margin-bottom:15px;'><summary>Extractor Evidence Coverage</summary><div class='qa-content'>";
+       html += "<div style='display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; font-size:12px;'>";
+       html += "<div><b>Fingerprints:</b> " + escapeHtml(String(meta.fingerprintCount || res.stats.coursera || 0)) + "</div>";
+       html += "<div><b>Assets:</b> " + escapeHtml(String(meta.itemsWithAssetEvidence || 0)) + " items</div>";
+       html += "<div><b>Cryptographic assets:</b> " + escapeHtml(String(meta.itemsWithCryptographicAssetEvidence || 0)) + " items</div>";
+       html += "<div><b>Perceptual image proof:</b> " + escapeHtml(String(meta.itemsWithPerceptualImageEvidence || 0)) + " items</div>";
+       html += "<div><b>Links:</b> " + escapeHtml(String(meta.itemsWithLinkEvidence || 0)) + " items</div>";
+       html += "<div><b>Text:</b> " + escapeHtml(String(meta.itemsWithTextEvidence || 0)) + " items</div>";
+       html += "<div><b>Native rubric structure:</b> " + escapeHtml(String(meta.itemsWithNativeRubricEvidence || 0)) + " items</div>";
+       html += "<div><b>Publication:</b> " + escapeHtml(String(meta.itemsWithPublicationEvidence || 0)) + " items</div>";
+       html += "<div><b>Observed APIs:</b> " + escapeHtml(String(meta.observedApiResponsesUsable || 0)) + " usable</div>";
+       if (meta.targetedProbe) html += "<div><b>Targeted item probes:</b> " + escapeHtml(String(meta.targetedProbe.usable || 0)) + "/" + escapeHtml(String(meta.targetedProbe.attempted || 0)) + " usable</div>";
+       if (meta.autoDeepVerify) {
+         html += "<div><b>Auto deep targets:</b> " + escapeHtml(String(meta.autoDeepVerify.targets || 0)) + "</div>";
+         html += "<div><b>Learned API templates:</b> " + escapeHtml(String(meta.autoDeepVerify.learnedApiTemplates || 0)) + "</div>";
+         html += "<div><b>Auto deep API:</b> " + escapeHtml(String(meta.autoDeepVerify.apiAssociated || 0)) + "/" + escapeHtml(String(meta.autoDeepVerify.apiAttempts || 0)) + " associated</div>";
+         html += "<div><b>Auto item pages:</b> " + escapeHtml(String(meta.autoDeepVerify.pageUsable || 0)) + "/" + escapeHtml(String(meta.autoDeepVerify.pageAttempts || 0)) + " usable</div>";
+         html += "<div><b>Evidence upgrades:</b> " + escapeHtml(String(meta.autoDeepVerify.evidenceUpgrades || 0)) + "</div>";
+       }
+       if (meta.activeSpaCrawl) {
+         html += "<div style='margin-top:6px'><b>Extractor build:</b> " + escapeHtml(String(meta.activeSpaCrawl.buildId || meta.buildId || '')) + "</div>";
+         html += "<div><b>Active SPA crawl:</b> " + escapeHtml(String(meta.activeSpaCrawl.navigated || 0)) + "/" + escapeHtml(String(meta.activeSpaCrawl.targets || 0)) + " items visited</div>";
+         html += "<div><b>Traversal completion:</b> " + escapeHtml(String(meta.activeSpaCrawl.completedTargets == null ? (meta.activeSpaCrawl.returned || 0) : meta.activeSpaCrawl.completedTargets)) + "/" + escapeHtml(String(meta.activeSpaCrawl.eligibleTargets || meta.activeSpaCrawl.targets || 0)) + " eligible completed · all eligible attempted " + escapeHtml(meta.activeSpaCrawl.allTargetsAttempted ? "YES" : "NO") + (meta.activeSpaCrawl.coverageLimitedByCap ? " · explicit cap limited this run" : "") + "</div>";
+         html += "<div><b>Crawl budget:</b> " + escapeHtml(String(meta.activeSpaCrawl.budgetStrategy || "legacy")) + " · " + escapeHtml(String(Math.round(Number(meta.activeSpaCrawl.crawlElapsedMs || 0)/1000))) + "s elapsed / " + escapeHtml(String(Math.round(Number(meta.activeSpaCrawl.timeBudgetMs || 0)/1000))) + "s allocated · unvisited " + escapeHtml(String(meta.activeSpaCrawl.unvisitedDueToBudget || 0)) + "</div>";
+         html += "<div><b>Item traversal coverage:</b> " + escapeHtml(String(Math.round(Number(meta.activeSpaCrawl.deepCoverageCompleteness || 0)*100))) + "% · question completeness is checked separately</div>";
+         html += "<div><b>Crawl start canonicalized:</b> " + escapeHtml(meta.activeSpaCrawl.canonicalizedStart ? "YES" : "NO") + "</div>";
+         html += "<div><b>SPA targets discovered:</b> " + escapeHtml(String(meta.activeSpaCrawl.discoveredTargets || 0)) + "</div>";
+         html += "<div><b>SPA network responses:</b> " + escapeHtml(String(meta.activeSpaCrawl.associatedNetworkResponses || 0)) + "/" + escapeHtml(String(meta.activeSpaCrawl.networkResponses || 0)) + " associated</div>";
+         html += "<div><b>SPA DOM captures:</b> " + escapeHtml(String(meta.activeSpaCrawl.domCaptures || 0)) + "</div>";
+         html += "<div><b>Route-scoped fallback surfaces:</b> " + escapeHtml(String(meta.activeSpaCrawl.routeScopedSurfaceCaptures || 0)) + "</div>";
+         html += "<div><b>SPA evidence upgrades:</b> " + escapeHtml(String(meta.activeSpaCrawl.evidenceUpgrades || 0)) + "</div>";
+         html += "<div><b>Ignored non-item traffic:</b> " + escapeHtml(String(meta.activeSpaCrawl.ignoredNoiseResponses || 0)) + " telemetry, " + escapeHtml(String(meta.activeSpaCrawl.ignoredCourseWideResponses || 0)) + " course-wide</div>";
+         html += "<div><b>SPA route failures:</b> " + escapeHtml(String(meta.activeSpaCrawl.routeFailures || 0)) + "</div>";
+         html += "<div><b>Adaptive readiness:</b> " + escapeHtml(String(meta.activeSpaCrawl.stabilityWaits || 0)) + " waits, " + escapeHtml(String(meta.activeSpaCrawl.stabilityTimeouts || 0)) + " timeouts, avg " + escapeHtml(String(Math.round((meta.activeSpaCrawl.stabilityTotalMs || 0) / Math.max(1, meta.activeSpaCrawl.stabilityWaits || 0)))) + " ms</div>";
+         html += "<div><b>Session payload association:</b> " + escapeHtml(String(meta.activeSpaCrawl.sessionAssociatedResponses || 0)) + " responses, " + escapeHtml(String(meta.activeSpaCrawl.sessionPayloadFiles || 0)) + " files, " + escapeHtml(String(meta.activeSpaCrawl.sessionPayloadLinks || 0)) + " links</div>";
+         html += "<div><b>Self-healing retries:</b> " + escapeHtml(String(meta.activeSpaCrawl.retryAttempts || 0)) + " attempted, " + escapeHtml(String(meta.activeSpaCrawl.retryImproved || 0)) + " improved, " + escapeHtml(String(meta.activeSpaCrawl.retryResolved || 0)) + " resolved, " + escapeHtml(String(meta.activeSpaCrawl.retryRemainingWeak || 0)) + " still weak</div>";
+         html += "<div><b>Run health:</b> " + escapeHtml(String(meta.activeSpaCrawl.runHealthGrade || "")) + " | effective navigation " + escapeHtml(String(meta.activeSpaCrawl.effectiveNavigated == null ? (meta.activeSpaCrawl.navigated || 0) : meta.activeSpaCrawl.effectiveNavigated)) + "/" + escapeHtml(String(meta.activeSpaCrawl.targets || 0)) + "</div>";
+       }
+       if (meta.currentItemDomMatched) html += "<div><b>Deep DOM capture:</b> " + escapeHtml(meta.currentItemDomMatched.name || meta.currentItemDomMatched.id || 'matched') + "</div>";
+       html += "</div></div></details>";
+     }
+
+     function verdictStyle(verdict) {
+       if (verdict === 'VERIFIED') return { icon:'✅', label:'Verified', bg:'#F0FDF4', border:'#A7F3D0', color:'#065F46' };
+       if (verdict === 'INGESTION_FAILURE') return { icon:'⛔', label:'Smart Ingestion Failure', bg:'#FEF2F2', border:'#F87171', color:'#7F1D1D' };
+       if (verdict === 'BEHAVIOR_MUTATION') return { icon:'⚙️', label:'Behavior Mutation', bg:'#FFF7ED', border:'#FDBA74', color:'#9A3412' };
+       if (verdict === 'RUNTIME_REVIEW') return { icon:'🎛️', label:'Interactive Runtime Review', bg:'#FFFBEB', border:'#FCD34D', color:'#92400E' };
+       if (verdict === 'DEPENDENCY_PROXY') return { icon:'📎', label:'Hidden Attachment Proxy', bg:'#F0FDF4', border:'#A7F3D0', color:'#065F46' };
+       if (verdict === 'DEPENDENCY_VERIFIED') return { icon:'🧩', label:'Hidden Dependency Recovered', bg:'#ECFDF5', border:'#6EE7B7', color:'#065F46' };
+       if (verdict === 'HIDDEN_DEPENDENCY_REVIEW') return { icon:'🕵️', label:'Hidden Dependency Review', bg:'#FFFBEB', border:'#FDE68A', color:'#92400E' };
+       if (verdict === 'MISSING') return { icon:'❌', label:'Missing Item', bg:'#FEF2F2', border:'#FCA5A5', color:'#991B1B' };
+       if (verdict === 'MANUAL_REMOVAL_REVIEW') return { icon:'🧹', label:'Manual Removal Since Raw Snapshot', bg:'#F5F3FF', border:'#C4B5FD', color:'#6D28D9' };
+       if (verdict === 'INTENTIONAL_EXCLUSION') return { icon:'🧭', label:'Intentional Smart-Ingestion Exclusion', bg:'#EFF6FF', border:'#93C5FD', color:'#1E40AF' };
+       if (verdict === 'REPACKAGED') return { icon:'🔀', label:'Repackaged / Consolidated', bg:'#ECFDF5', border:'#6EE7B7', color:'#065F46' };
+       if (verdict === 'EXPECTED_TRANSFORMATION') return { icon:'🔄', label:'Expected / One-to-Many Transformation', bg:'#ECFDF5', border:'#6EE7B7', color:'#065F46' };
+       if (verdict === 'TYPE_MUTATION') return { icon:'⚠️', label:'Type Mutation', bg:'#FEF3C7', border:'#FDE68A', color:'#92400E' };
+       if (verdict === 'PARTIAL') return { icon:'⚠️', label:'Partial Import', bg:'#FFF7ED', border:'#FDBA74', color:'#9A3412' };
+       if (verdict === 'MOVED') return { icon:'↔️', label:'Moved Item', bg:'#EFF6FF', border:'#93C5FD', color:'#1E40AF' };
+       if (verdict === 'STATE_MUTATION') return { icon:'👁️', label:'Visibility / Publication State', bg:'#FDF4FF', border:'#E9D5FF', color:'#7E22CE' };
+       return { icon:'🔎', label:'Payload Unverified', bg:'#F9FAFB', border:'#D1D5DB', color:'#374151' };
+     }
+
+     function checkRow(label, status, detail) {
+       var icon = (status === 'VERIFIED' || status === 'TRANSFORMED' || status === 'RELOCATED') ? '✅' :
+                  status === 'NOT_APPLICABLE' ? '➖' :
+                  status === 'UNVERIFIED' ? '🔎' :
+                  status === 'MISSING' || status === 'CHANGED' || status === 'UNPUBLISHED' || status === 'FAILED' || status === 'FAILED_INGESTION' || status === 'MUTATED' ? '❌' :
+                  status === 'RAW_UNPUBLISHED' || status === 'RAW_PUBLISHED' || status === 'INTENTIONAL_EXCLUSION' || status === 'CLAIMED' || status === 'CLAIM_CONFIRMED_BY_PAYLOAD' ? '🧭' : '⚠️';
+       return "<div style='padding:6px 0; border-bottom:1px solid #E5E7EB;'><b style='display:inline-block; min-width:95px;'>" + icon + " " + escapeHtml(label) + "</b> <span style='font-size:12px; color:#4B5563;'>" + detail + "</span></div>";
+     }
+
+     var severity = { INGESTION_FAILURE:0, MISSING:1, BEHAVIOR_MUTATION:2, TYPE_MUTATION:3, PARTIAL:4, RUNTIME_REVIEW:5, HIDDEN_DEPENDENCY_REVIEW:6, STATE_MUTATION:7, INTENTIONAL_EXCLUSION:8, MOVED:9, UNVERIFIED:10, REPACKAGED:11, DEPENDENCY_PROXY:12, DEPENDENCY_VERIFIED:13, EXPECTED_TRANSFORMATION:14, VERIFIED:15 };
+     var itemResults = (res.itemResults || []).slice().sort(function(a,b) {
+       return (severity[a.verdict] == null ? 9 : severity[a.verdict]) - (severity[b.verdict] == null ? 9 : severity[b.verdict]);
+     });
+
+     if (itemResults.length) {
+       html += "<h4 style='margin:18px 0 10px 0;'>Item Fidelity Results (" + itemResults.length + ")</h4>";
+
+       itemResults.forEach(function(item) {
+         var style = verdictStyle(item.verdict);
+         var checks = item.checks || {};
+
+         html += "<details class='qa-dropdown' style='margin-top:8px; border-color:" + style.border + "; background:" + style.bg + ";'>";
+         html += "<summary style='background:" + style.bg + "; color:" + style.color + ";'>";
+         html += "<div style='min-width:0;'><b>" + style.icon + " " + escapeHtml(item.sourceName || 'Untitled') + "</b>";
+         var strength = item.evidenceStrength || {};
+         var observedMatchLabel = item.verdict === 'INTENTIONAL_EXCLUSION' ? 'N/A' : ((item.fidelityPercent == null ? 0 : item.fidelityPercent) + '%');
+         html += "<div style='font-size:11px; font-weight:400; margin-top:3px;'>"+ escapeHtml(style.label) +" · Observed Match " + observedMatchLabel + " · Coverage " + (item.evidenceCoverage || 0) + "%" + (strength.score != null ? " · Evidence strength " + strength.score + "%" : "") + "</div></div>";
+         html += "</summary><div class='qa-content' style='background:#FFFFFF;'>";
+
+         html += "<div style='display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;'>";
+         html += "<div style='font-size:12px;'><b>Source</b><br>" + escapeHtml(item.sourceType || '') + "<br><span style='color:#6B7280;'>" + escapeHtml(item.sourcePath || 'Root') + "</span></div>";
+         html += "<div style='font-size:12px;'><b>Coursera</b><br>" + escapeHtml(item.courseraType || '—') + "<br><span style='color:#6B7280;'>" + escapeHtml(item.courseraPath || '—') + "</span></div>";
+         html += "</div>";
+
+         if (checks.structure) {
+           var structureText = checks.structure.status === 'VERIFIED' ? 'Item exists in Coursera.' : (checks.structure.reason || 'No sufficiently confident Coursera match was found.');
+           html += checkRow('Structure', checks.structure.status, escapeHtml(structureText));
+         }
+
+         if (checks.type) {
+           html += checkRow("Type", checks.type.status, "Source: <b>" + escapeHtml(checks.type.source || '') + "</b> → Coursera: <b>" + escapeHtml(checks.type.coursera || '') + "</b>");
+         }
+
+         if(checks.sourceLinkNormalization)html+=checkRow('Source URL',checks.sourceLinkNormalization.status==='RECOVERED_STORED_WEBLINK_XML'?'VERIFIED':'UNVERIFIED',escapeHtml(checks.sourceLinkNormalization.reason));
+         if(checks.externalWebpageTransformation)html+=checkRow('External webpage','REVIEW',escapeHtml(checks.externalWebpageTransformation.reason)+'<br>'+escapeHtml(checks.externalWebpageTransformation.sourceUrl));
+         else if(checks.externalWebpageEvidence)html+=checkRow('External webpage','UNVERIFIED',qaExternalWebpageDiagnosticHtml_(checks.externalWebpageEvidence));
+
+         if (checks.placement) {
+           var placementText = "Source: " + escapeHtml(checks.placement.source || 'Root') + " → Coursera: " + escapeHtml(checks.placement.coursera || 'Unavailable');
+           if (checks.placement.similarity != null) placementText += " · similarity " + Math.round(Number(checks.placement.similarity) * 100) + "%";
+           html += checkRow("Placement", checks.placement.status, placementText);
+         }
+
+         var tf = checks.transformationFamily || checks.oneToManyTransformation || null;
+         if (tf) {
+           var tfLabel = tf.mode === 'EXPLICIT_CHUNKED_ITEM' || tf.inferred === true ? 'Chunked transformation family' : '1→N transformation family';
+           var tfDetail = 'Destination items: '+Number(tf.childCount||0)+' · family status '+String(tf.familyStatus||tf.status||'')+' · deep text '+Number(tf.textEvidenceChildren||0)+'/'+Number(tf.childCount||0)+' · source semantic coverage '+Math.round(Number(tf.directionalSourceCoverage||0)*100)+'%';
+           if(tf.aggregateLengthRatio != null) tfDetail += ' · aggregate/source length '+Math.round(Number(tf.aggregateLengthRatio||0)*100)+'%';
+           html += checkRow(tfLabel, tf.familyStatus || tf.status, escapeHtml(tfDetail));
+           if((tf.childNames||[]).length) html += "<div style='font-size:11px;color:#64748B;padding:4px 0 7px 0;'><b>CTI checked these together:</b> "+escapeHtml((tf.childNames||[]).slice(0,30).join(' · '))+"</div>";
+         }
+
+         if (checks.assets) {
+           var assetText = "";
+           if (checks.assets.status === 'NOT_APPLICABLE') assetText = "No comparable source file assets.";
+           else {
+             if (checks.assets.reason) assetText += escapeHtml(checks.assets.reason);
+             if ((checks.assets.present || []).length) assetText += (assetText ? "<br>" : "") + "<span style='color:#047857;'>Present on matched item: " + escapeHtml(checks.assets.present.join(', ')) + "</span>";
+             if ((checks.assets.matches || []).length) {
+               assetText += (assetText ? "<br>" : "") + "<span style='color:#6B7280; font-size:11px;'>Local proof: " + escapeHtml(checks.assets.matches.map(function(m) { return m.expected + " → " + m.method + " (" + Math.round(Number(m.score || 0) * 100) + "%)"; }).join(' | ')) + "</span>";
+             }
+             if ((checks.assets.relocated || []).length) {
+               assetText += (assetText ? "<br>" : "") + "<span style='color:#047857;'><b>Relocated:</b> " + escapeHtml(checks.assets.relocated.map(function(m) { return m.expected + " → " + (m.carrierName || m.carrierId || 'another item') + " [" + (m.method || 'positive evidence') + " " + Math.round(Number(m.score || 0) * 100) + "%]"; }).join(' | ')) + "</span>";
+             }
+             if ((checks.assets.transformed || []).length) {
+               assetText += (assetText ? "<br>" : "") + "<span style='color:#047857;'><b>Transformed to native content:</b> " + escapeHtml(checks.assets.transformed.map(function(m) { return m.expected + " → " + (m.nativeSurface || 'native Coursera Assignment') + " [semantic evidence " + Math.round(Number(m.score || 0) * 100) + "%]"; }).join(' | ')) + "</span>";
+             }
+             if ((checks.assets.changedNative || []).length) {
+               assetText += (assetText ? "<br>" : "") + "<span style='color:#B91C1C;'><b>Native content changed:</b> " + escapeHtml(checks.assets.changedNative.map(function(m) { return m.expected + " → " + (m.nativeSurface || 'native Coursera rubric') + " [semantic evidence " + Math.round(Number(m.score || 0) * 100) + "%]"; }).join(' | ')) + "</span>";
+             }
+             if ((checks.assets.unresolved || []).length) assetText += (assetText ? "<br>" : "") + "<span style='color:#6B7280;'>Unresolved (not proven missing): " + escapeHtml(checks.assets.unresolved.join(', ')) + "</span>";
+             if ((checks.assets.missing || []).length) assetText += (assetText ? "<br>" : "") + "<span style='color:#B91C1C;'>Not observed on high-confidence item surface: " + escapeHtml(checks.assets.missing.join(', ')) + "</span>";
+             if (checks.assets.evidenceConfidence != null) assetText += (assetText ? "<br>" : "") + "<span style='color:#6B7280; font-size:11px;'>Matched-item asset evidence confidence: " + escapeHtml(String(checks.assets.evidenceConfidence)) + "%</span>";
+           }
+           html += checkRow("Assets", checks.assets.status, assetText);
+         }
+
+         if (checks.links) {
+           var linkText = "";
+           if (checks.links.status === 'NOT_APPLICABLE') linkText = "No comparable external source links.";
+           else {
+             if (checks.links.reason) linkText += escapeHtml(checks.links.reason);
+             if ((checks.links.present || []).length) linkText += (linkText ? "<br>" : "") + "<span style='color:#047857;'>Preserved on matched item: " + escapeHtml(checks.links.present.join(', ')) + "</span>";
+             if ((checks.links.relocated || []).length) linkText += (linkText ? "<br>" : "") + "<span style='color:#047857;'><b>Relocated:</b> " + escapeHtml(checks.links.relocated.map(function(m){ return m.expected + " → " + (m.carrierName || m.carrierId || 'another item'); }).join(' | ')) + "</span>";
+             if ((checks.links.unresolved || []).length) linkText += (linkText ? "<br>" : "") + "<span style='color:#6B7280;'>Unresolved: " + escapeHtml(checks.links.unresolved.join(', ')) + "</span>";
+             if ((checks.links.missing || []).length) linkText += (linkText ? "<br>" : "") + "<span style='color:#B91C1C;'>Not observed: " + escapeHtml(checks.links.missing.join(', ')) + "</span>";
+           }
+           html += checkRow("Links", checks.links.status, linkText);
+         }
+
+         if (checks.content) {
+           var contentText = escapeHtml(checks.content.reason || '');
+           if (checks.content.similarity != null) contentText += " Similarity: <b>" + Math.round(Number(checks.content.similarity) * 100) + "%</b>.";
+           if (checks.content.sourcePreview || checks.content.courseraPreview) {
+             contentText += "<div style='margin-top:6px; font-size:11px; color:#6B7280;'><b>Source sample:</b> " + escapeHtml(checks.content.sourcePreview || '—') + "<br><b>Coursera sample:</b> " + escapeHtml(checks.content.courseraPreview || '—') + "</div>";
+           }
+           var contentLabel = checks.content.mode === 'STRUCTURED_ASSESSMENT' ? "Assessment" : (checks.content.mode === 'NATIVE_TRANSFORMATION' ? "Native content" : "Content");
+           html += checkRow(contentLabel, checks.content.status, contentText);
+         }
+
+         if (checks.structuredAssessment) {
+           var sa = checks.structuredAssessment;
+           var saText = "Questions source/Coursera: <b>" + escapeHtml(String(sa.sourceQuestionCount || 0)) + "/" + escapeHtml(String(sa.courseraQuestionCount || 0)) + "</b> · aligned <b>" + escapeHtml(String(sa.alignedQuestionCount || 0)) + "</b>";
+           if (sa.declaredCaptureIncomplete) saText += "<br><b>Declared assessment size:</b> source " + escapeHtml(String(sa.sourceDeclaredQuestionCount)) + "; Coursera " + escapeHtml(String(sa.courseraDeclaredQuestionCount)) + ". Captured question sets are incomplete.";
+           if (sa.evidenceCoverage != null) saText += " · structured coverage <b>" + Math.round(Number(sa.evidenceCoverage || 0) * 100) + "%</b>";
+           if (sa.answerEvidenceCoverage != null) saText += " · answer evidence <b>" + escapeHtml(qaAssessmentAnswerEvidenceText_(sa)) + "</b>";
+           if (sa.fidelity != null) saText += " · <b>" + escapeHtml(qaAssessmentScoreLabel_(sa)) + "</b>";
+           if (sa.answerMismatchCount) saText += " · <span style='color:#B91C1C;'>correct-answer mismatches: <b>" + escapeHtml(String(sa.answerMismatchCount)) + "</b></span>";
+           if (sa.selectionPolicyStatus && sa.selectionPolicyStatus !== 'NOT_OBSERVED') {
+             var sp = sa.sourceSelectionPolicy || {}, cp = sa.courseraSelectionPolicy || {};
+             saText += "<br><b>Question-pool behavior:</b> " + escapeHtml(sa.selectionPolicyStatus) + " · source " + escapeHtml(String(sp.selectCount == null ? '?' : sp.selectCount)) + " of " + escapeHtml(String(sp.poolSize == null ? '?' : sp.poolSize)) + " → Coursera " + escapeHtml(String(cp.selectCount == null ? '?' : cp.selectCount)) + " of " + escapeHtml(String(cp.poolSize == null ? '?' : cp.poolSize));
+           }
+           if ((sa.unmatchedSourceQuestions || []).length) saText += "<br><span style='color:#92400E;'>Unmatched source question(s): " + escapeHtml(sa.unmatchedSourceQuestions.join(', ')) + "</span>";
+           if ((sa.unmatchedCourseraQuestions || []).length) saText += "<br><span style='color:#92400E;'>Extra/unmatched Coursera question(s): " + escapeHtml(sa.unmatchedCourseraQuestions.join(', ')) + "</span>";
+           if ((sa.questionResults || []).length) {
+             saText += "<div style='margin-top:7px; font-size:11px;'>" + sa.questionResults.map(function(q) {
+               var mismatches = (q.mismatches || []).length ? " · " + escapeHtml(q.mismatches.join(', ')) : "";
+               return "Q" + escapeHtml(String(q.sourceIndex || '')) + "→Q" + escapeHtml(String(q.courseraIndex || '')) + ": <b>" + ((q.details||{}).optionCaptureIssue?'UNVERIFIED':Math.round(Number(q.score || 0) * 100)+'%') + "</b>" + mismatches + qaQuestionDifferenceHtml_(q);
+             }).join("<br>") + "</div>";
+           }
+           var assessmentEvidence=qaAssessmentEvidenceText_(sa);
+           if(assessmentEvidence)saText+="<div style='margin-top:6px;white-space:pre-wrap;'>"+escapeHtml(assessmentEvidence)+"</div>";
+           html += checkRow("Question map", sa.status, saText);
+         }
+
+         if (checks.hiddenDependency) {
+           html += checkRow("Hidden dependency", checks.hiddenDependency.status || 'REVIEW', escapeHtml((checks.hiddenDependency.kind || '') + (checks.hiddenDependency.parentName ? ' · parent: ' + checks.hiddenDependency.parentName : '') + (checks.hiddenDependency.reason ? ' — ' + checks.hiddenDependency.reason : '')));
+         }
+
+         if (checks.ingestionFailure && checks.ingestionFailure.detected) {
+           var inf = checks.ingestionFailure;
+           html += checkRow("Ingestion failure", "FAILED", escapeHtml((inf.codes || []).join(', ') + (inf.reason ? ' — ' + inf.reason : '')));
+         }
+         if (checks.behavior && checks.behavior.comparable) {
+           var bh = checks.behavior;
+           var bhText = escapeHtml(bh.reason || '');
+           if ((bh.issues || []).length) bhText += "<br><span style='color:#991B1B;'>" + escapeHtml(bh.issues.join(', ')) + "</span>";
+           html += checkRow("Behavior", bh.status, bhText);
+         }
+
+         if (checks.runtime && checks.runtime.detected) {
+           var rt = checks.runtime;
+           var rtText = escapeHtml(rt.reason || 'Interactive/runtime source evidence requires launch verification.');
+           if ((rt.runtimeFamilies || []).length) rtText += "<br><b>Runtime families:</b> " + escapeHtml(rt.runtimeFamilies.join(', '));
+           if (rt.destinationCarrierObserved != null) rtText += "<br><b>Possible Coursera runtime carrier observed:</b> " + (rt.destinationCarrierObserved ? 'YES' : 'NO/UNPROVEN');
+           html += checkRow("Runtime", "REVIEW", rtText);
+         }
+
+         if (checks.transformation) {
+           var tr = checks.transformation;
+           var trText = escapeHtml(tr.reason || '');
+           if (tr.expectedDocumentCount != null) trText += " Documents: <b>" + escapeHtml(String(tr.transformedCount || 0)) + "/" + escapeHtml(String(tr.expectedDocumentCount || 0)) + " transformed</b>.";
+           if (tr.rubricMismatchCount) trText += " <span style='color:#B91C1C;'>Rubric content mismatches: <b>" + escapeHtml(String(tr.rubricMismatchCount)) + "</b>.</span>";
+           if (tr.rubricCount != null) trText += " Native rubrics: <b>" + escapeHtml(String(tr.rubricCount || 0)) + "</b>.";
+           if (tr.sourceEvidenceSchemaVersion != null) trText += " Source evidence schema: <b>" + escapeHtml(String(tr.sourceEvidenceSchemaVersion || 0)) + "</b>.";
+           if (tr.ignoredSourceReferenceCount) trText += " <span style='color:#065F46;'>Reference-only source refs excluded from Coursera-loss accounting: <b>" + escapeHtml(String(tr.ignoredSourceReferenceCount)) + "</b>.</span>";
+           if (tr.sourceRefreshRequired) trText += " <span style='color:#92400E; font-weight:600;'>Source IMSCC refresh required.</span>";
+           if (tr.pdfExtractionFailureCount) trText += " <span style='color:#92400E;'>PDF extraction failures: <b>" + escapeHtml(String(tr.pdfExtractionFailureCount)) + "</b>.</span>";
+           if ((tr.documents || []).length) {
+             trText += "<div style='margin-top:7px; font-size:11px;'>" + tr.documents.map(function(d) {
+               var line = escapeHtml(d.name || 'PDF') + " → " + escapeHtml(d.nativeSurface || 'native surface') + (d.similarity != null ? " <b>" + Math.round(Number(d.similarity || 0) * 100) + "%</b>" : "") + " [" + escapeHtml(d.status || 'UNVERIFIED') + "]";
+               if (d.pdfParser) line += " · parser " + escapeHtml(d.pdfParser);
+               if (d.pdfPagesRead) line += " · pages scanned " + escapeHtml(String(d.pdfPagesRead));
+               if (d.sampledPageCount) line += " · semantic windows " + escapeHtml(String(d.sampledPageCount));
+               if (d.bestSemanticPage) line += " · best page " + escapeHtml(String(d.bestSemanticPage));
+               if (d.rubricAnchors && d.rubricAnchors.totalCriteria) line += " · rubric criteria " + escapeHtml(String(d.rubricAnchors.matchedCriteria || 0)) + "/" + escapeHtml(String(d.rubricAnchors.totalCriteria || 0));
+               if (d.reason) line += "<br><span style='color:#6B7280;'>" + escapeHtml(d.reason) + "</span>";
+               return line;
+             }).join("<br>") + "</div>";
+           }
+           html += checkRow("Native transform", tr.status, trText);
+         }
+
+       if (checks.ingestionProvenance && (checks.ingestionProvenance.claims || []).length) {
+           var ip = checks.ingestionProvenance;
+           var ipText = escapeHtml(ip.reason || '');
+           ipText += "<div style='margin-top:6px; font-size:11px;'>" + (ip.claims || []).map(function(c){ return "<b>" + escapeHtml(c.type || '') + "</b>" + (c.subject ? " · " + escapeHtml(c.subject) : "") + (c.target ? " → " + escapeHtml(c.target) : "") + "<br><span style='color:#6B7280;'>" + escapeHtml(c.excerpt || '') + "</span>"; }).join("<br>") + "</div>";
+           html += checkRow("Ingestion", ip.status || 'CLAIMED', ipText);
+         }
+
+         if (checks.publication) {
+           var pubText = checks.publication.status === 'RAW_UNPUBLISHED' ? "Unpublished in the untouched/raw ingestion snapshot. Recorded for lifecycle analysis; not treated as content loss." :
+                         checks.publication.status === 'RAW_PUBLISHED' ? "Published state was already present in the raw ingestion snapshot." :
+                         checks.publication.published === true ? "Published/visible evidence observed." :
+                         checks.publication.published === false ? "Coursera evidence indicates this item is unpublished/hidden." :
+                         "Publication state was not exposed.";
+           html += checkRow("Publication", checks.publication.status, pubText);
+         }
+
+         if (checks.repackaging) {
+           var carriers = (checks.repackaging.carriers || []).map(function(c){ return (c.name || c.id || 'item') + (c.path ? ' @ ' + c.path : ''); });
+           var repText = checks.repackaging.identityRecovered === true
+             ? "Recovered a unique renamed Discussion identity" + (carriers.length ? ". Carrier: " + carriers.join(', ') : '') + ". Structural survival is supported, but source prompt equivalence remains unverified."
+             : ("Recovered " + (checks.repackaging.recoveredCount || 0) + "/" + (checks.repackaging.totalExpected || 0) + " expected payload signals" + (carriers.length ? ". Carrier(s): " + carriers.join(', ') : '') + ".");
+           html += checkRow("Repackaging", checks.repackaging.status, escapeHtml(repText));
+         }
+
+         if (item.ownerAction && item.ownerAction.action) {
+           var ownerColor = item.ownerAction.severity === 'CRITICAL' ? '#991B1B' : (item.ownerAction.severity === 'REVIEW' ? '#92400E' : (item.ownerAction.severity === 'EVIDENCE' ? '#3730A3' : '#065F46'));
+           html += "<div style='margin-top:10px; padding:9px 10px; border-radius:6px; background:#F9FAFB; border:1px solid #E5E7EB; font-size:12px; color:" + ownerColor + ";'><b>Assignment Owner:</b> " + escapeHtml(item.ownerAction.action) + "</div>";
+         }
+         if (item.issues && item.issues.length) {
+           html += "<div style='margin-top:10px; font-size:11px; color:#6B7280;'><b>Flags:</b> " + escapeHtml(item.issues.join(', ')) + "</div>";
+         }
+
+         html += "</div></details>";
+       });
+     }
+
+     if (res.injected && res.injected.length > 0) {
+       html += "<div class='qa-box qa-box-gray' style='margin-top:15px;'><h4 style='color:#374151; margin-bottom:8px;'>➕ Extra Coursera Items (" + res.injected.length + ")</h4><ul style='margin:0; padding-left:20px; font-size:13px; color:#4B5563;'>";
+       res.injected.forEach(function(item) {
+         html += "<li>" + escapeHtml(item.name) + " <i style='color:#9CA3AF;'>[" + escapeHtml(item.type) + "]</i>";
+         if (item.extraLabel) html += " <span style='font-size:10px; background:#F3F4F6; border-radius:999px; padding:2px 6px; color:#4B5563;'>" + escapeHtml(item.extraLabel) + "</span>";
+         if (item.path) html += "<br><span style='font-size:11px;'>📍 " + escapeHtml(item.path) + "</span>";
+         if (item.ownerAction) html += "<br><span style='font-size:11px; color:#6B7280;'>Owner: " + escapeHtml(item.ownerAction) + "</span>";
+         if(item.sourceAssetProvenance)html += "<details><summary>Source file evidence</summary><pre style='white-space:pre-wrap;font-size:11px;'>"+escapeHtml(qaSourceAssetProvenanceText_(item.sourceAssetProvenance))+"</pre></details>";
+         html += "</li>";
+       });
+       html += "</ul></div>";
+     }
+
+     if (res.bundled && res.bundled.length > 0) {
+       html += "<div class='qa-box qa-box-gray' style='border-color:#93C5FD; background:#EFF6FF; margin-top:15px;'><h4 style='color:#1E3A8A; margin-bottom:8px;'>📦 Legacy Unverified Bundled Assets (" + res.bundled.length + ")</h4><p style='margin-top:0; font-size:12px; color:#3B82F6;'>These are source tree nodes that look like standalone file assets and could not be verified by the global Coursera evidence list.</p></div>";
+     }
+
+     html += "<button onclick='runAiQaRemediation()' style='background:#10B981; color:white; width:100%; margin-top:15px; box-shadow:0 2px 4px rgba(16,185,129,0.2);'>✨ Build Deterministic Remediation Plan</button>";
+     document.getElementById('postQaResults').innerHTML = html;
+  }
+ 
+ function runAiQaRemediation() {
+     if (!lastPostQaResult) return alert("No QA results to synthesize.");
+     var outputDiv = document.getElementById('aiQaRemediationOutput');
+     outputDiv.style.display = 'block';
+     outputDiv.innerHTML = "<div style='padding:15px; background:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; color:#1E3A8A;'>⚙️ <i>Building a deterministic remediation plan from the fidelity checks...</i></div>";
+     
+     google.script.run
+         .withSuccessHandler(function(res) {
+             if (res.success) {
+                 outputDiv.innerHTML = "<div style='padding:20px; background:#F0FDF4; border:1px solid #A7F3D0; border-radius:8px; color:#065F46; font-size:14px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);'>" + res.report + "</div>";
+             } else {
+                 outputDiv.innerHTML = "<div class='error'>Plan Error: " + escapeHtml(res.error) + "</div>";
+             }
+         })
+         .withFailureHandler(function(e) {
+             outputDiv.innerHTML = "<div class='error'>Request Error: " + escapeHtml(e.message) + "</div>";
+         })
+         .synthesizeQaRemediationPlanDb(JSON.stringify(lastPostQaResult));
+ }
+ 
+ function buildPostQaText_(res) {
+     res = res || {};
+     res.stats = res.stats || {};
+     var s = res.summary || {};
+     var text = "CTI SOURCE → COURSERA QA REPORT\n";
+     var technicalAppendix = "";
+     text += qaCaptureInputsText_(res);
+     if(res.operationalPolicy){ var topOp=res.operationalPolicy; text += "ASSIGNMENT OWNER SUMMARY\n"; text += "NEXT ACTION: " + (topOp.recommendationCode||'REVIEW') + " — " + (topOp.recommendationLabel||'') + "\nWHY: " + (topOp.recommendationReason||'') + "\n"; if(topOp.diagnosticRecommendationCode && topOp.diagnosticRecommendationCode !== topOp.recommendationCode) text += "TECHNICAL DIAGNOSIS: " + topOp.diagnosticRecommendationCode + " — " + (topOp.diagnosticRecommendationReason||'') + "\n"; text += "\n"; }
+
+     if (res.summary) {
+       text += "Observed Match: " + s.observedFidelity + "% (how much source material CTI can positively match; not a quality score)\n";
+       text += "Evidence Coverage: " + s.evidenceCoverage + "% (how much of the comparison has enough direct evidence for a confident verdict; low coverage means uncertainty, not automatically missing content)\n";
+       text += "Verified: " + s.verified + " | Partial: " + s.partial + " | Unverified: " + s.unverified + " | Missing: " + s.missing + " | Ingestion Failures: " + (s.ingestionFailures || 0) + " | Behavior Mutations: " + (s.behaviorMutations || 0) + " | Repackaged: " + (s.repackaged || 0) + " | Native Transformations: " + (s.expectedTransformations || 0) + " | Intentional Exclusions: " + (s.intentionalExclusions || 0) + " | Type Mutations: " + s.mutations + " | Moved: " + s.moved + "\n";
+     }
+
+     if(qaMissingScopeText_(res))text+=qaMissingScopeText_(res)+'\n';
+     text += qaOwnerTasksText(res);
+     text += "Coursera items: " + (res.stats.coursera || 0) + " | Source items: " + (res.stats.originalCore || res.stats.original || 0) + "\n";
+     if (res.engineBuildId) text += "QA engine build: " + res.engineBuildId + "\n";
+     if (res.snapshotContext) {
+       text += "Snapshot: " + (res.snapshotContext.label || res.snapshotContext.mode || '') + (res.snapshotContext.inferred ? " [AUTO]" : "") + " | publication policy=" + (res.snapshotContext.publicationPolicy || '') + "\n";
+       text += "Snapshot reason: " + (res.snapshotContext.reason || '') + "\n";
+     }
+     if (res.inputCoherence) {
+       text += "Input coherence: " + (res.inputCoherence.status || '') + (res.inputCoherence.idOverlapPercent == null ? '' : " | ID overlap=" + res.inputCoherence.idOverlapPercent + "%") + " | " + (res.inputCoherence.reason || '') + "\n";
+     }
+     if (res.courseLevelFailure && res.courseLevelFailure.detected) {
+       text += "COURSE-LEVEL FAILURE: " + (res.courseLevelFailure.code || '') + " | " + (res.courseLevelFailure.reason || '') + "\n";
+     }
+     if (res.operationalPolicy) {
+       var op = res.operationalPolicy;
+       text += "\nOPERATIONAL REDO DECISION\n";
+       text += "Policy: " + (op.policyId || '') + "\n";
+       text += "Recommendation: " + (op.recommendationCode || '') + " — " + (op.recommendationLabel || '') + "\n";
+       text += "Reason: " + (op.recommendationReason || '') + "\n";
+       text += "Ingestion actionability: " + (op.ingestionCapabilityStatus || 'UNKNOWN') + (op.reingestionGuardApplied ? " | repeat-reingestion guard=APPLIED" : "") + "\n";
+       if(op.diagnosticRecommendationCode && op.diagnosticRecommendationCode !== op.recommendationCode) text += "Underlying technical diagnosis: " + op.diagnosticRecommendationCode + " — " + (op.diagnosticRecommendationReason || '') + "\n";
+       text += "Policy-adjusted match: " + Number(op.adjustedObservedFidelity || 0) + "% | coverage=" + Number(op.adjustedEvidenceCoverage || 0) + "%\n";
+       text += "Decision gate: source items=" + Number(op.gateSourceItems || 0) + " | policy-exempt source items=" + Number(op.policyExemptSourceItems || 0) + " | matched ingestion failures=" + Number(op.learnerFacingIngestionFailures || 0) + " | broken destination extras=" + Number(op.learnerFacingExtraIngestionFailures || 0) + " | behavior mutations=" + Number(op.learnerFacingBehaviorMutations || 0) + " | behavior unverified=" + Number(op.learnerFacingBehaviorUnverified || 0) + " | runtime reviews=" + Number(op.learnerFacingRuntimeReviews || 0) + " | external runtime packages=" + Number(op.externalRuntimePackageCount || 0) + " | learner-facing missing=" + Number(op.learnerFacingMissing || 0) + " | hard payload loss=" + Number(op.learnerFacingHardPayloadLoss || 0) + " | hidden-dependency reviews=" + Number(op.hiddenDependencyReviews || 0) + " | type mutations=" + Number(op.learnerFacingTypeMutations || 0) + " | partial=" + Number(op.learnerFacingPartial || 0) + " | unverified=" + Number(op.learnerFacingUnverified || 0) + "\n";
+       if ((op.ingestionFailureNames || []).length) text += "Explicit matched ingestion failures: " + op.ingestionFailureNames.join(', ') + "\n";
+       if ((op.extraIngestionFailureNames || []).length) text += "Broken unmatched Coursera ingestion artifacts: " + op.extraIngestionFailureNames.join(', ') + "\n";
+       if ((op.behaviorMutationNames || []).length) text += "Proven behavior mutations: " + op.behaviorMutationNames.join(', ') + "\n";
+       if ((op.runtimeReviewNames || []).length) text += "Interactive/runtime launch checks: " + op.runtimeReviewNames.join(', ') + "\n";
+       if ((op.learnerFacingMissingNames || []).length) text += "Missing in decision gate: " + op.learnerFacingMissingNames.join(', ') + "\n";
+       if ((op.hardPayloadLossNames || []).length) text += "Proven hard payload loss: " + op.hardPayloadLossNames.join(', ') + "\n";
+       if ((op.manualRemovalNames || []).length) text += "Manual removals since raw snapshot (same generation; do not re-ingest solely for these): " + op.manualRemovalNames.join(', ') + "\n";
+       if ((op.manualRegressionNames || []).length) text += "Manual regressions since raw snapshot: " + op.manualRegressionNames.join(', ') + "\n";
+       if ((op.manualRepairNames || []).length) text += "Manual repair required (do not assume re-ingestion will fix): " + op.manualRepairNames.join(', ') + "\n";
+       if ((op.hiddenDependencyNames || []).length) text += "Hidden dependencies requiring review: " + op.hiddenDependencyNames.join(', ') + "\n";
+       if ((op.policyExemptNames || []).length) text += "Policy-exempt findings retained for audit: " + op.policyExemptNames.join(', ') + "\n";
+       text += (op.description || '') + "\n";
+     }
+     if (res.ingestionIntelligence && res.ingestionIntelligence.detected) {
+       var ii = res.ingestionIntelligence;
+       var pm = ii.provenanceMemory || {};
+       var provenanceLabel = pm.inherited && Number(pm.currentClaimCount || 0) === 0
+         ? ("inherited from same-generation raw Evidence Memory" + (pm.sourceRunId ? " (" + pm.sourceRunId + ")" : ""))
+         : (pm.inherited ? "current evidence + inherited same-generation Evidence Memory" : "current Author Alignment Report evidence");
+       technicalAppendix += "Smart Ingestion provenance: " + provenanceLabel + " | claims=" + ((ii.claims || []).length) + " | generated-field mentions=" + (ii.generatedFieldMentions || 0) + " | content-adaptation mentions=" + (ii.contentAdaptationMentions || 0) + "\n";
+       (ii.claims || []).slice(0,10).forEach(function(c){ technicalAppendix += "  CLAIM " + (c.type || '') + (c.subject ? " | " + c.subject : "") + (c.target ? " -> " + c.target : "") + " | " + (c.excerpt || '') + "\n"; });
+     }
+     if (res.generationEvidenceContext && res.generationEvidenceContext.provenanceInherited) {
+       technicalAppendix += "Generation provenance memory: inherited " + Number(res.generationEvidenceContext.provenanceInheritedClaimCount || 0) + " claim(s) from " + (res.generationEvidenceContext.provenanceSourceRunId || '') + " in the same import generation.\n";
+     }
+     if (res.manualChangeAttribution && res.manualChangeAttribution.applied) {
+       technicalAppendix += "Same-generation manual change attribution: baseline " + (res.manualChangeAttribution.baselineRunId || '') + " | manual removals=" + (res.manualChangeAttribution.manualRemovalNames || []).join(', ') + " | manual regressions=" + (res.manualChangeAttribution.manualRegressionNames || []).join(', ') + "\n";
+     }
+
+
+     if (res.currentStateResolution && (res.currentStateResolution.resolutions || []).length) {
+       var csrTxt = res.currentStateResolution || {};
+       technicalAppendix += "\nCURRENT STATE RESOLUTION\n";
+       technicalAppendix += "Engine: " + (csrTxt.engineVersion || '') + " | resolved=" + Number(csrTxt.resolvedCount || 0) + " | review=" + Number(csrTxt.reviewCount || 0) + " | evidence gaps=" + Number(csrTxt.evidenceGapCount || 0) + "\n";
+       (csrTxt.resolutions || []).slice(0,80).forEach(function(r){
+         technicalAppendix += "  " + (r.status || '') + " | " + (r.currentItemName || r.subject || r.claimType || '') + " | historical=" + (r.claimType || '') + (r.target ? " -> " + r.target : "") + " | " + (r.detail || '') + (r.action ? " | ACTION: " + r.action : "") + "\n";
+         (r.evidence || []).slice(0,5).forEach(function(e){ technicalAppendix += "      evidence: " + JSON.stringify(e) + "\n"; });
+       });
+     }
+
+     if (res.destinationReadiness) {
+       var drTxt = res.destinationReadiness || {};
+       technicalAppendix += "\nDESTINATION READINESS\n";
+       technicalAppendix += "Status: " + (drTxt.status || '') + " | critical=" + Number(drTxt.criticalCount || 0) + " | review=" + Number(drTxt.reviewCount || 0) + " | evidence gaps=" + Number(drTxt.evidenceGapCount || 0) + " | manual repairs=" + Number(drTxt.manualRepairCount || 0) + "\n";
+       (drTxt.criticalFindings || []).slice(0,20).forEach(function(f){ technicalAppendix += "  CRITICAL " + (f.code || '') + (f.itemName ? " | " + f.itemName : "") + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
+       (drTxt.reviewFindings || []).slice(0,30).forEach(function(f){ technicalAppendix += "  REVIEW " + (f.code || '') + (f.itemName ? " | " + f.itemName : "") + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
+       (drTxt.evidenceFindings || []).slice(0,10).forEach(function(f){ technicalAppendix += "  EVIDENCE " + (f.code || '') + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
+     }
+
+     var extractorMeta = (res.stats && res.stats.extractorMeta) || {};
+     if (extractorMeta.activeSpaCrawl) {
+       var crawl = extractorMeta.activeSpaCrawl;
+       technicalAppendix += "\nACTIVE SPA CRAWL DIAGNOSTICS\n";
+       if(extractorMeta.supplementalReadingRecovery)technicalAppendix += "Original full-capture diagnostics retained below. Combined editor coverage and later reading recovery are recorded under CAPTURE INPUTS.\n";
+       technicalAppendix += "Build: " + (crawl.buildId || extractorMeta.buildId || "") + "\n";
+       technicalAppendix += "Crawl start: " + (crawl.crawlStartUrl || "") + " | canonicalized=" + (crawl.canonicalizedStart ? "YES" : "NO") + "\n";
+       if (crawl.canonicalizedStart && crawl.originalUrl) technicalAppendix += "Original URL: " + crawl.originalUrl + "\n";
+       var filterTest = extractorMeta.filterSelfTest || {};
+       technicalAppendix += "Filter self-test: telemetry=" + (filterTest.telemetry ? "PASS" : "FAIL") + " | course-wide=" + (filterTest.courseWide ? "PASS" : "FAIL") + "\n";
+       technicalAppendix += "Targets: " + (crawl.targets || 0) + " | Discovered: " + (crawl.discoveredTargets || 0) + " | Navigated: " + (crawl.navigated || 0) + "\n";
+       technicalAppendix += "Traversal: completed=" + (crawl.completedTargets == null ? (crawl.returned || 0) : crawl.completedTargets) + "/" + (crawl.eligibleTargets || crawl.targets || 0) + " | allTargetsAttempted=" + (crawl.allTargetsAttempted ? "YES" : "NO") + " | unvisitedDueToBudget=" + (crawl.unvisitedDueToBudget || 0) + "\n";
+       technicalAppendix += "Budget: strategy=" + (crawl.budgetStrategy || "legacy") + " | elapsedMs=" + (crawl.crawlElapsedMs || 0) + " | allocatedMs=" + (crawl.timeBudgetMs || 0) + " | exhausted=" + (crawl.timeBudgetExhausted ? "YES" : "NO") + " | itemTraversalCoverage=" + Math.round(Number(crawl.deepCoverageCompleteness || 0)*100) + "%\n";
+       technicalAppendix += "Network responses: " + (crawl.networkResponses || 0) + " | GraphQL: " + (crawl.graphqlResponses || 0) + " | Associated: " + (crawl.associatedNetworkResponses || 0) + "\n";
+       technicalAppendix += "DOM captures: " + (crawl.domCaptures || 0) + " | Route-scoped surfaces: " + (crawl.routeScopedSurfaceCaptures || 0) + " | Evidence upgrades: " + (crawl.evidenceUpgrades || 0) + " | Route failures: " + (crawl.routeFailures || 0) + "\n";
+       technicalAppendix += "Ignored non-item traffic: telemetry=" + (crawl.ignoredNoiseResponses || 0) + " | course-wide=" + (crawl.ignoredCourseWideResponses || 0) + "\n";
+       technicalAppendix += "Viewport scan steps: " + (crawl.viewportScanSteps || 0) + " | Outline disclosures expanded: " + (crawl.outlineDisclosureExpansions || 0) + "\n";
+       if (extractorMeta.outlineHydration) {
+         var oh=extractorMeta.outlineHydration||{};
+         technicalAppendix += "Outline pre-hydration: roots=" + Number(oh.roots||0) + " | positions=" + Number(oh.positions||0) + " | disclosures expanded=" + Number(oh.disclosuresExpanded||0) + " | max range=" + Number(oh.maxRange||0) + "\n";
+       }
+       technicalAppendix += "Direct React attempts: " + (crawl.directReactAttempts || 0) + " | Success signals: " + (crawl.directReactSuccessSignals || 0) + "\n";
+       technicalAppendix += "Evidence scoping: route-DOM diagnostic=" + (crawl.routeDomScans || 0) + " | UI assets filtered=" + (crawl.filteredUiAssets || 0) + " | chrome links filtered=" + (crawl.filteredChromeLinks || 0) + " | configured URLs=" + (crawl.configuredUrlsFound || 0) + " | launch URLs=" + (crawl.launchUrlsFound || 0) + " | weak identity ignored=" + (crawl.weakIdentityMatchesIgnored || 0) + " | scoped bodies=" + (crawl.scopedBodyCaptures || 0) + " | incomplete text=" + (crawl.incompleteTextCaptures || 0) + "\n";       technicalAppendix += "Adaptive readiness: waits=" + (crawl.stabilityWaits || 0) + " | timeouts=" + (crawl.stabilityTimeouts || 0) + " | avg dwell=" + Math.round((crawl.stabilityTotalMs || 0) / Math.max(1, crawl.stabilityWaits || 0)) + "ms | evidence changes=" + (crawl.stabilityEvidenceChanges || 0) + "\n";
+       technicalAppendix += "Session evidence: associated=" + (crawl.sessionAssociatedResponses || 0) + " | files=" + (crawl.sessionPayloadFiles || 0) + " | links=" + (crawl.sessionPayloadLinks || 0) + "\n";
+       technicalAppendix += "Self-healing retry: targets=" + (crawl.retryTargets || 0) + " | attempts=" + (crawl.retryAttempts || 0) + " | improved=" + (crawl.retryImproved || 0) + " | resolved=" + (crawl.retryResolved || 0) + " | remainingWeak=" + (crawl.retryRemainingWeak || 0) + " | health=" + (crawl.runHealthGrade || "") + " | effectiveNavigated=" + (crawl.effectiveNavigated == null ? (crawl.navigated || 0) : crawl.effectiveNavigated) + "/" + (crawl.targets || 0) + "\n";
+       if (crawl.targetDiagnostics && crawl.targetDiagnostics.length) {
+         crawl.targetDiagnostics.forEach(function(d) {
+           technicalAppendix += "  - " + (d.name || d.id || "item") +
+             ": found=" + (d.found ? "yes" : "no") +
+             ", via=" + (d.navigation || d.reason || "none") +
+             ", network=" + (d.networkResponses || 0) +
+             ", associated=" + (d.associatedResponses || 0) +
+             ", DOM=" + (d.domCaptured ? "yes" : "no") +
+             ", surface=" + (d.editorSurfaceCaptured ? ("yes@" + String(d.editorSurfaceScore || "")) : "no") +
+             ", routeScoped=" + (d.routeScopedSurfaceCaptured ? "yes" : "no") +
+             ", strongIdentity=" + (d.strongIdentitySeed ? "yes" : "no") +
+             ", genericName=" + (d.genericBaseName ? "yes" : "no") +
+             ", upgraded=" + (d.upgraded ? "yes" : "no") +
+             ", noise=" + String(d.ignoredNoise || 0) +
+             ", foundReason=" + String(d.foundReason || "") +
+             ", foundTag=" + String(d.tag || "") +
+             ", visibleSeed=" + (d.visibleSeed ? "yes" : "no") +
+             ", row=" + (d.rowFound ? (String(d.rowTag || "") + ":yes") : "no") +
+             ", candidates=" + String(d.candidateCount || 0) +
+             ", hiddenIdMatches=" + String(d.hiddenIdMatches || 0) +
+             ", reactClick=" + String(d.reactClickCandidates || 0) +
+             ", nativeInteractive=" + String(d.nativeInteractiveCandidates || 0) +
+             ", subtree=" + String(d.rowSubtreeSize || 0) +
+             ", scanSteps=" + String(d.viewportScanSteps || 0) +
+             ", expanded=" + String(d.outlineExpanded || 0) +
+             ", roots=" + String(d.scrollRootsTried || 0) +
+             ", scanRoot=" + String(d.scanRootTag || "") +
+             ", routeDOM=" + (d.routeDomObserved ? "yes" : "no") +
+             ", weakIgnored=" + String(d.weakIdentityMatchesIgnored || 0) +
+             ", uiFiltered=" + String(d.filteredUiAssets || 0) +
+             ", chromeLinks=" + String(d.filteredChromeLinks || 0) +
+             ", configuredUrls=" + String(d.configuredUrlsFound || 0) +
+             ", launchUrls=" + String(d.launchUrlsFound || 0) +
+             ", bodyScoped=" + (d.bodyScoped ? "yes" : "no") +
+             ", textComplete=" + Math.round(Number(d.textCompleteness || 0) * 100) + "%" +
+             ", textScope=" + (d.textScopeKind || "") +
+             ", dwell=" + String(d.stabilityMs || 0) + "ms" +
+             ", stableSamples=" + String(d.stabilitySamples || 0) +
+             ", evidenceChanges=" + String(d.stabilityChanges || 0) +
+             ", stabilityTimeout=" + (d.stabilityTimedOut ? "yes" : "no") +
+             ", sessionAssoc=" + String(d.sessionAssociatedResponses || 0) +
+             ", sessionFiles=" + String(d.sessionPayloadFiles || 0) +
+             ", sessionLinks=" + String(d.sessionPayloadLinks || 0) +
+             ", retry=" + (d.retryAttempted ? ("yes[" + String((d.retryReason || []).join("+")) + "], improved=" + (d.retryImproved ? "yes" : "no") + ", resolved=" + (d.retryResolved ? "yes" : "no")) : "no") +
+             ", y=" + String(d.foundScrollY || 0) + "\n";
+         if (d.questionCycleCaptureCompleteness) {
+           var qc=d.questionCycleCaptureCompleteness, qt=d.questionCycleTraversal || {};
+           technicalAppendix += "      Assessment capture: questions=" + Number(qc.captured || 0) + "/" + Number(qc.declared || 0) +
+             " | answer keys=" + Number(qc.answerEvidence || 0) + "/" + Number(qc.declared || 0) +
+             " | complete=" + (qc.answerCoverageComplete ? "YES" : "NO") +
+             " | stop=" + String(qt.stopReason || qc.stopReason || "") +
+             " | scroll steps=" + Number(qt.scrollSteps || 0) + " | pages advanced=" + Number(qt.paginationClicks || 0) + "\n";
+           if ((qc.missingQuestionOrdinals || []).length) technicalAppendix += "      Uncaptured question positions: " + qc.missingQuestionOrdinals.slice(0,30).join(", ") + (qc.missingQuestionOrdinals.length>30 || qc.missingOrdinalListTruncated ? " (list shortened)" : "") + "\n";
+           if ((qc.unansweredQuestionOrdinals || []).length) technicalAppendix += "      Positions without reliable answer keys: " + qc.unansweredQuestionOrdinals.slice(0,30).join(", ") + (qc.unansweredQuestionOrdinals.length>30 ? " (list shortened)" : "") + "\n";
+         }
+         (d.candidatePreview || []).slice(0, 4).forEach(function(c) {
+           technicalAppendix += "      candidate: " + String(c.tag || "") +
+             " | scope=" + String(c.scope || "") +
+             " | score=" + String(c.score || "") +
+             " | react=" + (c.reactClick ? "yes" : "no") +
+             " | key=" + (c.reactKeyPress ? "yes" : "no") +
+             " | direct=" + (c.directAllowed ? "yes" : "no") +
+             " | component=" + String(c.trackComponent || "") +
+             " | action=" + String(c.trackAction || "") +
+             " | props=" + String((c.reactProps || []).join(",")).slice(0,100) +
+             " | " + String(c.label || "").slice(0,120) + "\n";
+         });
+         (d.controlAttempts || []).slice(0, 5).forEach(function(c) {
+           technicalAppendix += "      control: " + String(c.tag || "") +
+             " | scope=" + String(c.scope || "") +
+             " | " + String(c.mode || "") +
+             " | react=" + (c.reactClick ? "yes" : "no") +
+             " | direct=" + (c.directAllowed ? "yes" : "no") +
+             " | component=" + String(c.trackComponent || "") +
+             " | " + String(c.label || "").slice(0,120) +
+             " | surface=" + (c.surface ? ("yes@" + String(c.surfaceScore || "")) : "no") +
+             (c.error ? (" | error=" + String(c.error || "").slice(0,100)) : "") + "\n";
+         });
+           (d.responseSummaries || []).forEach(function(r) {
+             var h = r.harvested || {};
+             technicalAppendix += "      ↳ " + String(r.method || "GET") + " " + String(r.path || "") +
+               (r.operation ? (" | op=" + String(r.operation)) : "") +
+               (r.bytes ? (" | bytes=" + String(r.bytes)) : "") +
+               " | associated=" + (r.associated ? "yes" : "no") +
+             (r.sessionAssociated ? " | session=yes" : "") +
+               " | files=" + String(h.files || 0) +
+               " links=" + String(h.links || 0) +
+               " text=" + String(h.text || 0) + "\n";
+           });
+         });
+       }
+     }
+     technicalAppendix += "\n";
+
+     (res.itemResults || []).forEach(function(item) {
+       text += item.verdict + " — " + item.sourceName + "\n";
+       text += "  Observed Match: " + (item.verdict === 'INTENTIONAL_EXCLUSION' ? 'N/A' : (item.fidelityPercent + '%')) + " | Evidence Coverage: " + item.evidenceCoverage + "% | Structural match: " + Math.round((item.matchScore || 0) * 100) + "%\n";
+       if (item.evidenceStrength) text += "  Evidence Strength: " + (item.evidenceStrength.score || 0) + "% (" + (item.evidenceStrength.label || "") + ")\n";
+       text += "  Source: " + (item.sourceType || '') + " @ " + (item.sourcePath || 'Root') + "\n";
+       if (item.courseraName) text += "  Coursera: " + item.courseraName + " [" + (item.courseraId || 'no stable ID') + "] — " + (item.courseraType || '') + " @ " + (item.courseraPath || 'Unavailable') + "\n";
+
+       var checks = item.checks || {};
+       if(item.verdict==='UNVERIFIED') text += '  Interpretation: scores describe observed signals only; this item is not fully verified.\n';
+       if(checks.sourceTextNormalization) text += '  Source text normalization: '+checks.sourceTextNormalization.status+' — '+checks.sourceTextNormalization.reason+'\n';
+       if(checks.reconciliationDiagnostic){
+         var dg=checks.reconciliationDiagnostic;
+         text += '  Source evidence: '+(dg.sourceScanner||'unknown scanner')+' | build='+(dg.sourceBuild||'unknown')+' | type='+dg.sourceTypeRaw+' | sample='+dg.sourceSampleLength+' | declared='+dg.sourceDeclaredLength+' | raw='+dg.rawSampleLength+'\n';
+         text += '  Source preview: '+dg.sourcePreview+'\n';
+         (dg.candidates||[]).forEach(function(c){text += '  Unconfirmed candidate: '+c.name+' ['+c.id+'] @ '+c.path+' | text='+(c.comparison&&c.comparison.status||'unknown')+' | similarity='+(c.comparison&&c.comparison.similarity!=null?Math.round(Number(c.comparison.similarity)*100)+'%':'unavailable')+' | scope='+c.scope+' | completeness='+Math.round(c.completeness*100)+'% | reason='+(c.comparison&&c.comparison.reason||'')+'\n';});
+       }
+       if(checks.destinationReadiness) checks.destinationReadiness.forEach(function(f){text += '  Destination readiness: '+f.code+' — '+f.detail+'\n';});
+       if (checks.repackaging) {
+         if (checks.repackaging.identityRecovered === true) text += "  Repackaging: unique renamed Discussion identity recovered" + (checks.repackaging.carriers && checks.repackaging.carriers.length ? " in " + checks.repackaging.carriers.map(function(c){ return c.name || c.id; }).join(', ') : '') + "; structural survival supported, source prompt equivalence unverified\n";
+         else text += "  Repackaging: recovered " + (checks.repackaging.recoveredCount || 0) + "/" + (checks.repackaging.totalExpected || 0) + " expected payload signals" + (checks.repackaging.carriers && checks.repackaging.carriers.length ? " in " + checks.repackaging.carriers.map(function(c){ return c.name || c.id; }).join(', ') : '') + "\n";
+       }
+       var tf = checks.transformationFamily || checks.oneToManyTransformation || null;
+       if (tf) {
+         text += "  Transformation family: " + (tf.familyStatus || tf.status || 'UNVERIFIED') + " | mode " + (tf.mode || '') + " | destination items " + (tf.childCount || 0) + " | deep text " + (tf.textEvidenceChildren || 0) + "/" + (tf.childCount || 0) + " | source semantic coverage " + Math.round(Number(tf.directionalSourceCoverage || 0) * 100) + "%";
+         if (tf.aggregateLengthRatio != null) text += " | aggregate/source length " + Math.round(Number(tf.aggregateLengthRatio || 0) * 100) + "%";
+         text += "\n";
+         if ((tf.childNames || []).length) text += "    CTI checked together: " + (tf.childNames || []).slice(0,30).join(' | ') + "\n";
+       }
+       if (checks.assets && checks.assets.relocated && checks.assets.relocated.length) text += "  Assets relocated: " + checks.assets.relocated.map(function(m){ return m.expected + " → " + (m.carrierName || m.carrierId || 'another item') + " [" + (m.method || '') + " " + Math.round(Number(m.score || 0) * 100) + "%]"; }).join(' | ') + "\n";
+       if (checks.assets && checks.assets.transformed && checks.assets.transformed.length) text += "  Assets transformed: " + checks.assets.transformed.map(function(m){ return m.expected + " → " + (m.nativeSurface || 'native Coursera Assignment') + " [" + Math.round(Number(m.score || 0) * 100) + "% semantic evidence]"; }).join(' | ') + "\n";
+       if (checks.assets && checks.assets.changedNative && checks.assets.changedNative.length) text += "  Native content changed: " + checks.assets.changedNative.map(function(m){ return m.expected + " → " + (m.nativeSurface || 'native Coursera rubric') + " [" + Math.round(Number(m.score || 0) * 100) + "% semantic evidence]"; }).join(' | ') + "\n";
+       if (checks.transformation) {
+         text += "  Native transformation: " + checks.transformation.status + " | " + (checks.transformation.transformedCount || 0) + "/" + (checks.transformation.expectedDocumentCount || 0) + " source PDFs | native rubrics " + (checks.transformation.rubricCount || 0);
+         if (checks.transformation.rubricMismatchCount) text += " | rubric content mismatches " + String(checks.transformation.rubricMismatchCount);
+         if (checks.transformation.sourceEvidenceSchemaVersion != null) text += " | source evidence schema " + String(checks.transformation.sourceEvidenceSchemaVersion || 0);
+         if (checks.transformation.sourceEvidenceBuildId) text += " | source build " + String(checks.transformation.sourceEvidenceBuildId);
+         if (checks.transformation.ignoredSourceReferenceCount) text += " | source-only refs ignored " + String(checks.transformation.ignoredSourceReferenceCount);
+         if (checks.transformation.sourceRefreshRequired) text += " | SOURCE REFRESH REQUIRED";
+         else if (Number(checks.transformation.pdfEvidenceMappingFailureCount || 0) > 0) text += " | SOURCE EVIDENCE MAPPING GAP";
+         if (checks.transformation.pdfExtractionFailureCount) text += " | PDF extraction failures " + String(checks.transformation.pdfExtractionFailureCount);
+         text += "\n";
+         (checks.transformation.documents || []).forEach(function(d) {
+           text += "    - " + (d.name || "PDF") + ": " + (d.status || "UNVERIFIED") + " | role=" + (d.role || "document");
+           if (d.similarity != null) text += " | semantic " + Math.round(Number(d.similarity || 0) * 100) + "%";
+           if (d.pdfParser) text += " | parser=" + d.pdfParser;
+           if (d.pdfPagesRead) text += " | pagesScanned=" + d.pdfPagesRead;
+           if (d.sampledPageCount) text += " | semanticWindows=" + d.sampledPageCount;
+           if (d.bestSemanticPage) text += " | bestPage=" + d.bestSemanticPage;
+           if (d.rubricAnchors && d.rubricAnchors.totalCriteria) text += " | rubricCriteria=" + (d.rubricAnchors.matchedCriteria || 0) + "/" + d.rubricAnchors.totalCriteria;
+           if (d.reason) text += " | " + d.reason;
+           text += "\n";
+         });
+       }
+       if (checks.assets && checks.assets.missing && checks.assets.missing.length) text += "  Assets not observed: " + checks.assets.missing.join(', ') + "\n";
+       if (checks.assets && checks.assets.unresolved && checks.assets.unresolved.length) text += "  Assets unresolved: " + checks.assets.unresolved.join(', ') + "\n";
+       if (checks.assets && checks.assets.status === 'UNVERIFIED' && checks.assets.expected && checks.assets.expected.length && !(checks.assets.unresolved || []).length) text += "  Assets unverified: " + checks.assets.expected.join(', ') + "\n";
+       if (checks.links && checks.links.relocated && checks.links.relocated.length) text += "  Links relocated: " + checks.links.relocated.map(function(m){ return m.expected + " → " + (m.carrierName || m.carrierId || 'another item'); }).join(' | ') + "\n";
+       if (checks.links && checks.links.status === 'PARTIAL' && checks.links.missing && checks.links.missing.length) text += "  Links not observed: " + checks.links.missing.join(', ') + "\n";
+       if (checks.links && checks.links.status === 'UNVERIFIED' && checks.links.expected && checks.links.expected.length) text += "  Links unverified: " + checks.links.expected.join(', ') + "\n";
+       if (checks.content && checks.content.mode === 'STRUCTURED_ASSESSMENT') {
+         text += "  Assessment: " + checks.content.status + (checks.content.similarity != null ? " (" + qaAssessmentScoreLabel_(checks.structuredAssessment || checks.content) + ")" : "") + (checks.content.reason ? " — " + checks.content.reason : "") + "\n";
+       } else if (checks.content && (checks.content.status === 'CHANGED' || checks.content.status === 'DRIFT')) {
+         text += "  Content: " + checks.content.status + (checks.content.similarity != null ? " (" + Math.round(checks.content.similarity * 100) + "% similarity)" : "") + "\n";
+       } else if (checks.content && checks.content.status === 'UNVERIFIED' && checks.content.reason && (checks.content.sourceLength || checks.content.courseraLength)) {
+         text += "  Content: UNVERIFIED — " + checks.content.reason + "\n";
+       }
+       if(checks.sourceLinkNormalization)text+='  Source URL evidence: '+checks.sourceLinkNormalization.status+' — '+checks.sourceLinkNormalization.reason+'\n';
+       if(checks.externalWebpageTransformation)text+='  External webpage conversion: exact source URL retained | learner launch NOT_OBSERVED | '+checks.externalWebpageTransformation.sourceUrl+'\n';
+       else if(checks.externalWebpageEvidence)text+=qaExternalWebpageDiagnosticText_(checks.externalWebpageEvidence);
+       if (checks.structuredAssessment) {
+         var sa = checks.structuredAssessment;
+         text += "  Structured assessment: source " + (sa.sourceQuestionCount || 0) + " q | Coursera " + (sa.courseraQuestionCount || 0) + " q | aligned " + (sa.alignedQuestionCount || 0);
+         if (sa.declaredCaptureIncomplete) text += " | declared source=" + sa.sourceDeclaredQuestionCount + " Coursera=" + sa.courseraDeclaredQuestionCount + " (capture incomplete)";
+         if (sa.evidenceCoverage != null) text += " | coverage " + Math.round(Number(sa.evidenceCoverage || 0) * 100) + "%";
+         if (sa.answerEvidenceCoverage != null) text += " | answer evidence " + qaAssessmentAnswerEvidenceText_(sa);
+         if (sa.answerMismatchCount) text += " | answer mismatches " + sa.answerMismatchCount;
+         if (sa.selectionPolicyStatus && sa.selectionPolicyStatus !== 'NOT_OBSERVED') {
+           var sp = sa.sourceSelectionPolicy || {}, cp = sa.courseraSelectionPolicy || {};
+           text += " | pool " + sa.selectionPolicyStatus + " source=" + (sp.selectCount == null ? '?' : sp.selectCount) + "/" + (sp.poolSize == null ? '?' : sp.poolSize) + " Coursera=" + (cp.selectCount == null ? '?' : cp.selectCount) + "/" + (cp.poolSize == null ? '?' : cp.poolSize);
+         }
+         text += "\n";
+         var assessmentEvidence=qaAssessmentEvidenceText_(sa);
+         if(assessmentEvidence)text+='    '+assessmentEvidence.replace(/\n/g,'\n    ')+'\n';
+         (sa.questionResults || []).forEach(function(q) {
+           text += "    Q" + (q.sourceIndex || '') + "→Q" + (q.courseraIndex || '') + ": " + ((q.details||{}).optionCaptureIssue?'UNVERIFIED':Math.round(Number(q.score || 0) * 100)+'%') + ((q.mismatches || []).length ? " [" + q.mismatches.join(', ') + "]" : "") + "\n";
+           var difference=qaQuestionDifferenceText_(q);
+           if(difference)text+='      '+difference.replace(/\n/g,'\n      ')+'\n';
+         });
+       }
+       if (checks.content && checks.content.evidenceCompleteness != null) {
+         text += "  Text evidence: " + Math.round(Number(checks.content.evidenceCompleteness || 0) * 100) + (checks.content.scopeKind === 'transformation-family-aggregate' ? "% of family children have text evidence" : "% reported capture completeness") + (checks.content.scopeKind ? " [" + checks.content.scopeKind + "]" : "") + (checks.content.lengthRatio != null ? " | length ratio " + Math.round(checks.content.lengthRatio * 100) + "%" : "") + "\n";
+         if (checks.content.fieldScopedComparison && checks.content.sourceScopeKind) {
+           text += "  Field alignment: source " + checks.content.sourceScopeKind + " ↔ destination " + (checks.content.scopeKind || 'learner-field') + (checks.content.sourceFieldSimilarity != null ? " | alignment " + Math.round(Number(checks.content.sourceFieldSimilarity || 0) * 100) + "%" : "") + (checks.content.sourceFieldConfidence != null ? " | confidence " + Math.round(Number(checks.content.sourceFieldConfidence || 0) * 100) + "%" : "") + "\n";
+         }
+       }
+       if (checks.ingestionProvenance && (checks.ingestionProvenance.claims || []).length) {
+         text += "  Ingestion provenance: " + (checks.ingestionProvenance.status || 'CLAIMED') + " — " + (checks.ingestionProvenance.reason || '') + "\n";
+         (checks.ingestionProvenance.claims || []).forEach(function(c){ text += "    CLAIM " + (c.type || '') + (c.subject ? " | " + c.subject : "") + (c.target ? " -> " + c.target : "") + " | " + (c.excerpt || '') + "\n"; });
+       }
+       if (checks.publication && checks.publication.status === 'UNPUBLISHED') text += "  Publication: UNPUBLISHED/HIDDEN\n";
+       if (checks.publication && checks.publication.status === 'RAW_UNPUBLISHED') text += "  Publication: RAW UNPUBLISHED — observed, not penalized\n";
+       if (checks.publication && checks.publication.status === 'RAW_PUBLISHED') text += "  Publication: RAW PUBLISHED — observed\n";
+       if (item.ownerAction && item.ownerAction.action) text += "  Assignment Owner: " + item.ownerAction.action + "\n";
+       if (item.issues && item.issues.length) text += "  Flags: " + item.issues.join(', ') + "\n";
+       text += "\n";
+     });
+
+     if (res.injected && res.injected.length) {
+       text += "EXTRA COURSERA ITEMS\n";
+       res.injected.forEach(function(item) {
+         text += "- " + item.name + " [" + item.type + "]" + (item.path ? " @ " + item.path : "");
+         if (item.extraLabel) text += " — " + item.extraLabel;
+         text += "\n";
+         if (item.ownerAction) text += "  Owner: " + item.ownerAction + "\n";
+         if(item.sourceAssetProvenance)text+=qaSourceAssetProvenanceText_(item.sourceAssetProvenance);
+       });
+       text += "\n";
+     }
+
+     text += "\nTECHNICAL AUDIT APPENDIX — provenance, readiness, and capture diagnostics\n" + technicalAppendix;
+     return text.trim();
+ }
+
+ function copyPostQaToClipboard(btn) {
+     if (!lastPostQaResult) return alert('No results to copy.');
+     navigator.clipboard.writeText(buildPostQaText_(lastPostQaResult)).then(function() {
+       var orig=btn.innerText; btn.innerText='Copied!';
+       setTimeout(function(){btn.innerText=orig;},2000);
+     }).catch(function(err){alert('Copy failed: '+err.message);});
+ }
+
+ function scrollToPartner(safeId) {
+    var details = document.getElementById('partner-accordion-' + safeId);
+    if (details) {
+        details.open = true;
+        details.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        var originalBg = details.style.backgroundColor;
+        details.style.backgroundColor = '#EEF2FF';
+        setTimeout(function() { details.style.backgroundColor = originalBg; }, 1000);
+    }
+ }
+
+ function filterByOwnerForUuid(uuid) {
+    var ownerName = packageByUuid[uuid] ? (packageByUuid[uuid].owner || 'Unassigned') : '';
+    var input = document.getElementById("searchPackagesInput");
+    input.value = ownerName;
+    filterPackages();
+    var insightGrid = document.querySelector('.insight-grid');
+    if (insightGrid) insightGrid.scrollIntoView({ behavior: 'smooth', block: 'end' });
+ }
+
+ function filterPackages() {
+    var input = document.getElementById("searchPackagesInput");
+    var filter = String(input && input.value || '').toLowerCase().trim();
+    var accordions = document.querySelectorAll("details.partner-accordion");
+    accordions.forEach(function(acc) {
+        var partnerText=String(acc.getAttribute('data-partner') || acc.querySelector('summary') && acc.querySelector('summary').innerText || '').toLowerCase();
+        var rows = acc.querySelectorAll(".db-row");
+        var hasVisibleRow = false;
+        rows.forEach(function(row) {
+            var corpus=String(row.getAttribute('data-search') || row.innerText || '').toLowerCase()+' '+partnerText;
+            var visible=!filter || corpus.indexOf(filter)>-1;
+            row.style.display=visible?'flex':'none';
+            if(visible)hasVisibleRow=true;
+        });
+        acc.style.display=hasVisibleRow?'block':'none';
+        if(hasVisibleRow && filter)acc.open=true;
+    });
+ }
+
+
+ function copyBlueprintText(btn) {
+     if (!currentViewedTree || currentViewedTree.length === 0) return alert("No architecture loaded to copy.");
+     var plainText = formatTreeAsText(currentViewedTree, "");
+     navigator.clipboard.writeText(plainText).then(function() {
+         var origText = btn.innerText; btn.innerText = "Copied!";
+         setTimeout(function() { btn.innerText = origText; }, 2000);
+     }).catch(function(err) { alert("Failed to copy: " + err); });
+ }
+
+ function exportToGoogleSheet(btn) {
+     if (!currentViewedTree || currentViewedTree.length === 0) return alert("No architecture loaded to export.");
+     var origHTML = btn.innerHTML;
+     btn.innerHTML = "⏳ Generating...";
+     btn.disabled = true;
+     
+     var fileName = "Course";
+     if (lastAuditResult && lastAuditResult.fileName) {
+         fileName = lastAuditResult.fileName;
+     } else if (document.getElementById('viewerTitle')) {
+         fileName = document.getElementById('viewerTitle').innerText.replace('Architecture: ', '').trim();
+     }
+     
+     google.script.run
+     .withSuccessHandler(function(res) {
+         btn.innerHTML = origHTML;
+         btn.disabled = false;
+         if (res.success) { window.open(res.url, '_blank'); } 
+         else { alert("Export Error: " + res.error); }
+     })
+     .withFailureHandler(function(error) {
+         btn.innerHTML = origHTML;
+         btn.disabled = false;
+         alert("Google Server Error: " + error.message);
+     })
+     .exportMasterManifestAsGoogleSheet(JSON.stringify(currentViewedTree), fileName);
+ }
+
+ function formatTreeAsText(nodes, indent) {
+     var text = "";
+     for (var i = 0; i < nodes.length; i++) {
+         var node = nodes[i];
+         var isFolder = (node.type === "folder" && (!node.idref));
+         var icon = "📄";
+         if (isFolder) icon = "📁";
+         else if (node.type.indexOf("imsqti") > -1) icon = "📝";
+         else if (node.type.indexOf("assignment") > -1) icon = "📋";
+         else if (node.type.indexOf("imsdt") > -1) icon = "💬";
+         else if (node.type.indexOf("imsbasiclti") > -1) icon = "🔗";
+         else if (node.type.indexOf("imswl") > -1) icon = "🌐";
+         else if (node.title.toLowerCase().indexOf("video") > -1 || node.type.indexOf("media") > -1) icon = "📹";
+
+         var emptyTag = "";
+         if (node.autoDeleted) emptyTag = " [DELETED BY COURSERA: EMPTY]";
+         else if (isFolder && (!node.children || node.children.length === 0)) emptyTag = " (Empty)";
+         
+         text += indent + icon + " " + node.title + emptyTag + "\n";
+         if (node.children && node.children.length > 0) text += formatTreeAsText(node.children, indent + "    ");
+     }
+     return text;
+ }
+
+ function processImscc() {
+   var partnerName = document.getElementById('partnerTagInput').value.trim();
+   if (!partnerName) return alert("Enter or select a Partner Name before analyzing the package.");
+   var input = document.getElementById('imsccFile');
+   if (!input || !input.files || input.files.length === 0) return alert("Choose an IMSCC package first.");
+
+   var file = input.files[0];
+   var lowerName = String(file.name || '').toLowerCase();
+   if (!(lowerName.endsWith('.imscc') || lowerName.endsWith('.zip'))) return alert("Choose an .imscc package. ZIP is accepted only when it contains an IMSCC-compatible manifest.");
+   if (file.size > 250 * 1024 * 1024) return alert("This package is larger than 250 MB. Use a smaller export or split the package before analysis.");
+
+   var cleanFileName = removeDownloadSuffix(file.name);
+   setButtonBusy('analyzeImsccBtn', true, 'Reading package…');
+   renderStatus('imsccStatus', 'Opening the package locally and locating its manifest. Nothing has been saved yet.', 'info', true);
+
+   readPackageManifest(file)
+     .then(function(pkg) { sendXmlToServer(pkg.xmlString, cleanFileName, pkg.sourceEvidenceJson); })
+     .catch(function(err) {
+       setButtonBusy('analyzeImsccBtn', false);
+       renderStatus('imsccStatus', 'Package extraction failed. ' + (err && err.message ? err.message : 'Check the file and try again.'), 'error', false);
+     });
+ }
+
+ function sendXmlToServer(xmlString, fileName, sourceEvidenceJson) {
+     var requestId = ++activeScanRequestId;
+     setButtonBusy('analyzeImsccBtn', true, 'Analyzing structure…');
+     renderStatus('imsccStatus', 'Manifest found. CTI is fingerprinting the hierarchy, resources, assessments, dependencies, and source evidence…', 'info', true);
+     google.script.run
+       .withSuccessHandler(function(res) { renderImsccResult(res, requestId); })
+       .withFailureHandler(function(e) {
+         if (requestId !== activeScanRequestId) return;
+         setButtonBusy('analyzeImsccBtn', false);
+         renderStatus('imsccStatus', 'The server could not finish the package analysis. ' + (e && e.message ? e.message : 'Try again.'), 'error', false);
+       })
+       .analyzeImsccFromXmlString(xmlString, fileName, sourceEvidenceJson);
+ }
+
+ function generateTreeHtml(nodes) {
+    if (!nodes || nodes.length === 0) return "";
+    var html = "<ul class='tree-ul'>";
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var isFolder = (node.type === "folder" && (!node.idref)); 
+      var icon = "📄"; 
+      
+      if (isFolder) icon = "📁";
+      else if (node.type.indexOf("imsqti") > -1) icon = "📝"; 
+      else if (node.type.indexOf("assignment") > -1) icon = "📋"; 
+      else if (node.type.indexOf("imsdt") > -1) icon = "💬"; 
+      else if (node.type.indexOf("imsbasiclti") > -1) icon = "🔗"; 
+      else if (node.type.indexOf("imswl") > -1) icon = "🌐"; 
+      else if (node.title.toLowerCase().indexOf("video") > -1 || node.type.indexOf("media") > -1) icon = "📹"; 
+
+      var titleText = escapeHtml(node.title);
+      
+      if (node.autoDeleted) {
+         titleText = "<span style='text-decoration: line-through; color: #DC2626;'>" + titleText + "</span> <i style='color:#EF4444; font-size:11px;'>(Auto-Deleted: Empty)</i>";
+      }
+      
+      html += "<li class='tree-item'>";
+      if (isFolder) {
+        if (node.children && node.children.length > 0) {
+          html += "<span class='tree-caret' onclick='toggleTree(this)'><span class='tree-icon'>" + icon + "</span>" + titleText + "</span>";
+          html += generateTreeHtml(node.children);
+        } else {
+          var emptyTag = node.autoDeleted ? "" : " <i style='color:#9CA3AF; font-size:11px; margin-left:6px;'>(Empty)</i>";
+          html += "<span style='display:flex; align-items:center; margin-left:18px;'><span class='tree-icon'>" + icon + "</span>" + titleText + emptyTag + "</span>";
+        }
+      } else {
+        html += "<span style='display:flex; align-items:center; margin-left:18px;'><span class='tree-icon'>" + icon + "</span>" + titleText + "</span>";
+        if (node.children && node.children.length > 0) html += generateTreeHtml(node.children);
+      }
+      html += "</li>";
+    }
+    return html + "</ul>";
+ }
+
+ function toggleTree(el) {
+   var ul = el.parentElement.querySelector("ul");
+   if (ul) {
+     ul.style.display = ul.style.display === "block" ? "none" : "block";
+     el.classList.toggle("tree-caret-down");
+   }
+ }
+
+ function renderImsccResult(res, requestId) {
+   if (requestId !== activeScanRequestId) return;
+   setButtonBusy('analyzeImsccBtn', false);
+   if(!res.success) { document.getElementById('imsccStatus').innerHTML = "<span class='error'>" + escapeHtml(res.error) + "</span>"; return; }
+   lastAuditResult = res; 
+   var partnerName = document.getElementById('partnerTagInput').value.trim();
+   currentViewedTree = res.courseTree; 
+
+   var html = "<details class='qa-dropdown' open><summary>Package Scanned: " + escapeHtml(res.fileName) + "</summary><div class='qa-content'>";
+  
+   var formulaText = "";
+   var combinedAssessments = res.stats.quizzes + res.stats.assignments;
+   if (res.stats.totalItems === 0) {
+      formulaText = "<span style='color:#DC2626; font-weight:bold;'>Zero Content Override (Empty Shell) = 100</span>";
+   } else if (res.stats.isBoilerplate) {
+      formulaText = "<span style='color:#D97706; font-weight:bold;'>Boilerplate Shell Override = 100</span>";
+   } else {
+      formulaText = "LTI ("+res.stats.lti+"x10) + Empty ("+res.stats.emptyFolders+"x5) + Unknown ("+res.stats.unknown+"x3) + Assessments ("+combinedAssessments+"x2) + Discussions ("+res.stats.discussions+"x1.5) + WebLinks ("+res.stats.weblinks+"x1) + WebContent ("+res.stats.webcontent+"x0.5)";
+   }
+
+   var autoRemarks = "";
+   if (res.stats.totalItems === 0) {
+      autoRemarks = "🚨 CRITICAL: Package contains ZERO valid content items. All folders are empty and will be auto-deleted. Do not ingest.";
+   } else if (res.stats.isBoilerplate) {
+      autoRemarks = "⚠️ BOILERPLATE SHELL DETECTED: Package lacks core instructional content (0 Quizzes, 0 Readings). Likely an administrative template.";
+   } else {
+      autoRemarks = "Package scanned via Gateway. IFS evaluated at " + res.stats.ifs + " points. ";
+      if (res.stats.emptyFolders > 0) autoRemarks += res.stats.emptyFolders + " empty folders detected. ";
+      if (res.stats.lti > 0) autoRemarks += res.stats.lti + " LTI items found. ";
+      if (res.stats.ifs <= 20) autoRemarks += "Ready for ingestion.";
+   }
+
+   var ifsColor = res.stats.ifs > 50 ? "#EF4444" : (res.stats.ifs >= 20 ? "#F59E0B" : "#10B981");
+   
+   html += "<div style='background:#F9FAFB; border:1px solid #E5E7EB; border-radius:8px; padding:15px; margin-bottom:20px;'>";
+   html += "<div style='display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;'>";
+   html += "<h4 style='margin:0;'>Live IFS Evaluation</h4>";
+   html += "<span class='metric-pill' style='background:" + ifsColor + "20; color:" + ifsColor + "; font-size:14px;'>IFS: " + res.stats.ifs + "</span>";
+   html += "</div>";
+   html += "<div style='font-size:13px; color:#4B5563; margin-bottom:10px;'><b>Formula Breakdown:</b> " + formulaText + "</div>";
+   html += "<div style='font-size:13px; color:#111827; background:#FFFFFF; padding:10px; border:1px solid #D1D5DB; border-radius:6px;'><b>Auto-Remarks:</b> " + autoRemarks + "</div>";
+   html += "</div>";
+
+   if (res.stats.sourceEvidenceMode) {
+       var fpLabel = res.stats.sourceEvidenceMode === 'zip-fingerprint' ? 'ZIP source fingerprint captured' : 'Manifest-only source fingerprint';
+       html += "<div style='background:#EEF2FF; border:1px solid #C7D2FE; color:#3730A3; padding:12px; border-radius:6px; margin-bottom:15px; font-size:13px;'><b>Source Item Fingerprinting:</b> " + fpLabel + ". <b>" + (res.stats.fingerprintedResources || 0) + "</b> resource records and <b>" + (res.stats.fingerprintedFiles || 0) + "</b> referenced files retained for later fidelity QA.</div>";
+   }
+
+   if (res.stats.orphans > 0) {
+       html += "<div style='background:#F3F4F6; border:1px solid #D1D5DB; color:#374151; padding:12px; border-radius:6px; margin-bottom:10px; font-size:13px;'><b>Graph Theory Orphan Detection</b> <span class='info-icon' onclick='openCsModal(\"orphan\")'>ℹ️</span><br>Discovered <b>" + res.stats.orphans + " Orphaned Manifest Resource(s)</b> not reachable from the active organization/dependency graph. Review before assuming the resource is unused.</div>";
+   }
+
+   if (res.stats.lexicalTTR < 0.4 && res.stats.totalItems > 0 && res.stats.lexicalContextReliable === true) {
+       html += "<div style='background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; padding:12px; border-radius:6px; margin-bottom:10px; font-size:13px;'><b>Lexical Variance (TTR: " + res.stats.lexicalTTR + ")</b> <span class='info-icon' onclick='openCsModal(\"ttr\")'>ℹ️</span><br>⚠️ Low title-label lexical diversity on a sufficiently large sample. Treat this as an AI-context warning only; it does not imply content loss or guarantee hallucination.</div>";
+   }
+
+   if (res.stats.zScoreImbalances && res.stats.zScoreImbalances.length > 0) {
+       html += "<div style='background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B; padding:12px; border-radius:6px; margin-bottom:20px; font-size:13px;'><b>Z-Score Imbalance Detected</b> <span class='info-icon' onclick='openCsModal(\"zscore\")'>ℹ️</span><ul style='margin:5px 0 0 20px; padding:0;'>";
+       for(var z=0; z<res.stats.zScoreImbalances.length; z++) {
+           var imb = res.stats.zScoreImbalances[z];
+           html += "<li><i>" + escapeHtml(imb.title) + "</i> contains " + imb.count + " items (Average is " + imb.mean + "). High risk of cognitive overload.</li>";
+       }
+       html += "</ul></div>";
+   }
+
+   if (res.stats.hiddenPlugins > 0) {
+       html += "<div style='background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; padding:12px; border-radius:6px; margin-bottom:20px; font-weight:500; font-size:13px;'>ℹ️ Hidden dependency audit: CTI now separates attachment proxies, embedded media dependencies, and interactive candidates. Hidden dependency count is not a SCORM/Rise count. Expect extra generated items.</div>";
+   }
+
+   var validModules = 0;
+   var adminKeywords = ['start here', 'overview', 'archive', 'syllabus', 'introduction', 'welcome'];
+   var exactAdminKeywords = ['student resources', 'student resource', 'instructor resources', 'instructor resource', 'resources', 'resource'];
+   
+   for (var m = 0; m < res.courseTree.length; m++) {
+       if (res.courseTree[m].type === 'folder' && !res.courseTree[m].autoDeleted) {
+           var titleLow = (res.courseTree[m].title || "").trim().toLowerCase();
+           var isAdmin = false;
+           for (var k = 0; k < adminKeywords.length; k++) {
+               if (titleLow.indexOf(adminKeywords[k]) > -1) isAdmin = true;
+           }
+           for (var j = 0; j < exactAdminKeywords.length; j++) {
+               if (titleLow === exactAdminKeywords[j]) isAdmin = true;
+           }
+           if (!isAdmin) validModules++;
+       }
+   }
+   
+   if (res.stats.totalItems > 0 && !res.stats.isBoilerplate && (validModules < 3 || combinedAssessments < 4)) {
+       html += "<div style='background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; padding:12px; border-radius:6px; margin-bottom:20px; font-weight:500; font-size:13px;'>⚠️ Micro-Course Warning: This package contains only " + validModules + " instructional module(s) and " + combinedAssessments + " assessment(s). It does not meet the standard volume threshold for a full Specialization.</div>";
+   } 
+
+   html += "<h4>Package Summary</h4>";
+   html += "<table class='math-proof-table'><tr><th>Content Format</th><th>Detected Count</th><th>Coursera Mapping</th></tr>";
+  
+   var extKeys = Object.keys(res.fileExtensionsLog || {});
+   var webContentExtra = extKeys.length > 0 ? " <small style='color:#6B7280;'>(" + escapeHtml(extKeys.map(function(k) { return k + ": " + res.fileExtensionsLog[k]; }).join(", ")) + ")</small>" : "";
+  
+   html += "<tr><td>HTML / WebContent" + webContentExtra + "</td><td>" + res.stats.webcontent + "</td><td>Reading / Asset</td></tr>";
+   html += "<tr><td>QTI (Assessments)</td><td>" + res.stats.quizzes + "</td><td>Quiz / Practice</td></tr>";
+   html += "<tr><td>Assignments (LMS Native)</td><td>" + (res.stats.assignments || 0) + "</td><td>Peer / Staff Graded Assignment</td></tr>";
+   html += "<tr><td>Discussions</td><td>" + res.stats.discussions + "</td><td>Discussion Prompt</td></tr>";
+   html += "<tr><td>Web Links (URLs)</td><td>" + res.stats.weblinks + "</td><td>Reading (URL Asset)</td></tr>";
+   html += "<tr><td style='color:#DC2626; font-weight:600;'>LTI / External Tools</td><td style='color:#DC2626; font-weight:600;'>" + res.stats.lti + "</td><td style='color:#DC2626;'>[PLACEHOLDER] Error</td></tr>";
+   html += "<tr><td>Other / Unknown</td><td>" + res.stats.unknown + "</td><td>Review Manually</td></tr>";
+   html += "<tr><td>Hidden dependency candidates</td><td>" + (res.stats.hiddenPlugins || 0) + "</td><td>Parent-aware dependency audit</td></tr>";
+   html += "<tr><td>↳ Attachment/proxy candidates</td><td>" + (res.stats.hiddenAttachmentProxies || 0) + "</td><td>Do not double-count as learner activity</td></tr>";
+   html += "<tr><td>↳ Embedded media dependencies</td><td>" + (res.stats.hiddenMediaDependencies || 0) + "</td><td>Verify through visible parent payload</td></tr>";
+   html += "<tr><td>↳ Interactive-data/HTML candidates</td><td>" + (res.stats.hiddenInteractiveCandidates || 0) + "</td><td>Runtime/package review</td></tr>";
+   html += "<tr><td>IMSCC interactive carrier heuristics</td><td>" + ((res.stats.interactivePackageCandidates || []).length) + "</td><td>Heuristic only; external Rise/Storyline inventory remains authoritative</td></tr></table><br>";
+
+   html += "<div style='display:flex; align-items:center; justify-content:space-between; margin:15px 0 10px 0;'>";
+   html += "<h4 style='margin: 0;'>Interactive Course Blueprint</h4>";
+   html += "<div style='display:flex; gap:10px;'>";
+   html += "<button onclick='exportToGoogleSheet(this)' class='btn-secondary btn-sm'>📊 Export to Google Sheets</button>";
+   html += "<button onclick='copyBlueprintText(this)' class='btn-secondary btn-sm'>📋 Copy Format</button>";
+   html += "</div></div>";
+
+   html += "<div class='course-viewer'>" + generateTreeHtml(res.courseTree) + "</div>";
+   
+   html += "<div id='preFlightBanner' style='margin-top:20px; padding:20px; border-radius:8px; background:#EEF2FF; border:1px solid #C7D2FE; text-align:center;'>";
+   html += "<h4 style='color:#4F46E5; margin:0 0 10px 0;'>Pre-Flight Rules Running...</h4>";
+   html += "<p style='color:#6B7280; font-size:13px; margin:0;'>Checking content, core empty folders, and LTI limits before unlocking ingestion...</p>";
+   html += "</div>";
+
+   html += "<button id='saveToDbBtn' onclick='saveAuditToDb()' style='width:100%; margin-top:20px; justify-content:center; display:none;'>Save Architecture to Database</button>";
+   
+   html += "</div></details>";
+   document.getElementById('imsccStatus').innerHTML = html;
+
+   var preFlightData = {
+       ifs: res.stats.ifs,
+       emptyFolders: res.stats.emptyFolders,
+       coreEmptyCount: res.stats.coreEmptyCount,
+       ltiItems: res.stats.lti,
+       totalItems: res.stats.totalItems
+   };
+   
+   google.script.run
+     .withSuccessHandler(function(pfRes) {
+       if (requestId !== activeScanRequestId) return;
+       var banner = document.getElementById('preFlightBanner');
+       var saveBtn = document.getElementById('saveToDbBtn');
+       var statusDropdown = document.getElementById('statusInput');
+       
+       if (pfRes.success) {
+           var aiNote = pfRes.aiAvailable === false ? "<br><small>AI narrative was unavailable; the deterministic verdict is still valid.</small>" : "";
+           if (pfRes.verdict === "BLOCKED") {
+               banner.style.background = "#FEF2F2";
+               banner.style.borderColor = "#FCA5A5";
+               banner.innerHTML = "<h3 style='color:#DC2626; margin:0 0 10px 0;'>🚫 BLOCKED</h3><p style='color:#991B1B; font-weight:600; font-size:14px; margin:0;'>" + escapeHtml(pfRes.message.replace('[BLOCKED]', '')) + aiNote + "</p>";
+               statusDropdown.value = "Blocked";
+               saveBtn.innerText = "Save to Directory (Marked as BLOCKED)";
+               saveBtn.style.backgroundColor = "#DC2626";
+               saveBtn.style.display = "flex";
+           } else {
+               var extraWarning = "";
+               if (preFlightData.ltiItems > 0 || preFlightData.totalItems > 200) {
+                   extraWarning = " <br><br><b>⚠️ Note for Ingestion:</b> Please verify LTI OAuth configurations and review the Coursera shell for any partial imports.";
+               }
+               banner.style.background = "#F0FDF4";
+               banner.style.borderColor = "#A7F3D0";
+               banner.innerHTML = "<h3 style='color:#10B981; margin:0 0 10px 0;'>✅ CLEARED TO INGEST</h3><p style='color:#065F46; font-size:14px; margin:0;'>" + escapeHtml(pfRes.message.replace('[CLEARED TO INGEST]', '').trim()) + extraWarning + aiNote + "</p>";
+               statusDropdown.value = "In Queue";
+               saveBtn.innerText = "Save to Directory (Marked as CLEARED)";
+               saveBtn.style.backgroundColor = "#10B981";
+               saveBtn.style.display = "flex";
+           }
+       } else {
+           banner.style.background = "#FEF3C7";
+           banner.style.borderColor = "#FDE68A";
+           banner.innerHTML = "<h3 style='color:#92400E; margin:0 0 10px 0;'>⚠️ Pre-Flight Failed</h3><p style='color:#92400E; font-size:13px; font-weight:500; margin:0;'>The structural checks could not complete: " + escapeHtml(pfRes.error) + ". Review the package manually before saving.</p>";
+           statusDropdown.value = "In Queue";
+           saveBtn.innerText = "Save After Manual Review";
+           saveBtn.style.backgroundColor = "#F59E0B";
+           saveBtn.style.display = "flex";
+         }
+     })
+     .withFailureHandler(function(e) {
+         if (requestId !== activeScanRequestId) return;
+         document.getElementById('preFlightBanner').innerHTML = "<span class='error'>Preflight Request Failed: " + escapeHtml(e.message) + "</span>";
+     })
+     .runPreFlightInspector(JSON.stringify(preFlightData));
+ }
+
+ function saveAuditToDb() {
+   var partnerName = document.getElementById('partnerTagInput').value.trim();
+   var assignedDate = document.getElementById('assignedDateInput').value;
+   var owner = document.getElementById('ownerInput').value.trim();
+   var deadline = document.getElementById('deadlineInput').value;
+   var status = document.getElementById('statusInput').value;
+   var driveLink = document.getElementById('driveLinkInput').value.trim();
+   
+   if (!lastAuditResult) return alert("No audit result active.");
+   var fileName = lastAuditResult.fileName;
+   var overwrite = false;
+  
+   if (globalDbState && globalDbState[partnerName]) {
+       var existing = globalDbState[partnerName].packages.filter(function(p) { return semanticPackageKey(p.name) === semanticPackageKey(fileName); });
+       if (existing.length > 1) {
+           return alert("Multiple saved records match this canonical filename. Use the Re-Scan button on the exact row you intend to update.");
+       }
+       if (existing.length > 0) {
+           if (!confirm("⚠️ Matching Package Found\n\n'" + fileName + "' matches saved record '" + existing[0].name + "' for " + partnerName + ".\n\nClick OK to overwrite its scan data while preserving its UUID, or Cancel to stop.")) {
+               document.getElementById('imsccStatus').innerHTML = "<span style='color:#6B7280; font-size:14px; margin-top:10px; display:block;'>Save cancelled.</span>"; return;
+           }
+           overwrite = true;
+       }
+   }
+
+   document.getElementById('imsccStatus').innerHTML = "<div style='margin-top:15px; color:#4B5563;'>Saving architecture to database...</div>";
+   google.script.run
+     .withSuccessHandler(function(res) {
+        if(res.success) { fetchPartnerAnalytics(); fetchRedoWorkQueue(); document.getElementById('imsccStatus').innerHTML = "<div style='margin-top:15px; color:#10B981; font-weight:bold;'>" + escapeHtml(res.message) + "</div>";} else alert("Error: " + escapeHtml(res.error));
+     })
+     .withFailureHandler(function(e) { alert("Save failed: " + e.message); })
+     .savePackageAuditToDb(partnerName, assignedDate, owner, deadline, status, driveLink, lastAuditResult, overwrite);
+ }
+
+ function updateDuplicateBadge(summary) {
+   var badge = document.getElementById('duplicateCountBadge');
+   var button = document.getElementById('duplicateReviewBtn');
+   if (!badge || !button) return;
+   var groupCount = summary && Number(summary.groupCount) > 0 ? Number(summary.groupCount) : 0;
+   var entryCount = summary && Number(summary.duplicateEntryCount) > 0 ? Number(summary.duplicateEntryCount) : 0;
+   badge.textContent = String(groupCount);
+   badge.style.display = groupCount ? 'inline-block' : 'none';
+   button.title = groupCount
+     ? groupCount + ' duplicate group(s), containing ' + entryCount + ' removable duplicate entr' + (entryCount === 1 ? 'y' : 'ies')
+     : 'No duplicate database entries detected';
+ }
+
+ function openDuplicateReview() {
+   if (duplicateCleanupActive) return;
+   duplicatePreviewToken = '';
+   ctiOpenModal('duplicateModal');
+   document.getElementById('duplicateModalActions').style.display = 'none';
+   document.getElementById('duplicateModalContent').innerHTML = "<div style='padding:30px; text-align:center; color:#4F46E5; font-weight:600;'>Scanning saved database entries...</div>";
+
+   google.script.run
+     .withSuccessHandler(function(res) {
+       if (!res.success) {
+         document.getElementById('duplicateModalContent').innerHTML = "<span class='error'>" + escapeHtml(res.error) + "</span>";
+         return;
+       }
+       renderDuplicatePreview(res);
+     })
+     .withFailureHandler(function(e) {
+       document.getElementById('duplicateModalContent').innerHTML = "<span class='error'>Duplicate scan failed: " + escapeHtml(e.message) + "</span>";
+     })
+     .getDuplicateEntryPreview();
+ }
+
+ function renderDuplicatePreview(res) {
+   duplicatePreviewToken = res.planToken || '';
+   updateDuplicateBadge({ groupCount: res.groupCount, duplicateEntryCount: res.duplicateEntryCount });
+   var actions = document.getElementById('duplicateModalActions');
+   if (!res.groups || res.groups.length === 0) {
+     document.getElementById('duplicateModalContent').innerHTML = "<div style='padding:20px; background:#F0FDF4; border:1px solid #A7F3D0; color:#065F46; border-radius:8px;'><b>No duplicate entries found.</b><br>Single records such as a lone <span class='duplicate-file'>file (1).imscc</span> remain untouched.</div>";
+     actions.style.display = 'none';
+     return;
+   }
+
+   var html = "<div style='background:#EFF6FF; border:1px solid #BFDBFE; color:#1E3A8A; padding:12px; border-radius:8px; margin-bottom:15px;'>";
+   html += "Found <b>" + Number(res.groupCount) + " duplicate group(s)</b> with <b>" + Number(res.duplicateEntryCount) + " removable duplicate entr" + (Number(res.duplicateEntryCount) === 1 ? "y" : "ies") + "</b>. Selected entries will be moved to <span class='duplicate-file'>Duplicate_Archive</span>, not permanently erased.</div>";
+
+   for (var i = 0; i < res.groups.length; i++) {
+     var group = res.groups[i];
+     var blockedClass = group.safeToArchive ? '' : ' blocked';
+     html += "<div class='duplicate-card" + blockedClass + "'>";
+     html += "<div style='display:flex; align-items:flex-start; gap:10px;'>";
+     html += "<input type='checkbox' class='duplicate-group-select' value='" + escapeHtml(group.id) + "' data-entries='" + group.archive.length + "' style='margin-top:4px;'" + (group.safeToArchive ? " checked" : " disabled") + ">";
+     html += "<div style='flex:1; min-width:0;'>";
+     html += "<div style='font-weight:700; color:#111827;'>" + escapeHtml(group.partner) + "</div>";
+     html += "<div class='duplicate-file' style='color:#4B5563; margin-bottom:10px;'>" + escapeHtml(group.canonicalName) + "</div>";
+     html += "<div style='background:#F0FDF4; border:1px solid #A7F3D0; padding:9px; border-radius:6px; margin-bottom:8px;'><b style='color:#065F46;'>Keep UUID:</b> <span class='duplicate-file'>" + escapeHtml(group.survivor.fileName) + "</span> <span style='color:#6B7280;'>[" + escapeHtml(group.survivor.uuid.slice(0, 8)) + "…]</span></div>";
+     html += "<div style='background:#F9FAFB; border:1px solid #E5E7EB; padding:9px; border-radius:6px;'><b>Archive:</b><ul style='margin:6px 0 0 18px; padding:0;'>";
+     for (var a = 0; a < group.archive.length; a++) {
+       html += "<li><span class='duplicate-file'>" + escapeHtml(group.archive[a].fileName) + "</span> <span style='color:#6B7280;'>[" + escapeHtml(group.archive[a].uuid.slice(0, 8)) + "…]</span></li>";
+     }
+     html += "</ul></div>";
+     if (group.scanDataDiffers) {
+       html += "<div class='duplicate-note'>The saved scan results differ. The newest scan from <span class='duplicate-file'>" + escapeHtml(group.latestScan.fileName) + "</span> will be retained under the surviving UUID.</div>";
+     }
+     if (!group.safeToArchive) {
+       html += "<div class='error' style='margin-top:8px;'>Not selected: conflicting " + escapeHtml(group.conflictFields.join(', ')) + ". Review these rows manually before cleanup.</div>";
+     }
+     html += "</div></div></div>";
+   }
+
+   document.getElementById('duplicateModalContent').innerHTML = html;
+   actions.style.display = Number(res.safeGroupCount) > 0 ? 'flex' : 'none';
+ }
+
+ function closeDuplicateModal() {
+   if (duplicateCleanupActive) {
+     showToast('Duplicate cleanup is still running. Wait for the archive operation to finish before closing.', 'warning', 6500);
+     return;
+   }
+   ctiCloseModal('duplicateModal');
+ }
+
+ function runDuplicateCleanup() {
+   if (duplicateCleanupActive) return;
+   var selected = Array.from(document.querySelectorAll('.duplicate-group-select:checked'));
+   if (!selected.length) return alert('Select at least one duplicate group to archive.');
+   var groupIds = selected.map(function(input) { return input.value; });
+   var entryCount = selected.reduce(function(total, input) { return total + Number(input.getAttribute('data-entries') || 0); }, 0);
+   if (!confirm('Archive ' + entryCount + ' duplicate database entr' + (entryCount === 1 ? 'y' : 'ies') + '?\n\nThe retained UUID and filename will remain active. Archived rows can be recovered from the Duplicate_Archive sheet.')) return;
+
+   duplicateCleanupActive = true;
+   var button = document.getElementById('archiveDuplicatesBtn');
+   button.disabled = true;
+   button.textContent = 'Archiving duplicates...';
+   google.script.run
+     .withSuccessHandler(function(res) {
+       duplicateCleanupActive = false;
+       button.disabled = false;
+       button.textContent = 'Archive Selected Duplicates';
+       if (!res.success) {
+         alert(res.error);
+         openDuplicateReview();
+         return;
+       }
+       pendingDashboardNotice = "<div style='margin-bottom:20px; padding:14px; border:1px solid #A7F3D0; background:#F0FDF4; color:#065F46; border-radius:8px;'><b>Duplicate cleanup completed:</b> " + escapeHtml(res.message) + "</div>";
+       closeDuplicateModal();
+       fetchPartnerAnalytics();
+       fetchRedoWorkQueue();
+     })
+     .withFailureHandler(function(e) {
+       duplicateCleanupActive = false;
+       button.disabled = false;
+       button.textContent = 'Archive Selected Duplicates';
+       alert('Duplicate cleanup failed: ' + e.message);
+     })
+     .archiveDuplicateEntries(groupIds, duplicatePreviewToken);
+ }
+
+
+ function workSelectHtml_(workKey, field, value, options) {
+   var html = "<select aria-label='" + escapeHtml(field) + "' onchange='saveRedoWorkState(\"" + workKey + "\",\"" + field + "\",this.value)'>";
+   (options || []).forEach(function(opt) {
+     html += "<option value='" + escapeHtml(opt[0]) + "'" + (String(value || '') === opt[0] ? " selected" : "") + ">" + escapeHtml(opt[1]) + "</option>";
+   });
+   return html + "</select>";
+ }
+
+ function workBadgeHtml_(text, tone) {
+   return "<span class='work-badge " + escapeHtml(tone || 'muted') + "'>" + escapeHtml(text) + "</span>";
+ }
+
+ function workDeltaHtml_(before, after, lowerIsBetter) {
+   if (before == null || after == null || Number(before) === Number(after)) return "";
+   var delta = Number(after) - Number(before);
+   var good = lowerIsBetter ? delta < 0 : delta > 0;
+   return " <span class='work-delta " + (good ? "good" : "bad") + "'>" + (delta > 0 ? "+" : "") + delta + "</span>";
+ }
+
+ function workDateTimeLabel_(iso) {
+   if (!iso) return "No redo scan recorded";
+   var d = new Date(iso);
+   return isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+ }
+
+ function primeWorkPackage_(item) {
+   if (!item || !item.ctiUuid) return null;
+   if (!packageByUuid[item.ctiUuid]) {
+     var m = item.ctiMetrics || {};
+     packageByUuid[item.ctiUuid] = {
+       uuid:item.ctiUuid, name:item.ctiFileName || item.expectedFileName, realTitle:item.title,
+       version:item.ctiVersion, ifs:Number(m.ifs || 0), empty:Number(m.emptyFolders || 0),
+       totalItems:Number(m.totalItems || 0), lti:Number(m.lti || 0), quizzes:Number(m.assessments || 0),
+       discussions:Number(m.discussions || 0), weblinks:Number(m.weblinks || 0), webcontent:Number(m.webcontent || 0),
+       unknown:Number(m.unknown || 0), owner:item.owner || '', status:'In Queue', deadline:'', date:item.plannerLatestDate || '',
+       driveLink:'', partner:item.partner || ''
+     };
+   }
+   return packageByUuid[item.ctiUuid];
+ }
+
+ function triggerWorkRescan(workKey) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item || !item.ctiUuid) return showToast('This work item does not have one exact CTI source record to re-scan.', 'warning');
+   primeWorkPackage_(item);
+   updateContext = { uuid:item.ctiUuid, expectedFileName:item.ctiFileName || item.expectedFileName, version:item.ctiVersion };
+   document.getElementById('updateFileInput').click();
+ }
+
+ function prepareWorkUpload(workKey) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item) return;
+   document.getElementById('partnerTagInput').value = item.partner || '';
+   document.getElementById('ownerInput').value = item.owner || '';
+   document.getElementById('assignedDateInput').value = item.plannerLatestDate || document.getElementById('assignedDateInput').value;
+   var input = document.getElementById('imsccFile');
+   document.getElementById('stage0').scrollIntoView({behavior:'smooth',block:'start'});
+   setTimeout(function(){ input.focus(); },300);
+   showToast('Choose ' + (item.expectedFileName || 'the assigned IMSCC') + ', analyze it, then save the new source record.', 'info', 7000);
+ }
+
+ function openWorkExplore(workKey) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item || !item.ctiUuid) return;
+   primeWorkPackage_(item);
+   openSavedCourseViewer(item.ctiUuid);
+ }
+
+ function openWorkAudit(workKey) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item || !item.ctiUuid) return;
+   primeWorkPackage_(item);
+   runDeepAudit(item.ctiUuid);
+ }
+
+ function openWorkQa(workKey) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item || !item.ctiUuid) return;
+   primeWorkPackage_(item);
+   openPostQaModal(item.ctiUuid);
+   // Work-queue QA is primarily an audit of the existing imported shell before
+   // deciding whether a smarter Smart Ingestion re-run is necessary. If the
+   // catalog says an imported shell already exists, default to Raw ingestion so
+   // unpublished state is observed rather than penalized. The user can still
+   // change the selector manually when auditing a later Ops-prepared shell.
+   if (item.existingCourseraShell) {
+     var snapshot = document.getElementById('qaSnapshotMode');
+     if (snapshot) { snapshot.value = 'raw'; updateQaReadiness(); }
+   }
+ }
+
+ function refreshWorkQueueForPackageUuid_(uuid) {
+   var keys = Object.keys(redoWorkItemsByKey || {});
+   for (var i = 0; i < keys.length; i++) {
+     var item = redoWorkItemsByKey[keys[i]];
+     if (item && item.ctiUuid === uuid) { fetchRedoWorkQueue(); return; }
+   }
+ }
+
+ function workEvidenceProgress_(item, steps) {
+   var checks = item && item.state && item.state.evidenceChecklist || {};
+   var done = 0, next = '';
+   (steps || []).forEach(function(step) {
+     if (checks[step.key] === true) done++;
+     else if (!next) next = step.label;
+   });
+   return {done:done,total:(steps || []).length,next:next};
+ }
+
+ function rememberWorkChecklistOpen_(panel) {
+   if (panel.isConnected) redoWorkChecklistOpen[panel.getAttribute('data-evidence-checklist')] = panel.open;
+ }
+
+ function workEvidenceChecklistHtml_(item, steps) {
+   if (!steps || !steps.length) return '';
+   var key = item.workKey, progress = workEvidenceProgress_(item,steps);
+   var checks = item.state && item.state.evidenceChecklist || {};
+   var notice = redoWorkChecklistNotice[key] || {};
+   var h = "<details class='work-evidence-checklist' data-evidence-checklist='" + escapeHtml(key) + "' ontoggle='rememberWorkChecklistOpen_(this)'" + (redoWorkChecklistOpen[key] ? ' open' : '') + ">";
+   h += "<summary>Before / after evidence checklist · " + progress.done + '/' + progress.total + " steps complete<small>" +
+     escapeHtml(progress.next ? 'Next unchecked: ' + progress.next : 'Collection steps complete — ready for evidence review') + "</small></summary><div class='work-evidence-body'>";
+   h += "<p>Tick each step when you finish it. Progress saves automatically for this course in the selected campaign. Checked steps track collection, not QA approval. Uncheck any steps you need to repeat.</p>";
+   h += "<p>Use current-course vs source QA for both reports. On the first QA after re-ingestion, select that Smart Ingestion ran again. Reuse Brightspace JSON only while the source is unchanged; save a new Coursera XLSX with each shell capture.</p>";
+   var group = '';
+   steps.forEach(function(step) {
+     if (step.group !== group) {
+       if (group) h += '</fieldset>';
+       group = step.group;
+       h += '<fieldset><legend>' + escapeHtml(group) + '</legend>';
+     }
+     h += "<label><input type='checkbox' data-work-key='" + escapeHtml(key) + "' data-evidence-step='" + escapeHtml(step.key) +
+       "' onchange='saveWorkEvidenceStep_(this)'" + (checks[step.key] === true ? ' checked' : '') + (redoWorkSaving[key] ? ' disabled' : '') +
+       "><span>" + escapeHtml(step.label) + '</span></label>';
+   });
+   if (group) h += '</fieldset>';
+   h += "<div class='work-evidence-message" + (notice.error ? ' error' : '') + "' role='status' aria-live='polite'>" +
+     escapeHtml(redoWorkSaving[key] ? 'Saving…' : notice.text || '') + '</div></div></details>';
+   return h;
+ }
+
+ function updateWorkEvidenceBatchProgress_() {
+   var target = document.getElementById('workEvidenceBatchProgress');
+   if (!target) return;
+   var res = redoWorkLastResponse || {}, steps = res.evidenceChecklistSteps || [];
+   var active = (res.items || []).filter(function(item){ return !item.state || item.state.scope !== 'EXCLUDED'; });
+   var complete = 0, started = 0;
+   active.forEach(function(item) {
+     var p = workEvidenceProgress_(item,steps);
+     if (p.total && p.done === p.total) complete++;
+     else if (p.done) started++;
+   });
+   target.textContent = 'Evidence collection: ' + complete + '/' + active.length + ' active courses complete · ' + started + ' in progress. Collection progress is separate from QA approval.';
+ }
+
+ function renderWorkEvidencePanel_(workKey) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item) return;
+   var panels = document.querySelectorAll('[data-evidence-checklist]');
+   for (var i=0;i<panels.length;i++) {
+     if (panels[i].getAttribute('data-evidence-checklist') !== workKey) continue;
+     redoWorkChecklistOpen[workKey] = panels[i].open;
+     panels[i].outerHTML = workEvidenceChecklistHtml_(item,(redoWorkLastResponse || {}).evidenceChecklistSteps || []);
+     break;
+   }
+   updateWorkEvidenceBatchProgress_();
+ }
+
+ function workSetItemSaving_(workKey, saving) {
+   redoWorkSaving[workKey] = saving;
+   document.querySelectorAll('[data-work-row]').forEach(function(row) {
+     if (row.getAttribute('data-work-row') !== workKey) return;
+     row.querySelectorAll('input,select,textarea,button').forEach(function(control){ control.disabled = saving; });
+   });
+ }
+
+ function saveWorkEvidenceStep_(checkbox) {
+   var patch = {};
+   patch[checkbox.getAttribute('data-evidence-step')] = checkbox.checked;
+   saveRedoWorkState(checkbox.getAttribute('data-work-key'),'evidenceChecklist',patch);
+ }
+
+ function saveRedoWorkState(workKey, field, value) {
+   var item = redoWorkItemsByKey[workKey];
+   if (!item || !item.state) return;
+   if (redoWorkSaving[workKey]) return;
+   var isChecklist = field === 'evidenceChecklist';
+   var expectedVersion = item.state.version || '';
+   workSetItemSaving_(workKey,true);
+   if (isChecklist) {
+     redoWorkChecklistNotice[workKey] = {text:'Saving…',error:false};
+     var panel = document.querySelectorAll('[data-evidence-checklist]');
+     for (var i=0;i<panel.length;i++) if (panel[i].getAttribute('data-evidence-checklist') === workKey) {
+       panel[i].querySelector('.work-evidence-message').textContent = 'Saving…';
+     }
+   } else renderStatus('workQueueStatus','Saving work progress…','info',true);
+   var patch = {};
+   patch[field] = value;
+   function failed(message) {
+     workSetItemSaving_(workKey,false);
+     if (isChecklist) {
+       redoWorkChecklistNotice[workKey] = {text:message,error:true};
+       renderWorkEvidencePanel_(workKey);
+     } else {
+       renderStatus('workQueueStatus',message,'error',false);
+       fetchRedoWorkQueue();
+     }
+   }
+   google.script.run
+     .withSuccessHandler(function(res) {
+       if (!res || !res.success) {
+         failed((res && res.error) || 'Could not save work progress.');
+         return;
+       }
+       item.state = Object.assign({}, item.state, res.state || {});
+       if (redoWorkItemsByKey[workKey]) redoWorkItemsByKey[workKey].state = item.state;
+       workSetItemSaving_(workKey,false);
+       if (isChecklist) {
+         redoWorkChecklistNotice[workKey] = {text:'Saved.',error:false};
+         renderWorkEvidencePanel_(workKey);
+       } else {
+         showToast('Work progress saved.', 'success');
+         fetchRedoWorkQueue();
+       }
+     })
+     .withFailureHandler(function(e) {
+       failed('Could not save work progress. ' + (e && e.message ? e.message : '') + ' Refresh the queue to check the saved state before retrying.');
+     })
+     .updateRedoWorkItemState(workKey, patch, expectedVersion);
+ }
+
+ function renderRedoWorkQueue(res) {
+   redoWorkLastResponse = res;
+   redoWorkItemsByKey = {};
+   (res.items || []).forEach(function(item){ redoWorkItemsByKey[item.workKey] = item; });
+
+   var ownerSelect = document.getElementById('workOwnerFilter');
+   var currentOwner = ownerSelect.value || '';
+   var owners = res.owners || [];
+   ownerSelect.innerHTML = "<option value=''>All owners</option>";
+   owners.forEach(function(owner) {
+     var opt = document.createElement('option');
+     opt.value = owner;
+     opt.textContent = owner;
+     ownerSelect.appendChild(opt);
+   });
+   if (currentOwner && owners.indexOf(currentOwner) > -1) ownerSelect.value = currentOwner;
+
+   var s = res.summary || {};
+   var summary = document.getElementById('workQueueSummary');
+   summary.style.display = 'grid';
+   summary.innerHTML =
+     "<div class='work-kpi'><strong>" + Number(s.confirmedTitles || 0) + "</strong><span>Confirmed title codes</span></div>" +
+     "<div class='work-kpi attention'><strong>" + Number(s.needsRescan || 0) + "</strong><span>Need source re-scan</span></div>" +
+     "<div class='work-kpi'><strong>" + Number(s.needsUpload || 0) + "</strong><span>Need source upload</span></div>" +
+     "<div class='work-kpi attention'><strong>" + Number(s.needsRawAudit || 0) + "</strong><span>Need existing-shell QA</span></div>" +
+     "<div class='work-kpi success'><strong>" + Number(s.keepExistingRecommended || 0) + "</strong><span>Keep existing recommended</span></div>" +
+     "<div class='work-kpi attention'><strong>" + Number(s.reingestRecommended || 0) + "</strong><span>Re-ingest recommended</span></div>" +
+     "<div class='work-kpi attention'><strong>" + Number(s.scormManualReview || 0) + "</strong><span>Runtime check before keep</span></div>" +
+     "<div class='work-kpi success'><strong>" + Number(s.rescanned || 0) + "</strong><span>Re-scanned in redo window</span></div>" +
+     "<div class='work-kpi'><strong>" + Number(s.scormFlagged || 0) + "</strong><span>SCORM / Rise / Storyline flagged</span></div>" +
+     "<div class='work-kpi " + (Number(s.unresolvedPlannerSlots || 0) ? "attention" : "") + "'><strong>" + Number(s.unresolvedPlannerSlots || 0) + "</strong><span>Unmapped planner slots</span></div>";
+
+   var unresolved = document.getElementById('workQueueUnresolved');
+   var unresolvedGroups = res.unresolvedGroups || [];
+   if (unresolvedGroups.length) {
+     var uhtml = "<div class='work-unresolved'><b>Planner evidence is incomplete for some assignment groups.</b> CTI does not guess missing title codes.";
+     unresolvedGroups.forEach(function(g) {
+       uhtml += "<br>" + escapeHtml(g.assignmentDate) + " · " + escapeHtml(g.owner) + ": " +
+         Number(g.parsedTitleCount || 0) + " title codes evidenced, " + Number(g.expectedTitleAssignments || 0) +
+         " assignments expected → " + Number(g.unresolvedTitleCount || 0) + " unresolved.";
+     });
+     unresolved.innerHTML = uhtml + "</div>";
+   } else {
+     unresolved.innerHTML = "";
+   }
+
+   var items = res.items || [];
+   var list = document.getElementById('workQueueList');
+   if (!items.length) {
+     list.innerHTML = "<div class='empty-state'><strong>No confirmed title-level work found</strong>The planner rows in this window do not contain catalog title codes that CTI can safely join. Adjust the dates/owner or review unresolved planner groups.</div>";
+     return;
+   }
+
+   var groups = {};
+   items.forEach(function(item){ (groups[item.owner] || (groups[item.owner] = [])).push(item); });
+   var html = res.evidenceChecklistSteps && res.evidenceChecklistSteps.length ? "<div id='workEvidenceBatchProgress' class='work-source-note' style='margin:0 0 12px;' role='status' aria-live='polite'></div>" : "";
+   Object.keys(groups).sort().forEach(function(owner) {
+     var ownerItems = groups[owner];
+     var completeCount = ownerItems.filter(function(item){ return item.nextAction && item.nextAction.code === 'COMPLETE'; }).length;
+     html += "<details class='work-owner-group' open><summary><span>" + escapeHtml(owner) +
+       " <span style='color:#667085;font-weight:600;'>(" + ownerItems.length + " confirmed)</span></span>" +
+       "<span style='font-size:11px;color:#667085;'>" + completeCount + "/" + ownerItems.length + " complete</span></summary><div class='work-owner-body'>";
+
+     ownerItems.forEach(function(item) {
+       var state = item.state || {};
+       var m = item.ctiMetrics || {};
+       var scan = item.latestSourceScan || null;
+       var oldM = scan && scan.oldMetrics || {};
+       var newM = scan && scan.newMetrics || {};
+       var tone = item.nextAction && item.nextAction.tone || 'muted';
+       var scormTotal = Number(item.scorm && item.scorm.riseCount || 0) + Number(item.scorm && item.scorm.storylineCount || 0);
+
+       html += "<div class='work-item " + (state.scope === 'EXCLUDED' ? "excluded" : "") + "' data-work-row='" + escapeHtml(item.workKey) + "'>";
+       html += "<div class='work-item-head'><div><div><span class='work-code'>" + escapeHtml(item.displayCode || '') +
+         "</span> <span class='work-title'>" + escapeHtml(item.title || '') + "</span></div>";
+       html += "<div class='work-meta'><span>" + escapeHtml(item.productType || 'Product type not in catalog') +
+         "</span><span>Planner: " + escapeHtml(item.plannerLatestDate || '—') +
+         "</span><span>Expected source: " + escapeHtml(item.expectedFileName || '—') + "</span></div></div>";
+       html += "<div class='work-badges'>";
+       html += workBadgeHtml_(item.catalogStatus === 'MATCH' ? 'Catalog matched' : item.catalogStatus, item.catalogStatus === 'MATCH' ? 'success' : 'warning');
+       html += workBadgeHtml_(item.ctiMatchStatus === 'MATCH' ? 'CTI source found' : (item.ctiMatchStatus === 'MISSING' ? 'No CTI source' : 'CTI duplicate'),
+         item.ctiMatchStatus === 'MATCH' ? 'success' : (item.ctiMatchStatus === 'MISSING' ? 'danger' : 'warning'));
+       if (scormTotal > 0) {
+         html += workBadgeHtml_('SCORM: Rise ' + Number(item.scorm.riseCount || 0) + ' · Storyline ' + Number(item.scorm.storylineCount || 0), 'warning');
+       }
+       if (item.catalogImportStatus) html += workBadgeHtml_('Import: ' + item.catalogImportStatus, item.existingCourseraShell ? 'success' : 'muted');
+       if (item.sourceRescanned) html += workBadgeHtml_('Redo source scan ✓', 'success');
+       if (item.rawQaFresh && item.rawQaRecommendation) {
+         var qaTone = item.rawQaRecommendation.code === 'KEEP' ? 'success' : (item.rawQaRecommendation.code === 'REINGEST' ? 'danger' : 'warning');
+         html += workBadgeHtml_('Raw QA: ' + item.rawQaRecommendation.code, qaTone);
+       }
+       html += "</div></div>";
+
+       html += "<div class='work-next " + escapeHtml(tone) + "'>Next: " + escapeHtml(item.nextAction && item.nextAction.label || '') + "</div>";
+
+       if (item.ctiUuid && m) {
+         html += "<div class='work-metrics'>";
+         html += "<div class='work-metric'><span>IFS</span><b>" + Number(m.ifs || 0) + (scan ? workDeltaHtml_(oldM.ifs,newM.ifs,true) : "") + "</b></div>";
+         html += "<div class='work-metric'><span>Items</span><b>" + Number(m.totalItems || 0) + (scan ? workDeltaHtml_(oldM.totalItems,newM.totalItems,false) : "") + "</b></div>";
+         html += "<div class='work-metric'><span>Assessments</span><b>" + Number(m.assessments || 0) + (scan ? workDeltaHtml_(oldM.assessments,newM.assessments,false) : "") + "</b></div>";
+         html += "<div class='work-metric'><span>Empty</span><b>" + Number(m.emptyFolders || 0) + (scan ? workDeltaHtml_(oldM.emptyFolders,newM.emptyFolders,true) : "") + "</b></div>";
+         html += "<div class='work-metric'><span>Orphans</span><b>" + Number(m.orphans || 0) + (scan ? workDeltaHtml_(oldM.orphans,newM.orphans,true) : "") + "</b></div>";
+         html += "<div class='work-metric'><span>LTI</span><b>" + Number(m.lti || 0) + (scan ? workDeltaHtml_(oldM.lti,newM.lti,true) : "") + "</b></div>";
+         html += "</div>";
+         html += "<div class='work-source-note'>Latest redo scan evidence: " +
+           escapeHtml(workDateTimeLabel_(scan && scan.timestamp || '')) +
+           (scan ? " · " + escapeHtml(scan.action || '') : "") + "</div>";
+       }
+
+       if (item.latestRawQa) {
+         var qs = item.latestRawQa.summary || {};
+         var op = item.latestRawQa.operationalPolicy || qs.operationalPolicy || null;
+         html += "<div class='work-source-note' style='margin-top:6px;'><b>Existing Coursera raw-shell QA:</b> " +
+           (item.rawQaFresh ? "fresh for this source scan" : "older than the current source scan — run again") +
+           " · Raw fidelity " + Number(item.latestRawQa.sourceFidelity == null ? qs.observedFidelity || 0 : item.latestRawQa.sourceFidelity) + "%" +
+           " · Raw coverage " + Number(qs.evidenceCoverage || 0) + "%";
+         if (op) {
+           html += " · <b>Policy-adjusted " + Number(op.adjustedObservedFidelity || 0) + "% / " + Number(op.adjustedEvidenceCoverage || 0) + "%</b>" +
+             " · Ingestion failures " + Number(op.learnerFacingIngestionFailures || 0) +
+             " · Behavior mutations " + Number(op.learnerFacingBehaviorMutations || 0) +
+             " · LF missing " + Number(op.learnerFacingMissing || 0) +
+             " · LF hard loss " + Number(op.learnerFacingHardPayloadLoss || 0) +
+             " · Hidden review " + Number(op.hiddenDependencyReviews || 0) +
+             " · Policy-exempt " + Number(op.policyExemptSourceItems || 0);
+         } else {
+           html += " · Missing " + Number(qs.missing || 0) + " · Type mutations " + Number(qs.mutations || 0) + " · Partial " + Number(qs.partial || 0) + " · Unverified " + Number(qs.unverified || 0);
+         }
+         html += " · Raw unpublished " + Number(qs.rawUnpublished || 0) + " · " + escapeHtml(workDateTimeLabel_(item.latestRawQa.timestamp || '')) + "</div>";
+         if (item.rawQaRecommendation && item.rawQaRecommendation.reason) html += "<div class='work-source-note' style='margin-top:4px;'><b>Redo decision:</b> " + escapeHtml(item.rawQaRecommendation.code || '') + " — " + escapeHtml(item.rawQaRecommendation.reason) + "</div>";
+       }
+
+       html += "<div class='work-actions'>";
+       if (!item.ctiUuid) {
+         html += "<button class='btn-secondary btn-sm' onclick='prepareWorkUpload(\"" + item.workKey + "\")'>⬆ Source Upload</button>";
+       } else {
+         html += "<button class='btn-secondary btn-sm' style='border-color:#3B82F6;color:#2563EB;' onclick='triggerWorkRescan(\"" + item.workKey + "\")'>🔄 Re-Scan</button>";
+         html += "<button class='btn-secondary btn-sm' onclick='openWorkExplore(\"" + item.workKey + "\")'>Explore</button>";
+         html += "<button class='btn-secondary btn-sm' onclick='openWorkAudit(\"" + item.workKey + "\")'>🧠 Deep Audit</button>";
+         var qaButtonLabel = item.existingCourseraShell && state.courseraRedo !== 'DONE' && state.courseraRedo !== 'NOT_REQUIRED' ? '⚖️ Audit Existing Shell' : '⚖️ Post-QA';
+         html += "<button class='btn-secondary btn-sm' style='border-color:#8B5CF6;color:#7C3AED;' onclick='openWorkQa(\"" + item.workKey + "\")'>" + qaButtonLabel + "</button>";
+       }
+       html += "</div>";
+
+       html += workEvidenceChecklistHtml_(item,res.evidenceChecklistSteps);
+       html += "<div class='work-progress'>";
+       html += "<label>Redo scope" + workSelectHtml_(item.workKey,'scope',state.scope,[['ACTIVE','Active'],['EXCLUDED','Excluded']]) + "</label>";
+       html += "<label>Coursera reimport" + workSelectHtml_(item.workKey,'courseraRedo',state.courseraRedo,[['NOT_STARTED','Not decided'],['IN_PROGRESS','Re-ingest in progress'],['DONE','Re-ingested'],['NOT_REQUIRED','Not required / keep existing'],['BLOCKED','Blocked']]) + "</label>";
+       html += "<label>Course outline" + workSelectHtml_(item.workKey,'courseOutline',state.courseOutline,[['NOT_STARTED','Not started'],['DRAFT','Draft'],['SECURED','Secured'],['BLOCKED','Blocked']]) + "</label>";
+       html += "<label>Source-LMS audit" + workSelectHtml_(item.workKey,'sourceAudit',state.sourceAudit,[['NOT_STARTED','Not started'],['PASS','Pass'],['REVIEW','Needs review'],['BLOCKED','Blocked']]) + "</label>";
+       html += "<label>Specialization outline" + workSelectHtml_(item.workKey,'specializationOutline',state.specializationOutline,[['NOT_STARTED','Not started'],['DRAFT','Draft'],['SECURED','Secured'],['BLOCKED','Blocked']]) + "</label>";
+       html += "<label>Content map" + workSelectHtml_(item.workKey,'contentMap',state.contentMap,[['NOT_STARTED','Not started'],['IN_PROGRESS','In progress'],['DONE','Done'],['BLOCKED','Blocked']]) + "</label>";
+       html += "</div>";
+       html += "</div>";
+     });
+
+     html += "</div></details>";
+   });
+   list.innerHTML = html;
+   updateWorkEvidenceBatchProgress_();
+   Object.keys(redoWorkSaving).forEach(function(key){ if (redoWorkSaving[key]) workSetItemSaving_(key,true); });
+
+   var c = res.campaign || {};
+   var plannerExpected = Number((res.summary || {}).plannerExpectedAssignments || 0);
+   renderStatus('workQueueStatus',
+     'Live work queue loaded from planner/catalog sources. Campaign ' + (c.fromDate || '') + ' → ' + (c.toDate || '') +
+     '; redo source-scan baseline ' + (c.scanAfter || '') + '. Planner expects ' + plannerExpected +
+     ' title assignments in the selected groups; CTI has ' + items.length + ' confirmed distinct title codes.',
+     (res.unresolvedGroups || []).length ? 'warning' : 'success', false);
+ }
+
+ function fetchRedoWorkQueue() {
+   if (redoWorkLoading) return;
+   redoWorkLoading = true;
+   var btn = document.getElementById('refreshWorkQueueBtn');
+   setButtonBusy(btn,true,'Loading work…');
+   renderStatus('workQueueStatus','Joining Master Planner, partner catalog, SCORM list, CTI source records, and redo history…','info',true);
+   var partner = document.getElementById('workPartnerFilter').value;
+   var owner = document.getElementById('workOwnerFilter').value;
+   var fromDate = document.getElementById('workFromDate').value;
+   var toDate = document.getElementById('workToDate').value;
+   google.script.run
+     .withSuccessHandler(function(res) {
+       redoWorkLoading = false;
+       setButtonBusy(btn,false);
+       if (!res || !res.success) {
+         renderStatus('workQueueStatus',(res && res.error) || 'Could not build the work queue.','error',false);
+         return;
+       }
+       renderRedoWorkQueue(res);
+     })
+     .withFailureHandler(function(e) {
+       redoWorkLoading = false;
+       setButtonBusy(btn,false);
+       renderStatus('workQueueStatus','Could not build the work queue. ' + (e && e.message ? e.message : ''),'error',false);
+     })
+     .getRedoWorkQueueDb(partner, fromDate, toDate, owner);
+ }
+
+ function syncCatalogs() {
+    var btn = document.getElementById('syncCatalogsBtn');
+    var orig = btn.innerHTML;
+    btn.innerHTML = "⏳ Syncing...";
+    btn.disabled = true;
+    google.script.run
+        .withSuccessHandler(function(res) {
+            btn.innerHTML = orig;
+            btn.disabled = false;
+            if (res.success) {
+                pendingDashboardNotice = "<div style='margin-bottom:20px; padding:14px; border:1px solid #A7F3D0; background:#F0FDF4; color:#065F46; border-radius:8px;'><b>Catalog Sync Complete:</b> " + escapeHtml(res.message) + "</div>";
+                fetchPartnerAnalytics();
+                fetchRedoWorkQueue();
+            } else {
+                alert("Catalog Sync Failed: " + res.error);
+            }
+        })
+        .withFailureHandler(function(e) { btn.innerHTML = orig; btn.disabled = false; alert("Error: " + e.message); })
+        .syncCatalogsFromDrive();
+ }
+
+ function fetchPartnerAnalytics() {
+   setButtonBusy('refreshLibraryBtn', true, 'Refreshing…');
+   renderStatus('dbAnalyticsStatus', 'Loading saved course records and ingestion insights…', 'info', true);
+   google.script.run
+     .withSuccessHandler(function(res) {
+       setButtonBusy('refreshLibraryBtn', false);
+       if(!res.success) { renderStatus('dbAnalyticsStatus', res.error || 'Could not load the course library.', 'error', false); return; }
+       
+       globalDbState = res.partners;
+       packageByUuid = {};
+       updateDuplicateBadge(res.duplicateSummary);
+       var partnerKeys = Object.keys(res.partners);
+       var dataList = document.getElementById('partnerOptions'); dataList.innerHTML = "";
+       for (var k = 0; k < partnerKeys.length; k++) { var opt = document.createElement('option'); opt.value = partnerKeys[k]; dataList.appendChild(opt); }
+
+       var ownerList = document.getElementById('ownerOptions');
+       if (ownerList) {
+           ownerList.innerHTML = "";
+           if (res.owners && res.owners.length > 0) {
+               for (var o = 0; o < res.owners.length; o++) {
+                   var optO = document.createElement('option');
+                   optO.value = res.owners[o];
+                   ownerList.appendChild(optO);
+               }
+           }
+       }
+
+       if (partnerKeys.length === 0) {
+         document.getElementById('dbAnalyticsStatus').innerHTML = pendingDashboardNotice + "<div class='empty-state'><strong>No saved packages yet</strong>Analyze an IMSCC package above, then save it to build the course library and QA evidence history.</div>";
+         pendingDashboardNotice = '';
+         return;
+       }
+
+       var html = generateTriviaHtml(); 
+       html += "<div class='insight-grid'>";
+       var sortedPartners = partnerKeys.sort(function(a,b) { return res.partners[b].avgIFS - res.partners[a].avgIFS; });
+
+       for (var c = 0; c < sortedPartners.length; c++) {
+         var pName = sortedPartners[c], pData = res.partners[pName], ifs = pData.avgIFS;
+         var cardClass = "insight-low";
+         if (ifs > 50) { cardClass = "insight-high"; }
+         else if (ifs >= 20) { cardClass = "insight-medium"; }
+
+         var safeId = 'partner-' + c;
+
+         html += "<div class='insight-card " + cardClass + "' role='button' tabindex='0' aria-label='Jump to " + escapeHtml(pName) + " packages' style='cursor:pointer; transition: transform 0.2s;' onclick='scrollToPartner(\"" + safeId + "\")' onkeydown='if(event.key===\"Enter\"||event.key===\" \"){event.preventDefault();scrollToPartner(\"" + safeId + "\");}' onmouseover='this.style.transform=\"translateY(-2px)\"' onmouseout='this.style.transform=\"translateY(0)\"'>";
+         html += "<div class='insight-title'><span>" + escapeHtml(pName) + "</span><span class='metric-pill'>IFS: " + ifs + "</span></div>";
+         html += "<div style='color:#4B5563; margin-bottom:12px; font-weight:500;'>" + pData.packageCount + " Courses Scanned</div>";
+         html += "<table style='width:100%; font-size:12px; color:#6B7280;'><tr><td>Empty Folders: <b>" + pData.totalEmpty + "</b></td><td style='text-align:right;'>Assessments: <b>" + pData.totalQuizzes + "</b></td></tr></table>";
+         html += "</div>";
+       }
+       html += "</div>";
+
+       html += "<div style='margin-top:30px;'>";
+       
+       for (var i = 0; i < partnerKeys.length; i++) {
+         var p = partnerKeys[i], data = res.partners[p];
+         var safeId = 'partner-' + i;
+         
+         html += "<details id='partner-accordion-" + safeId + "' class='partner-accordion'>";
+         html += "<summary><div style='display:flex; align-items:center; gap:15px;'><h3 style='margin:0;'>" + escapeHtml(p) + "</h3><span class='metric-pill' style='background:#E0E7FF; color:#4F46E5;'>Avg IFS: " + data.avgIFS + "</span></div></summary>";
+         html += "<div class='partner-accordion-content'>";
+        
+         for (var pk=0; pk<data.packages.length; pk++) {
+             var pObj = data.packages[pk];
+             packageByUuid[pObj.uuid] = Object.assign({}, pObj, { partner: p });
+             
+             var dateBadge = pObj.date ? "<span class='date-badge'>Assigned: " + escapeHtml(pObj.date) + "</span>" : "";
+             var safeLink = safeDriveUrl(pObj.driveLink);
+             var driveIcon = safeLink ? "<a href='" + escapeHtml(safeLink) + "' target='_blank' rel='noopener noreferrer' class='drive-link' title='Open in Drive'><svg class='svg-sm' viewBox='0 0 24 24'><path d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'></path></svg> Drive</a>" : "";
+             var statusColor = pObj.status === "Completed" ? "#10B981" : (pObj.status === "Blocked" ? "#EF4444" : "#F59E0B");
+             
+             var formulaText = "";
+             if (pObj.totalItems === 0) {
+                 formulaText = "<span style='color:#DC2626; font-weight:bold;'>Zero Content Override (Empty Shell) = 100</span>";
+             } else if (pObj.isBoilerplate) {
+                 formulaText = "<span style='color:#D97706; font-weight:bold;'>Boilerplate Shell Override = 100</span>";
+             } else {
+                 formulaText = "LTI ("+pObj.lti+"x10) + Empty ("+pObj.empty+"x5) + Unknown ("+pObj.unknown+"x3) + Assessments ("+pObj.quizzes+"x2) + Discussions ("+pObj.discussions+"x1.5) + WebLinks ("+pObj.weblinks+"x1) + WebContent ("+pObj.webcontent+"x0.5)";
+             }
+             
+             var autoRemarks = "";
+             if (pObj.totalItems === 0) {
+                 autoRemarks = "🚨 CRITICAL: Package contains ZERO valid content items. All folders are empty and will be auto-deleted. Do not ingest.";
+             } else if (pObj.isBoilerplate) {
+                 autoRemarks = "⚠️ BOILERPLATE SHELL DETECTED: Package lacks core instructional content (0 Quizzes, 0 Readings). Likely an administrative template.";
+             } else {
+                 autoRemarks = "Package scanned via Gateway. IFS evaluated at " + pObj.ifs + " points. ";
+                 if (pObj.empty > 0) autoRemarks += pObj.empty + " empty folders detected. ";
+                 if (pObj.lti > 0) autoRemarks += pObj.lti + " LTI items found. ";
+                 if (pObj.ifs <= 20) autoRemarks += "Ready for ingestion.";
+             }
+             
+             var u = pObj.uuid;
+
+             var rowSearchCorpus=[pName,pObj.realTitle,pObj.name,pObj.owner,pObj.status,pObj.uuid,pObj.ifs,pObj.totalItems].join(' ').toLowerCase();
+             html += "<div class='db-row' data-search='" + escapeHtml(rowSearchCorpus) + "'>";
+             
+             html += "  <div style='display:flex; justify-content:space-between; width:100%; align-items:center; flex-wrap:wrap; gap:10px;'>";
+             html += "    <div style='display:flex; align-items:center; gap:10px; flex-wrap:wrap;'>";
+             
+             var displayName = pObj.realTitle 
+                 ? "<span style='color:#111827; font-weight:700; font-size:14px;'>" + escapeHtml(pObj.realTitle) + "</span> <br><span style='color:#9CA3AF; font-size:11px; font-weight:normal; font-family:monospace; margin-top:2px; display:inline-block;'>📄 " + escapeHtml(pObj.name) + "</span>"
+                 : escapeHtml(pObj.name);
+
+             html += "      <span class='db-filename' style='line-height:1.2;'><span style='color:#9CA3AF; margin-right:8px; font-weight:bold;'>" + (pk + 1) + ".</span>" + displayName + "</span>";
+             
+             html += "      <span class='metric-pill' style='background:#F3F4F6; color:#374151; font-family:monospace;'>IFS: " + pObj.ifs + "</span>";
+             
+             var estHours = predictLaborHours(pObj.ifs, pObj.totalItems, pObj.lti, pObj.empty);
+             var hoursColor = estHours > 10 ? "#991B1B" : (estHours > 4 ? "#92400E" : "#3730A3");
+             var hoursBg = estHours > 10 ? "#FEF2F2" : (estHours > 4 ? "#FEF3C7" : "#E0E7FF");
+             html += "      <span class='metric-pill' style='background:" + hoursBg + "; color:" + hoursColor + "; font-family:monospace; display:flex; align-items:center;' title='Deterministic planning heuristic — not trained ML'>Est. Labor: " + estHours + "h <span class='info-icon' onclick='openCsModal(\"perceptron\")' style='margin-left:4px; font-size:12px;'>ℹ️</span></span>";
+             
+             html += dateBadge + driveIcon;
+             html += "    </div>";
+             
+             html += "    <div class='action-group'>";
+             html += "      <button class='btn-secondary btn-sm' onclick='openSavedCourseViewer(\"" + u + "\")'>Explore</button>";
+             html += "      <button class='btn-secondary btn-sm' style='border-color:#4F46E5; color:#4F46E5;' onclick='runDeepAudit(\"" + u + "\")'>🧠 Deep Audit</button>";
+             html += "      <button class='btn-secondary btn-sm' style='border-color:#8B5CF6; color:#8B5CF6;' onclick='openPostQaModal(\"" + u + "\")'>⚖️ Post-Ingestion QA</button>";
+             html += "      <button class='btn-secondary btn-sm' style='border-color:#10B981; color:#10B981;' onclick='generateAiReport(\"" + u + "\")'>🤖 AI Triage</button>";
+             
+             html += "      <button class='btn-secondary btn-sm' style='border-color:#3B82F6; color:#3B82F6;' onclick='triggerUpdate(\"" + u + "\")'>🔄 Re-Scan</button>";
+             
+             html += "      <button class='kebab-menu' aria-label='More package actions' title='More package actions' aria-haspopup='menu' onclick='toggleKebab(\"" + u + "\")'>⋮</button>";
+             
+             html += "      <div id='kebab-menu-" + u + "' class='dropdown-content'>";
+             html += "        <button onclick='openEditModal(\"" + u + "\")'>✏️ Edit Details</button>";
+             html += "        <button class='btn-danger' onclick='deleteSavedCourse(\"" + u + "\")'>🗑️ Delete</button>";
+             html += "      </div>";
+             html += "    </div>";
+             html += "  </div>";
+             
+             html += "  <div style='width:100%; font-size:12px; color:#6B7280; display:flex; gap:15px;'>";
+             var displayOwner = pObj.owner || "Unassigned";
+             html += "    <span><b>Owner:</b> <button type='button' onclick='filterByOwnerForUuid(\"" + u + "\")' class='owner-link' style='border:0; padding:0; background:none; color:#4F46E5; text-decoration:none; font-weight:500;'>" + escapeHtml(displayOwner) + "</button></span>";
+             html += "    <span><b>Deadline:</b> " + escapeHtml(pObj.deadline || "Unassigned") + "</span>";
+             html += "    <span><b>Status:</b> <span style='color:" + statusColor + "; font-weight:600;'>" + escapeHtml(pObj.status || "In Queue") + "</span></span>";
+             html += "  </div>";
+             
+             html += "  <div style='width:100%; background:#F9FAFB; border:1px solid #E5E7EB; border-radius:6px; padding:8px 12px; font-size:12px; color:#4B5563; margin-top:4px;'>";
+             html += "    <b>IFS Formula Breakdown:</b> " + formulaText;
+             if (pObj.totalItems === 0) html += "<br><span style='color:#DC2626; font-weight:600;'>🚨 CRITICAL: Package contains ZERO valid content items. All folders are empty and will be auto-deleted. Do not ingest.</span>";
+             html += "  </div>";
+             
+             html += "  <div id='ai-report-" + u + "' style='display:none; width:100%; box-sizing: border-box; background:#F0FDF4; border:1px solid #A7F3D0; padding:12px; border-radius:6px; font-size:13px; color:#065F46; margin-top:4px;'></div>";
+             
+             html += "</div>"; 
+         }
+         html += "</div></details>"; 
+       }
+       html += "</div>";
+       document.getElementById('dbAnalyticsStatus').innerHTML = pendingDashboardNotice + html;
+       pendingDashboardNotice = '';
+       enhanceFormLabels();
+     })
+     .withFailureHandler(function(e) {
+       setButtonBusy('refreshLibraryBtn', false);
+       renderStatus('dbAnalyticsStatus', 'Could not load the course library. ' + (e && e.message ? e.message : 'Try refreshing again.'), 'error', false);
+     })
+     .getPartnerAnalyticsDb();
+ }
+
+ function runSystemHealthCheck() {
+    var btn=document.getElementById('systemHealthBtn'); if(btn){btn.disabled=true;btn.textContent='Checking…';}
+    google.script.run
+      .withSuccessHandler(function(res){
+        if(btn){btn.disabled=false;btn.textContent='🩺 System Health';}
+        var lines=['Gateway '+(res.gatewayRelease||'')+' · '+(res.status||'UNKNOWN')];
+        (res.checks||[]).forEach(function(c){ lines.push((c.status==='PASS'?'✓':(c.status==='WARN'?'⚠':'✕'))+' '+c.name+': '+c.detail); });
+        showMessageModal('CTI System Health', lines.join('\n'), 'Deterministic runtime/storage sanity check. Full regression remains the release gate.');
+      })
+      .withFailureHandler(function(e){ if(btn){btn.disabled=false;btn.textContent='🩺 System Health';} showMessageModal('CTI System Health','Health check failed: '+(e&&e.message?e.message:e),''); })
+      .runCTISystemHealthCheck(false);
+ }
+
+ function generateAiReport(uuid) {
+    var pkg = packageByUuid[uuid];
+    if (!pkg) return alert('This record is no longer available. Refresh the dashboard and try again.');
+    var reportBox = document.getElementById('ai-report-' + uuid);
+    reportBox.style.display = 'block';
+    reportBox.innerHTML = "<i style='color:#059669;'>🤖 Analyzing package metrics with Gemini...</i>";
+    
+    var dataObj = { ifs: pkg.ifs, emptyFolders: pkg.empty, ltiItems: pkg.lti, totalItems: pkg.totalItems };
+    google.script.run
+      .withSuccessHandler(function(res) {
+         if(res.success) { reportBox.textContent = "AI Triage: " + res.report; } 
+         else { reportBox.innerHTML = "<span style='color:#DC2626; font-weight:600;'>Error: " + escapeHtml(res.error) + "</span>"; }
+      })
+      .withFailureHandler(function(e) { reportBox.textContent = "Error: " + e.message; })
+      .generateAiRiskReportDb(JSON.stringify(dataObj));
+ }
+
+ function runDeepAudit(uuid) {
+    var pkg = packageByUuid[uuid];
+    if (!pkg) return alert('This record is no longer available. Refresh the dashboard and try again.');
+    var requestId = ++activeAuditRequestId;
+    document.getElementById('auditTitle').innerText = "Deep Architecture Audit: " + (pkg.realTitle || pkg.name);
+    
+    var targetVector = vectorizeCourse(pkg);
+    var bestMatchName = "None";
+    var highestSim = 0;
+    
+    Object.keys(packageByUuid).forEach(function(otherUuid) {
+        if (otherUuid === uuid) return;
+        var otherPkg = packageByUuid[otherUuid];
+        var sim = calculateCosineSimilarity(targetVector, vectorizeCourse(otherPkg));
+        var targetSize = Math.max(1, Number(pkg.totalItems || 0));
+        var otherSize = Math.max(1, Number(otherPkg.totalItems || 0));
+        var sizeRatio = Math.min(targetSize, otherSize) / Math.max(targetSize, otherSize);
+        if (sim > highestSim && sim > 0.97 && sizeRatio >= 0.60) {
+            highestSim = sim;
+            bestMatchName = otherPkg.realTitle || otherPkg.name;
+        }
+    });
+
+    var cloneHtml = "";
+    if (highestSim > 0) {
+        cloneHtml = "<div style='background:#F0FDF4; border:1px solid #A7F3D0; padding:10px; border-radius:6px; margin-bottom:15px; font-size:13px; color:#065F46;'><b>🧬 Structural Profile Similarity <span class='info-icon' onclick='openCsModal(\"vector\")'>ℹ️</span>:</b> Shares " + (highestSim * 100).toFixed(1) + "% profile similarity with <i>" + escapeHtml(bestMatchName) + "</i>. This is a review signal, not duplicate proof.</div>";
+    }
+
+    document.getElementById('auditContent').innerHTML = cloneHtml + "<div style='text-align:center; padding: 40px;'><h4 style='color:#4F46E5;'>Analyzing Course Structure...</h4><p style='color:#6B7280;'>Running deterministic structural diagnostics first, then sending a bounded evidence view to Gemini for advisory pedagogical interpretation.</p></div>";
+    ctiOpenModal('auditModal');
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+          if (requestId !== activeAuditRequestId) return;
+          if(res.success) {
+              document.getElementById('auditContent').innerHTML = cloneHtml + sanitizeHTML(res.report);
+          } else {
+              document.getElementById('auditContent').innerHTML = cloneHtml + "<div class='error'>Error: " + escapeHtml(res.error) + "</div>";
+          }
+      })
+      .withFailureHandler(function(e) { if (requestId === activeAuditRequestId) document.getElementById('auditContent').innerHTML = cloneHtml + "<div class='error'>Error: " + escapeHtml(e.message) + "</div>"; })
+      .executeDeepArchitectureAudit(uuid);
+ }
+
+ function closeAuditModal() { ctiCloseModal('auditModal'); }
+
+ function openEditModal(uuid) {
+    var pkg = packageByUuid[uuid];
+    if (!pkg) return alert('This record is no longer available. Refresh the dashboard and try again.');
+    editContext = { uuid: uuid, version: pkg.version };
+    document.getElementById('editPartnerInput').value = pkg.partner || '';
+    document.getElementById('editAssignedDateInput').value = pkg.date || '';
+    document.getElementById('editOwnerInput').value = pkg.owner || '';
+    document.getElementById('editDeadlineInput').value = pkg.deadline || '';
+    document.getElementById('editStatusInput').value = pkg.status || "In Queue";
+    document.getElementById('editDriveLinkInput').value = safeDriveUrl(pkg.driveLink);
+    
+    var menu = document.getElementById('kebab-menu-' + uuid);
+    if (menu) menu.style.display = 'none';
+    editInitialState = currentEditState();
+    ctiOpenModal('editModal');
+ }
+ 
+ function closeEditModal(force) {
+    if (!force && isEditDirty()) {
+      if (!confirm('Discard the unsaved package-detail changes?')) return;
+    }
+    editInitialState = '';
+    ctiCloseModal('editModal');
+ }
+ 
+ function saveEditMetadata() {
+    var btn = document.getElementById('saveEditBtn');
+    setButtonBusy(btn, true, 'Saving changes…');
+    
+    var partnerName = document.getElementById('editPartnerInput').value.trim();
+    var assignedDate = document.getElementById('editAssignedDateInput').value;
+    var owner = document.getElementById('editOwnerInput').value.trim();
+    var deadline = document.getElementById('editDeadlineInput').value;
+    var status = document.getElementById('editStatusInput').value;
+    var driveLink = document.getElementById('editDriveLinkInput').value.trim();
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+          setButtonBusy(btn, false);
+          if(res.success) {
+            editInitialState = currentEditState();
+            closeEditModal(true);
+            showToast('Package details saved.', 'success');
+            fetchPartnerAnalytics();
+          } else { alert("Error: " + res.error); }
+      })
+      .withFailureHandler(function(e) { setButtonBusy(btn, false); alert("Error: " + e.message); })
+      .updatePackageMetadataInDb(editContext.uuid, partnerName, assignedDate, owner, deadline, status, driveLink, editContext.version);
+ }
+
+ function triggerUpdate(uuid) {
+    var pkg = packageByUuid[uuid];
+    if (!pkg) return alert('This record is no longer available. Refresh the dashboard and try again.');
+    updateContext = { uuid: uuid, expectedFileName: pkg.name, version: pkg.version };
+    var menu = document.getElementById('kebab-menu-' + uuid);
+    if (menu) menu.style.display = 'none';
+    document.getElementById('updateFileInput').click(); 
+ }
+
+ function normalizeZipPath_(value) {
+    var parts = String(value || '').replace(/\\/g, '/').split('/'), stack = [];
+    parts.forEach(function(part) {
+      if (!part || part === '.') return;
+      if (part === '..') { if (stack.length) stack.pop(); return; }
+      stack.push(part);
+    });
+    return stack.join('/');
+ }
+
+ function resolveZipHref_(manifestPath, href) {
+    href = String(href || '').trim();
+    if (!href || /^(https?:|mailto:|data:|javascript:|#)/i.test(href)) return null;
+    var cleanHref = href.split('#')[0].split('?')[0];
+    try { cleanHref = decodeURIComponent(cleanHref); } catch (e) {}
+    var slash = String(manifestPath || '').lastIndexOf('/');
+    var base = slash > -1 ? manifestPath.slice(0, slash + 1) : '';
+    return normalizeZipPath_(base + cleanHref);
+ }
+
+ function uniqueStrings_(values, limit) {
+    var seen = Object.create(null), out = [];
+    (values || []).forEach(function(value) {
+      value = String(value || '').trim();
+      if (!value || seen[value]) return;
+      seen[value] = true;
+      if (!limit || out.length < limit) out.push(value);
+    });
+    return out;
+ }
+
+ function sha256Text_(text) {
+    if (!window.crypto || !window.crypto.subtle || typeof TextEncoder === 'undefined') return Promise.resolve('');
+    return window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text || ''))).then(function(buffer) {
+      return Array.from(new Uint8Array(buffer)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }).catch(function() { return ''; });
+ }
+
+ function sha256Bytes_(buffer) {
+    if (!window.crypto || !window.crypto.subtle || !buffer) return Promise.resolve('');
+    return window.crypto.subtle.digest('SHA-256', buffer).then(function(hashBuffer) {
+      return Array.from(new Uint8Array(hashBuffer)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }).catch(function() { return ''; });
+ }
+
+ async function perceptualHashBlob_(blob) {
+    if (!blob || typeof createImageBitmap !== 'function') return '';
+    try {
+      var bitmap = await createImageBitmap(blob);
+      var canvas = document.createElement('canvas');
+      canvas.width = 9; canvas.height = 8;
+      var ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bitmap, 0, 0, 9, 8);
+      if (bitmap.close) bitmap.close();
+      var data = ctx.getImageData(0, 0, 9, 8).data;
+      var gray = [];
+      for (var i = 0; i < data.length; i += 4) gray.push((data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114));
+      var bits = '';
+      for (var y = 0; y < 8; y++) {
+        for (var x = 0; x < 8; x++) {
+          var left = gray[(y * 9) + x], right = gray[(y * 9) + x + 1];
+          bits += left > right ? '1' : '0';
+        }
+      }
+      return bits;
+    } catch (e) {
+      return '';
+    }
+ }
+
+ function isTechnicalSourceUrl_(raw) {
+    raw = String(raw || '').trim().toLowerCase();
+    if (!raw) return true;
+    return /(?:imsglobal\.org\/(?:xsd|profile\/cc)|w3\.org\/2001\/(?:xmlschema|xmlschema-instance)|imsccv\d|ccv\d.*\.xsd|imswl_v\d.*\.xsd)/i.test(raw);
+ }
+
+ function extractTextEvidence_(text, extension) {
+    text = String(text || '');
+    var normalizedText = text.replace(/\s+/g, ' ').trim();
+    var links = [], images = [], refs = [], assignmentFormats = [];
+    var ext = String(extension || '').toLowerCase();
+
+    if (ext === 'html' || ext === 'htm' || ext === 'xhtml') {
+      try {
+        var doc = new DOMParser().parseFromString(text, 'text/html');
+        Array.from(doc.querySelectorAll('script,style,noscript,template')).forEach(function(el){el.remove();});
+        normalizedText = String(doc.body ? doc.body.textContent : doc.documentElement.textContent || '').replace(/\s+/g, ' ').trim();
+        Array.from(doc.querySelectorAll('a[href]')).forEach(function(el) { var href = el.getAttribute('href'); if (href && !isTechnicalSourceUrl_(href)) links.push(href); });
+        Array.from(doc.querySelectorAll('img[src],source[src],video[src],audio[src]')).forEach(function(el) {
+          var src = el.getAttribute('src'); if (src) images.push(src);
+        });
+        Array.from(doc.querySelectorAll('iframe[src],embed[src]')).forEach(function(el){
+          var src=el.getAttribute('src');if(src){refs.push(src);if(/^https?:\/\//i.test(src)&&!isTechnicalSourceUrl_(src))links.push(src);}
+        });
+        Array.from(doc.querySelectorAll('object[data]')).forEach(function(el) { var src = el.getAttribute('data'); if (src) images.push(src); });
+      } catch (e) {}
+    } else if (ext === 'xml') {
+      // Use the same compatibility parser as QTI/manifest scanning. A parse
+      // failure must never silently promote raw XML to learner content.
+      if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('Source XML declarations are unsupported for learner-text extraction.');
+      var parsedXml = parseXmlCompat_(text);
+      if (!parsedXml.doc) throw new Error('Source XML learner-text extraction failed: ' + String(parsedXml.repairedError || parsedXml.strictError || 'invalid XML'));
+      var xdoc = parsedXml.doc;
+      var elements = Array.from(xdoc.getElementsByTagName('*'));
+      var root = xdoc.documentElement;
+      var semanticNodes = elements.filter(function(el) { return /^(title|description|text|mattext|prompt|instructions?|label|name)$/.test(qtiLocalName_(el)); });
+      if (qtiLocalName_(root) === 'topic') {
+        var ns = String(root.namespaceURI || '');
+        if (!/^https?:\/\/www\.imsglobal\.org\/xsd\/imsccv[\dp]+\/imsdt_v[\dp]+\/?$/.test(ns)) throw new Error('Unsupported discussion XML namespace.');
+        var children = Array.from(root.children || []);
+        var bodies = children.filter(function(el) { return qtiLocalName_(el) === 'text' && el.namespaceURI === ns; });
+        var titles = children.filter(function(el) { return qtiLocalName_(el) === 'title' && el.namespaceURI === ns; });
+        if (bodies.length !== 1 || titles.length > 1 || bodies[0].children.length || (titles.length && titles[0].children.length)) throw new Error('Unsupported discussion XML learner-text structure.');
+        if (!/^(text\/html|text\/plain)$/i.test(String(bodies[0].getAttribute('texttype') || ''))) throw new Error('Unsupported discussion learner-text type.');
+        semanticNodes = titles.concat(bodies);
+      }
+      if(qtiLocalName_(root)==='assignment') {
+        var assignmentNs=String(root.namespaceURI||'');
+        if(!/^https?:\/\/www\.imsglobal\.org\/xsd\/imscc_extensions\/assignment\/?$/.test(assignmentNs))throw new Error('Unsupported assignment XML namespace.');
+        var assignmentChildren=Array.from(root.children||[]);
+        var assignmentBodies=assignmentChildren.filter(function(el){return qtiLocalName_(el)==='instructor_text'&&el.namespaceURI===assignmentNs;});
+        var assignmentTitles=assignmentChildren.filter(function(el){return qtiLocalName_(el)==='title'&&el.namespaceURI===assignmentNs;});
+        if(assignmentBodies.length!==1 || assignmentTitles.length>1 || assignmentBodies[0].children.length || (assignmentTitles.length&&assignmentTitles[0].children.length))throw new Error('Unsupported assignment XML instruction structure.');
+        if(!/^text\/(?:html|plain)$/i.test(String(assignmentBodies[0].getAttribute('texttype')||'')))throw new Error('Unsupported assignment instruction text type.');
+        semanticNodes=assignmentTitles.concat(assignmentBodies);
+        assignmentChildren.filter(function(el){return qtiLocalName_(el)==='submission_formats'&&el.namespaceURI===assignmentNs;}).forEach(function(container){Array.from(container.children||[]).forEach(function(el){if(qtiLocalName_(el)==='format'&&el.namespaceURI===assignmentNs)assignmentFormats.push(String(el.getAttribute('type')||''));});});
+      }
+      normalizedText = semanticNodes.map(qtiLearnerNodeText_).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      elements.forEach(function(el) {
+        Array.from(el.attributes || []).forEach(function(attr) {
+          var attrName = String(attr.name || '').toLowerCase();
+          var value = String(attr.value || '').trim();
+          if (!value || /xmlns|schema(?:location)?/.test(attrName)) return;
+          if (/^https?:\/\//i.test(value) && !isTechnicalSourceUrl_(value)) links.push(value);
+        });
+      });
+    } else {
+      var urlMatches = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+      links = links.concat(urlMatches.filter(function(url) { return !isTechnicalSourceUrl_(url); }));
+    }
+
+    var fileMatches = text.match(/[^\s"'<>]+\.(?:pdf|pptx?|docx?|xlsx?|csv|zip|png|jpe?g|gif|svg|mp4|webm|mp3|wav|m4a)(?:\?[^\s"'<>]*)?/gi) || [];
+    refs = refs.concat(fileMatches);
+    return {
+      normalizedText: normalizedText,
+      assignmentFormats: assignmentFormats,
+      links: uniqueStrings_(links.filter(function(url) { return !isTechnicalSourceUrl_(url); }), 200),
+      images: uniqueStrings_(images, 200),
+      refs: uniqueStrings_(refs, 300)
+    };
+ }
+
+
+ async function extractPdfTextEvidence_(arrayBuffer, maxPages, maxChars, hints) {
+    if (!arrayBuffer || !window.pdfjsLib || !window.pdfjsLib.getDocument) return { text:'', pageCount:0, pagesRead:0, parser:'unavailable', pageSamples:[], sampleStrategy:'unavailable' };
+    try {
+      if (window.pdfjsLib.GlobalWorkerOptions) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      var loadingTask = window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), isEvalSupported: false });
+      var pdf = await loadingTask.promise;
+      var pageLimit = Math.min(pdf.numPages || 0, Math.max(1, Number(maxPages || 60)));
+      var charLimit = Math.max(1000, Number(maxChars || 16000));
+      hints = hints || {};
+      var role = String(hints.role || '').toLowerCase();
+      var fileName = String(hints.fileName || '').toLowerCase();
+      var stop = { pdf:1, document:1, file:1, final:1, copy:1, version:1, v1:1, v2:1, the:1, and:1, for:1, with:1 };
+      var hintTokens = fileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(function(t) { return t.length >= 4 && !stop[t]; });
+      var roleTokens = role === 'rubric'
+        ? ['rubric','criterion','criteria','grading','points','proficient','exemplary','developing','inadequate','performance']
+        : ['assessment','assignment','directions','direction','instructions','instruction','expectations','submit','submission','graded','rubric'];
+      var pages = [], pagesRead = 0;
+
+      // Read every page allowed by the explicit page budget. v6.5.6 stopped once
+      // the text-character budget was full, which biased long documents toward
+      // their opening pages and could completely miss the transformed section.
+      for (var p = 1; p <= pageLimit; p++) {
+        var page = await pdf.getPage(p);
+        var tc = await page.getTextContent();
+        var pageText = (tc.items || []).map(function(item) { return String(item.str || ''); }).join(' ').replace(/\s+/g, ' ').trim();
+        var low = pageText.toLowerCase();
+        var score = 0;
+        hintTokens.forEach(function(token) { if (low.indexOf(token) > -1) score += 4; });
+        roleTokens.forEach(function(token) { if (low.indexOf(token) > -1) score += 1.5; });
+        if (p <= 2) score += 1.25;
+        if (p > Math.max(0, pageLimit - 2)) score += 0.75;
+        if (pageText.length >= 120) score += Math.min(2, pageText.length / 2200);
+        pages.push({ page:p, text:pageText, score:score });
+        pagesRead++;
+        try { page.cleanup(); } catch (e) {}
+      }
+      try { if (pdf.cleanup) pdf.cleanup(); } catch (e) {}
+
+      var meaningful = pages.filter(function(x) { return x.text && x.text.length >= 40; });
+      var ranked = meaningful.slice().sort(function(a,b) { return (b.score - a.score) || (a.page - b.page); });
+      var selectedMap = Object.create(null), selected = [];
+      function addPage(rec) {
+        if (!rec || selectedMap[rec.page]) return;
+        selectedMap[rec.page] = true;
+        selected.push(rec);
+      }
+      // Keep document boundaries for context, then fill with role/name-relevant pages.
+      meaningful.slice(0, 2).forEach(addPage);
+      meaningful.slice(-2).forEach(addPage);
+      ranked.slice(0, 8).forEach(addPage);
+      selected.sort(function(a,b) { return a.page - b.page; });
+
+      var pageSamples = selected.slice(0, 12).map(function(rec) {
+        return { page: rec.page, text: rec.text.slice(0, 3000), score: Number(rec.score.toFixed(2)) };
+      });
+      var parts = [], used = 0;
+      for (var i = 0; i < pageSamples.length && used < charLimit; i++) {
+        var remaining = charLimit - used;
+        var fragment = pageSamples[i].text.slice(0, remaining);
+        if (fragment) { parts.push(fragment); used += fragment.length; }
+      }
+      return {
+        text: parts.join(' ').replace(/\s+/g, ' ').trim(),
+        pageCount: Number(pdf.numPages || 0),
+        pagesRead: pagesRead,
+        parser:'pdfjs-3.11.174',
+        pageSamples: pageSamples,
+        sampleStrategy:'role-keyword-page-sampling-v1'
+      };
+    } catch (e) {
+      return { text:'', pageCount:0, pagesRead:0, parser:'error', error:String(e && e.message || e || '').slice(0,300), pageSamples:[], sampleStrategy:'error' };
+    }
+ }
+
+ // v6.5: parse IMS QTI into a normalized question model while the source ZIP is
+ // available in-browser. This preserves semantics that are lost when QTI XML is
+ // flattened into one text string.
+ function qtiClean_(value) {
+    return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+ }
+
+ function sourceLearnerMarkupText_(value) {
+    var text = String(value == null ? '' : value);
+    // Text extraction only, not a display sanitizer. Strip actual HTML before
+    // decoding entities, so encoded code examples remain literal text.
+    text = text.replace(/<!--[^]*?-->/g, ' ')
+        .replace(/<(script|style)\b[^>]*>[^]*?<\/\1\s*>/gi, ' ')
+        .replace(/<\/?(?:p|div|br|li|ul|ol|table|caption|colgroup|col|thead|tbody|tfoot|tr|td|th|blockquote|h[1-6]|section|article|hr)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, ' ')
+        .replace(/<\/?(?:a|span|strong|em|b|i|u|s|font|small|sup|sub|code|pre|img|o:p)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, '');
+    var entities = { amp:'&', lt:'<', gt:'>', quot:'"', apos:"'", nbsp:' ', ndash:'–', mdash:'—', lsquo:'‘', rsquo:'’', ldquo:'“', rdquo:'”', hellip:'…', bull:'•', times:'×', divide:'÷', minus:'−', le:'≤', ge:'≥', copy:'©', reg:'®', trade:'™' };
+    text = text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, function(all, key) {
+        if (key.charAt(0) !== '#') return Object.prototype.hasOwnProperty.call(entities, key) ? entities[key] : all;
+        var n = key.charAt(1).toLowerCase() === 'x' ? parseInt(key.slice(2), 16) : parseInt(key.slice(1), 10);
+        return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : all;
+    });
+    return text.replace(/\s+/g, ' ').trim();
+}
+
+ function qtiLearnerNodeText_(node) {
+    var raw = String(node && node.textContent || '');
+    var kind = String(node && node.getAttribute('texttype') || '').toLowerCase();
+    var tag = String(node && (node.localName || node.nodeName) || '').toLowerCase();
+    // QTI2 prompt/simpleChoice textContent is already DOM-decoded. QTI1
+    // mattext and Common Cartridge discussion text may contain escaped HTML.
+    return kind === 'text/html' || (!kind && /^(mattext|text)$/.test(tag)) ? sourceLearnerMarkupText_(raw) : qtiClean_(raw);
+ }
+
+ function qtiLocalName_(el) {
+    return String((el && (el.localName || el.nodeName)) || '').toLowerCase().replace(/^.*:/, '');
+ }
+
+ // v6.5.1: some vendor IMSCC manifests are accepted by LMS/server XML
+ // parsers but rejected by the browser DOMParser (typically because of bare
+ // ampersands, HTML-only named entities, control characters, or BOM/preamble
+ // quirks). Source fingerprinting must not block a valid package update merely
+ // because the browser is stricter. We therefore use a bounded repair pass and,
+ // for manifest resource/file discovery only, a conservative tag-record fallback.
+ function xmlParserErrorText_(doc) {
+    if (!doc) return 'XML parser returned no document.';
+    try {
+      var all = Array.from(doc.getElementsByTagName('*'));
+      var err = all.find(function(el) { return qtiLocalName_(el) === 'parsererror'; });
+      return err ? qtiClean_(err.textContent || '').slice(0, 500) : '';
+    } catch (e) { return String(e && e.message || e || '').slice(0, 500); }
+ }
+
+ function repairXmlForBrowser_(raw) {
+    var text = String(raw == null ? '' : raw);
+    // Remove BOM plus XML-illegal C0 controls while preserving TAB/LF/CR.
+    text = text.replace(/^\uFEFF/, '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+    // XML only defines five named entities. Escape every other bare ampersand;
+    // this also safely converts HTML entities such as &nbsp; into literal text.
+    text = text.replace(/&(?!#\d+;|#x[0-9a-fA-F]+;|amp;|lt;|gt;|quot;|apos;)/g, '&amp;');
+    // Browser XML parsers require the declaration, when present, to be at the
+    // beginning. Remove harmless leading whitespace before it.
+    text = text.replace(/^\s+(<\?xml\b)/i, '$1');
+    return text;
+ }
+
+ function parseXmlCompat_(raw) {
+    var original = String(raw == null ? '' : raw);
+    var strictDoc = null, strictError = '';
+    try {
+      strictDoc = new DOMParser().parseFromString(original, 'application/xml');
+      strictError = xmlParserErrorText_(strictDoc);
+      if (!strictError) return { doc: strictDoc, mode: 'strict-xml', repaired: false, strictError: '' };
+    } catch (e) { strictError = String(e && e.message || e || 'XML parse failed.').slice(0, 500); }
+
+    var repairedText = repairXmlForBrowser_(original);
+    try {
+      var repairedDoc = new DOMParser().parseFromString(repairedText, 'application/xml');
+      var repairedError = xmlParserErrorText_(repairedDoc);
+      if (!repairedError) {
+        return { doc: repairedDoc, mode: 'repaired-xml', repaired: true, strictError: strictError, repairedText: repairedText };
+      }
+      return { doc: null, mode: 'record-fallback', repaired: true, strictError: strictError, repairedError: repairedError, repairedText: repairedText };
+    } catch (e2) {
+      return { doc: null, mode: 'record-fallback', repaired: true, strictError: strictError, repairedError: String(e2 && e2.message || e2 || '').slice(0, 500), repairedText: repairedText };
+    }
+ }
+
+ function xmlElementsByLocalName_(root, localName) {
+    if (!root) return [];
+    var wanted = String(localName || '').toLowerCase();
+    try {
+      return Array.from(root.getElementsByTagName('*')).filter(function(el) { return qtiLocalName_(el) === wanted; });
+    } catch (e) { return []; }
+ }
+
+ function decodeXmlAttribute_(value) {
+    return String(value == null ? '' : value)
+      .replace(/&quot;/gi, '"').replace(/&apos;/gi, "'")
+      .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&');
+ }
+
+ function attrFromMarkup_(markup, name) {
+    var escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var re = new RegExp('(?:^|\\s)' + escaped + '\\s*=\\s*(?:"([^"]*)"|\\\'([^\\\']*)\\\')', 'i');
+    var m = String(markup || '').match(re);
+    return m ? decodeXmlAttribute_(m[1] != null ? m[1] : m[2]) : '';
+ }
+
+ function manifestResourceRecords_(xmlString) {
+    var parsed = parseXmlCompat_(xmlString);
+    var records = [];
+    if (parsed.doc) {
+      xmlElementsByLocalName_(parsed.doc, 'resource').forEach(function(res) {
+        var files = xmlElementsByLocalName_(res, 'file').map(function(fileEl) {
+          return String(fileEl.getAttribute('href') || '');
+        }).filter(Boolean);
+        var deps = xmlElementsByLocalName_(res, 'dependency').map(function(depEl) {
+          return String(depEl.getAttribute('identifierref') || '');
+        }).filter(Boolean);
+        var resourceHref = String(res.getAttribute('href') || '');
+        records.push({
+          identifier: String(res.getAttribute('identifier') || ''),
+          type: String(res.getAttribute('type') || ''),
+          href: resourceHref,
+          files: files,
+          dependencies: deps
+        });
+      });
+      return { records: records, mode: parsed.mode, repaired: parsed.repaired, strictError: parsed.strictError || '' };
+    }
+
+    // Last-resort manifest-only reader. It intentionally extracts only resource
+    // identity/type and nested file hrefs; it does not try to interpret course
+    // structure. The original untouched manifest is still sent to Apps Script
+    // for the authoritative course-tree parse.
+    var text = String(parsed.repairedText || repairXmlForBrowser_(xmlString));
+    var resourceRe = /<(?:[A-Za-z_][\w.-]*:)?resource\b([^>]*)>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?resource\s*>/gi;
+    var rm;
+    while ((rm = resourceRe.exec(text)) && records.length < 25000) {
+      var attrs = rm[1] || '', body = rm[2] || '';
+      var fileHrefs = [];
+      var fileRe = /<(?:[A-Za-z_][\w.-]*:)?file\b([^>]*)\/?\s*>/gi;
+      var fm;
+      while ((fm = fileRe.exec(body)) && fileHrefs.length < 5000) {
+        var href = attrFromMarkup_(fm[1] || '', 'href');
+        if (href) fileHrefs.push(href);
+      }
+      var depIds = [];
+      var depRe = /<(?:[A-Za-z_][\w.-]*:)?dependency\b([^>]*)\/?\s*>/gi;
+      var dm;
+      while ((dm = depRe.exec(body)) && depIds.length < 5000) {
+        var identifierref = attrFromMarkup_(dm[1] || '', 'identifierref');
+        if (identifierref) depIds.push(identifierref);
+      }
+      var identifier = attrFromMarkup_(attrs, 'identifier');
+      if (identifier) records.push({
+        identifier: identifier,
+        type: attrFromMarkup_(attrs, 'type'),
+        href: attrFromMarkup_(attrs, 'href'),
+        files: fileHrefs,
+        dependencies: depIds
+      });
+    }
+    return {
+      records: records,
+      mode: 'record-fallback',
+      repaired: true,
+      strictError: parsed.strictError || '',
+      repairedError: parsed.repairedError || ''
+    };
+ }
+
+ function qtiDesc_(root, localName) {
+    if (!root) return [];
+    return Array.from(root.getElementsByTagName('*')).filter(function(el) { return qtiLocalName_(el) === String(localName || '').toLowerCase(); });
+ }
+
+ function qtiHasAncestor_(el, names, stopAt) {
+    names = names || [];
+    var cur = el && el.parentElement;
+    while (cur && cur !== stopAt) {
+      if (names.indexOf(qtiLocalName_(cur)) > -1) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+ }
+
+ function qtiOptionText_(el) {
+    if (!el) return '';
+    var mat = qtiDesc_(el, 'mattext');
+    if (mat.length) return qtiClean_(mat.map(function(x) { return x.textContent || ''; }).join(' '));
+    return qtiClean_(el.textContent || '');
+ }
+
+ function qtiOptionParts_(el) {
+    if (!el) return { label:'', description:'', text:'', aliases:[] };
+    var explicitLabel = qtiClean_(el.getAttribute('label') || el.getAttribute('title') || '');
+    var segments = [];
+    var mat = qtiDesc_(el, 'mattext');
+    mat.forEach(function(node) {
+      var raw = String(node.textContent || '');
+      // Some QTI stores rich HTML inside MATTEXT as escaped markup. Preserve
+      // block boundaries so title/label and explanatory body do not collapse.
+      if (String(node.getAttribute('texttype') || '').toLowerCase() !== 'text/plain' && /<\/?(?:p|div|strong|b|h[1-6]|span|br)\b/i.test(raw)) {
+        try {
+          var hdoc = new DOMParser().parseFromString(raw, 'text/html');
+          var blocks = Array.from(hdoc.body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,div'))
+            .map(function(n) { return qtiClean_(n.textContent || ''); }).filter(Boolean);
+          if (blocks.length) segments = segments.concat(blocks);
+          else if (qtiClean_(hdoc.body.textContent || '')) segments.push(qtiClean_(hdoc.body.textContent || ''));
+        } catch (e) { if (qtiLearnerNodeText_(node)) segments.push(qtiLearnerNodeText_(node)); }
+      } else if (qtiLearnerNodeText_(node)) segments.push(qtiLearnerNodeText_(node));
+    });
+    if (!segments.length) {
+      var full = qtiClean_(el.textContent || '');
+      if (full) segments.push(full);
+    }
+    segments = uniqueStrings_(segments, 20);
+    var fullText = qtiClean_(segments.join(' '));
+    var label = explicitLabel, description = '';
+    if (!label && segments.length >= 2 && segments[0].length <= 220) {
+      label = segments[0];
+      description = qtiClean_(segments.slice(1).join(' '));
+    } else if (!label) {
+      var marker = fullText.match(/\bDescription\s*:\s*/i);
+      if (marker && marker.index != null) {
+        label = qtiClean_(fullText.slice(0, marker.index));
+        description = qtiClean_(fullText.slice(marker.index + marker[0].length));
+      } else label = fullText;
+    } else {
+      description = qtiClean_(segments.filter(function(s) { return s !== label; }).join(' '));
+    }
+    return { label:label, description:description, text:fullText || qtiClean_([label, description].filter(Boolean).join(' ')), aliases:[] };
+ }
+
+ function qtiMediaPresence_(refs,sourceFile,zipLookup) {
+    return (refs||[]).map(function(ref){
+      var expected=resolveZipHref_(sourceFile,ref),exact=expected&&zipLookup[expected.toLowerCase()];
+      if(!expected)return {ref:ref,status:'EXTERNAL_OR_EMBEDDED',expectedPath:'',candidates:[]};
+      if(exact)return {ref:ref,status:'PRESENT_AT_REFERENCE',expectedPath:expected,candidates:[exact]};
+      var name=expected.split('/').pop().toLowerCase(),candidates=Object.keys(zipLookup).filter(function(k){return k.split('/').pop()===name;}).map(function(k){return zipLookup[k];});
+      return {ref:ref,status:candidates.length?'PRESENT_DIFFERENT_PATH':'NOT_IN_PACKAGE',expectedPath:expected,candidates:candidates};
+    });
+ }
+
+ function qtiQuestionMediaRefs_(item) {
+    var refs=qtiDesc_(item,'matimage').map(function(el){return el.getAttribute('uri')||el.getAttribute('src')||'';}).filter(Boolean);
+    qtiDesc_(item,'img').forEach(function(el){var src=el.getAttribute('src');if(src)refs.push(src);});
+    qtiDesc_(item,'mattext').forEach(function(el){
+      var raw=String(el.textContent||'');if(!/<(?:img|video|audio|iframe|embed)\b/i.test(raw))return;
+      try{var doc=new DOMParser().parseFromString(raw,'text/html');Array.from(doc.querySelectorAll('img[src],video[src],audio[src],iframe[src],embed[src]')).forEach(function(node){var src=node.getAttribute('src');if(src)refs.push(src);});}catch(e){}
+    });
+    return uniqueStrings_(refs,100);
+ }
+
+ function qtiQuestionType_(item, options) {
+    var responseLid = qtiDesc_(item, 'response_lid')[0];
+    var responseStr = qtiDesc_(item, 'response_str')[0];
+    var choiceInteraction = qtiDesc_(item, 'choiceinteraction')[0];
+    var textEntry = qtiDesc_(item, 'textentryinteraction')[0] || qtiDesc_(item, 'extendedtextinteraction')[0];
+    var type = 'unknown';
+    // response_str is used by both fill-in and essay questions in QTI 1.x.
+    // Trust the explicit CC profile or QTI2 extended interaction, never prompt wording.
+    var profiles=qtiDesc_(item,'qtimetadatafield').filter(function(f){
+      var label=qtiDesc_(f,'fieldlabel')[0];return label&&qtiClean_(label.textContent||'').toLowerCase()==='cc_profile';
+    }).map(function(f){var entry=qtiDesc_(f,'fieldentry')[0];return entry?qtiClean_(entry.textContent||'').toLowerCase():'';});
+    if(!choiceInteraction&&!responseLid && (qtiDesc_(item,'extendedtextinteraction').length || profiles.indexOf('cc.essay.v0p1')>=0))return 'essay';
+    if (choiceInteraction) {
+      var responseIdentifier = String(choiceInteraction.getAttribute('responseIdentifier') || choiceInteraction.getAttribute('responseidentifier') || '');
+      var matchingDecl = qtiDesc_(item, 'responsedeclaration').find(function(decl) {
+        return !responseIdentifier || String(decl.getAttribute('identifier') || '') === responseIdentifier;
+      });
+      var declaredCardinality = String(matchingDecl ? (matchingDecl.getAttribute('cardinality') || '') : '').toLowerCase();
+      var maxChoicesAttr = choiceInteraction.getAttribute('maxChoices') || choiceInteraction.getAttribute('maxchoices');
+      var maxChoices = maxChoicesAttr == null || maxChoicesAttr === '' ? 1 : Number(maxChoicesAttr);
+      type = declaredCardinality === 'multiple' || maxChoices === 0 || maxChoices > 1 ? 'multiple-select' : 'single-select';
+    } else if (responseLid) {
+      var card = String(responseLid.getAttribute('rcardinality') || responseLid.getAttribute('cardinality') || '').toLowerCase();
+      type = card.indexOf('multiple') > -1 ? 'multiple-select' : 'single-select';
+    } else if (responseStr || textEntry) {
+      var raw = qtiClean_(item.textContent || '').toLowerCase();
+      type = /regex|regular expression|varsubstring/.test(raw) ? 'regex' : 'text-entry';
+    }
+    if (type === 'single-select' && options && options.length === 2) {
+      var pair = options.map(function(o) { return String(o.text || '').toLowerCase(); }).sort().join('|');
+      if (pair === 'false|true') type = 'true-false';
+    }
+    return type;
+ }
+
+ function parseQtiAssessmentStructure_(xmlText, fileName) {
+    var qtiParsed = parseXmlCompat_(xmlText);
+    var doc = qtiParsed && qtiParsed.doc;
+    // QTI semantics require a real XML DOM. The manifest can use a record
+    // fallback, but individual QTI files stay conservative if repair still fails.
+    if (!doc) return null;
+
+    var all = Array.from(doc.getElementsByTagName('*'));
+    var items = all.filter(function(el) {
+      var n = qtiLocalName_(el);
+      return n === 'assessmentitem' || n === 'item';
+    });
+    if (!items.length) return null;
+
+    var questions = [];
+    var warnings = [];
+    items.slice(0, 250).forEach(function(item, idx) {
+      var itemId = item.getAttribute('identifier') || item.getAttribute('ident') || String(idx + 1);
+      var itemTitle = item.getAttribute('title') || '';
+
+      var optionNodes = qtiDesc_(item, 'simplechoice');
+      if (!optionNodes.length) optionNodes = qtiDesc_(item, 'response_label');
+      var options = optionNodes.map(function(el, oi) {
+        var parts = qtiOptionParts_(el);
+        return {
+          id: el.getAttribute('identifier') || el.getAttribute('ident') || String(oi + 1),
+          label: parts.label,
+          description: parts.description,
+          text: parts.text,
+          aliases: parts.aliases || [],
+          correct: null
+        };
+      }).filter(function(o) { return o.text || o.label || o.description; });
+
+      var prompt = '';
+      var promptNode = qtiDesc_(item, 'prompt')[0];
+      if (promptNode) prompt = qtiLearnerNodeText_(promptNode);
+      if (!prompt) {
+        var presentation = qtiDesc_(item, 'presentation')[0] || item;
+        var promptParts = qtiDesc_(presentation, 'mattext').filter(function(el) {
+          return !qtiHasAncestor_(el, ['response_label','itemfeedback','feedback','solution'], presentation);
+        }).map(function(el) { return qtiLearnerNodeText_(el); }).filter(Boolean);
+        if (promptParts.length) prompt = qtiClean_(promptParts.join(' '));
+      }
+      if (!prompt) {
+        var body = qtiDesc_(item, 'itembody')[0];
+        if (body) {
+          var clone = body.cloneNode(true);
+          Array.from(clone.querySelectorAll('simpleChoice, simplechoice, response_label')).forEach(function(el) { el.remove(); });
+          prompt = qtiClean_(clone.textContent || '');
+        }
+      }
+      if (!prompt) prompt = qtiClean_(itemTitle);
+
+      var correctIds = [];
+      var responseDecls = qtiDesc_(item, 'responsedeclaration');
+      responseDecls.forEach(function(decl) {
+        qtiDesc_(decl, 'correctresponse').forEach(function(cr) {
+          qtiDesc_(cr, 'value').forEach(function(v) { var t = qtiClean_(v.textContent || ''); if (t) correctIds.push(t); });
+        });
+      });
+
+      // QTI 1.x: only positive SCORE Set/Add branches can identify selected
+      // answers. NOT(varequal) constrains an option to be unselected.
+      var answerTextReliable = true;
+      var declaredCorrectResponse = correctIds.length > 0;
+      if (!declaredCorrectResponse) qtiDesc_(item, 'respcondition').forEach(function(cond) {
+        var scoreVars = qtiDesc_(cond, 'setvar').filter(function(sv) {
+          return String(sv.getAttribute('varname') || 'SCORE').toUpperCase() === 'SCORE';
+        });
+        var positiveScore = scoreVars.some(function(sv) {
+          var n = Number(qtiClean_(sv.textContent || ''));
+          var action = String(sv.getAttribute('action') || 'Set').toLowerCase();
+          return Number.isFinite(n) && n > 0 && (action === 'set' || action === 'add');
+        });
+        var correctFeedback = !scoreVars.length && qtiDesc_(cond, 'displayfeedback').some(function(df) {
+          var ref = String(df.getAttribute('linkrefid') || '').toLowerCase();
+          return /(^|[^a-z])(correct|right|success)([^a-z]|$)/.test(ref);
+        });
+        if (!positiveScore && !correctFeedback) return;
+        var response = qtiDesc_(item, 'response_lid')[0] || qtiDesc_(item, 'response_str')[0];
+        var responseId = response ? String(response.getAttribute('ident') || '') : '';
+        var selected = [], excluded = [], supported = true;
+        function visitCondition(node) {
+          var tag = qtiLocalName_(node);
+          var children = Array.from(node.children || []);
+          if (tag === 'conditionvar' || tag === 'and') {
+            children.forEach(visitCondition);
+          } else if (tag === 'varequal') {
+            var id = qtiClean_(node.textContent || '');
+            var ref = String(node.getAttribute('respident') || '');
+            if (!id || (responseId && ref && ref !== responseId)) supported = false;
+            else selected.push(id);
+          } else if (tag === 'not' && children.length === 1 && qtiLocalName_(children[0]) === 'varequal') {
+            var neg = children[0];
+            var negId = qtiClean_(neg.textContent || '');
+            var negRef = String(neg.getAttribute('respident') || '');
+            if (!negId || (responseId && negRef && negRef !== responseId)) supported = false;
+            else excluded.push(negId);
+          } else {
+            // OR/extension/nested negation cannot safely become one answer set.
+            supported = false;
+          }
+        }
+        var conditions = qtiDesc_(cond, 'conditionvar');
+        if (conditions.length !== 1) supported = false;
+        else visitCondition(conditions[0]);
+        if (selected.some(function(id) { return excluded.indexOf(id) !== -1; })) supported = false;
+        if (supported && (selected.length || excluded.length)) correctIds = correctIds.concat(selected);
+        else {
+          answerTextReliable = false;
+          warnings.push('Question ' + itemId + ': scoring condition needs manual answer-key verification.');
+        }
+      });
+      correctIds = Array.from(new Set(correctIds));
+
+      var correctAnswers = [];
+      correctIds.forEach(function(id) {
+        var opt = options.find(function(o) { return String(o.id) === String(id); });
+        correctAnswers.push(opt ? (opt.label || opt.text) : id);
+      });
+      options.forEach(function(o) { o.correct = correctIds.length ? (correctIds.indexOf(String(o.id)) > -1) : null; });
+
+      var points = null;
+      var decvar = qtiDesc_(item, 'decvar')[0];
+      if (decvar) {
+        var maxv = decvar.getAttribute('maxvalue') || decvar.getAttribute('maxValue');
+        if (maxv != null && maxv !== '' && Number.isFinite(Number(maxv))) points = Number(maxv);
+      }
+      if (points == null) {
+        var outcomes = qtiDesc_(item, 'outcomedeclaration');
+        for (var od = 0; od < outcomes.length; od++) {
+          var ident = String(outcomes[od].getAttribute('identifier') || '').toUpperCase();
+          var normal = outcomes[od].getAttribute('normalMaximum') || outcomes[od].getAttribute('normalmaximum');
+          if ((ident === 'SCORE' || !ident) && normal != null && Number.isFinite(Number(normal))) { points = Number(normal); break; }
+        }
+      }
+
+      var feedbackParts = [];
+      ['itemfeedback','modalfeedback','feedbackblock','feedbackinline'].forEach(function(tag) {
+        qtiDesc_(item, tag).forEach(function(el) { var t = qtiClean_(el.textContent || ''); if (t) feedbackParts.push(t); });
+      });
+
+      questions.push({
+        id: String(itemId),
+        title: qtiClean_(itemTitle),
+        type: qtiQuestionType_(item, options),
+        mediaRefs:qtiQuestionMediaRefs_(item),
+        sourceTypeEvidence:{method:'QTI_RESPONSE_AND_CC_PROFILE',profiles:qtiDesc_(item,'qtimetadatafield').filter(function(f){var n=qtiDesc_(f,'fieldlabel')[0];return n&&qtiClean_(n.textContent||'').toLowerCase()==='cc_profile';}).map(function(f){var n=qtiDesc_(f,'fieldentry')[0];return n?qtiClean_(n.textContent||''):'';})},
+        prompt: prompt,
+        options: options,
+        correctAnswers: Array.from(new Set(correctAnswers.filter(Boolean))),
+        feedback: qtiClean_(feedbackParts.join(' ')),
+        points: points,
+        answerTextReliable: answerTextReliable && correctIds.length > 0,
+        parserConfidence: answerTextReliable ? (correctIds.length || !options.length ? 0.95 : 0.84) : 0.65,
+        sourceFile: String(fileName || '')
+      });
+    });
+
+    if (!questions.length) return null;
+    var selectionNumbers = [];
+    qtiDesc_(doc, 'selection_number').concat(qtiDesc_(doc, 'selectionnumber')).forEach(function(el) {
+      var n = Number(qtiClean_(el.textContent || '')); if (Number.isFinite(n) && n > 0) selectionNumbers.push(n);
+    });
+    qtiDesc_(doc, 'selection').forEach(function(el) {
+      var raw = el.getAttribute('select') || el.getAttribute('selectionNumber') || el.getAttribute('selectionnumber') || '';
+      var n = Number(raw); if (Number.isFinite(n) && n > 0) selectionNumbers.push(n);
+    });
+    selectionNumbers = Array.from(new Set(selectionNumbers));
+    var selectCount = null;
+    if (selectionNumbers.length === 1) selectCount = selectionNumbers[0];
+    else if (selectionNumbers.length > 1) {
+      var sumSel = selectionNumbers.reduce(function(a,b){return a+b;},0);
+      if (sumSel <= questions.length) selectCount = sumSel;
+    }
+    var selectionPolicy = {
+      observed: selectionNumbers.length > 0,
+      selectCount: selectCount,
+      poolSize: questions.length,
+      randomSelection: selectCount != null ? selectCount < questions.length : null,
+      rawSelectionCounts: selectionNumbers.slice(0,20),
+      source: 'IMS_QTI_SELECTION_RULE'
+    };
+    return {
+      schemaVersion: 3,
+      parser: 'ims-qti-dom-v5-response-profile',
+      origin: 'source-imscc',
+      declaredQuestionCount: questions.length,
+      questionCount: questions.length,
+      selectionPolicy: selectionPolicy,
+      questions: questions,
+      parserConfidence: questions.reduce(function(sum, q) { return sum + Number(q.parserConfidence || 0); }, 0) / questions.length,
+      warnings: warnings
+    };
+ }
+
+ function mergeStructuredAssessment_(base, incoming) {
+    if (!incoming || !Array.isArray(incoming.questions) || !incoming.questions.length) return base || null;
+    if (!base || !Array.isArray(base.questions)) return incoming;
+    var seen = new Set(base.questions.map(function(q) { return String(q.id || '') + '|' + qtiClean_(q.prompt || '').toLowerCase(); }));
+    incoming.questions.forEach(function(q) {
+      var key = String(q.id || '') + '|' + qtiClean_(q.prompt || '').toLowerCase();
+      if (!seen.has(key)) { seen.add(key); base.questions.push(q); }
+    });
+    base.questionCount = base.questions.length;
+    base.declaredQuestionCount = Math.max(Number(base.declaredQuestionCount || 0), base.questionCount);
+    base.parserConfidence = Math.min(Number(base.parserConfidence || 0.9), Number(incoming.parserConfidence || 0.9));
+    base.warnings = uniqueStrings_([...(base.warnings || []), ...(incoming.warnings || [])], 20);
+    return base;
+ }
+
+
+ function sourceBehaviorEvidence_(resourceType, rawText, fileNames) {
+    var type = String(resourceType || '').toLowerCase();
+    var text = String(rawText || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    var low = text.toLowerCase();
+    var behavior = { observed:false, source:'IMSCC_EXPLICIT_METADATA', submission:{}, settings:{}, evidence:[] };
+    function hit(key, value, evidence) { if (value) { behavior.observed = true; behavior.submission[key] = true; if (evidence) behavior.evidence.push(evidence); } }
+    if (type.indexOf('assignment') > -1 || /\bassignment\b/.test(low)) {
+      hit('fileUpload', /\bfile[ _-]+(?:upload|submission)\b|\bsubmit(?:ted)?[ _-]+(?:a[ _-]+)?file\b/i.test(text), 'Explicit file-submission phrase in exported assignment metadata.');
+      hit('textSubmission', /\btext[ _-]+submission\b|\binline[ _-]+text\b/i.test(text), 'Explicit text-submission phrase in exported assignment metadata.');
+    }
+    var attempts = text.match(/\b(?:attempts?|submissions?)\s*[:=]?\s*(unlimited|\d+)\b/i);
+    if (attempts) { behavior.observed=true; behavior.settings.attempts=attempts[1]; behavior.evidence.push('Explicit attempts/submissions value in source metadata.'); }
+    var points = text.match(/\b(?:grade\s+out\s+of|points?)\s*[:=]?\s*(\d+(?:\.\d+)?)\b/i);
+    if (points) { behavior.observed=true; behavior.settings.points=Number(points[1]); behavior.evidence.push('Explicit source point value.'); }
+    behavior.fileNames = (fileNames || []).slice(0,40);
+    return behavior;
+ }
+
+ function sourceInteractiveSignals_(resourceType, files, resourceHref) {
+    var explicit=[], supporting=[], practice=[];
+    var type = String(resourceType || '').toLowerCase();
+    var href = String(resourceHref || '').toLowerCase().replace(/\\/g,'/');
+    var families=[];
+    function family(name) { if (families.indexOf(name) === -1) families.push(name); }
+
+    if (/scorm|adlcp/.test(type) || /(?:^|\/)(?:scorm|scormengine|index_lms\.html)(?:\/|$|[?#])/.test(href)) { family('SCORM'); explicit.push(resourceType || resourceHref || 'SCORM manifest marker'); }
+    if (/aicc/.test(type)) { family('AICC'); explicit.push(resourceType || 'AICC manifest marker'); }
+    if (/tincan|xapi/.test(type) || /tincan\.xml/.test(href)) { family('TINCAN_XAPI'); explicit.push(resourceType || resourceHref || 'TinCan/xAPI marker'); }
+
+    (files || []).forEach(function(raw) {
+      var f=String(raw || '').toLowerCase().replace(/\\/g,'/');
+      if (/\.practice\.json(?:$|[?#])/.test(f)) { practice.push(raw); family('D2L_PRACTICE_RUNTIME'); }
+      if (/(?:^|\/)(?:story\.html|index_lms\.html|tincan\.xml)(?:$|[?#])/.test(f) || /(?:storyline|scorm2004|scorm_?1\.2|scormdriver|articulate|\/rise(?:\/|[-_.]))/.test(f)) {
+        explicit.push(raw);
+        if (/storyline|story\.html|story_content/.test(f)) family('STORYLINE');
+        if (/articulate|\/rise(?:\/|[-_.])/.test(f)) family('RISE_ARTICULATE');
+        if (/scorm|index_lms\.html/.test(f)) family('SCORM');
+        if (/tincan\.xml/.test(f)) family('TINCAN_XAPI');
+      } else if (/\/(?:story_content|scorm|tincan|lms)\//.test(f) || /(?:player|launcher|launch)\.(?:html?|js)(?:$|[?#])/.test(f)) supporting.push(raw);
+    });
+    explicit=uniqueStrings_(explicit,20); supporting=uniqueStrings_(supporting,20); practice=uniqueStrings_(practice,20);
+    var detected = explicit.length > 0 || supporting.length >= 3 || practice.length > 0 || families.length > 0;
+    return {
+      detected: detected,
+      confidence: explicit.length ? 'HIGH' : ((supporting.length >= 3 || practice.length) ? 'MEDIUM' : 'LOW'),
+      runtimeFamilies: families,
+      explicitMarkers: explicit,
+      supportingMarkers: supporting,
+      practiceConfigMarkers: practice,
+      launchHref: resourceHref || '',
+      runtimeVerificationRequired: detected,
+      note: explicit.length ? 'Explicit interactive runtime/package marker observed in this IMSCC resource.' : (practice.length ? 'D2L .practice.json runtime dependency observed; validate the visible parent interaction rather than treating the config as a standalone learner item.' : (supporting.length >= 3 ? 'Multiple package-runtime markers observed; interactive carrier is plausible but not fully typed.' : 'No strong interactive runtime signature found in this resource.'))
+    };
+ }
+
+ function notifyPackageProgress_(callback, update) {
+   if (typeof callback === 'function') { try { callback(update); } catch (_) {} }
+ }
+
+ async function buildSourceEvidenceFromZip_(zip, xmlString, manifestPath, onProgress) {
+    var evidence = {
+      // v6.6.1 source-evidence schema 6 makes PDF semantic capability explicit.
+      // Schema 4 existed both before and after the first PDF-text patch, which made
+      // an old stored scan indistinguishable from a fresh extraction failure.
+      schemaVersion: 8,
+      extractor: 'CTI Source Evidence v6.8.6',
+      buildId: 'v6.8.6-response-profile-20260920',
+      capabilities: { pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true },
+      manifestOnly: false,
+      manifestPath: manifestPath,
+      resources: {},
+      limits: { maxTextSample: 16000, maxFiles: 1800, maxTotalTextPayload: 900000, maxHashedFileBytes: 12000000, maxTotalHashBytes: 60000000, maxPdfTextBytes: 12000000, maxPdfPagesPerFile: 80, maxTotalPdfPages: 240 }
+    };
+
+    var manifestRecords = manifestResourceRecords_(xmlString);
+    if (!manifestRecords.records.length) {
+      var detail = manifestRecords.strictError || manifestRecords.repairedError || 'No resource records could be recovered.';
+      throw new Error('imsmanifest.xml could not be read for source fingerprinting even after the compatibility pass. ' + detail);
+    }
+    evidence.manifestParse = {
+      mode: manifestRecords.mode,
+      repaired: manifestRecords.repaired === true,
+      strictError: String(manifestRecords.strictError || '').slice(0, 500)
+    };
+
+    var zipLookup = Object.create(null);
+    Object.keys(zip.files).forEach(function(path) {
+      zipLookup[normalizeZipPath_(path).toLowerCase()] = path;
+    });
+
+    var resources = manifestRecords.records;
+    var inspectedCount = 0;
+    var remainingTextBudget = evidence.limits.maxTotalTextPayload;
+    var remainingHashBudget = evidence.limits.maxTotalHashBytes;
+    var remainingPdfPageBudget = evidence.limits.maxTotalPdfPages;
+
+    var lastProgressPaint = 0;
+    for (var r = 0; r < resources.length; r++) {
+      notifyPackageProgress_(onProgress, {phase:"Read content", completed:r, total:resources.length});
+      if (onProgress && Date.now() - lastProgressPaint >= 100) { await new Promise(function(resolve) { setTimeout(resolve, 0); }); lastProgressPaint = Date.now(); }
+      var res = resources[r];
+      var resId = String(res.identifier || '');
+      if (!resId) continue;
+
+      var resourceEvidence = {
+        schemaVersion: 8,
+        evidenceExtractor: 'CTI Source Evidence v6.8.6',
+        evidenceBuildId: 'v6.8.6-response-profile-20260920',
+        files: [],
+        links: [],
+        images: [],
+        embeddedRefs: [],
+        textSample: '',
+        textFormat: 'learner-text',
+        textNormalizationStatus: 'NO_TEXT',
+        textLength: 0,
+        textSha256: '',
+        structuredAssessment: null,
+        behavior: null,
+        interactiveSignals: null,
+        evidenceTruncated: false
+      };
+
+      var resourceType = String(res.type || '').toLowerCase();
+      var isQtiResource = resourceType.indexOf('imsqti') > -1 || resourceType.indexOf('qti') > -1;
+      var textFragments = [];
+      var behaviorFragments = [];
+      var totalNormalizedLength = 0;
+      var fileNodes = Array.isArray(res.files) ? res.files.slice() : [];
+      var resourceHref = String(res.href || '');
+      if (resourceHref && fileNodes.indexOf(resourceHref) === -1) fileNodes.unshift(resourceHref);
+      resourceEvidence.dependencies = Array.isArray(res.dependencies) ? res.dependencies.slice() : [];
+      resourceEvidence.resourceHref = resourceHref;
+
+      for (var f = 0; f < fileNodes.length; f++) {
+        if (inspectedCount >= evidence.limits.maxFiles) {
+          resourceEvidence.evidenceTruncated = true;
+          break;
+        }
+
+        var href = String(fileNodes[f] || '');
+        if (!href) continue;
+        inspectedCount++;
+        notifyPackageProgress_(onProgress, {phase:"Read content", completed:r, total:resources.length, file:href});
+        if (onProgress && Date.now() - lastProgressPaint >= 100) { await new Promise(function(resolve) { setTimeout(resolve, 0); }); lastProgressPaint = Date.now(); }
+
+        var resolved = resolveZipHref_(manifestPath, href);
+        var exactPath = resolved ? zipLookup[resolved.toLowerCase()] : null;
+        var cleanHref = href.split('#')[0].split('?')[0];
+        var name = cleanHref.split('/').pop() || cleanHref;
+        var dot = name.lastIndexOf('.');
+        var extension = dot > -1 ? name.slice(dot + 1).toLowerCase() : '';
+
+        var fileEvidence = {
+          href: href,
+          path: resolved || cleanHref,
+          name: name,
+          extension: extension,
+          presentInPackage: !!exactPath,
+          kind: 'asset'
+        };
+
+        if (exactPath && !zip.files[exactPath].dir) {
+          var entry = zip.files[exactPath];
+          var approxSize = entry._data && Number(entry._data.uncompressedSize)
+            ? Number(entry._data.uncompressedSize)
+            : null;
+          fileEvidence.size = approxSize;
+
+          // Cryptographic source-asset fingerprint. This lets the QA engine prove
+          // a Coursera file is identical even when the filename changes.
+          if ((!approxSize || approxSize <= evidence.limits.maxHashedFileBytes) && remainingHashBudget > 0) {
+            try {
+              var rawBytes = await entry.async('arraybuffer');
+              if (rawBytes && rawBytes.byteLength <= evidence.limits.maxHashedFileBytes && rawBytes.byteLength <= remainingHashBudget) {
+                fileEvidence.sha256 = await sha256Bytes_(rawBytes);
+                fileEvidence.hashStatus = fileEvidence.sha256 ? 'SHA256' : 'UNAVAILABLE';
+                if (/^(png|jpe?g|gif|webp)$/i.test(extension) && rawBytes.byteLength <= 6000000) {
+                  var imageMime = extension === 'png' ? 'image/png' : (extension === 'gif' ? 'image/gif' : (extension === 'webp' ? 'image/webp' : 'image/jpeg'));
+                  fileEvidence.perceptualHash = await perceptualHashBlob_(new Blob([rawBytes], { type: imageMime }));
+                }
+                remainingHashBudget -= rawBytes.byteLength;
+              } else {
+                fileEvidence.hashStatus = 'SKIPPED_SIZE';
+              }
+            } catch (hashError) {
+              fileEvidence.hashStatus = 'ERROR';
+            }
+          } else {
+            fileEvidence.hashStatus = 'SKIPPED_BUDGET';
+          }
+
+          var textLike = /^(html?|xhtml|xml|json|txt|md|csv|css|js)$/i.test(extension);
+          if (textLike && (!approxSize || approxSize <= 2500000)) {
+            try {
+              var rawText = await entry.async('string');
+              if (resourceType.indexOf('assignment') > -1 && /(?:file[ _-]+(?:upload|submission)|text[ _-]+submission|submission[ _-]+type|grade[ _-]+out[ _-]+of|attempts?)/i.test(rawText)) behaviorFragments.push(rawText.slice(0,16000));
+              var parsedText = extractTextEvidence_(rawText, extension);
+              var normalized = parsedText.normalizedText || '';
+              if((parsedText.assignmentFormats||[]).indexOf('file')>=0)behaviorFragments.push('file submission');
+              if((parsedText.assignmentFormats||[]).indexOf('text')>=0)behaviorFragments.push('text submission');
+              if (normalized && (resourceType.indexOf('assignment') > -1 || /(?:file\s+(?:upload|submission)|text\s+submission|grade\s+out\s+of|attempts?)/i.test(normalized))) behaviorFragments.push(normalized.slice(0,12000));
+
+              if (extension === 'xml' && (isQtiResource || /<(?:\w+:)?(?:assessmentItem|item)\b/i.test(rawText) && /<(?:\w+:)?(?:response_lid|responseDeclaration|choiceInteraction|response_str|textEntryInteraction)\b/i.test(rawText))) {
+                var parsedAssessment = parseQtiAssessmentStructure_(rawText, exactPath || href);
+                if(parsedAssessment)(parsedAssessment.questions||[]).forEach(function(q){q.mediaPresence=qtiMediaPresence_(q.mediaRefs,q.sourceFile||exactPath||href,zipLookup);});
+                if (parsedAssessment) resourceEvidence.structuredAssessment = mergeStructuredAssessment_(resourceEvidence.structuredAssessment, parsedAssessment);
+              }
+
+              fileEvidence.textFormat = 'learner-text';
+              fileEvidence.textLength = normalized.length;
+              fileEvidence.textSha256 = await sha256Text_(normalized);
+              fileEvidence.links = parsedText.links;
+              fileEvidence.images = parsedText.images;
+              fileEvidence.embeddedRefs = parsedText.refs;
+
+              resourceEvidence.links = resourceEvidence.links.concat(parsedText.links || []);
+              resourceEvidence.images = resourceEvidence.images.concat(parsedText.images || []);
+              resourceEvidence.embeddedRefs = resourceEvidence.embeddedRefs.concat(parsedText.refs || []);
+
+              totalNormalizedLength += normalized.length;
+
+              if (normalized && remainingTextBudget > 0) {
+                var fragmentLimit = Math.min(evidence.limits.maxTextSample, remainingTextBudget);
+                var fragment = normalized.slice(0, fragmentLimit);
+                if (fragment) {
+                  textFragments.push(fragment);
+                  fileEvidence.textSample = fragment;
+                  remainingTextBudget -= fragment.length;
+                }
+              } else {
+                fileEvidence.textSample = '';
+                if (normalized) resourceEvidence.evidenceTruncated = true;
+              }
+            } catch (readError) {
+              fileEvidence.readError = String(readError && readError.message || readError);
+              fileEvidence.textNormalizationStatus = 'SOURCE_REFRESH_REQUIRED';
+              resourceEvidence.textNormalizationStatus = 'SOURCE_REFRESH_REQUIRED';
+              resourceEvidence.textFormat = 'unavailable';
+            }
+          }
+
+          // v6.6.1: every transformation-relevant PDF gets an explicit parser/status
+          // marker. This distinguishes an old source scan from a size/budget/library
+          // limitation and prevents the QA report from repeatedly asking for a refresh
+          // when the current scanner already attempted the document.
+          var pdfRoleCandidate = extension === 'pdf' &&
+            (resourceType.indexOf('assignment') > -1 || /(?:rubric|assessment|assignment|grading|instruction|direction)/i.test(name));
+          if (pdfRoleCandidate) {
+            if (approxSize && approxSize > evidence.limits.maxPdfTextBytes) {
+              fileEvidence.pdfParser = 'skipped-size';
+              fileEvidence.pdfReadError = 'PDF exceeds bounded text-extraction limit (' + evidence.limits.maxPdfTextBytes + ' bytes).';
+            } else if (remainingPdfPageBudget <= 0) {
+              fileEvidence.pdfParser = 'skipped-budget';
+              fileEvidence.pdfReadError = 'Global source PDF page budget was exhausted before this document.';
+            } else {
+              try {
+                var pdfBytes = await entry.async('arraybuffer');
+                var pdfRole = /(?:rubric|grading)/i.test(name) ? 'rubric' : 'assignment';
+                var pdfInfo = await extractPdfTextEvidence_(pdfBytes, Math.min(evidence.limits.maxPdfPagesPerFile, remainingPdfPageBudget), evidence.limits.maxTextSample, { fileName:name, role:pdfRole });
+                remainingPdfPageBudget = Math.max(0, remainingPdfPageBudget - Number(pdfInfo.pagesRead || 0));
+                fileEvidence.pdfParser = pdfInfo.parser || 'error';
+                fileEvidence.pdfPageCount = Number(pdfInfo.pageCount || 0);
+                fileEvidence.pdfPagesRead = Number(pdfInfo.pagesRead || 0);
+                fileEvidence.pdfSampleStrategy = String(pdfInfo.sampleStrategy || '');
+                fileEvidence.pdfPageSamples = Array.isArray(pdfInfo.pageSamples) ? pdfInfo.pageSamples.slice(0, 12) : [];
+                if (pdfInfo.error) fileEvidence.pdfReadError = pdfInfo.error;
+                var pdfText = String(pdfInfo.text || '').replace(/\s+/g, ' ').trim();
+                if (pdfText) {
+                  fileEvidence.textLength = pdfText.length;
+                  fileEvidence.textSha256 = await sha256Text_(pdfText);
+                  fileEvidence.textSample = pdfText.slice(0, evidence.limits.maxTextSample);
+                  totalNormalizedLength += pdfText.length;
+                  if (remainingTextBudget > 0) {
+                    var pdfFragment = pdfText.slice(0, Math.min(evidence.limits.maxTextSample, remainingTextBudget));
+                    if (pdfFragment) { textFragments.push(pdfFragment); remainingTextBudget -= pdfFragment.length; }
+                  } else resourceEvidence.evidenceTruncated = true;
+                }
+              } catch (pdfError) {
+                fileEvidence.pdfParser = 'error';
+                fileEvidence.pdfReadError = String(pdfError && pdfError.message || pdfError || '').slice(0, 300);
+              }
+            }
+          }
+        }
+
+        resourceEvidence.files.push(fileEvidence);
+      }
+
+      resourceEvidence.links = uniqueStrings_(resourceEvidence.links, 400);
+      resourceEvidence.images = uniqueStrings_(resourceEvidence.images, 400);
+      resourceEvidence.embeddedRefs = uniqueStrings_(resourceEvidence.embeddedRefs, 500);
+      resourceEvidence.textLength = totalNormalizedLength;
+
+      var combinedText = textFragments.join(' ').replace(/\s+/g, ' ').trim();
+      resourceEvidence.textSample = combinedText.slice(0, evidence.limits.maxTextSample);
+      if (resourceEvidence.textNormalizationStatus !== 'SOURCE_REFRESH_REQUIRED') resourceEvidence.textNormalizationStatus = combinedText ? 'NORMALIZED' : 'NO_TEXT';
+      resourceEvidence.textSha256 = combinedText ? await sha256Text_(combinedText) : '';
+      resourceEvidence.behavior = sourceBehaviorEvidence_(resourceType, behaviorFragments.join(' '), fileNodes);
+      resourceEvidence.interactiveSignals = sourceInteractiveSignals_(resourceType, fileNodes, resourceHref);
+
+      evidence.resources[resId] = resourceEvidence;
+      notifyPackageProgress_(onProgress, {phase:"Read content", completed:r + 1, total:resources.length});
+    }
+
+    notifyPackageProgress_(onProgress, {phase:"Read content", detail:"Resolving dependencies and assessment associations.", completed:resources.length, total:resources.length});
+
+    // v6.6.1: an Assignment may reference its Assessment/Rubric PDFs through
+    // explicit manifest dependency resources. The previous source fingerprint kept
+    // those concrete descriptors on the dependency node only, while the parent item
+    // fell back to filename-only manifest references. Propagate PDF evidence across
+    // explicit dependency edges for Assignment resources only. This is deterministic
+    // manifest evidence, not title inference, and preserves the specific parser/hash.
+    var recordById = Object.create(null);
+    resources.forEach(function(rec) { if (rec && rec.identifier) recordById[String(rec.identifier)] = rec; });
+
+    function sourcePdfIdentity_(file) {
+      if (!file) return '';
+      var hash = String(file.sha256 || '').toLowerCase();
+      if (/^[0-9a-f]{64}$/.test(hash)) return 'sha:' + hash;
+      var p = String(file.path || file.href || file.name || '').replace(/\\/g, '/').toLowerCase();
+      return p ? 'path:' + p : '';
+    }
+    function propagateAssignmentDependencyPdfs_(resId, visiting) {
+      var rec = recordById[resId], ev = evidence.resources[resId];
+      if (!rec || !ev) return;
+      visiting = visiting || Object.create(null);
+      if (visiting[resId]) return;
+      visiting[resId] = true;
+      var isAssignmentParent = String(rec.type || '').toLowerCase().indexOf('assignment') > -1;
+      (rec.dependencies || []).forEach(function(depIdRaw) {
+        var depId = String(depIdRaw || '');
+        if (!depId) return;
+        propagateAssignmentDependencyPdfs_(depId, visiting);
+        if (!isAssignmentParent) return;
+        var depEv = evidence.resources[depId];
+        if (!depEv || !Array.isArray(depEv.files)) return;
+        var seen = Object.create(null);
+        (ev.files || []).forEach(function(f) { var k = sourcePdfIdentity_(f); if (k) seen[k] = true; });
+        depEv.files.forEach(function(f) {
+          var ext = String(f && f.extension || '').toLowerCase();
+          if (ext !== 'pdf') return;
+          var k = sourcePdfIdentity_(f);
+          if (!k || seen[k]) return;
+          seen[k] = true;
+          var clone = Object.assign({}, f);
+          clone.evidenceSource = clone.evidenceSource || ('manifest-dependency:' + depId);
+          clone.dependencyResourceId = depId;
+          ev.files.push(clone);
+        });
+      });
+      delete visiting[resId];
+    }
+    Object.keys(recordById).forEach(function(id) {
+      if (String(recordById[id].type || '').toLowerCase().indexOf('assignment') > -1) propagateAssignmentDependencyPdfs_(id);
+    });
+
+    // v6.5.3+: Brightspace/Common Cartridge packages often place QTI XML on a
+    // dependency resource or only in the resource href. Propagate structured
+    // assessment evidence across explicit manifest dependency edges. This avoids
+    // title-based guessing while preserving the item's true question model.
+    var resolving = Object.create(null), resolved = Object.create(null);
+    function resolveStructuredForResource_(resId) {
+      if (!resId || resolved[resId]) return evidence.resources[resId] ? evidence.resources[resId].structuredAssessment : null;
+      if (resolving[resId]) return null;
+      resolving[resId] = true;
+      var ev = evidence.resources[resId];
+      var rec = recordById[resId];
+      if (ev && rec) {
+        (rec.dependencies || []).forEach(function(depId) {
+          var depAssessment = resolveStructuredForResource_(String(depId || ''));
+          if (depAssessment) ev.structuredAssessment = mergeStructuredAssessment_(ev.structuredAssessment, depAssessment);
+        });
+      }
+      resolving[resId] = false;
+      resolved[resId] = true;
+      return ev ? ev.structuredAssessment : null;
+    }
+    Object.keys(recordById).forEach(resolveStructuredForResource_);
+
+    // Conservative orphan-QTI rescue: only when there is exactly one unresolved
+    // QTI resource and exactly one otherwise-unreferenced QTI XML in the package.
+    // This handles vendor packages that omit <file>/<dependency> edges without
+    // ever assigning one ambiguous assessment to another.
+    var qtiResourceIds = resources.filter(function(rec) {
+      var t = String(rec && rec.type || '').toLowerCase();
+      return t.indexOf('imsqti') > -1 || t.indexOf('qti') > -1;
+    }).map(function(rec) { return String(rec.identifier || ''); }).filter(Boolean);
+    var unresolvedQtiIds = qtiResourceIds.filter(function(id) {
+      return !(evidence.resources[id] && evidence.resources[id].structuredAssessment);
+    });
+    if (unresolvedQtiIds.length === 1) {
+      var referencedPaths = Object.create(null);
+      resources.forEach(function(rec) {
+        var refs = (rec.files || []).slice();
+        if (rec.href) refs.push(rec.href);
+        refs.forEach(function(href) {
+          var rp = resolveZipHref_(manifestPath, href);
+          if (rp) referencedPaths[String(rp).toLowerCase()] = true;
+        });
+      });
+      var orphanAssessments = [];
+      var zipPaths = Object.keys(zip.files);
+      for (var zi = 0; zi < zipPaths.length && orphanAssessments.length < 3; zi++) {
+        var zp = zipPaths[zi], ze = zip.files[zp];
+        if (!ze || ze.dir || !/\.xml$/i.test(zp) || referencedPaths[String(normalizeZipPath_(zp)).toLowerCase()]) continue;
+        try {
+          var ztxt = await ze.async('string');
+          if (!/(<(?:\w+:)?(?:assessmentItem|item)\b)/i.test(ztxt)) continue;
+          if (!/(<(?:\w+:)?(?:response_lid|responseDeclaration|choiceInteraction|response_str|textEntryInteraction)\b)/i.test(ztxt)) continue;
+          var zassess = parseQtiAssessmentStructure_(ztxt, zp);
+          if (zassess && zassess.questions && zassess.questions.length) orphanAssessments.push(zassess);
+        } catch (orphanErr) {}
+      }
+      if (orphanAssessments.length === 1) {
+        evidence.resources[unresolvedQtiIds[0]].structuredAssessment = orphanAssessments[0];
+        evidence.resources[unresolvedQtiIds[0]].structuredAssessmentAssociation = 'single-unresolved-qti-single-orphan-xml';
+      }
+    }
+
+    evidence.qtiDiagnostics = {
+      qtiResources: qtiResourceIds.length,
+      qtiWithStructure: qtiResourceIds.filter(function(id) {
+        return evidence.resources[id] && evidence.resources[id].structuredAssessment;
+      }).length,
+      unresolvedQtiResources: qtiResourceIds.filter(function(id) {
+        return !(evidence.resources[id] && evidence.resources[id].structuredAssessment);
+      })
+    };
+    evidence.inspectedFiles = inspectedCount;
+    evidence.resourceCount = Object.keys(evidence.resources).length;
+    evidence.remainingTextBudget = remainingTextBudget;
+    evidence.remainingHashBudget = remainingHashBudget;
+    evidence.remainingPdfPageBudget = remainingPdfPageBudget;
+    return evidence;
+  }
+
+  function readPackageManifest(file, onProgress) {
+    notifyPackageProgress_(onProgress, {phase:"Open package", detail:"Opening the file and locating its manifest."});
+    if (file.name.toLowerCase().endsWith('.xml')) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          resolve({ xmlString: e.target.result, sourceEvidenceJson: JSON.stringify({ schemaVersion: 8, extractor: 'CTI Source Evidence v6.8.6', buildId: 'v6.8.6-response-profile-20260920', capabilities: { pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true }, manifestOnly: true, resources: {}, manifestParse: { mode: 'manifest-only', repaired: false } }) });
+        };
+        reader.onerror = function() { reject(new Error('Could not read the XML file.')); };
+        reader.readAsText(file);
+      });
+    }
+    return JSZip.loadAsync(file).then(async function(zip) {
+      var manifests = zip.file(/(^|\/)imsmanifest\.xml$/i);
+      if (!manifests.length) throw new Error('imsmanifest.xml was not found in the package.');
+      var manifestFile = manifests[0];
+      var xmlString = await manifestFile.async('string');
+      var evidence = await buildSourceEvidenceFromZip_(zip, xmlString, manifestFile.name, onProgress);
+      return { xmlString: xmlString, sourceEvidenceJson: JSON.stringify(evidence) };
+    });
+ }
+
+  // CTI_PROGRESS_BEGIN: isolated display; never part of course evidence.
+  function createCtiProgressPanelV1(title, options) {
+    options = options || {};
+    const started = Date.now();
+    const state = { phase:'Starting', detail:'', count:'', completed:null, total:null, outcome:'running', startedAt:new Date(started).toISOString() };
+    let host, root, timer, finished = 0, phaseStarted = started, updated = started, minimized = false;
+    const durations = {};
+    const key = options.key || '__CTI_PROGRESS_PANEL__';
+    const duration = ms => Math.floor(Math.max(0, ms) / 60000) + 'm ' + String(Math.floor(Math.max(0, ms) / 1000) % 60).padStart(2, '0') + 's';
+    const snapshot = () => ({...state, elapsedMs:(finished || Date.now()) - started,
+      phaseElapsedMs:(finished || Date.now()) - phaseStarted, phaseDurationsMs:{...durations,
+        [state.phase]:(durations[state.phase] || 0) + (finished || Date.now()) - phaseStarted}});
+    const dispose = () => { clearInterval(timer); if (host) host.remove(); };
+    const draw = () => {
+      if (!root) return;
+      const node = id => root.getElementById(id);
+      const end = finished || Date.now();
+      node('clock').textContent = 'Elapsed ' + duration(end - started);
+      node('phase').textContent = state.phase;
+      node('detail').textContent = state.detail;
+      node('count').textContent = state.count;
+      node('activity').textContent = finished ? 'Finished in ' + duration(end - started) :
+        'This step: ' + duration(end - phaseStarted) + (end - updated >= 30000 ? ' · Waiting for the next progress update' : '');
+      node('close').hidden = !finished;
+      node('pulse').hidden = !!finished;
+      node('card').dataset.outcome = state.outcome;
+      node('body').hidden = minimized;
+      node('toggle').textContent = minimized ? 'Expand' : 'Minimize';
+      node('toggle').setAttribute('aria-expanded', String(!minimized));
+      const determinate = !finished && Number.isFinite(state.completed) && Number.isFinite(state.total) && state.total > 0;
+      node('bar').hidden = !determinate;
+      if (determinate) { node('bar').max = state.total; node('bar').value = Math.max(0, Math.min(state.total, state.completed)); }
+      node('foot').textContent = finished ? (options.finishedNote || 'Capture completion is separate from content verification. Review the JSON for evidence gaps.') :
+        'Elapsed time is shown; remaining time is not estimated.';
+      const steps = options.stages || [];
+      const current = steps.indexOf(state.phase);
+      root.querySelectorAll('[data-step]').forEach((el, i) => {
+        el.dataset.current = String(i === current && !finished);
+        el.dataset.done = String(current > i || state.outcome === 'success');
+      });
+    };
+    const safeDraw = () => { try { draw(); } catch (_) {} };
+    const controller = {
+      update(patch) {
+        if (finished) return;
+        if (patch.phase && patch.phase !== state.phase) {
+          durations[state.phase] = (durations[state.phase] || 0) + Date.now() - phaseStarted;
+          phaseStarted = Date.now();
+          state.completed = state.total = null;
+          state.count = '';
+        }
+        Object.assign(state, patch);
+        updated = Date.now();
+        safeDraw();
+      },
+      finish(outcome, detail, count) {
+        if (finished) return;
+        controller.update({outcome:outcome || 'review', detail:detail || '', count:count || state.count});
+        finished = Date.now();
+        minimized = false;
+        clearInterval(timer);
+        safeDraw();
+      },
+      snapshot, dispose,
+      reveal() { minimized = false; safeDraw(); }
+    };
+    try {
+      if (window[key] && typeof window[key].dispose === 'function') window[key].dispose();
+      window[key] = controller;
+      host = document.createElement('div');
+      host.setAttribute('data-cti-progress', 'true');
+      host.style.cssText = 'all:initial!important;position:fixed!important;right:18px!important;bottom:18px!important;z-index:2147483645!important;width:min(370px,calc(100vw - 36px))!important;display:block!important;';
+      // Closed shadow + outside body: body text, links, question discovery and
+      // body mutation observers cannot ingest the progress display as evidence.
+      root = host.attachShadow({mode:'closed'});
+      root.innerHTML = `<style>
+        :host{color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}
+        #card{font:14px/1.45 system-ui,-apple-system,sans-serif;background:#fff;color:#172b4d;border:1px solid #cbd5e1;border-radius:14px;box-shadow:0 8px 36px #0f172a26;overflow:hidden}
+        header{padding:14px 16px 10px;background:#f6f8fc;border-bottom:1px solid #e2e8f0}
+        .row{display:flex;gap:10px;justify-content:space-between;align-items:center}#title{font-size:14px;font-weight:700}
+        #clock{font-variant-numeric:tabular-nums;font-size:13px;color:#334155;white-space:nowrap}
+        #body{padding:14px 16px}#phase{font-size:16px;font-weight:700;color:#1d4ed8}
+        #detail{margin:8px 0;overflow-wrap:anywhere;max-height:100px;overflow:auto}
+        #count{font-weight:600;margin:8px 0}#activity,#foot{font-size:12px;color:#64748b}
+        #bar{width:100%;height:7px;accent-color:#2563eb;margin:5px 0}
+        #steps{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0 0;font-size:11px}
+        [data-step]{padding:3px 6px;border-radius:5px;color:#64748b;background:#eef2f6}
+        [data-step][data-current=true]{background:#dbeafe;color:#1d4ed8;font-weight:700}
+        [data-step][data-done=true]{background:#dcfce7;color:#166534}
+        footer{display:flex;justify-content:flex-end;gap:8px;padding:8px 12px;border-top:1px solid #e2e8f0}
+        button{font:inherit;font-size:12px;color:#334155;background:white;border:1px solid #cbd5e1;border-radius:6px;padding:5px 9px;cursor:pointer}
+        button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+        #pulse{width:8px;height:8px;display:inline-block;border-radius:50%;background:#2563eb;margin-right:6px;animation:pulse 1.4s ease-in-out infinite}
+        [data-outcome=success] #phase{color:#166534}[data-outcome=error] #phase{color:#b91c1c}[data-outcome=review] #phase{color:#92400e}
+        @keyframes pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){#pulse{animation:none}}
+      </style><section id="card" role="region" aria-label="CTI progress"><header><div class="row"><span id="title"></span><span id="clock"></span></div><div id="steps"></div></header><div id="body"><div role="status" aria-live="polite"><span id="pulse" aria-hidden="true"></span><span id="phase"></span></div><div id="detail"></div><div id="count"></div><progress id="bar" aria-label="Current stage progress" hidden></progress><div id="activity"></div><p id="foot"></p></div><footer><button id="toggle" type="button" aria-expanded="true">Minimize</button><button id="close" type="button" hidden>Dismiss</button></footer></section>`;
+      root.getElementById('title').textContent = title;
+      (options.stages || []).forEach(label => {
+        const el = document.createElement('span');
+        el.setAttribute('data-step', ''); el.textContent = label;
+        root.getElementById('steps').appendChild(el);
+      });
+      root.addEventListener('click', event => event.stopPropagation());
+      root.getElementById('toggle').onclick = () => { minimized = !minimized; safeDraw(); };
+      root.getElementById('close').onclick = dispose;
+      document.documentElement.appendChild(host);
+      safeDraw();
+      timer = setInterval(safeDraw, 1000);
+    } catch (_) { if (host) host.remove(); root = null; }
+    return controller;
+  }
+  // CTI_PROGRESS_END
+
+ var activeRescanRun_ = null;
+
+ function beginRescanRun_(title) {
+   if (activeRescanRun_) {
+     activeRescanRun_.panel.reveal();
+     alert('A re-scan is already running. Its progress is shown in the corner.');
+     return null;
+   }
+   var run = { panel:createCtiProgressPanelV1(title, {key:'__CTI_RESCAN_PROGRESS__',
+     stages:['Open package','Read content','Analyze structure','Save results'],
+     finishedNote:'The saved scan is separate from the course QA verdict.'}), context:null };
+   run.beforeUnload = function(e) { e.preventDefault(); e.returnValue = ''; };
+   window.addEventListener('beforeunload', run.beforeUnload);
+   activeRescanRun_ = run;
+   return run;
+ }
+
+ function finishRescanRun_(run, outcome, title, detail, count) {
+   if (activeRescanRun_ !== run) return;
+   run.panel.update({phase:title});
+   run.panel.finish(outcome, detail, count);
+   window.removeEventListener('beforeunload', run.beforeUnload);
+   activeRescanRun_ = null;
+   bulkScanActive = false;
+   fetchPartnerAnalytics();
+   fetchRedoWorkQueue();
+ }
+
+ function rescanFileProgress_(run, fileName, prefix) {
+   return function(update) {
+     if (activeRescanRun_ !== run) return;
+     run.panel.update({phase:update.phase || 'Read content',
+       detail:(prefix || '') + fileName + (update.file ? '\n' + update.file : '') + (update.detail ? '\n' + update.detail : ''),
+       count:update.total ? update.completed + '/' + update.total + ' resources processed' : '',
+       completed:update.completed == null ? null : update.completed,
+       total:update.total == null ? null : update.total});
+   };
+ }
+
+
+ function analyzeAndSaveRescan_(pkg, fileName, context, run, prefix) {
+   return new Promise(function(resolve, reject) {
+     var saving = false;
+     function fail(error) {
+       var e = new Error(String(error && error.message || error || 'Unknown error'));
+       e.saveUnconfirmed = saving;
+       reject(e);
+     }
+     run.panel.update({phase:'Analyze structure', detail:(prefix || '') + fileName + '\nWaiting for the server to analyze the source evidence.'});
+     try {
+       google.script.run
+         .withSuccessHandler(function(res) {
+           if (!res || !res.success) { reject(new Error('Analysis failed: ' + (res && res.error || 'No result returned.'))); return; }
+           run.panel.update({phase:'Save results', detail:(prefix || '') + fileName + '\nAnalysis finished. Waiting for the database to confirm the save.'});
+           saving = true;
+           try {
+             google.script.run
+               .withSuccessHandler(function(dbRes) {
+                 if (!dbRes || !dbRes.success) { reject(new Error('Save failed: ' + (dbRes && dbRes.error || 'No result returned.'))); return; }
+                 resolve(dbRes);
+               })
+               .withFailureHandler(fail)
+               .updatePackageInDb(context.uuid, res, context.version);
+           } catch (e) { fail(e); }
+         })
+         .withFailureHandler(fail)
+         .analyzeImsccFromXmlString(pkg.xmlString, fileName, pkg.sourceEvidenceJson);
+     } catch (e) { fail(e); }
+   });
+ }
+
+ function handleUpdateFile(input) {
+   if (!input.files || !input.files.length) return;
+   var file = input.files[0];
+   var context = Object.assign({}, updateContext);
+   var expected = context.expectedFileName || '';
+   input.value = '';
+   if (activeRescanRun_) { activeRescanRun_.panel.reveal(); return alert('A re-scan is already running.'); }
+   if (semanticPackageKey(file.name) !== semanticPackageKey(expected) &&
+       !confirm('The selected file does not match the saved filename.\n\nSaved: ' + expected + '\nSelected: ' + file.name + '\n\nContinue updating this UUID?')) return;
+   var run = beginRescanRun_('CTI · Package re-scan');
+   if (!run) return;
+   run.context = context;
+   // Let the new panel paint before ZIP/XML work begins.
+   Promise.resolve().then(function() { return new Promise(function(resolve) { setTimeout(resolve, 0); }); })
+     .then(function() { return readPackageManifest(file, rescanFileProgress_(run, file.name)); })
+     .then(function(pkg) { return analyzeAndSaveRescan_(pkg, file.name, context, run); })
+     .then(function() {
+       finishRescanRun_(run, 'success', 'Re-scan saved', file.name + '\nThe original filename and assignment metadata were preserved.', '1/1 package saved');
+     })
+     .catch(function(e) {
+       finishRescanRun_(run, e.saveUnconfirmed ? 'review' : 'error', e.saveUnconfirmed ? 'Save not confirmed' : 'Re-scan stopped',
+         file.name + '\n' + e.message + (e.saveUnconfirmed ? '\nRefresh the dashboard and check the saved version before retrying.' : ''), 'Save not confirmed');
+     });
+ }
+
+ function handleBulkUpdate(input) {
+   if (!input.files || !input.files.length) return;
+   var files = Array.from(input.files);
+   input.value = '';
+   var run = beginRescanRun_('CTI · Bulk re-scan');
+   if (!run) return;
+   bulkScanActive = true;
+   var results = {updated:[], unmatched:[], ambiguous:[], failed:[]};
+   var usedUuids = Object.create(null);
+   var index = buildBulkMatchIndex();
+   // Run sequentially; each package keeps its own matched UUID and version.
+   (async function() {
+     for (var cursor = 0; cursor < files.length; cursor++) {
+       var file = files[cursor];
+       var prefix = 'Package ' + (cursor + 1) + '/' + files.length + ' · ' + results.updated.length + ' saved\n';
+       run.panel.update({phase:'Open package', detail:prefix + file.name, count:cursor + '/' + files.length + ' packages processed', completed:cursor, total:files.length});
+       await new Promise(function(resolve) { setTimeout(resolve, 0); });
+       var resolution = resolveBulkMatch(file.name, index);
+       if (resolution.type === 'unmatched') { results.unmatched.push(file.name); continue; }
+       if (resolution.type === 'ambiguous') {
+         results.ambiguous.push(file.name + ' → ' + resolution.candidates.map(function(pkg) { return (pkg.partner || 'Unknown partner') + ' / ' + pkg.name; }).join(' | '));
+         continue;
+       }
+       var match = Object.assign({}, resolution.record);
+       if (usedUuids[match.uuid]) { results.ambiguous.push(file.name + ' → duplicate upload for ' + match.name); continue; }
+       usedUuids[match.uuid] = true;
+       try {
+         var pkg = await readPackageManifest(file, rescanFileProgress_(run, file.name, prefix));
+         await analyzeAndSaveRescan_(pkg, file.name, match, run, prefix);
+         results.updated.push(file.name);
+       } catch (e) {
+         results.failed.push(file.name + ' (' + e.message + (e.saveUnconfirmed ? '; save not confirmed — refresh the saved version before retrying' : '') + ')');
+       }
+     }
+     pendingDashboardNotice = formatBulkNotice(results);
+     var skipped = results.unmatched.length + results.ambiguous.length;
+     var clean = !skipped && !results.failed.length;
+     finishRescanRun_(run, clean ? 'success' : 'review', clean ? 'Bulk re-scan saved' : 'Bulk re-scan finished · review needed',
+       clean ? 'All selected packages were saved.' : 'See the dashboard notice for the names and reasons of skipped or failed packages.',
+       results.updated.length + ' saved · ' + skipped + ' skipped · ' + results.failed.length + ' failed or unconfirmed');
+   })().catch(function(e) {
+     pendingDashboardNotice = formatBulkNotice(results);
+     finishRescanRun_(run, 'error', 'Bulk re-scan stopped', String(e.message || e), results.updated.length + ' packages saved before interruption');
+   });
+ }
+
+ function buildBulkMatchIndex() {
+    var exact = Object.create(null), canonical = Object.create(null), semantic = Object.create(null);
+    Object.keys(packageByUuid).forEach(function(uuid) {
+      var pkg = packageByUuid[uuid];
+      var exactKey = exactFileKey(pkg.name), canonicalKey = canonicalFileKey(pkg.name), semanticKey = semanticPackageKey(pkg.name);
+      (exact[exactKey] || (exact[exactKey] = [])).push(pkg);
+      (canonical[canonicalKey] || (canonical[canonicalKey] = [])).push(pkg);
+      (semantic[semanticKey] || (semantic[semanticKey] = [])).push(pkg);
+    });
+    return { exact: exact, canonical: canonical, semantic: semantic };
+ }
+
+ function resolveBulkMatch(fileName, index) {
+    var exactMatches = index.exact[exactFileKey(fileName)] || [];
+    if (exactMatches.length === 1) return { type: 'match', record: exactMatches[0], method: 'exact' };
+    if (exactMatches.length > 1) return { type: 'ambiguous', candidates: exactMatches };
+    var canonicalMatches = index.canonical[canonicalFileKey(fileName)] || [];
+    if (canonicalMatches.length === 1) return { type: 'match', record: canonicalMatches[0], method: 'canonical' };
+    if (canonicalMatches.length > 1) return { type: 'ambiguous', candidates: canonicalMatches };
+    var semanticMatches = index.semantic[semanticPackageKey(fileName)] || [];
+    if (semanticMatches.length === 1) return { type: 'match', record: semanticMatches[0], method: 'semantic' };
+    if (semanticMatches.length > 1) return { type: 'ambiguous', candidates: semanticMatches };
+    return { type: 'unmatched', candidates: [] };
+ }
+
+ function formatBulkNotice(results) {
+    function names(items) { return items.map(function(item) { return escapeHtml(item); }).join(', '); }
+    var html = "<div style='margin-bottom:20px; padding:14px; border:1px solid #BFDBFE; background:#EFF6FF; border-radius:8px;'>";
+    html += "<b>Bulk re-scan finished:</b> " + results.updated.length + " updated, " + results.unmatched.length + " unmatched, " + results.ambiguous.length + " ambiguous, " + results.failed.length + " failed.";
+    if (results.unmatched.length) html += "<br><b>Unmatched:</b> " + names(results.unmatched);
+    if (results.ambiguous.length) html += "<br><b>Ambiguous (not changed):</b> " + names(results.ambiguous);
+    if (results.failed.length) html += "<br><b>Failed:</b> " + names(results.failed);
+    return html + "</div>";
+ }
+
+ function openSavedCourseViewer(uuid) {
+    var pkg = packageByUuid[uuid];
+    if (!pkg) return alert('This record is no longer available. Refresh the dashboard and try again.');
+    var fileName = pkg.realTitle || pkg.name;
+    currentViewerRow = uuid;
+  
+    var container = document.getElementById('courseViewerContainer');
+    container.style.display = 'block';
+    
+    setTimeout(function() { container.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+
+    document.getElementById('courseViewerBox').innerHTML = "<span style='color:#9CA3AF;'>Fetching structure from database...</span>";
+    document.getElementById('viewerTitle').innerText = fileName;
+   
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+           currentViewedTree = res.tree; 
+           var html = "";
+           
+           var stats = { quizzes: 0, assignments: 0, hiddenPlugins: 0, hiddenAttachmentProxies:0, hiddenMediaDependencies:0, hiddenInteractiveCandidates:0 };
+           function tally(nodes) {
+              for(var i=0; i<nodes.length; i++) {
+                  var t = nodes[i].type || "";
+                  var title = String(nodes[i].title || nodes[i].name || '');
+                  if (t.indexOf('imsqti') > -1) stats.quizzes++;
+                  else if (t.indexOf('assignment') > -1) stats.assignments++;
+                  if (t === 'plugin') {
+                    stats.hiddenPlugins++;
+                    var inner = title.replace(/^Hidden Plugin\s*\(/i,'').replace(/\)\s*$/,'');
+                    if (/\.practice\.json$/i.test(inner) || /\.(json|html?|js)$/i.test(inner)) stats.hiddenInteractiveCandidates++;
+                    else if (/\.(pdf|docx?|pptx?|xlsx?|csv|zip)$/i.test(inner)) stats.hiddenAttachmentProxies++;
+                    else if (/\.(png|jpe?g|gif|svg|webp|mp4|webm|mp3|wav|m4a)$/i.test(inner)) stats.hiddenMediaDependencies++;
+                    else stats.hiddenInteractiveCandidates++;
+                  }
+                  if(nodes[i].children) tally(nodes[i].children);
+              }
+           }
+           tally(res.tree);
+           
+           var statusColor = res.dbStats.status === "Completed" ? "#10B981" : (res.dbStats.status === "Blocked" ? "#EF4444" : "#F59E0B");
+           html += "<div style='display:flex; justify-content:space-between; align-items:center; background:#F9FAFB; padding:12px 16px; border:1px solid #E5E7EB; border-radius:6px; margin-bottom:20px;'>";
+           html += "<div><span style='color:#6B7280; font-size:13px;'>Pipeline Status:</span> <span style='color:" + statusColor + "; font-weight:600; margin-left:8px;'>" + escapeHtml(res.dbStats.status) + "</span></div>";
+           html += "<button class='btn-secondary btn-sm' style='border-color:#4F46E5; color:#4F46E5;' onclick='runDeepAudit(\"" + uuid + "\")'>🧠 Run Deep Audit</button>";
+           html += "</div>";
+
+           // INJECT ADVANCED CS METRICS (Explore View)
+           if (res.dbStats.extLog && res.dbStats.extLog._advanced) {
+               var adv = res.dbStats.extLog._advanced;
+               if (adv.orphans > 0) {
+                   html += "<div style='background:#F3F4F6; border:1px solid #D1D5DB; color:#374151; padding:12px; border-radius:6px; margin-bottom:10px; font-size:13px;'><b>Graph Theory Orphan Detection</b> <span class='info-icon' onclick='openCsModal(\"orphan\")'>ℹ️</span><br>Discovered <b>" + adv.orphans + " Orphaned Manifest Resource(s)</b> not reachable from the active organization/dependency graph. Review before assuming the resource is unused.</div>";
+               }
+               if (adv.ttr < 0.4 && pkg.totalItems > 0) {
+                   html += "<div style='background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; padding:12px; border-radius:6px; margin-bottom:10px; font-size:13px;'><b>Lexical Variance (TTR: " + adv.ttr + ")</b> <span class='info-icon' onclick='openCsModal(\"ttr\")'>ℹ️</span><br>⚠️ Low title-label lexical diversity on a sufficiently large sample. Treat this as an AI-context warning only; it does not imply content loss or guarantee hallucination.</div>";
+               }
+               if (adv.zScores && adv.zScores.length > 0) {
+                   html += "<div style='background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B; padding:12px; border-radius:6px; margin-bottom:20px; font-size:13px;'><b>Z-Score Imbalance Detected</b> <span class='info-icon' onclick='openCsModal(\"zscore\")'>ℹ️</span><ul style='margin:5px 0 0 20px; padding:0;'>";
+                   for(var z=0; z<adv.zScores.length; z++) {
+                       var imb = adv.zScores[z];
+                       html += "<li><i>" + escapeHtml(imb.title) + "</i> contains " + imb.count + " items (Average is " + imb.mean + "). High risk of cognitive overload.</li>";
+                   }
+                   html += "</ul></div>";
+               }
+           }
+
+           var extKeys = Object.keys(res.dbStats.extLog || {}).filter(function(k) { return k !== '_advanced'; });
+           var webContentExtra = extKeys.length > 0 ? " <small style='color:#6B7280;'>(" + escapeHtml(extKeys.map(function(k) { return k + ": " + res.dbStats.extLog[k]; }).join(", ")) + ")</small>" : "";
+
+           html += "<h4 style='margin-top:0; margin-bottom:10px;'>Package Summary</h4>";
+           html += "<table class='math-proof-table' style='margin-bottom:25px;'><tr><th>Content Format</th><th>Detected Count</th><th>Coursera Mapping</th></tr>";
+           html += "<tr><td>HTML / WebContent" + webContentExtra + "</td><td>" + res.dbStats.webcontent + "</td><td>Reading / Asset</td></tr>";
+           html += "<tr><td>QTI (Assessments)</td><td>" + stats.quizzes + "</td><td>Quiz / Practice</td></tr>";
+           html += "<tr><td>Assignments (LMS Native)</td><td>" + stats.assignments + "</td><td>Peer / Staff Graded Assignment</td></tr>";
+           html += "<tr><td>Discussions</td><td>" + res.dbStats.discussions + "</td><td>Discussion Prompt</td></tr>";
+           html += "<tr><td>Web Links (URLs)</td><td>" + res.dbStats.weblinks + "</td><td>Reading (URL Asset)</td></tr>";
+           html += "<tr><td style='color:#DC2626; font-weight:600;'>LTI / External Tools</td><td style='color:#DC2626; font-weight:600;'>" + res.dbStats.lti + "</td><td style='color:#DC2626;'>[PLACEHOLDER] Error</td></tr>";
+           html += "<tr><td>Other / Unknown</td><td>" + res.dbStats.unknown + "</td><td>Review Manually</td></tr>";
+           html += "<tr><td>Hidden dependency candidates</td><td>" + (stats.hiddenPlugins || 0) + "</td><td>Parent-aware dependency audit</td></tr>";
+           html += "<tr><td>↳ Attachment/proxy candidates</td><td>" + (stats.hiddenAttachmentProxies || 0) + "</td><td>Do not double-count as learner activity</td></tr>";
+           html += "<tr><td>↳ Embedded media dependencies</td><td>" + (stats.hiddenMediaDependencies || 0) + "</td><td>Verify through visible parent payload</td></tr>";
+           html += "<tr><td>↳ Interactive-data/HTML candidates</td><td>" + (stats.hiddenInteractiveCandidates || 0) + "</td><td>Runtime/package review</td></tr>";
+           html += "<tr><td>Interactive runtime candidates (source evidence)</td><td>" + Number((res.dbStats.extLog && res.dbStats.extLog._advanced && res.dbStats.extLog._advanced.interactiveRuntimeCandidates) || 0) + "</td><td>Manual source-LMS/Coursera runtime verification before KEEP</td></tr>";
+           html += "<tr><td>↳ SCORM/Rise/Storyline-like candidates</td><td>" + Number((res.dbStats.extLog && res.dbStats.extLog._advanced && res.dbStats.extLog._advanced.scormLikeCandidates) || 0) + "</td><td>Source-package signal; external inventory is supplemental, not exhaustive</td></tr>";
+           html += "<tr><td>↳ .practice.json runtime dependencies</td><td>" + Number((res.dbStats.extLog && res.dbStats.extLog._advanced && res.dbStats.extLog._advanced.practiceJsonDependencies) || 0) + "</td><td>D2L/interactive dependency; not a standalone missing learner item</td></tr></table>";
+
+           if (stats.hiddenPlugins > 0) {
+               html += "<div style='background:#FEF3C7; border:1px solid #FDE68A; color:#92400E; padding:12px; border-radius:6px; margin-bottom:20px; font-weight:500; font-size:13px;'>ℹ️ Hidden dependency audit: CTI now separates attachment proxies, embedded media dependencies, and interactive candidates. Hidden dependency count is not a SCORM/Rise count.</div>";
+           }
+           
+           html += "<h4 style='margin-bottom:10px;'>Extracted Hierarchy</h4>";
+           html += generateTreeHtml(res.tree);
+           
+           document.getElementById('courseViewerBox').innerHTML = html;
+        } else {
+           if (res.error === "No structure found for this package UUID.") {
+               document.getElementById('courseViewerBox').innerHTML = "<span style='color:#F59E0B;'>⚠️ Legacy Record: This package was saved before the interactive viewer feature was added. Please re-scan and save the package to view its hierarchy.</span>";
+           } else {
+               document.getElementById('courseViewerBox').innerHTML = "<span style='color:#EF4444;'>Error: " + escapeHtml(res.error) + "</span>";
+           }
+        }
+      })
+      .withFailureHandler(function(e) { document.getElementById('courseViewerBox').innerHTML = "<span class='error'>Error: " + escapeHtml(e.message) + "</span>"; })
+      .fetchPackageStructureDb(uuid);
+ }
+
+ function closeViewerAndScroll() {
+    document.getElementById('courseViewerContainer').style.display = 'none';
+    if (currentViewerRow) {
+        var rowMenu = document.getElementById('kebab-menu-' + currentViewerRow);
+        if (rowMenu) {
+            var rowElement = rowMenu.closest('.db-row');
+            rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var originalBg = rowElement.style.backgroundColor;
+            rowElement.style.backgroundColor = '#EEF2FF'; 
+            setTimeout(function() { rowElement.style.backgroundColor = originalBg; }, 1500);
+        }
+    }
+ }
+
+ function deleteSavedCourse(uuid) {
+     var pkg = packageByUuid[uuid];
+     if (!pkg) return alert('This record is no longer available. Refresh the dashboard and try again.');
+     if (!confirm("Are you sure you want to delete the record for:\n" + pkg.name + "\n\nThis cannot be undone.")) return;
+     document.getElementById('dbAnalyticsStatus').innerHTML = "<div style='color:#6B7280; margin-top:15px;'>Deleting record...</div>";
+     google.script.run
+       .withSuccessHandler(function(res) {
+         if (res.success) { fetchPartnerAnalytics(); fetchRedoWorkQueue(); }
+         else { alert("Error deleting record: " + res.error); fetchPartnerAnalytics(); fetchRedoWorkQueue(); }
+       })
+       .withFailureHandler(function(e) { alert("Delete failed: " + e.message); fetchPartnerAnalytics(); })
+       .deletePackageFromDb(uuid, pkg.version);
+ }
+
+ function copyPrompt(btn) {
+   var codeEl = btn.parentElement.nextElementSibling;
+   navigator.clipboard.writeText(codeEl.innerText).then(function() {
+     var orig = btn.innerText; btn.innerText = "Copied!";
+     setTimeout(function() { btn.innerText = orig; }, 2000);
+   }).catch(function(err) { alert('Copy failed: ' + err.message); });
+ }
+
+ function readFileAsBase64(inputId, callback) {
+   var input = document.getElementById(inputId);
+   if (!input || !input.files || input.files.length === 0) return callback(null, null, 'No file is selected.');
+   var file = input.files[0];
+   var reader = new FileReader();
+   reader.onload = function(e) {
+     try {
+       var data = String((e && e.target && e.target.result) || '');
+       var comma = data.indexOf(',');
+       if (comma < 0) return callback(null, file.name, 'The browser returned an unreadable file payload.');
+       callback(data.slice(comma + 1), file.name, null);
+     } catch (err) { callback(null, file.name, err.message || 'The file could not be read.'); }
+   };
+   reader.onerror = function() { callback(null, file.name, (reader.error && reader.error.message) || 'The browser could not read this file.'); };
+   reader.onabort = function() { callback(null, file.name, 'File reading was cancelled.'); };
+   try { reader.readAsDataURL(file); }
+   catch (err) { callback(null, file.name, err.message || 'The file could not be opened.'); }
+ }
+
+ function previewImage(input) {
+   if (input.files && input.files[0]) {
+     var reader = new FileReader();
+     reader.onload = function(e) { document.getElementById('previewImg').src = e.target.result; document.getElementById('previewBox').style.display = 'block'; };
+     reader.readAsDataURL(input.files[0]);
+   }
+ }
+
+ function getGlobalPartnerName() { return document.getElementById('partnerNameInput').value.trim(); }
+
+ function processStage1() {
+   setButtonBusy('stage1Btn', true, 'Analyzing master…');
+   renderStatus('status1', 'Reading the master workbook and identifying instructional modules…', 'info', true);
+   readFileAsBase64('masterFile', function(base64, name, err) {
+     if(!base64) { setButtonBusy('stage1Btn', false); return alert(err || "Upload the Master workbook first."); }
+     google.script.run
+       .withSuccessHandler(function(res) {
+         setButtonBusy('stage1Btn', false);
+         if(res.success) {
+           currentFileId = res.fileId; extractedModules = res.filteredModules || [];
+           var html = "<details class='qa-dropdown' open><summary>✅ Master Analyzed! Found " + res.totalRows + " Rows</summary><div class='qa-content'>";
+           html += "<b>Total L1 Modules:</b> " + res.totalL1 + "<br><b>Primary Instructional Modules:</b> " + res.primaryCount + "<br><br>";
+           
+           if (extractedModules.length > 0) {
+             html += "<h4 style='margin:0 0 10px 0;'>Included Core Modules</h4>";
+             html += "<table class='math-proof-table' style='margin-bottom:20px;'><tr><th style='width:100px;'>Excel Row</th><th>Module / Section Name</th></tr>";
+             for (var i = 0; i < extractedModules.length; i++) html += "<tr><td style='font-weight:600; color:#4F46E5;'>Row " + extractedModules[i].excelRow + "</td><td>" + escapeHtml(extractedModules[i].name) + "</td></tr>";
+             html += "</table>";
+           }
+           
+           if (res.excludedModules && res.excludedModules.length > 0) {
+             html += "<h4 style='margin:0 0 10px 0; color:#92400E;'>Auto-Excluded Modules</h4>";
+             html += "<table class='math-proof-table' style='background:#FEF3C7; border-color:#FDE68A;'><tr><th style='width:100px; background:#FDE68A; color:#92400E;'>Excel Row</th><th style='background:#FDE68A; color:#92400E;'>Excluded Module Name</th></tr>";
+             for (var j = 0; j < res.excludedModules.length; j++) html += "<tr><td style='font-weight:600; color:#B45309;'>Row " + res.excludedModules[j].excelRow + "</td><td style='color:#92400E;'>" + escapeHtml(res.excludedModules[j].name) + "</td></tr>";
+             html += "</table>";
+           }
+           
+           html += "</div></details>";
+           document.getElementById('status1').innerHTML = html;
+           document.getElementById('stage1').className = "stage complete";
+           document.getElementById('stage2').className = "stage active";
+           document.getElementById('stage2Btn').disabled = false;
+           renderSplitSelectors();
+         } else { renderStatus('status1', res.error || 'Master analysis failed.', 'error', false); }
+       })
+       .withFailureHandler(function(e) { setButtonBusy('stage1Btn', false); renderStatus('status1', 'Master analysis failed. ' + (e && e.message ? e.message : 'Try again.'), 'error', false); })
+       .uploadAndScanMaster(base64, name);
+   });
+ }
+
+ function renderSplitSelectors() {
+   var selectControl = document.getElementById('numSpecsSelect');
+   var requested = parseInt(selectControl.value, 10) || 1;
+   var available = extractedModules.length;
+   if (!available) {
+     currentNumSpecs = 0;
+     document.getElementById('anchorsContainer').innerHTML = "<div class='status-card warning'><div>No eligible Level 1 instructional anchors are available. Re-run Step 1 with a compatible Master workbook.</div></div>";
+     return;
+   }
+   var num = Math.max(1, Math.min(requested, available, 4));
+   if (num !== requested) {
+     selectControl.value = String(num);
+     showToast('Specialization count adjusted to ' + num + ' because only ' + available + ' eligible start anchor' + (available === 1 ? ' is' : 's are') + ' available.', 'warning');
+   }
+   currentNumSpecs = num;
+   var container = document.getElementById('anchorsContainer');
+   container.innerHTML = "";
+   for (var s = 0; s < num; s++) {
+     var div = document.createElement('div');
+     var nameLabel = document.createElement('span'); nameLabel.className = 'form-label'; nameLabel.innerHTML = "Spec " + (s + 1) + " Custom Title";
+     var nameInput = document.createElement('input'); nameInput.type = "text"; nameInput.id = "specNameInput_" + (s + 1); nameInput.value = "Specialization " + (s + 1); nameInput.oninput = updateDownstreamLabels;
+     var anchorLabel = document.createElement('span'); anchorLabel.className = 'form-label'; anchorLabel.innerHTML = "Spec " + (s + 1) + " Starts At";
+     var anchorSelect = document.createElement('select'); anchorSelect.id = "anchorSelect_" + (s + 1);
+     for (var i = 0; i < available; i++) {
+       var opt = document.createElement('option'); opt.value = extractedModules[i].excelRow; opt.text = "Row " + extractedModules[i].excelRow + ": " + extractedModules[i].name; anchorSelect.appendChild(opt);
+     }
+     // Evenly distribute defaults across available anchors. When available >= num,
+     // floor(s * available / num) is strictly increasing and therefore cannot
+     // generate the duplicate-anchor default that previously broke two-spec runs.
+     anchorSelect.selectedIndex = Math.min(available - 1, Math.floor((s * available) / num));
+     div.appendChild(nameLabel); div.appendChild(nameInput); div.appendChild(anchorLabel); div.appendChild(anchorSelect); container.appendChild(div);
+   }
+   enhanceFormLabels();
+   updateDownstreamLabels();
+ }
+
+ function updateDownstreamLabels() {
+   currentSpecNames = []; var pName = getGlobalPartnerName(); var prefix = pName ? pName + " - " : "";
+   for (var s = 0; s < currentNumSpecs; s++) {
+     var el = document.getElementById('specNameInput_' + (s + 1)); currentSpecNames.push(el ? (prefix + el.value) : (prefix + "Spec " + (s + 1)));
+   }
+   renderStageFileInputs('metaContainer', 'metaFile', 'Metadata Output');
+   renderStageFileInputs('mergeContainer', 'mergeFile', 'Merged Output');
+   renderStageFileInputs('mapContainer', 'mapFile', 'Content Map Output (.xlsx)');
+ }
+
+ function renderStageFileInputs(containerId, inputPrefix, labelText) {
+   var container = document.getElementById(containerId); container.innerHTML = "";
+   for (var s = 0; s < currentNumSpecs; s++) {
+     var div = document.createElement('div'); var specTitle = escapeHtml(currentSpecNames[s] || ("Spec " + (s + 1)));
+     var label = document.createElement('span'); label.className = 'form-label'; label.innerHTML = labelText + " <span style='font-size:12px; color:#6B7280; font-weight:normal;'>(" + specTitle + ")</span>";
+     var input = document.createElement('input'); input.type = "file"; input.id = inputPrefix + "_" + (s + 1); input.accept = ".xlsx";
+     div.appendChild(label); div.appendChild(input); container.appendChild(div);
+   }
+   enhanceFormLabels();
+ }
+
+ function generateDynamicPrompts(specResults, pName) {
+   var pMeta = "", pMerge = "", pMap = "";
+   var partnerStr = pName ? " for Partner '" + escapeHtml(pName) + "' and " : " for ";
+   for (var i = 0; i < specResults.length; i++) {
+     var spec = specResults[i], name = escapeHtml(spec.specName), titleStr = pName ? escapeHtml(pName) + " - " + name : name;
+     var excluded = Array.isArray(spec.excludedModules) ? spec.excludedModules : [];
+     var excludedText = excluded.length ? excluded.join(', ') : 'None';
+     var totalMinutes = Number(spec.totalEstimatedMinutes || 0);
+     var timeModel = spec.timeModelVersion || 'CTI deterministic time model';
+
+     pMeta += "<div class='prompt-label'><span>Metadata Prompt for [" + titleStr + "]</span></div>" +
+       "<code class='prompt-code'>Act as the Metadata Generator. Process the attached CTI structural workbook" + partnerStr + "Specialization '" + name + "'.\n\nThe workbook contains:\n- export: authoritative module list and CTI deterministic learner-time estimates.\n- Module Context: descendant source folders/items, source tools, and item-level time evidence.\n- Time Policy: the deterministic time rules used by CTI.\n- Excluded Modules: top-level source groups intentionally left out after triage.\n\nGROUNDING RULE: Create each Module Description and Learning Objectives from the evidence belonging to that module in Module Context. Do not infer topics merely from the module title when source item evidence is available. Do not invent topics, activities, or outcomes that are not supported by the source item names/tool evidence. Do not alter or discuss time estimates.\n\nOutput a downloadable .xlsx containing EXACTLY three columns in this order: 'Module Name', 'Module Description', 'Learning Objectives'. Include every export-sheet module exactly once and no excluded module.</code>";
+
+     pMerge += "<div class='prompt-label'><span>Merge Prompt for [" + titleStr + "]</span></div>" +
+       "<code class='prompt-code'>Act as a deterministic Data Merge Agent. Use the cleaned CTI workbook and the validated Metadata workbook.\n\nAUTHORITIES:\n1. The cleaned workbook export sheet controls Module No., Module Name, row order, and Time Estimate.\n2. The Metadata workbook controls only Module Description and Learning Objectives.\n\nMatch by Module Name. Copy the metadata text into the corresponding export row. NEVER recalculate, convert, round, delete, or overwrite a Time Estimate. Do not add, remove, rename, reorder, split, or merge modules. Ignore Module Context / Time Policy / Excluded Modules for the merge itself; they are evidence only.\n\nOutput a pure .xlsx with EXACTLY five columns in this order: 'Module No.', 'Module Name', 'Module Description', 'Time Estimate', 'Learning Objectives'. One row per source module.</code>";
+
+     pMap += "<div class='prompt-label'><span>Content Map Prompt for [" + titleStr + "]</span></div>" +
+       "<code class='prompt-code'>Act as the Course-to-Specialization Content Map Creator for Partner '" + escapeHtml(pName||"") + "' and Specialization '" + name + "'.\n\nCTI AUTHORITATIVE FACTS:\n- Learner-time estimates were computed deterministically by CTI model " + escapeHtml(timeModel) + ".\n- Total source-module time is " + formatMacmillanMinutes_(totalMinutes) + " (" + totalMinutes + " exact minutes).\n- Excluded top-level source groups: " + escapeHtml(excludedText) + ".\n\nNON-NEGOTIABLE RULES:\n1. Every input module must appear exactly once, in original order. Never split, duplicate, omit, merge, or rename source modules.\n2. Time is CTI-authoritative. Convert each input Time Estimate from exact minutes to HUMAN-READABLE HOURS/MINUTES in BOTH 'Orig. Mod Length' and 'Mod Length'. Canonical examples: 125 -> '2h 5m', 88 -> '1h 28m', 45 -> '45m', 120 -> '2h'. Do not use decimal hours. You are forbidden to invent, recalculate, rebalance, round, or otherwise change the underlying minute value.\n3. Group modules into coherent courses using subject progression first; use approximate time balance only as a secondary tie-breaker. Do not move modules out of source order.\n4. Use at least 3 courses when the source has enough modules; each course should contain at least 2 modules. Course titles must be descriptive and <=60 characters.\n5. Copy Orig. Mod Description exactly from the merged input. Mod Name in Course must preserve the source module name.\n6. In the concise chat rationale, show course/specialization durations in h/m form, optionally followed by exact minutes in parentheses. Do not reproduce the module table in chat.\n7. Do NOT issue a final compliance verdict such as PASS, FAIL, NEEDS REVIEW, or Quality Benchmarks PASS. CTI will independently calculate structural compliance, time conservation, module-size warnings, and balance warnings after the XLSX is uploaded. You may explain semantic grouping trade-offs, but do not self-certify the map.\n\nProvide TWO outputs:\n1. A concise grouping rationale in chat: list the proposed course titles/boundaries and any semantic trade-offs. DO NOT reproduce the full Content Map as a Markdown table; CTI will build the partner-ready document after deterministic QA.\n2. A downloadable .xlsx containing ONLY the final Content Map table with EXACTLY these 10 headers: 'Orig. Mod No.', 'Orig. Mod Name', 'Orig. Mod Description', 'Orig. Mod Length', 'Course No.', 'Course Title', 'Mod No. in Course', 'Mod Name in Course', 'Mod Length', 'Remarks'.</code>";
+   }
+   document.getElementById('dynamicPromptsMeta').innerHTML = pMeta;
+   document.getElementById('dynamicPromptsMerge').innerHTML = pMerge;
+   document.getElementById('dynamicPromptsMap').innerHTML = pMap;
+ }
+
+ function processStage2(approvedItems) {
+   var anchorRows = [], specNames = []; var pName = getGlobalPartnerName();
+   for (var s = 0; s < currentNumSpecs; s++) {
+     var anchorEl = document.getElementById('anchorSelect_' + (s + 1));
+     var nameEl = document.getElementById('specNameInput_' + (s + 1));
+     var anchorVal = anchorEl ? anchorEl.value : '';
+     var nameVal = nameEl ? nameEl.value : '';
+     if (!anchorVal) return alert("Choose a starting module for Specialization " + (s + 1) + ".");
+     anchorRows.push(Number(anchorVal)); specNames.push(nameVal || ("Specialization " + (s + 1)));
+   }
+   for (var ai = 1; ai < anchorRows.length; ai++) {
+     if (anchorRows[ai] <= anchorRows[ai - 1]) {
+       renderStatus('status2', 'Specialization start anchors must be unique and ordered from top to bottom. Choose a later module for Specialization ' + (ai + 1) + '.', 'error', false);
+       return;
+     }
+   }
+   if (!currentFileId) return alert('Analyze the Master workbook in Step 1 before splitting specializations.');
+   setButtonBusy('stage2Btn', true, approvedItems ? 'Applying review…' : 'Splitting structure…');
+   renderStatus('status2', approvedItems ? 'Applying your triage choices and generating specialization files…' : 'Splitting the approved module structure and validating row coverage…', 'info', true);
+   google.script.run
+     .withSuccessHandler(function(res) {
+       setButtonBusy('stage2Btn', false);
+       if(res.success) {
+         if (res.isTriage) renderTriageUI(res.triageData); else finalizeStage2(res, pName);
+       } else { renderStatus('status2', res.error || 'Specialization split failed.', 'error', false); }
+     })
+     .withFailureHandler(function(e) { setButtonBusy('stage2Btn', false); renderStatus('status2', 'Specialization split failed. ' + (e && e.message ? e.message : 'Try again.'), 'error', false); })
+     .executeDynamicNSplitAndScan(currentFileId, anchorRows, specNames, pName, approvedItems, 'macmillan');
+ }
+
+ function renderTriageUI(triageData) {
+    var html = "<div style='background:#FEF3C7; border:1px solid #FDE68A; padding:20px; border-radius:8px; margin-top:20px;'><h4 style='margin-top:0; color:#92400E;'>⚠️ Auto-Excluded Modules (Review Required)</h4><p style='font-size:13px; color:#92400E;'>The system flagged these modules for exclusion based on their titles. Check any box to <b>OVERRIDE</b> and force that module into the core curriculum. Unchecked items will be permanently excluded.</p><div style='max-height:250px; overflow-y:auto; background:#FFFFFF; padding:15px; border:1px solid #FDE68A; border-radius:6px;'>";
+    var uniqueItems = [];
+    for(var i=0; i<triageData.length; i++) {
+       for(var j=0; j<triageData[i].items.length; j++) {
+          var item = triageData[i].items[j];
+          if(uniqueItems.indexOf(item) === -1) {
+             uniqueItems.push(item);
+             html += "<label style='display:flex; align-items:center; gap:8px; margin-bottom:10px; font-size:14px; cursor:pointer;'><input type='checkbox' class='triage-cb' value=\"" + escapeHtml(item).replace(/"/g, '&quot;') + "\" style='margin:0; width:auto;'> " + escapeHtml(item) + "</label>";
+          }
+       }
+    }
+    html += "</div><button onclick='submitTriage()' style='background:#F59E0B; color:#FFFFFF; margin-top:15px;'>Confirm Selections & Generate Files</button></div>";
+    document.getElementById('status2').innerHTML = html;
+ }
+
+ function submitTriage() {
+    var cbs = document.querySelectorAll('.triage-cb'), approved = [];
+    for(var i=0; i<cbs.length; i++) { if(cbs[i].checked) approved.push(cbs[i].value); }
+    document.getElementById('status2').innerHTML = "<div style='margin-top:15px; color:#4B5563;'>Applying selections & generating files...</div>";
+    processStage2(approved);
+ }
+
+ function formatMacmillanMinutes_(minutes) {
+   minutes = Math.max(0, Math.round(Number(minutes || 0)));
+   var h = Math.floor(minutes / 60), m = minutes % 60;
+   return h ? (h + 'h ' + String(m).padStart(2, '0') + 'm') : (m + 'm');
+ }
+
+ function finalizeStage2(res, pName) {
+   setButtonBusy('stage2Btn', false);
+   specDownloadNames = {};
+   generateDynamicPrompts(res.specResults, pName);
+   var html = "<details class='qa-dropdown' open><summary>✅ PRE-GPT QA PASSED</summary><div class='qa-content'><i style='color:#6B7280; display:block; margin-bottom:10px;'>Source rows were split deterministically. Estimated learner time is a deterministic CTI planning model based on leaf-item evidence; structural folders contribute 0 minutes.</i><table class='math-proof-table'><tr><th>Specialization</th><th>Modules</th><th>Context rows</th><th>CTI estimated learner time</th><th>Fallback items</th></tr>";
+   var fallbackTotal = 0;
+   for (var k = 0; k < res.specResults.length; k++) {
+     var sr = res.specResults[k], fallbackCount = Number(sr.fallbackItemCount || 0); fallbackTotal += fallbackCount;
+     html += "<tr><td><b>Spec " + sr.specNum + "</b></td><td>" + Number(sr.totalFileRows || 0) + "</td><td>" + Number(sr.contextRows || 0) + "</td><td>" + formatMacmillanMinutes_(sr.totalEstimatedMinutes) + " <span style='color:#6B7280;'>[" + escapeHtml(sr.timeModelVersion || '') + "]</span></td><td>" + fallbackCount + "</td></tr>";
+   }
+   html += "</table>";
+   if (fallbackTotal > 0) html += "<div style='margin-top:10px; padding:10px; background:#FFFBEB; border:1px solid #FDE68A; border-radius:6px; color:#92400E;'><b>Review:</b> " + fallbackTotal + " learner-facing item(s) used the generic 5-minute fallback because CTI did not recognize their tool type. Inspect the Module Context / Time Rule column before delivery.</div>";
+   html += "<p style='margin:12px 0 0; color:#6B7280; font-size:12px;'>The downloaded workbook also contains <b>Module Context</b>, <b>Time Policy</b>, and <b>Excluded Modules</b> evidence sheets. GPT agents may enrich descriptions/grouping but may not change CTI estimated time. Content Map output converts those exact minutes to human-readable hours/minutes.</p></div></details><div class='download-grid'>";
+   for (var d = 0; d < res.specResults.length; d++) {
+     var fName = res.specResults[d].filename, sNum = res.specResults[d].specNum;
+     specDownloadNames[sNum] = fName;
+     html += "<div class='download-card'><div><strong style='color:#111827; font-size:14px;'>📊 Spec " + sNum + " Evidence Export</strong><div class='file-name' title='" + escapeHtml(fName) + "'>" + escapeHtml(fName) + "</div></div><button onclick='triggerXlsxDownload(" + sNum + ")' class='btn-secondary'>⬇️ Download .xlsx</button></div>";
+   }
+   html += "</div>";
+   document.getElementById('status2').innerHTML = html;
+   document.getElementById('stage2').className = "stage complete";
+   document.getElementById('stage3').className = "stage active";
+   document.getElementById('stage3Btn').disabled = false;
+ }
+
+ function triggerXlsxDownload(specNum) {
+   var filename = specDownloadNames[specNum] || ('Spec' + specNum + '_Cleaned.xlsx');
+   google.script.run
+     .withSuccessHandler(function(res) {
+       if (res.success) {
+         var byteChars = atob(res.base64); var byteNums = new Array(byteChars.length);
+         for (var i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+         var blob = new Blob([new Uint8Array(byteNums)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+         var objectUrl = URL.createObjectURL(blob);
+         var link = document.createElement("a"); link.href = objectUrl; link.download = filename;
+         document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(objectUrl);
+       } else alert("Download Error: " + res.error);
+     })
+     .withFailureHandler(function(e) { alert("Download Failed: " + e.message); })
+     .exportSpecAsXlsxBlob(currentFileId, specNum);
+ }
+
+
+ function formatPartnerMinutes_(minutes) {
+   minutes = Math.max(0, Math.round(Number(minutes || 0)));
+   var h = Math.floor(minutes / 60), m = minutes % 60;
+   if (h && m) return h + 'h ' + m + 'm';
+   if (h) return h + 'h';
+   return m + 'm';
+ }
+
+ function buildPartnerContentMapHtml_(entry) {
+   entry = entry || {};
+   var doc = entry.document || {};
+   var partnerName = String(entry.partnerName || '').trim();
+   var specTitle = String(entry.specTitle || 'Specialization').trim();
+   var title = (partnerName ? partnerName + ' — ' : '') + specTitle + ' Course-to-Specialization Content Map';
+   var html = "<div style='font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.45;'>";
+   html += "<h1 style='font-size:22px;margin:0 0 8px;'>" + escapeHtml(title) + "</h1>";
+   html += "<p style='margin:0 0 6px;'><b>" + Number(doc.courseCount || 0) + " courses · " + Number(doc.moduleCount || 0) + " modules · " + escapeHtml(formatPartnerMinutes_(doc.totalMinutes || 0)) + " estimated learner time</b></p>";
+   html += "<p style='margin:0 0 18px;color:#6B7280;font-size:12px;'>Learner time is a CTI planning estimate derived from the validated source evidence; module durations are preserved exactly from the CTI baseline.</p>";
+   var courses = Array.isArray(doc.courses) ? doc.courses : [];
+   for (var c = 0; c < courses.length; c++) {
+     var course = courses[c] || {};
+     html += "<h2 style='font-size:17px;margin:22px 0 4px;'>Course " + Number(course.courseNo || c + 1) + ": " + escapeHtml(course.title || '') + "</h2>";
+     html += "<p style='margin:0 0 8px;color:#4B5563;font-size:12px;'>" + Number((course.modules || []).length) + " modules · " + escapeHtml(formatPartnerMinutes_(course.minutes || 0)) + "</p>";
+     html += "<table style='width:100%;border-collapse:collapse;margin:0 0 18px;font-size:11px;'>";
+     html += "<thead><tr><th style='border:1px solid #D1D5DB;background:#F3F4F6;padding:7px;text-align:left;width:9%;'>Module</th><th style='border:1px solid #D1D5DB;background:#F3F4F6;padding:7px;text-align:left;width:24%;'>Source Module</th><th style='border:1px solid #D1D5DB;background:#F3F4F6;padding:7px;text-align:left;'>Description</th><th style='border:1px solid #D1D5DB;background:#F3F4F6;padding:7px;text-align:left;width:13%;'>Estimated Time</th><th style='border:1px solid #D1D5DB;background:#F3F4F6;padding:7px;text-align:left;width:12%;'>Remarks</th></tr></thead><tbody>";
+     var modules = Array.isArray(course.modules) ? course.modules : [];
+     for (var m = 0; m < modules.length; m++) {
+       var mod = modules[m] || {};
+       html += "<tr>";
+       html += "<td style='border:1px solid #D1D5DB;padding:7px;vertical-align:top;'>" + Number(mod.moduleNoInCourse || m + 1) + "</td>";
+       html += "<td style='border:1px solid #D1D5DB;padding:7px;vertical-align:top;'><b>" + Number(mod.sourceModuleNo || 0) + ". " + escapeHtml(mod.moduleName || '') + "</b></td>";
+       html += "<td style='border:1px solid #D1D5DB;padding:7px;vertical-align:top;'>" + escapeHtml(mod.description || '') + "</td>";
+       html += "<td style='border:1px solid #D1D5DB;padding:7px;vertical-align:top;white-space:nowrap;'>" + escapeHtml(formatPartnerMinutes_(mod.minutes || 0)) + "</td>";
+       html += "<td style='border:1px solid #D1D5DB;padding:7px;vertical-align:top;'>" + escapeHtml(mod.remarks || '') + "</td>";
+       html += "</tr>";
+     }
+     html += "</tbody></table>";
+   }
+   var excluded = Array.isArray(doc.excludedModules) ? doc.excludedModules : [];
+   if (excluded.length) {
+     html += "<h2 style='font-size:16px;margin:22px 0 6px;'>Excluded source groups</h2><ul style='margin:0 0 12px 20px;padding:0;'>";
+     for (var e = 0; e < excluded.length; e++) html += "<li>" + escapeHtml(excluded[e]) + "</li>";
+     html += "</ul>";
+   }
+   html += "</div>";
+   return html;
+ }
+
+ function buildPartnerContentMapPlainText_(entry) {
+   entry = entry || {};
+   var doc = entry.document || {};
+   var title = ((entry.partnerName ? entry.partnerName + ' — ' : '') + (entry.specTitle || 'Specialization') + ' Course-to-Specialization Content Map');
+   var lines = [title, Number(doc.courseCount || 0) + ' courses · ' + Number(doc.moduleCount || 0) + ' modules · ' + formatPartnerMinutes_(doc.totalMinutes || 0) + ' estimated learner time', ''];
+   var courses = Array.isArray(doc.courses) ? doc.courses : [];
+   courses.forEach(function(course) {
+     lines.push('Course ' + course.courseNo + ': ' + (course.title || '') + ' — ' + formatPartnerMinutes_(course.minutes || 0));
+     (course.modules || []).forEach(function(mod) {
+       lines.push(String(mod.moduleNoInCourse || '') + '. ' + (mod.moduleName || '') + ' [' + formatPartnerMinutes_(mod.minutes || 0) + ']');
+       if (mod.description) lines.push('   ' + mod.description);
+       if (mod.remarks) lines.push('   Remarks: ' + mod.remarks);
+     });
+     lines.push('');
+   });
+   if (doc.excludedModules && doc.excludedModules.length) {
+     lines.push('Excluded source groups:');
+     doc.excludedModules.forEach(function(x){ lines.push('- ' + x); });
+   }
+   return lines.join('\n');
+ }
+
+ async function copyPartnerContentMapForDocs(index, btn) {
+   var entry = ctiPartnerContentMaps[index];
+   if (!entry || !entry.document) return ctiToast('Partner-ready Content Map is not available yet.', 'error');
+   var html = buildPartnerContentMapHtml_(entry);
+   var plain = buildPartnerContentMapPlainText_(entry);
+   try {
+     if (navigator.clipboard && window.ClipboardItem) {
+       var item = new ClipboardItem({
+         'text/html': new Blob([html], {type:'text/html'}),
+         'text/plain': new Blob([plain], {type:'text/plain'})
+       });
+       await navigator.clipboard.write([item]);
+     } else {
+       var holder = document.createElement('div');
+       holder.contentEditable = 'true';
+       holder.style.position = 'fixed'; holder.style.left = '-9999px';
+       holder.innerHTML = html;
+       document.body.appendChild(holder);
+       var range = document.createRange(); range.selectNodeContents(holder);
+       var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+       document.execCommand('copy');
+       sel.removeAllRanges(); document.body.removeChild(holder);
+     }
+     if (btn) { var old = btn.textContent; btn.textContent = 'Copied for Google Docs ✓'; setTimeout(function(){ btn.textContent = old; }, 1800); }
+     ctiToast('Partner-ready Content Map copied with rich table formatting.', 'success');
+   } catch (err) {
+     try {
+       await navigator.clipboard.writeText(plain);
+       ctiToast('Rich copy was unavailable, so CTI copied a clean plain-text version.', 'warning');
+     } catch (fallbackErr) {
+       ctiToast('Copy failed. Open the preview and copy manually.', 'error');
+     }
+   }
+ }
+
+ function executeMultiSpecQa(stageName, prefix, statusId, nextStageId) {
+   var buttonMap = {Metadata:'stage3Btn', Merged:'stage4Btn', ContentMap:'stage5Btn'};
+   var buttonId = buttonMap[stageName] || null;
+   if (!currentFileId) return alert('Complete Steps 1 and 2 before validating downstream outputs.');
+   setButtonBusy(buttonId, true, 'Validating outputs…');
+   renderStatus(statusId, 'Checking each specialization workbook against the saved Stage 2 baseline…', 'info', true);
+   var specIndex = 1, allQaStats = [];
+   function stopWithError(message) {
+     setButtonBusy(buttonId, false);
+     renderStatus(statusId, message, 'error', false);
+   }
+   function verifyNextSpec() {
+     if (specIndex > currentNumSpecs) {
+       var html = "<details class='qa-dropdown' open><summary>✅ CONTRACT QA PASSED</summary><div class='qa-content'><p style='color:#6B7280;'>Headers, source-module identity, and stage-specific Macmillan contracts were validated against saved CTI lineage.</p>";
+       for(var q = 0; q < allQaStats.length; q++) {
+         html += "<h4 style='margin:10px 0 5px 0;'>" + escapeHtml(allQaStats[q].title) + "</h4>";
+         var rowNote = allQaStats[q].totalRows !== allQaStats[q].expected ? "<span class='warning-pill'>" + allQaStats[q].totalRows + " mapping rows cover " + allQaStats[q].expected + " source modules.</span>" : "";
+         html += "<p style='margin: 0 0 8px 0; color:#374151;'><b>Validated:</b> " + allQaStats[q].expected + " baseline modules " + rowNote + "</p><ul class='module-list' style='margin-bottom: 12px;'>";
+         for(var m = 0; m < allQaStats[q].matchedNames.length; m++) html += "<li>" + escapeHtml(allQaStats[q].matchedNames[m]) + "</li>";
+         html += "</ul>";
+         
+         if (allQaStats[q].explicitlyExcluded && allQaStats[q].explicitlyExcluded.length > 0) {
+             html += "<div style='padding:10px; background:#F3F4F6; border-radius:6px; border:1px solid #E5E7EB;'>";
+             html += "<strong style='color:#4B5563; font-size:12px;'>Intentionally Excluded (" + allQaStats[q].explicitlyExcluded.length + "):</strong>";
+             html += "<ul style='margin:4px 0 0 16px; padding:0; font-size:12px; color:#6B7280;'>";
+             for(var ex = 0; ex < allQaStats[q].explicitlyExcluded.length; ex++) {
+                 html += "<li>" + escapeHtml(allQaStats[q].explicitlyExcluded[ex]) + "</li>";
+             }
+             html += "</ul></div>";
+         }
+         if (allQaStats[q].warnings && allQaStats[q].warnings.length) {
+             html += "<div style='margin-top:10px; padding:10px; background:#FFFBEB; border:1px solid #FDE68A; border-radius:6px; color:#92400E;'><b>Review warnings:</b><ul style='margin:6px 0 0 18px;'>";
+             for (var wi = 0; wi < allQaStats[q].warnings.length; wi++) html += "<li>" + escapeHtml(allQaStats[q].warnings[wi]) + "</li>";
+             html += "</ul></div>";
+         }
+         var met = allQaStats[q].metrics || {};
+         if (met.totalMinutes != null) {
+             html += "<p style='margin:10px 0 0; color:#374151;'><b>Time conservation:</b> " + formatMacmillanMinutes_(met.totalMinutes) + " (" + Number(met.totalMinutes) + " exact min) preserved across " + Number(met.courseCount || 0) + " course(s).</p>";
+         }
+         if (stageName === 'ContentMap' && met.ctiVerdict) {
+             var needsReview = met.ctiVerdict === 'PASS_WITH_REVIEW';
+             var verdictLabel = needsReview ? 'PASS WITH REVIEW' : met.ctiVerdict;
+             var gateBg = needsReview ? '#FFFBEB' : '#F0FDF4';
+             var gateBorder = needsReview ? '#FDE68A' : '#A7F3D0';
+             var gateColor = needsReview ? '#92400E' : '#166534';
+             html += "<div style='margin-top:12px; padding:12px; background:" + gateBg + "; border:1px solid " + gateBorder + "; border-radius:8px; color:" + gateColor + ";'><b>CTI Final Content Map Gate: " + escapeHtml(verdictLabel) + "</b>";
+             if (met.minCourseMinutes != null && met.maxCourseMinutes != null) {
+               html += "<div style='margin-top:6px;'>Course-time range: " + formatMacmillanMinutes_(met.minCourseMinutes) + " to " + formatMacmillanMinutes_(met.maxCourseMinutes);
+               if (met.balanceRatio != null) html += " · longest/shortest ratio " + Number(met.balanceRatio).toFixed(2) + "×";
+               html += ".</div>";
+             }
+             if (Array.isArray(met.courseBreakdown) && met.courseBreakdown.length) {
+               html += "<table class='math-proof-table' style='margin-top:10px;'><tr><th>Course</th><th>Modules</th><th>CTI estimated time</th></tr>";
+               for (var cb = 0; cb < met.courseBreakdown.length; cb++) {
+                 var course = met.courseBreakdown[cb] || {};
+                 html += "<tr><td>" + Number(course.courseNo || 0) + ". " + escapeHtml(course.title || '') + "</td><td>" + Number(course.modules || 0) + "</td><td>" + formatMacmillanMinutes_(course.minutes || 0) + "</td></tr>";
+               }
+               html += "</table>";
+             }
+             html += "</div>";
+             if (met.partnerDocument) {
+               ctiPartnerContentMaps[q] = { document: met.partnerDocument, specTitle: allQaStats[q].title, partnerName: getGlobalPartnerName() };
+               html += "<details class='qa-dropdown' style='margin-top:12px;'><summary>📄 Partner-ready Google Docs Content Map</summary><div class='qa-content'>";
+               html += "<p style='margin-top:0;color:#4B5563;'>This is a document-friendly projection of the validated 10-column XLSX. It removes duplicate spreadsheet columns and groups modules by course without changing any source identity, description, or CTI time.</p>";
+               html += "<button type='button' class='btn-secondary' onclick='copyPartnerContentMapForDocs(" + q + ", this)'>📋 Copy for Google Docs</button>";
+               html += "<div style='margin-top:14px;max-height:520px;overflow:auto;border:1px solid #E5E7EB;border-radius:8px;padding:16px;background:#FFFFFF;'>" + buildPartnerContentMapHtml_(ctiPartnerContentMaps[q]) + "</div>";
+               html += "</div></details>";
+             }
+         }
+       }
+       html += "</div></details>";
+       setButtonBusy(buttonId, false);
+       document.getElementById(statusId).innerHTML = html;
+       document.getElementById(statusId.replace('status', 'stage')).className = "stage complete";
+       
+       if(nextStageId) {
+         document.getElementById(nextStageId).className = "stage active";
+         var nextButton = {stage4:'stage4Btn',stage5:'stage5Btn'}[nextStageId];
+         if (nextButton) document.getElementById(nextButton).disabled = false;
+       }
+       else if (stageName === 'ContentMap') {
+         var anyReview = allQaStats.some(function(stat){ return stat && stat.metrics && stat.metrics.ctiVerdict === 'PASS_WITH_REVIEW'; });
+         var finalTitle = anyReview ? '🎉 Pipeline Complete — CTI PASS WITH REVIEW' : '🎉 Pipeline Complete — CTI PASS';
+         var finalColor = anyReview ? '#92400E' : '#166534';
+         var finalCopy = anyReview
+           ? 'Deterministic source identity, order, exact time conservation, course numbering, and stage lineage passed. CTI found advisory course-size and/or balance flags above; review semantic grouping without changing the authoritative module durations.'
+           : 'Deterministic source identity, order, exact time conservation, course numbering, stage lineage, and advisory quality checks passed. Review instructional wording before final delivery.';
+         var btnHtml = "<hr style='margin: 30px 0; border: 0; border-top: 1px solid #E5E7EB;'><h3>" + finalTitle + "</h3><p style='color:" + finalColor + "; font-weight:600;'>" + finalCopy + "</p><p style='color:#4B5563;'>Use the <b>Partner-ready Google Docs Content Map</b> panel above to copy a clean, rich-text table directly into the partner document. The validated 10-column XLSX remains the audit artifact.</p>";
+         document.getElementById('finalDownloadBox').innerHTML = btnHtml;
+       }
+       return;
+     }
+     var inputId = prefix + "_" + specIndex;
+     var specTitle = currentSpecNames[specIndex - 1] || ("Spec " + specIndex);
+
+     readFileAsBase64(inputId, function(base64, filename, err) {
+       if (!base64) return stopWithError(err || ("Choose the .xlsx output for " + specTitle + "."));
+       google.script.run
+         .withSuccessHandler(function(res) {
+           if (res.success) {
+             allQaStats.push({ title: specTitle, expected: res.expectedCount, totalRows: res.foundCount, matchedNames: res.matchedNames, explicitlyExcluded: res.explicitlyExcluded, warnings: res.warnings || [], metrics: res.metrics || {} }); 
+             specIndex++; verifyNextSpec();
+           } else { stopWithError(res.error || ('Structural QA failed for ' + specTitle + '.')); }
+         })
+         .withFailureHandler(function(e) { stopWithError('Structural QA failed for ' + specTitle + '. ' + (e && e.message ? e.message : 'Try again.')); })
+         .qaCompareGptOutput(base64, filename, currentFileId, stageName, specIndex);
+     });
+   }
+   verifyNextSpec();
+ }
+
+ function processStage3() { executeMultiSpecQa('Metadata', 'metaFile', 'status3', 'stage4'); }
+ function processStage4() { executeMultiSpecQa('Merged', 'mergeFile', 'status4', 'stage5'); }
+ function processStage5() { 
+   document.getElementById('finalDownloadBox').innerHTML = ""; 
+   executeMultiSpecQa('ContentMap', 'mapFile', 'status5', null);
+ }
+
+ // ===================================================================
+ // DETERMINISTIC ANALYTICS — NOT TRAINED MACHINE LEARNING (No External Libraries)
+ // ===================================================================
+ 
+ // 1. Fixed nonlinear labor heuristic (planning estimate; not trained ML)
+ function predictLaborHours(ifs, totalItems, ltiCount, emptyFolders) {
+   var inputs = [Number(ifs)||0, Number(totalItems)||0, Number(ltiCount)||0, Number(emptyFolders)||0];
+   var weights = [
+     [0.05, 0.02, 1.5, 0.8],  // Node 1: Integration Drag
+     [0.01, 0.05, 0.2, 0.1]   // Node 2: Raw Asset Volume
+   ];
+   var bias = [0.5, 0.1];
+   
+   var hidden = weights.map(function(w, i) {
+     var sum = w.reduce(function(acc, val, j) { return acc + val * inputs[j]; }, 0) + bias[i];
+     return Math.max(0, sum); 
+   });
+
+   var predictedHours = (hidden[0] * 0.85) + (hidden[1] * 0.3) + 1.2;
+   return Math.max(1, Math.round(predictedHours)); 
+ }
+
+ // 2. Cosine Similarity (structural-profile comparison; not duplicate proof)
+ function calculateCosineSimilarity(vecA, vecB) {
+   var dotProduct = 0, normA = 0, normB = 0;
+   for (var i = 0; i < vecA.length; i++) {
+     dotProduct += vecA[i] * vecB[i];
+     normA += Math.pow(vecA[i], 2);
+     normB += Math.pow(vecB[i], 2);
+   }
+   if (normA === 0 || normB === 0) return 0;
+   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+ }
+
+ // 3. Course structural profile vectorizer (log-scaled multi-signal profile)
+ function vectorizeCourse(pkg) {
+   pkg = pkg || {};
+   function lg(v){ return Math.log1p(Math.max(0, Number(v)||0)); }
+   var assessments = Number(pkg.quizzes || pkg.assessments || 0);
+   var total = Number(pkg.totalItems || 0) || ((Number(pkg.webcontent)||0)+assessments+(Number(pkg.discussions)||0)+(Number(pkg.weblinks)||0)+(Number(pkg.lti)||0)+(Number(pkg.unknown)||0));
+   return [lg(pkg.webcontent),lg(assessments),lg(pkg.discussions),lg(pkg.weblinks),lg(pkg.lti),lg(pkg.empty),lg(pkg.unknown),lg(pkg.orphans),lg(pkg.interactiveRuntimeCandidates),lg(total)];
+ }
+
+ // 4. Dynamic CTI Trivia Generator
+ function generateTriviaHtml() {
+   var allPkgs = [];
+   Object.keys(globalDbState).forEach(function(pName) {
+       globalDbState[pName].packages.forEach(function(pkg) {
+           allPkgs.push(Object.assign({}, pkg, { partnerName: pName }));
+       });
+   });
+
+   if (allPkgs.length === 0) return "";
+
+   var triviaGenerators = [
+       function() { 
+           var sorted = allPkgs.filter(function(p){ return p.owner && p.owner !== 'Unassigned'; }).sort(function(a,b){ return b.ifs - a.ifs; });
+           if(!sorted.length) return null;
+           var top = sorted[0];
+           var titleStr = top.realTitle ? escapeHtml(top.realTitle) : escapeHtml(top.name);
+           return "🏆 <b>Integration Hero:</b> Shoutout to <b>" + escapeHtml(top.owner) + "</b> for tackling the highest Ingestion Friction Score (IFS: " + top.ifs + ") recorded on <i>" + titleStr + "</i>.";
+       },
+       function() { 
+           var sorted = allPkgs.filter(function(p){ return p.lexicalTTR && p.totalItems > 10; }).sort(function(a,b){ return b.lexicalTTR - a.lexicalTTR; });
+           if(!sorted.length) return null;
+           var top = sorted[0];
+           var titleStr = top.realTitle ? escapeHtml(top.realTitle) : escapeHtml(top.name);
+           return "🧠 <b>Lexical Legend:</b> <i>" + titleStr + "</i> has the highest vocabulary variance (TTR: " + top.lexicalTTR + ") in the directory. No repetitive 'Module 1' naming here!";
+       },
+       function() { 
+           var sorted = allPkgs.filter(function(p){ return p.owner && p.owner !== 'Unassigned'; }).sort(function(a,b){ return b.quizzes - a.quizzes; });
+           if(!sorted.length || sorted[0].quizzes === 0) return null;
+           var top = sorted[0];
+           var titleStr = top.realTitle ? escapeHtml(top.realTitle) : escapeHtml(top.name);
+           return "🏋️ <b>Heavyweight Champion:</b> <b>" + escapeHtml(top.owner) + "</b> is wrestling the most assessment-heavy package in the system: <i>" + titleStr + "</i>, featuring a massive " + top.quizzes + " quizzes/assignments!";
+       },
+       function() { 
+           var purists = allPkgs.filter(function(p){ return p.empty === 0 && p.lti === 0 && (p.orphans || 0) === 0 && p.totalItems > 10; });
+           if(!purists.length) return null;
+           var top = purists[Math.floor(Math.random() * purists.length)];
+           var titleStr = top.realTitle ? escapeHtml(top.realTitle) : escapeHtml(top.name);
+           return "✨ <b>Blueprint Purist:</b> <i>" + titleStr + "</i> from " + escapeHtml(top.partnerName) + " has a clean profile on CTI's tracked structural signals: 0 empty folders, 0 orphaned manifest resources, and 0 LTI blockers.";
+       },
+       function() { 
+           var zPkgs = allPkgs.filter(function(p){ return p.zScores && p.zScores.length > 0; });
+           if(!zPkgs.length) return null;
+           var top = zPkgs.sort(function(a,b){ return Number(b.zScores[0].zScore) - Number(a.zScores[0].zScore); })[0];
+           var titleStr = top.realTitle ? escapeHtml(top.realTitle) : escapeHtml(top.name);
+           return "🔍 <b>Anomaly Catcher:</b> The CS engine flagged a strong structural module-size outlier (Z=" + top.zScores[0].zScore + ") in <i>" + titleStr + "</i> for human review.";
+       }
+   ];
+
+   triviaGenerators.sort(function() { return Math.random() - 0.5; });
+   
+   var fact = null;
+   for(var i=0; i<triviaGenerators.length; i++) {
+       fact = triviaGenerators[i]();
+       if(fact) break;
+   }
+
+   if(!fact) return "";
+
+   return "<div id='trivia-banner' style='background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'><div style='font-size: 14px;'>" + fact + "</div><button onclick='document.getElementById(\"trivia-banner\").style.display=\"none\"' style='background: rgba(255,255,255,0.2); color: white; border: none; padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; margin-left:15px;'>Dismiss</button></div>";
+ }
+
+ window.onload = function() { 
+   initUxEnhancements();
+   var today = new Date();
+   var yyyy = today.getFullYear();
+   var mm = String(today.getMonth() + 1).padStart(2, '0');
+   var dd = String(today.getDate()).padStart(2, '0');
+   document.getElementById('assignedDateInput').value = yyyy + '-' + mm + '-' + dd;
+   
+   google.script.run
+     .withSuccessHandler(function(timeStr) { document.getElementById('deployTime').innerText = timeStr; })
+     .withFailureHandler(function(e) { document.getElementById('deployTime').innerText = "Load failed"; })
+     .getDeploymentTimestamp();
+
+   fetchPartnerAnalytics();
+   fetchRedoWorkQueue();
+   google.script.run
+     .withSuccessHandler(function(res) {
+         if (res && res.success) document.getElementById('visitCount').innerText = res.count;
+         else document.getElementById('visitCount').innerText = "0";
+     })
+     .withFailureHandler(function(e){ document.getElementById('visitCount').innerText = "Error"; })
+     .recordSiteVisit();
+ };
+</script>
+</body>
+</html>
