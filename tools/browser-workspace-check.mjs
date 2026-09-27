@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { comparisonFixture, masterRows } from "../tests/workflow-fixtures.mjs";
+import { migrationTextInfo } from "../src/domain/migration-files.ts";
 import { writeWorkbook } from "../src/adapters/workbook.ts";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const policy = fs
@@ -68,34 +69,28 @@ async function waitIdle(p = page) {
 try {
   await page.goto(base);
   await tab("Setup");
-  await page
-    .getByLabel("Workspace migration or backup JSON")
-    .setInputFiles({
-      name: "synthetic-backup.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(backup)),
-    });
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "synthetic-backup.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup)),
+  });
   await page.getByText("1 records prepared.", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 1 records;", { exact: false }).waitFor();
   await page.getByLabel("Selected source course").selectOption(input.course.id);
   await waitIdle();
   await tab("Compare");
-  await page
-    .getByLabel("Coursera XLSX (required)")
-    .setInputFiles({
-      name: input.excel.name,
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      buffer: Buffer.from(input.excel.bytes),
-    });
-  await page
-    .getByLabel("Coursera full capture JSON")
-    .setInputFiles({
-      name: input.json.name,
-      mimeType: "application/json",
-      buffer: Buffer.from(input.json.bytes),
-    });
+  await page.getByLabel("Coursera XLSX (required)").setInputFiles({
+    name: input.excel.name,
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(input.excel.bytes),
+  });
+  await page.getByLabel("Coursera full capture JSON").setInputFiles({
+    name: input.json.name,
+    mimeType: "application/json",
+    buffer: Buffer.from(input.json.bytes),
+  });
   await page.getByLabel("Snapshot stage").selectOption("raw");
   await page
     .getByRole("button", { name: "Run and save full comparison" })
@@ -135,19 +130,17 @@ try {
     .waitFor();
   assert((await page.locator(".owner-report").innerText()).includes("Reading"));
   await tab("Macmillan");
-  await page
-    .getByLabel("New source master XLSX")
-    .setInputFiles({
-      name: "master.xlsx",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      buffer: Buffer.from(
-        writeWorkbook({
-          name: "master",
-          sheets: { export: { values: masterRows } },
-        }),
-      ),
-    });
+  await page.getByLabel("New source master XLSX").setInputFiles({
+    name: "master.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(
+      writeWorkbook({
+        name: "master",
+        sheets: { export: { values: masterRows } },
+      }),
+    ),
+  });
   await page.getByRole("button", { name: "Scan and save master" }).click();
   await page.getByText("Row 4: Ch 1: Quantities", { exact: false }).waitFor();
   await page.getByLabel("Row 4: Ch 1: Quantities").check();
@@ -211,6 +204,74 @@ try {
       name + " overflows",
     );
   }
+  // The real file picker must verify all files before offering Import.
+  await tab("Setup");
+  const migrationRow = Array(20).fill("");
+  migrationRow[2] = "Multipart source";
+  migrationRow[12] = "[]";
+  migrationRow[18] = "multipart-browser-fixture";
+  const migrationText = JSON.stringify({
+    kind: "CTI_WORKSPACE_MIGRATION",
+    schemaVersion: 1,
+    sheets: { Packages: [[], migrationRow], Unknown: [["preserve 🧬"]] },
+  });
+  const fragments = [migrationText.slice(0, 80), migrationText.slice(80)];
+  const exportId = "browser-test";
+  const uploadFile = (name, value) => ({
+    name,
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(value)),
+  });
+  const partFiles = fragments.map((data, index) =>
+    uploadFile(`part_${index}_${exportId}.json`, {
+      kind: "CTI_WORKSPACE_MIGRATION_PART",
+      schemaVersion: 1,
+      exportId,
+      index,
+      data,
+    }),
+  );
+  const manifestFile = uploadFile("00_manifest.json", {
+    kind: "CTI_WORKSPACE_MIGRATION_MANIFEST",
+    schemaVersion: 1,
+    exportId,
+    partCount: fragments.length,
+    charCount: migrationText.length,
+    utf8Bytes: migrationTextInfo(migrationText).utf8Bytes,
+    parts: fragments.map((data, index) => ({
+      index,
+      fileName: partFiles[index].name,
+      charCount: data.length,
+      ...migrationTextInfo(data),
+    })),
+  });
+  const migrationInput = page.getByLabel("Workspace migration or backup JSON");
+  await migrationInput.setInputFiles([manifestFile, partFiles[0]]);
+  await page.getByRole("alert").filter({ hasText: "Missing part_1" }).waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "Import prepared records" }).count(),
+    0,
+  );
+  await migrationInput.setInputFiles([
+    partFiles[1],
+    manifestFile,
+    partFiles[0],
+  ]);
+  await page.getByText("2 records prepared.", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Import prepared records" }).click();
+  await page
+    .getByText("Imported 2 records; skipped 0", { exact: false })
+    .waitFor();
+  await migrationInput.setInputFiles([manifestFile, ...partFiles]);
+  await page.getByText("2 records prepared.", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Import prepared records" }).click();
+  await page
+    .getByText("Imported 0 records; skipped 2", { exact: false })
+    .waitFor();
+  await page
+    .getByLabel("Selected source course")
+    .selectOption(migrationRow[18]);
+  await waitIdle();
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -218,6 +279,7 @@ try {
         status: "PASS",
         checks: [
           "backup import and source identity",
+          "multipart picker rejects missing parts, imports shuffled files and skips reimports",
           "full XLSX/JSON comparison in worker",
           "complete owner report and ordered view",
           "report download",

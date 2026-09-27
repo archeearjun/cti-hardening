@@ -1,7 +1,7 @@
 {
   "baseline": "5280adf + reviewed workflow IO separation",
   "qaBuild": "v8.0.0-asset-claim-scope-20260927",
-  "baselineSha256": "d4f2cdb899ced8c6f776019de0de6ed940686eb1e533e2078412c4f83c0c04e0",
+  "baselineSha256": "df986918b210e1261be8ef06dd37cbd3f652784ce4064cc01e6be8c5964e1bf3",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -704,7 +704,7 @@
     },
     {
       "file": "src/legacy/server/042-migration-export.js",
-      "lines": 19,
+      "lines": 103,
       "symbols": [
         "exportCtiWorkspaceForMigration"
       ]

@@ -66,3 +66,20 @@ export function prepareWorkspaceBackup(value: any): WorkspaceRecord[] {
     return { ...r, version: 0 };
   });
 }
+
+export const MAX_WORKSPACE_RECORD_BYTES = 32 * 1024 * 1024;
+// Run before the first save, not after importing an arbitrary subset.
+export function validateImportRecordSizes(records: WorkspaceRecord[]): void {
+  const ids = new Set<string>();
+  for (const record of records) {
+    validateRecord(record);
+    if (ids.has(record.id))
+      throw new Error(`Duplicate import record ID: ${record.id}.`);
+    ids.add(record.id);
+    const bytes = new TextEncoder().encode(JSON.stringify(record.data)).length;
+    if (bytes > MAX_WORKSPACE_RECORD_BYTES)
+      throw new Error(
+        `Import stopped before saving: "${record.title}" (${record.id}) is ${(bytes / 1024 / 1024).toFixed(1)} MiB, above the 32 MiB per-record limit. Its data has not been truncated. Keep the export for a targeted migration fix.`,
+      );
+  }
+}

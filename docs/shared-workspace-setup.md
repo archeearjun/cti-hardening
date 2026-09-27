@@ -82,15 +82,22 @@ You do not need to replace the entire old app just to export its data:
    [042-migration-export.js](../src/legacy/server/042-migration-export.js).
    If that function is already installed, do not add a second definition.
 3. Run **`exportCtiWorkspaceForMigration`**. The existing editor authorization
-   still applies. Open the private Drive URL printed in the execution log and
-   download the JSON. The helper does not delete or change old records.
-   If an older helper fails with "exceeds the maximum file size" at file
-   creation, replace its `DriveApp.createFile(name, text, mimeType)` call with
-   the current helper's `DriveApp.createFile(Utilities.newBlob(...))` call.
-   The former overload has a 10 MB text limit. The blob-based export preserves
-   the same JSON format and imports through the existing Setup screen.
-4. In the new site's **Setup**, choose this file, review the record count and
-   warnings, then click **Import prepared records** while connected as an admin.
+   still applies. The log shows elapsed minutes and part progress, then a
+   **COMPLETE** message linking a new private Drive folder. The helper does not
+   delete or change old records. It writes bounded JSON parts instead of one
+   oversized file; changing only the old `createFile` overload is insufficient.
+   Download **all** JSON files in that folder. If Drive downloads a ZIP, extract
+   it on your computer. `00_manifest.json` is written last: without it, the
+   export is incomplete and must not be imported. A failed run can be rerun;
+   each run uses a different folder and never mixes parts with a previous run.
+4. Wait for the updated site deployment, open **Setup**, and connect the shared
+   workspace as an admin. In **Workspace migration or backup JSON**, select
+   **00_manifest.json and every part file together**, from one completed export
+   folder. CTI checks the part count, export identity, UTF-8 byte counts and
+   SHA-256 digests before preparing records. Review counts and warnings, then
+   click **Import prepared records**. Existing single-file migrations and
+   browser workspace backups still work. Missing or corrupt parts stop the
+   import before any records are saved.
 5. Check catalogue counts, course UUIDs, owners, source trees, several old
    reports, and before/after history before relying on the new workspace.
 
@@ -107,7 +114,14 @@ source packages and original evidence files remain in their original folders;
 this is a records export, not a copy of all Drive files.
 
 Import preserves course and audit IDs, skips existing IDs and never overwrites
-stored audits. Unknown tables stay in the original backup record. Unlinked old
+stored audits. Unknown tables stay in the original backup. Large original exports are retained
+as checksummed backup-part records plus an index, each below the existing
+per-record limit; no evidence is dropped to fit. Workspace recovery backups
+include those records. `restoreMigrationBackup` can reconstruct the original
+export from its index and parts. Preparation rejects any oversized individual
+course, report or workbook before saving any records, identifying the record
+that needs a targeted migration fix. A failed or stopped import can be retried:
+CTI refreshes saved IDs and skips the ones already imported. Unlinked old
 checklists can be assigned to a course in **Work queue**. Generation `0` retains the old app’s original-import convention; it is not
 silently converted to re-ingestion 1.
 

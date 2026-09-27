@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildPostQaText_ } from "../generated/owner-report.js";
+import { migrationBackupRecords } from "./migration-backup.ts";
 import { validateRecord } from "./workspace-validation.ts";
 import type { WorkspaceRecord, EvidenceObject } from "./workspace-types.ts";
 import { newRecord } from "./workspace-store.ts";
@@ -227,14 +228,7 @@ export function importLegacyWorkspace(value: EvidenceObject): {
     });
   }
   warnings.push(...(value.warnings || []).map(String));
-  records.push({
-    ...newRecord(
-      "legacy-backup",
-      `Original CTI export ${value.exportedAt || ""}`,
-      value,
-    ),
-    id: stableId("backup_", JSON.stringify(value)),
-  });
+  records.push(...migrationBackupRecords(value));
   records.forEach((r) => validateRecord(r));
   return { records, warnings };
 }

@@ -1,5 +1,9 @@
 import OwnerEvidence from "./OwnerEvidence";
-import { prepareWorkspaceBackup } from "../src/domain/workspace-validation";
+import { readMigrationFiles } from "../src/domain/migration-files";
+import {
+  prepareWorkspaceBackup,
+  validateImportRecordSizes,
+} from "../src/domain/workspace-validation";
 import { useEffect, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import { runWorkflow } from "./workflow-client";
@@ -93,7 +97,8 @@ export default function FullWorkspace() {
   const [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [seconds, setSeconds] = useState(0);
+    [seconds, setSeconds] = useState(0),
+    [importProgress, setImportProgress] = useState("");
   const [report, setReport] = useState<EvidenceObject | null>(null),
     [analysis, setAnalysis] = useState<EvidenceObject | null>(null),
     [versions, setVersions] = useState<EvidenceObject[]>([]);
@@ -181,6 +186,7 @@ export default function FullWorkspace() {
   async function act(label: string, fn: () => Promise<void>) {
     setError("");
     setNotice("");
+    setImportProgress("");
     setBusy(label);
     controller.current = new AbortController();
     try {
@@ -1337,27 +1343,49 @@ export default function FullWorkspace() {
             workspace. Existing record IDs are preserved. Conflicts are skipped
             and reported, never overwritten.
           </p>
-          <FileField
-            label="Workspace migration or backup JSON"
-            accept=".json"
-            onChange={(file) => {
-              if (file)
-                void act("Checking migration file", async () => {
-                  setImportPlan(null);
-                  const value = JSON.parse(await file.text());
-                  if (
-                    value.kind === "CTI_BROWSER_WORKSPACE" &&
-                    value.schemaVersion === 1 &&
-                    Array.isArray(value.records)
-                  ) {
-                    setImportPlan({
-                      records: prepareWorkspaceBackup(value),
-                      warnings: [],
-                    });
-                  } else setImportPlan(importLegacyWorkspace(value));
+          <p>
+            For a multipart export, select{" "}
+            <strong>00_manifest.json and all part files together</strong> from
+            one completed export folder. Single-file migrations and workspace
+            backups are also supported.
+          </p>
+          <label>
+            Workspace migration or backup JSON
+            <input
+              type="file"
+              accept=".json"
+              multiple
+              disabled={!!busy}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setImportPlan(null);
+                if (!files.length) return;
+                void act("Checking migration files", async () => {
+                  const signal = controller.current!.signal;
+                  const value = await readMigrationFiles(
+                    files,
+                    setImportProgress,
+                    signal,
+                  );
+                  if (signal.aborted)
+                    throw new Error(
+                      "Migration check stopped. No records were saved.",
+                    );
+                  const plan =
+                    value.kind === "CTI_BROWSER_WORKSPACE"
+                      ? { records: prepareWorkspaceBackup(value), warnings: [] }
+                      : importLegacyWorkspace(value);
+                  validateImportRecordSizes(plan.records);
+                  if (signal.aborted)
+                    throw new Error(
+                      "Migration check stopped. No records were saved.",
+                    );
+                  setImportPlan(plan);
                 });
-            }}
-          />
+              }}
+            />
+          </label>
+          {busy && importProgress && <p aria-live="polite">{importProgress}</p>}
           {importPlan && (
             <>
               <p>
@@ -1376,21 +1404,36 @@ export default function FullWorkspace() {
                 }
                 onClick={() =>
                   void act("Importing workspace records", async () => {
-                    const existing = new Set(records.map((r) => r.id));
+                    validateImportRecordSizes(importPlan.records);
+                    const existing = new Set(
+                      (await store!.list()).map((r) => r.id),
+                    );
                     let saved = 0,
                       skipped = 0;
-                    for (const r of importPlan.records) {
-                      if (controller.current?.signal.aborted)
-                        throw new Error(
-                          `Import stopped after ${saved} saves. Saved records are retained; re-import safely skips them.`,
+                    try {
+                      for (const r of importPlan.records) {
+                        if (controller.current?.signal.aborted)
+                          throw new Error("Import stopped by you.");
+                        setImportProgress(
+                          `Saving record ${saved + skipped + 1} of ${importPlan.records.length}`,
                         );
-                      if (existing.has(r.id)) {
-                        skipped++;
-                        continue;
+                        if (existing.has(r.id)) {
+                          skipped++;
+                          continue;
+                        }
+                        await store!.save({ ...r, version: 0 });
+                        existing.add(r.id);
+                        saved++;
                       }
-                      await store!.save({ ...r, version: 0 });
-                      existing.add(r.id);
-                      saved++;
+                    } catch (e) {
+                      try {
+                        await refresh();
+                      } catch {
+                        /* Preserve the original failure. */
+                      }
+                      throw new Error(
+                        `${e instanceof Error ? e.message : String(e)} ${saved} records saved; ${skipped} existing IDs skipped. Retry Import prepared records: saved IDs will be skipped.`,
+                      );
                     }
                     await refresh();
                     setNotice(
