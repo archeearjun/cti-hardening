@@ -7,6 +7,8 @@ import { chromium } from "playwright";
 import { comparisonFixture, masterRows } from "../tests/workflow-fixtures.mjs";
 import { migrationTextInfo } from "../src/domain/migration-files.ts";
 import { writeWorkbook } from "../src/adapters/workbook.ts";
+import { createWorkflows } from "../src/domain/workflows.ts";
+import { workerXml } from "../src/adapters/worker-xml.ts";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -272,6 +274,126 @@ try {
     .getByLabel("Selected source course")
     .selectOption(migrationRow[18]);
   await waitIdle();
+  // Partial legacy history requires acknowledgement and remains visible after reload.
+  const damaged = {
+    kind: "CTI_WORKSPACE_MIGRATION",
+    schemaVersion: 1,
+    sheets: {
+      Packages: [[], migrationRow],
+      QA_Runs: [
+        ["Run ID", "Package UUID", "Payload Chunks", "Mode"],
+        ["QA-browser-recovery", migrationRow[18], 1, "SINGLE_C0"],
+      ],
+      QA_Run_Chunks: [["Run ID", "Chunk Index", "Base64 Result Chunk"]],
+    },
+  };
+  await migrationInput.setInputFiles(
+    uploadFile("damaged-history.json", damaged),
+  );
+  await page
+    .getByRole("heading", { name: "Some saved reports need recovery" })
+    .waitFor();
+  assert.match(
+    await page.getByText("Import destination:").innerText(),
+    /This browser only/,
+  );
+  const importButton = page.getByRole("button", {
+    name: "Import prepared records",
+  });
+  assert(await importButton.isDisabled());
+  const reviewDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download migration review", exact: true })
+    .click();
+  const review = JSON.parse(
+    fs.readFileSync(await (await reviewDownload).path(), "utf8"),
+  );
+  assert.equal(review.issues[0].runId, "QA-browser-recovery");
+  assert.equal(review.issues[0].chunks.actualChunks, 0);
+  const acknowledge = page.getByRole("checkbox", {
+    name: /I understand these reports remain unavailable/,
+  });
+  await acknowledge.check();
+  await migrationInput.setInputFiles(
+    uploadFile("damaged-history-again.json", damaged),
+  );
+  await page
+    .getByRole("heading", { name: "Some saved reports need recovery" })
+    .waitFor();
+  assert(await importButton.isDisabled());
+  await acknowledge.check();
+  await importButton.click();
+  await page
+    .getByText("Imported 2 records; skipped 1", { exact: false })
+    .waitFor();
+  await page.reload();
+  await tab("Setup");
+  await page
+    .getByText("1 saved QA reports still need recovery", { exact: true })
+    .waitFor();
+  await page
+    .getByLabel("Selected source course")
+    .selectOption(migrationRow[18]);
+  await waitIdle();
+  await tab("History");
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "excluded from comparisons" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("combobox", { name: /^Before/ })
+      .locator("option")
+      .count(),
+    1,
+  );
+  // A recovered full payload restores the original audit ID and clears the open warning.
+  const recovered = structuredClone(damaged);
+  recovered.sheets.QA_Run_Chunks.push([
+    "QA-browser-recovery",
+    0,
+    Buffer.from(
+      JSON.stringify({
+        runId: "QA-browser-recovery",
+        packageUuid: migrationRow[18],
+        result: createWorkflows(workerXml).compare(input).result,
+      }),
+    ).toString("base64"),
+  ]);
+  await tab("Setup");
+  await migrationInput.setInputFiles(
+    uploadFile("recovered-history.json", recovered),
+  );
+  await page.getByText("3 records prepared.", { exact: false }).waitFor();
+  assert(await importButton.isEnabled());
+  await importButton.click();
+  await page
+    .getByText("Imported 2 records; skipped 1", { exact: false })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Download saved migration issues" })
+      .count(),
+    0,
+  );
+  await tab("History");
+  assert.equal(
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "excluded from comparisons" })
+      .count(),
+    0,
+  );
+  await page
+    .getByRole("button", { name: "QA-browser-recovery", exact: true })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("combobox", { name: /^Before/ })
+      .locator("option")
+      .count(),
+    2,
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -280,6 +402,8 @@ try {
         checks: [
           "backup import and source identity",
           "multipart picker rejects missing parts, imports shuffled files and skips reimports",
+          "unavailable QA reports require acknowledgement, retain downloadable issues and stay out of comparisons",
+          "recovered full payload restores the original audit ID and resolves the warning",
           "full XLSX/JSON comparison in worker",
           "complete owner report and ordered view",
           "report download",

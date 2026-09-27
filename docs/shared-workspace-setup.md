@@ -101,6 +101,24 @@ You do not need to replace the entire old app just to export its data:
 5. Check catalogue counts, course UUIDs, owners, source trees, several old
    reports, and before/after history before relying on the new workspace.
 
+If preparation reports **Some saved reports need recovery**, the export files
+passed their checks but one or more historical QA payloads are incomplete or
+invalid. Download **migration review** to identify each run and its chunk
+diagnostics. The old app writes a history row before writing the report chunks;
+a failed second write can leave a history entry without a complete report.
+This is one possible cause, not proof of what happened to a particular run.
+
+You can explicitly acknowledge these gaps and import valid records. Missing
+reports are not treated as complete audits, do not contribute to comparisons,
+and remain listed in Setup and the affected course's History. The import retains
+their history metadata as recovery cases and all original sheets/chunks in the
+backup. Keep the original export, especially if saving is interrupted. Recovering
+a complete payload from the old workspace or a prior backup lets you import that
+report later under its original Run ID; this clears its open recovery warning.
+Damaged source trees and missing/corrupt export parts still stop preparation.
+Confirm **Import destination: Shared workspace** before a shared migration;
+**This browser only** stores records locally and is not shared storage.
+
 The export includes all database sheets, chunked source trees and full reports,
 work-state rows, external-runtime evidence, the three email/domain permission
 settings, and this account's registered Macmillan master workbooks. Access

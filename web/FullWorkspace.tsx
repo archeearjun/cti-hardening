@@ -137,6 +137,7 @@ export default function FullWorkspace() {
   const [importPlan, setImportPlan] = useState<ReturnType<
     typeof importLegacyWorkspace
   > | null>(null);
+  const [acceptMigrationGaps, setAcceptMigrationGaps] = useState(false);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => {
     let alive = true;
@@ -176,6 +177,12 @@ export default function FullWorkspace() {
     return () => clearInterval(t);
   }, [busy]);
   const editable = !!store && store.role !== "viewer";
+  const migrationRecoveries = records.filter(
+    (r) =>
+      r.kind === "legacy-backup" &&
+      r.data.kind === "CTI_MIGRATION_RECOVERY_CASE" &&
+      !records.some((a) => a.kind === "audit" && a.id === r.data.sourceRunId),
+  );
   const courses = records.filter((r) => r.kind === "package");
   const audits = records.filter(
     (r) => r.kind === "audit" && r.packageId === courseId,
@@ -754,6 +761,13 @@ export default function FullWorkspace() {
       {tab === "History" && (
         <section className="card">
           <h2>Before / after history</h2>
+          {migrationRecoveries.some((r) => r.packageId === courseId) && (
+            <p role="alert">
+              This course has migrated QA history entries whose full reports are
+              unavailable. Open Setup for recovery details. They are excluded
+              from comparisons.
+            </p>
+          )}
           <p>
             Saved audit snapshots are immutable. Select two reports for the same
             source course to compare their evidence.
@@ -1339,6 +1353,50 @@ export default function FullWorkspace() {
           </button>
           <h3>Import existing records</h3>
           <p>
+            <strong>
+              Import destination:{" "}
+              {store?.mode === "team"
+                ? `Shared workspace (${store.email})`
+                : "This browser only — coworkers will not see these records"}
+            </strong>
+          </p>
+          {migrationRecoveries.length > 0 && (
+            <details open>
+              <summary>
+                {migrationRecoveries.length} saved QA reports still need
+                recovery
+              </summary>
+              <p>
+                Migration remains incomplete for these reports. Keep the
+                original export. A completed import retains their available
+                original data in the migration backup.
+              </p>
+              <ul>
+                {migrationRecoveries.map((r) => (
+                  <li key={r.id}>
+                    <strong>{r.data.sourceRunId}</strong>:{" "}
+                    {r.data.issue?.reason}
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="secondary"
+                onClick={() =>
+                  download(
+                    "CTI_migration_recovery.json",
+                    json({
+                      kind: "CTI_MIGRATION_REVIEW",
+                      schemaVersion: 1,
+                      issues: migrationRecoveries.map((r) => r.data.issue),
+                    }),
+                  )
+                }
+              >
+                Download saved migration issues
+              </button>
+            </details>
+          )}
+          <p>
             Use the existing app’s migration JSON or a backup from this
             workspace. Existing record IDs are preserved. Conflicts are skipped
             and reported, never overwritten.
@@ -1359,6 +1417,7 @@ export default function FullWorkspace() {
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 setImportPlan(null);
+                setAcceptMigrationGaps(false);
                 if (!files.length) return;
                 void act("Checking migration files", async () => {
                   const signal = controller.current!.signal;
@@ -1373,7 +1432,11 @@ export default function FullWorkspace() {
                     );
                   const plan =
                     value.kind === "CTI_BROWSER_WORKSPACE"
-                      ? { records: prepareWorkspaceBackup(value), warnings: [] }
+                      ? {
+                          records: prepareWorkspaceBackup(value),
+                          warnings: [],
+                          issues: [],
+                        }
                       : importLegacyWorkspace(value);
                   validateImportRecordSizes(plan.records);
                   if (signal.aborted)
@@ -1392,6 +1455,57 @@ export default function FullWorkspace() {
                 {importPlan.records.length} records prepared.{" "}
                 {importPlan.warnings.length} warnings.
               </p>
+              <p>
+                {importPlan.records.filter((r) => r.kind === "package").length}{" "}
+                courses ·{" "}
+                {importPlan.records.filter((r) => r.kind === "audit").length}{" "}
+                complete QA reports ·{" "}
+                {importPlan.records.filter((r) => r.kind === "workbook").length}{" "}
+                workbooks · {importPlan.issues.length} unavailable QA reports.
+              </p>
+              {importPlan.issues.length > 0 && (
+                <div className="migration-issues">
+                  <h4>Some saved reports need recovery</h4>
+                  <p>
+                    These runs will not appear as complete reports or be used in
+                    comparisons. Their history entries and available chunks
+                    remain in the original-export backup. You can import the
+                    valid records while keeping these issues open.
+                  </p>
+                  <ul>
+                    {importPlan.issues.map((issue, i) => (
+                      <li key={`${issue.runId}-${i}`}>
+                        <strong>{issue.runId}</strong>: {issue.reason}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      download(
+                        "CTI_migration_review.json",
+                        json({
+                          kind: "CTI_MIGRATION_REVIEW",
+                          schemaVersion: 1,
+                          issues: importPlan.issues,
+                        }),
+                      )
+                    }
+                  >
+                    Download migration review
+                  </button>
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={acceptMigrationGaps}
+                      disabled={!!busy}
+                      onChange={(e) => setAcceptMigrationGaps(e.target.checked)}
+                    />
+                    I understand these reports remain unavailable; import valid
+                    records and retain recovery cases.
+                  </label>
+                </div>
+              )}
               {importPlan.warnings.map((w) => (
                 <p key={w}>{w}</p>
               ))}
@@ -1400,10 +1514,15 @@ export default function FullWorkspace() {
                 disabled={
                   !editable ||
                   !!busy ||
+                  (importPlan.issues.length > 0 && !acceptMigrationGaps) ||
                   (store?.mode === "team" && store.role !== "admin")
                 }
                 onClick={() =>
                   void act("Importing workspace records", async () => {
+                    if (importPlan.issues.length && !acceptMigrationGaps)
+                      throw new Error(
+                        "Review and acknowledge the unavailable reports before importing.",
+                      );
                     validateImportRecordSizes(importPlan.records);
                     const existing = new Set(
                       (await store!.list()).map((r) => r.id),
@@ -1437,7 +1556,7 @@ export default function FullWorkspace() {
                     }
                     await refresh();
                     setNotice(
-                      `Imported ${saved} records; skipped ${skipped} existing IDs. Original backup data remains available.`,
+                      `Imported ${saved} records; skipped ${skipped} existing IDs. Original backup data remains available.${importPlan.issues.length ? ` ${importPlan.issues.length} QA reports remain unavailable; see saved migration issues.` : ""}`,
                     );
                     setImportPlan(null);
                   })

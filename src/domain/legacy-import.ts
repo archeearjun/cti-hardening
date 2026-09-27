@@ -1,13 +1,25 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildPostQaText_ } from "../generated/owner-report.js";
+import {
+  createLegacyChunkReader,
+  LegacyChunkError,
+  type LegacyChunkDiagnostics,
+} from "./legacy-chunks.ts";
 import { migrationBackupRecords } from "./migration-backup.ts";
 import { validateRecord } from "./workspace-validation.ts";
 import type { WorkspaceRecord, EvidenceObject } from "./workspace-types.ts";
 import { newRecord } from "./workspace-store.ts";
+export interface MigrationIssue {
+  runId: string;
+  packageId: string;
+  reason: string;
+  chunks?: LegacyChunkDiagnostics;
+}
 export function importLegacyWorkspace(value: EvidenceObject): {
   records: WorkspaceRecord[];
   warnings: string[];
+  issues: MigrationIssue[];
 } {
   if (
     value.kind !== "CTI_WORKSPACE_MIGRATION" ||
@@ -21,25 +33,9 @@ export function importLegacyWorkspace(value: EvidenceObject): {
     prefix + bytesToHex(sha256(new TextEncoder().encode(value)));
   const records: WorkspaceRecord[] = [];
   const warnings: string[] = [];
+  const issues: MigrationIssue[] = [];
   const tables = value.sheets as Record<string, any[][]>;
-  function decodeChunks(table: string, id: string) {
-    const rows = (tables[table] || [])
-      .slice(1)
-      .filter((r) => String(r[0]) === id)
-      .sort((a, b) => Number(a[1]) - Number(b[1]));
-    if (!rows.length || rows.some((r, i) => Number(r[1]) !== i))
-      throw new Error(
-        `Incomplete ${table} chunks for ${id}. Import stopped without fabricating evidence.`,
-      );
-    return JSON.parse(
-      new TextDecoder().decode(
-        Uint8Array.from(
-          atob(rows.map((r) => String(r[2] || "")).join("")),
-          (c) => c.charCodeAt(0),
-        ),
-      ),
-    );
-  }
+  const decodeChunks = createLegacyChunkReader(tables);
   for (const row of tables.Packages.slice(1)) {
     const id = String(row[18] || "");
     if (!id) {
@@ -142,8 +138,58 @@ export function importLegacyWorkspace(value: EvidenceObject): {
     const id = String(get(row, "Run ID") || ""),
       packageId = String(get(row, "Package UUID") || "");
     if (!id) continue;
-    const payload = decodeChunks("QA_Run_Chunks", id);
-    if (!payload.result) throw new Error(`Saved report ${id} has no result.`);
+    let payload;
+    try {
+      payload = decodeChunks("QA_Run_Chunks", id, get(row, "Payload Chunks"));
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        Array.isArray(payload) ||
+        !payload.result ||
+        typeof payload.result !== "object" ||
+        Array.isArray(payload.result)
+      )
+        throw new Error("The saved payload does not contain a report result.");
+      if (payload.runId !== undefined && String(payload.runId) !== id)
+        throw new Error("The payload Run ID does not match its history row.");
+      if (
+        payload.packageUuid !== undefined &&
+        String(payload.packageUuid) !== packageId
+      )
+        throw new Error(
+          "The payload source-course UUID does not match its history row.",
+        );
+    } catch (e) {
+      const issue: MigrationIssue = {
+        runId: id,
+        packageId,
+        reason: e instanceof Error ? e.message : String(e),
+        ...(e instanceof LegacyChunkError ? { chunks: e.diagnostics } : {}),
+      };
+      issues.push(issue);
+      // Retain the history row as a recovery case, never as a fabricated audit.
+      // Original chunk rows are also retained in the full original-export backup.
+      records.push({
+        ...newRecord(
+          "legacy-backup",
+          `Unavailable QA report: ${id}`,
+          {
+            kind: "CTI_MIGRATION_RECOVERY_CASE",
+            schemaVersion: 1,
+            sourceRunId: id,
+            issue,
+            legacyRunMetadata: Object.fromEntries(
+              headers.map((h, i) => [h, row[i]]),
+            ),
+            recovery:
+              "Keep the original export. Recover this run's full payload from the old workspace or a prior backup. Reimporting a complete payload restores the audit under its original Run ID.",
+          },
+          packageId,
+        ),
+        id: stableId("migration_issue_", id),
+      });
+      continue;
+    }
     const raw = String(get(row, "Mode")) === "SINGLE_C0";
     const data = {
       result: payload.result,
@@ -230,5 +276,5 @@ export function importLegacyWorkspace(value: EvidenceObject): {
   warnings.push(...(value.warnings || []).map(String));
   records.push(...migrationBackupRecords(value));
   records.forEach((r) => validateRecord(r));
-  return { records, warnings };
+  return { records, warnings, issues };
 }

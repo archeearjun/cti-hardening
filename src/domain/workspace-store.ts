@@ -41,7 +41,10 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
           }
         : record.kind === "checklist"
           ? d
-          : {};
+          : record.kind === "legacy-backup" &&
+              d.kind === "CTI_MIGRATION_RECOVERY_CASE"
+            ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
+            : {};
   return { ...record, data };
 }
 export function newRecord(
