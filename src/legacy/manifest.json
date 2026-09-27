@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf",
+  "baseline": "5280adf + reviewed pure IMSCC entry point (Google authorization retained)",
   "qaBuild": "v8.0.0-asset-claim-scope-20260927",
-  "baselineSha256": "c041c0c1eda2f73ce3e80afa4266b1d1b1c85faaa497788d52a838f1f953b257",
+  "baselineSha256": "00466e54c8aa8ba59e614c00876d029c2b4e137d1745bf6e99da059a6b775f67",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -16,7 +16,8 @@
     "compareItemFidelity_",
     "normalizeSourceItem_",
     "CTI_RELEASE_REGISTRY_",
-    "CTI_FEATURE_MANIFEST_"
+    "CTI_FEATURE_MANIFEST_",
+    "analyzeImsccCore_"
   ],
   "parts": [
     {
@@ -253,7 +254,7 @@
     },
     {
       "file": "src/legacy/server/012-fetchpackagestructuredb.js",
-      "lines": 358,
+      "lines": 364,
       "symbols": [
         "fetchPackageStructureDb",
         "countEmptyFolders_",
@@ -268,7 +269,8 @@
         "processNode_",
         "sanitizeAndFlattenTree_",
         "exportMasterManifestAsGoogleSheet",
-        "ctiDriveConversionRetryable_"
+        "ctiDriveConversionRetryable_",
+        "analyzeImsccCore_"
       ]
     },
     {

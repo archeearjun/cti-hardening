@@ -8,6 +8,12 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
     sourcemap: false,
+    rollupOptions: {
+      input: {
+        main: "web/index.html",
+        packageRunner: "web/package-runner.html",
+      },
+    },
   },
   worker: { format: "es" },
 });

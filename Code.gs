@@ -3231,6 +3231,11 @@ function sourcePayloadForResource_(idref, resourceMap) {
 }
 function analyzeImsccFromXmlString(xmlString, fileName, sourceEvidenceJson) {
   authorize_('editor');
+  return analyzeImsccCore_(xmlString, fileName, sourceEvidenceJson);
+}
+
+// Pure analysis of caller-supplied evidence. Google entry points retain authorization.
+function analyzeImsccCore_(xmlString, fileName, sourceEvidenceJson) {
   try {
     xmlString = String(xmlString || "");
     if (!xmlString.trim()) return { success: false, error: "The manifest is empty." };

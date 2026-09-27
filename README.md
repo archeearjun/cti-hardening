@@ -4,9 +4,11 @@ CTI inspects source packages and compares observed ingestion evidence. It preser
 
 ## Browser migration preview
 
-The `codex/typescript-pages-migration` branch adds a TypeScript/React app for static Cloudflare Pages hosting. It is a working **capture-inspection preview**, not a replacement for the full Apps Script application.
+The `codex/typescript-pages-migration` branch adds a TypeScript/React app for static Cloudflare Pages hosting. It is a working **package and capture inspection preview**, not a replacement for the full Apps Script application.
 
 Available in the preview:
+
+- Inspect local IMSCC/ZIP packages or manifest-only XML; explore the source tree and download complete scan evidence. Reuses the canonical source scanner for QTI questions, assignment attachments, PDF text, hashes, dependencies and structural metrics.
 
 - Inspect Coursera fingerprint captures and run the existing captured-readiness rules, with an explicit capture stage and partner policy.
 - Inventory Brightspace topics and question definitions while retaining uncertainty about complete question-bank coverage.
@@ -14,7 +16,7 @@ Available in the preview:
 - See processing phases and elapsed minutes, cancel processing, filter findings and download a clearly labelled preview review.
 - Process captures in a Web Worker on the user's computer. No course captures are uploaded or saved by this preview.
 
-Continue using Apps Script for IMSCC scanning, source/destination comparison with XLSX structure, shared course records and permissions, lifecycle and work queues, Macmillan workflows, and complete owner reports. Those workflows are retained in the repository but are **not yet connected to the new browser app**. Browser inventory does not establish source fidelity, question completeness or publication readiness. Team members can use the same deployed URL, but this preview does not share their results.
+Continue using Apps Script for catalogue-linked rescans, source/destination comparison with XLSX structure, shared course records and permissions, lifecycle and work queues, Macmillan workflows, and complete owner reports. Those workflows are retained in the repository but are **not yet connected to the new browser app**. Browser inventory does not establish source fidelity, question completeness or publication readiness. Team members can use the same deployed URL, but this preview does not share their results.
 
 ### Cloudflare Pages settings
 
@@ -47,6 +49,8 @@ npm run dev
 
 The preview adds nine migration tests to the existing 268 local checks. Google-only XML, integration and full-golden gates remain unverified in Node. Browser checks and focused private-capture replays are recorded in [migration validation](docs/migration-validation.md).
 
+The package inspector accepts archives up to 250 MiB and retains existing scanner budgets and limitation markers. It does not save a catalogue rescan. It prefers the root manifest and rejects ambiguous cartridges; content reads over 24 MiB are bounded.
+
 The preview accepts JSON up to 40 MiB and 20,000 Coursera fingerprints. This is an explicit preview budget, not a limit on the original application. The readiness engine caps displayed details at 160 findings; the preview reports displayed findings and warns when detail has been truncated. Results are temporary until downloaded.
 
 ### Editing without whole-file rewrites
@@ -55,12 +59,24 @@ The preview accepts JSON up to 40 MiB and 20,000 Coursera fingerprints. This is 
 - `src/adapters/`: browser byte operations; unsupported Google services fail explicitly.
 - `src/worker/`: background processing and progress messages.
 - `web/`: React interface and styles.
-- `src/legacy/server/`: 40 ordered compatibility modules containing the original GAS engine, byte-for-byte. These remain JavaScript; they have not all been converted to TypeScript.
+- `src/legacy/server/`: 40 ordered compatibility modules reconstructing the GAS engine. The package-analysis body is shared through a pure helper; the Google entry point retains its authorization check. These remain JavaScript; they have not all been converted to TypeScript.
 - `src/legacy/manifest.json`: module order, exported functions and accepted baseline hash.
 
-`npm run generate` creates the ignored compatibility engine used by the worker and rejects differences between the module source and `Code.gs`. `npm run export:gas` rebuilds `Code.gs` from those modules after an intentional legacy change. Review that diff, update the accepted baseline metadata only for a reviewed change, then rerun all checks. Do not rerun the one-time split script or edit generated files. The existing `Code.gs`, `Index.html`, `Index_COPYABLE.txt` and `Tests.gs` have not been altered by the initial migration.
+`npm run generate` creates the ignored compatibility engine used by the worker and rejects differences between the module source and `Code.gs`. `npm run export:gas` rebuilds `Code.gs` from those modules after an intentional legacy change. Review that diff, update the accepted baseline metadata only for a reviewed change, then rerun all checks. Do not rerun the one-time split script or edit generated files. The initial migration left the GAS trio unchanged. The package step adds a pure analysis helper to `Code.gs` while retaining the authorized Google wrapper. `Index.html`, `Index_COPYABLE.txt` and `Tests.gs` remain unchanged. No Apps Script deployment is required to use the browser inspector.
 
-Migrate one workflow at a time behind these contracts, with parity checks against saved captures. Port package parsing and full comparison next; shared persistence and authentication require explicit service adapters before replacing the team application.
+Migrate one workflow at a time behind these contracts, with parity checks against saved captures. The package inspector now runs locally using a disposable browser document and a self-hosted PDF worker. Full comparison is the next major engine integration; shared persistence and authentication require explicit service adapters before replacing the team application.
+
+### Browser package checks
+
+On a development machine only (not required for users):
+
+```sh
+npm run build
+npx playwright install chromium
+npm run test:browser:package
+```
+
+`CTI_CHROMIUM_PATH` can select an existing Chromium executable. `CTI_CITC923_FIXTURE` optionally selects the private saved CITC923 package for the additional inventory replay. No private course data is checked into this public repository. See [migration status](docs/migration-status.md) for the remaining full-app scope.
 
 ## Current review
 

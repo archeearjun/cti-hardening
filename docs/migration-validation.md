@@ -41,4 +41,15 @@ The test does not run the copied extractor inside an LMS, verify a Cloudflare de
 
 ## Deployment state
 
-Prepared locally only. No Cloudflare deployment, public GitHub push, production replacement or paid service has been performed by this migration step. Use the settings in the README after publishing the reviewed branch.
+The initial preview was published on `codex/typescript-pages-migration` and linked to the user’s Cloudflare Pages project. Local build and browser validation do not verify a successful live Cloudflare deployment. The full Apps Script application has not been replaced. No paid service was added.
+
+
+## Package inspection migration — 2026-09-27
+
+The package step factors the existing analysis body into `analyzeImsccCore_`; the existing Google entry point still calls `authorize_('editor')` first. The only GAS logic diff is this five-line delegation. The module manifest records the reviewed reconstruction hash. The earlier byte-identity table above describes the initial capture-only migration.
+
+The browser source scanner is generated from 34 complete canonical client functions. PDF.js and its worker are bundled locally; the parser records the actual PDF.js 6.3.289 version. PDF task cleanup releases worker memory. Native DOM/XML parsing is retained in a disposable document; package markup is never inserted into the application. Cancellation removes that document. Reading/parsing still uses the browser main-thread context, with the scanner’s existing periodic yields, so this does not promise background-worker isolation for every package step.
+
+Checks: the existing 277 local checks, strict TypeScript and production build pass. The reproducible browser package check exercises root-versus-nested manifest selection, two distinct questions with identical wording, SHA-256 evidence, learner text, a PDF text sample, assignment dependency PDF propagation, search, expansion, JSON download, malformed-XML recovery, manifest-only uncertainty and cancellation. The 390-pixel layout check exposed and fixed an input-width overflow. No page errors or external network requests were observed. CSP blocks styles in parsed source HTML; these expected warnings do not execute source content or affect text extraction.
+
+The private saved CITC923 package produced 29 manifest resources, 63 file evidence records, three assignments, two discussions and six web links. It contains no QTI assessment resources; the synthetic QTI fixture supplies that test coverage. This is not a 15-title parity certification, a Coursera runtime test or a shared-data migration.
