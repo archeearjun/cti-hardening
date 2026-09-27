@@ -1,0 +1,31 @@
+{
+  "name": "cti-evidence-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "npm run generate && vite --host 0.0.0.0",
+    "generate": "node tools/generate-compat.mjs",
+    "export:gas": "node tools/export-gas.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run generate && npm run typecheck && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "npm run generate && node tools/check.cjs && node tools/hardening-check.cjs && node --test tests/migration.test.mjs"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "vite": "8.3.1"
+  }
+}

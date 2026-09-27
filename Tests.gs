@@ -64,6 +64,34 @@ function runCTIFullGoldenRegressionSuite() {
 
 function CTI_TEST_fastCases_() {
   return [
+    ['Provenance / markup adaptation stays informational with a complete audit trail', CTI_TEST_markupAssetClaimBoundary_],
+    ['Provenance / a local attachment path does not hide an explicit embedding failure', CTI_TEST_plaintextAttachmentFailure_],
+    ['Provenance / the same asset event is counted once across parsers', CTI_TEST_assetEventDeduplication_],
+    ['Attachments / labels alone cannot resolve an asset claim', CTI_TEST_attachmentPresenceBoundary_],
+    ['Readiness / observed native AI-grader placeholders survive learner-text cleanup', CTI_TEST_nativeGraderReadiness_],
+    ['Owner / evidence-only readiness preserves evidence severity', CTI_TEST_readinessSeverityPreservation_],
+    ['Owner / unmatched source guidance verifies required content before restoration', CTI_TEST_missingOwnerRestorationBoundary_],
+    ['Lineage / exact raw input replay preserves immutable history', CTI_TEST_exactRawReplay_],
+    ['Lineage / stored input identity includes both source files', CTI_TEST_rawReplayIdentityFields_],
+    ['Owner / explicit asset failure overrides generic uncertainty', CTI_TEST_ownerReportedAsset_],
+    ['Owner / learner readiness survives exempt source matches', CTI_TEST_learnerReadinessCarrier_],
+    ['Readiness / duplicate item labels retain distinct destination IDs', CTI_TEST_readinessStableIdentity_],
+    ['Provenance / quoted unsupported asset is localized once', CTI_TEST_unsupportedAssetLocalization_],
+    ['Provenance / resolved and historical unsupported asset claims stay scoped', CTI_TEST_unsupportedAssetCurrentProof_],
+    ['Policy / explicit manual attachment work reaches next action', CTI_TEST_manualAssetRecommendation_],
+    ['Readiness / unlocalized raw claims cannot order repairs', CTI_TEST_unlocalizedRawReadiness_],
+    ['Readiness / inherited claims reconcile even in raw snapshots', CTI_TEST_rawMemoryReconciliation_],
+    ['Readiness / separate rubric context is not a lost course file', CTI_TEST_separateDocumentClaimScope_],
+    ['Readiness / policy exemptions retain evidence outside owner tasks', CTI_TEST_readinessExemptEvidence_],
+    ['Readiness / summary includes unmapped critical findings once', CTI_TEST_readinessSummaryConsistency_],
+    ['Provenance / current observation takes precedence over memory', CTI_TEST_currentProvenancePrecedence_],
+    ['Links / only empty root path is equivalent to root slash', CTI_TEST_rootUrlEquivalence_],
+    ['Plugin / uncaptured configuration is not a confirmed type defect', CTI_TEST_unobservedPluginType_],
+    ['v8 / blank AAR subjects cannot attach to unrelated items', CTI_TEST_v8BlankClaimScope_],
+    ['v8 / generated metadata is not replacement content', CTI_TEST_v8MetadataClaimBoundary_],
+    ['v8 / Brightspace definition uncertainty reaches the summary', CTI_TEST_v8BrightspaceCoverageSummary_],
+    ['v8 / policy-exempt findings do not become learner blockers', CTI_TEST_v8PolicySummary_],
+    ['v8 / declared assignment files require independent asset proof', CTI_TEST_v8DeclaredAssignmentAsset_],
     ['v8 / unknown dimensions cannot pass', CTI_TEST_v8MissingDimensions_],
     ['v8 / incomplete behavior remains uncertain', CTI_TEST_v8PartialBehavior_],
     ['v8 / gradebook absence does not prove ungraded', CTI_TEST_v8GradebookAbsence_],
@@ -1159,7 +1187,7 @@ function CTI_TEST_workEvidenceChecklistIsolation_() {
 function CTI_TEST_releaseIdentityContract_() {
   var source = CTI_TEST_indexSource_();
   CTI_TEST_equal_(CTI_GATEWAY_RELEASE_,CTI_TEST_BASELINE_GATEWAY_,'Backend gateway identity');
-  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-evidence-dimension-hardening-20260926','Backend QA build identity');
+  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-asset-claim-scope-20260927','Backend QA build identity');
   CTI_TEST_equal_(CTI_MACMILLAN_BUILD_ID_,'v6.8.2-partner-ready-doc-projection-20260912','Backend Macmillan build identity');
   CTI_TEST_equal_(CTI_WORK_QUEUE_BUILD_ID_,'v1.6-evidence-checklist-20260919','Backend work-queue build identity');
   CTI_TEST_equal_(MACMILLAN_TIME_MODEL_VERSION_,CTI_TEST_BASELINE_TIME_MODEL_,'Backend time-model identity');
@@ -2732,7 +2760,7 @@ function CTI_TEST_brightspaceCanonicalUiContract_() {
 function CTI_TEST_smartIngestionExplicitExclusionV2_() {
   var items=[{name:'Author Alignment Report — For Author\'s Eyes Only',path:'[DELETE ME] Author Alignment Report',textSample:"Smart Ingestion transformations and gap-filling. Module: Student Resources: Remote On-Demand Delivery Content Excluded Excluded the 'Course Error Reporting' weblink item because it is an administrative feedback form with no educational content."}];
   var intel=qaParseSmartIngestionIntelligence_(items);
-  CTI_TEST_equal_(intel.parserVersion,'aar-event-parser-v8','Parser version');
+  CTI_TEST_equal_(intel.parserVersion,'aar-event-parser-v8.1','Parser version');
   var remote={name:'Course Error Reporting',path:'Student Resources: Remote On-Demand Delivery',assetDetails:[],textSample:''};
   var live={name:'Course Error Reporting',path:'Student Resources: Face-to-Face or Remote Live Delivery',assetDetails:[],textSample:''};
   CTI_TEST_assert_(!!qaExplicitExclusionClaimForSource_(remote,intel),'Remote duplicate receives explicit exclusion claim');
@@ -4728,6 +4756,171 @@ function CTI_TEST_v8AarEvents_() {
   CTI_TEST_assert_(types.indexOf('SI_PROCESSING_FAILURE')>-1,'Distillation/parser exception is retained');
 }
 
+function CTI_TEST_unlocalizedRawReadiness_() {
+  var intel={claims:[{type:'GENERATED_CONTENT_FALLBACK',subject:'',pathHint:'Introduction',severity:'CRITICAL',detail:'Generated the reading content because source payload was empty.'},
+    {type:'UNRESOLVED_SOURCE_ASSET',subject:'',pathHint:'Tasks',severity:'CRITICAL',detail:'The attachment could not be represented.'}]};
+  var ready=qaAssessDestinationReadiness_([],intel,{}, {mode:'RAW_INGESTION'},null,'NAIT');
+  CTI_TEST_equal_(ready.criticalCount,0,'Unknown target is not a critical course repair');
+  CTI_TEST_equal_(ready.manualRepairCount,0,'No unnamed restore-file instruction');
+  CTI_TEST_equal_(ready.evidenceGapCount,2,'Both claims remain visible as evidence gaps');
+  CTI_TEST_assert_(ready.findings.every(function(f){return f.itemName && /Identify the affected item/.test(f.action);}), 'Owner receives a label and a localization step');
+}
+
+function CTI_TEST_rawMemoryReconciliation_() {
+  var claim={type:'UNRESOLVED_SOURCE_ASSET',subject:'Planning task.docx',severity:'CRITICAL',provenanceOrigin:'EVIDENCE_MEMORY'};
+  var item={id:'task',name:'Planning task',path:'Module One',type:'Assignment',nativeAssignment:{currentStateEvidence:{editorSurfaceObserved:true},attachments:[{inferredFileName:'Planning task.docx',evidenceSource:'visible-editor-file-chip'}]}};
+  var resolved=qaResolveHistoricalClaimCurrentState_(claim,null,item,[item],{}, {mode:'RAW_INGESTION'});
+  CTI_TEST_equal_(resolved.status,'RESOLVED','Positive current attachment evidence resolves memory even when snapshot is labelled raw');
+  var ready=qaAssessDestinationReadiness_([item],{claims:[claim]}, {}, {mode:'RAW_INGESTION'},null,'NAIT');
+  CTI_TEST_equal_(ready.manualRepairCount,0,'Resolved historical attachment does not demand repair');
+  var absent=qaAssessDestinationReadiness_([],{claims:[claim]}, {}, {mode:'RAW_INGESTION'},null,'NAIT');
+  CTI_TEST_equal_(absent.evidenceGapCount,1,'Unobserved historical attachment remains an evidence gap');
+  CTI_TEST_equal_(absent.criticalCount,0,'Historical claim alone is not current loss');
+  var currentClaim=Object.assign({},claim,{provenanceOrigin:'CURRENT_SNAPSHOT'});
+  var observed=qaApplySmartIngestionProvenanceToResult_({name:'Planning task',path:'Module One',assetDetails:[{name:'Planning task.docx'}]},
+    {verdict:'UNVERIFIED',courseraId:'task',issues:['PAYLOAD_UNVERIFIED'],checks:{},snapshotContext:{mode:'RAW_INGESTION'}},{claims:[currentClaim]},[item]);
+  CTI_TEST_assert_(observed.issues.indexOf('SI_UNRESOLVED_SOURCE_ASSET')<0,'Observed attachment also clears stale repair instructions on the item result');
+  CTI_TEST_equal_(observed.verdict,'UNVERIFIED','Presence alone cannot verify file bytes or other required dimensions');
+  var source={name:'Opening reading',path:'Module One',textSample:'Source explanation '.repeat(20)};
+  var r=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'VERIFIED',issues:[],checks:{},snapshotContext:{mode:'RAW_INGESTION'}},
+    {claims:[{type:'GENERATED_CONTENT_FALLBACK',subject:'Opening reading',provenanceOrigin:'EVIDENCE_MEMORY'}]});
+  CTI_TEST_equal_(r.verdict,'VERIFIED','Raw label cannot turn stale memory into a new content failure');
+}
+
+function CTI_TEST_separateDocumentClaimScope_() {
+  var text='AI-Generated Mandatory Field Generated a brief rubric note because detailed rubric content is provided only in a separate document not available within this item. Set the passing score to 80%.';
+  var historical={type:'UNRESOLVED_SOURCE_ASSET',subject:'',pathHint:'Tasks',severity:'CRITICAL',detail:text,excerpt:text};
+  var intel=qaMergeGenerationIngestionIntelligence_({claims:[]},{claims:[historical]},'prior');
+  CTI_TEST_equal_(intel.claims[0].type,'SOURCE_ASSET_SCOPE_REVIEW','Separate document is a scope review');
+  CTI_TEST_equal_(intel.claims[0].originalClaimType,'UNRESOLVED_SOURCE_ASSET','Historical classification remains auditable');
+  var ready=qaAssessDestinationReadiness_([],intel,{}, {mode:'RAW_INGESTION'},null,'NAIT');
+  CTI_TEST_equal_(ready.manualRepairCount,0,'Separate rubric does not imply course asset loss');
+  CTI_TEST_equal_(ready.reviewCount,1,'Rubric access still needs review');
+  var report={name:'Author Alignment Report',path:'[DELETE ME]',textSample:'Smart Ingestion transformations and gap-filling. Module: Tasks Item: ungradedAssignment Opens in a new tab Unsupported Content Fallback The original assignment referenced an attached Word document "Planning task.docx", but the attachment itself could not be represented here.'};
+  var parsed=qaParseSmartIngestionIntelligence_([report]);
+  var assets=parsed.claims.filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';});
+  CTI_TEST_equal_(assets.length,1,'Actual unsupported source file remains identified');
+  CTI_TEST_equal_(assets[0].subject,'Planning task.docx','Quoted filename supplies asset identity');
+  CTI_TEST_equal_(qaAssessDestinationReadiness_([],parsed,{}, {mode:'RAW_INGESTION'},null,'NAIT').manualRepairCount,1,'Explicit current loss remains actionable');
+  var source={name:'Planning task',path:'Tasks',assetDetails:[{name:'Planning task.docx'}]};
+  CTI_TEST_equal_(qaSmartIngestionClaimsForSource_(source,parsed).filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';}).length,1,'Named asset maps to its source assignment');
+  var ambiguous=qaNormalizeIngestionClaimScope_({type:'UNRESOLVED_SOURCE_ASSET',subject:'',detail:'Could not attach either "Planning task.docx" or "Observation notes.docx".'});
+  CTI_TEST_equal_(ambiguous.subject,'','Multiple quoted files must not be assigned to the first filename');
+}
+
+function CTI_TEST_readinessExemptEvidence_() {
+  var items=[{id:'faculty',name:'Reference handout',path:'Instructor Resources',type:'Reading',textScopeKind:'document-viewer'},
+    {id:'learner',name:'Required handout',path:'Module One',type:'Reading',textScopeKind:'document-viewer'}];
+  var r=qaAssessDestinationReadiness_(items,{}, {}, {mode:'RAW_INGESTION'},null,'NAIT');
+  CTI_TEST_equal_(r.evidenceGapCount,1,'Only learner-facing uncertainty enters readiness counts');
+  var f=r.findings.filter(function(x){return x.itemId==='faculty';})[0];
+  CTI_TEST_assert_(f.policyExempt && f.severity==='INFO' && f.originalSeverity==='EVIDENCE','Exempt finding remains available for audit');
+  CTI_TEST_contains_(f.detail,'document viewer','Evidence reason remains intact');
+  CTI_TEST_contains_(f.originalAction,'unread document','Original guidance is retained');
+  CTI_TEST_equal_(qaAssessDestinationReadiness_(items,{}, {}, {},null,'Other Partner').evidenceGapCount,2,'NAIT policy is not applied to other partners');
+}
+
+function CTI_TEST_readinessSummaryConsistency_() {
+  var claim={type:'UNRESOLVED_SOURCE_ASSET',subject:'Planning task.docx',pathHint:'Module One',severity:'CRITICAL'};
+  var r=qaAssessDestinationReadiness_([],{claims:[claim]}, {}, {mode:'RAW_INGESTION'},null,'NAIT');
+  var s=qaApplyReadinessToSummary_(qaBuildSummary_([],[]),[],[],r);
+  CTI_TEST_equal_(s.headlineStatus,'BLOCKED','Unmapped named blocker reaches the headline');
+  CTI_TEST_equal_(s.criticalBlockers,1,'Unmapped blocker counted once');
+  var rows=[{sourceName:'Planning task',verdict:'PARTIAL',ownerAction:{severity:'CRITICAL',action:'Resolve the named attachment failure.'},checks:{destinationReadiness:r.findings}}];
+  s=qaApplyReadinessToSummary_(qaBuildSummary_(rows,[]),rows,[],r);
+  CTI_TEST_equal_(s.criticalBlockers,1,'Mapped readiness is not counted twice');
+}
+
+function CTI_TEST_currentProvenancePrecedence_() {
+  var claim={type:'UNRESOLVED_SOURCE_ASSET',subject:'Planning task.docx',severity:'CRITICAL',excerpt:'Could not attach the file.'};
+  var intel=qaMergeGenerationIngestionIntelligence_({claims:[claim]},{claims:[claim]},'prior');
+  CTI_TEST_equal_(intel.claims.length,1,'Equivalent claims are deduplicated');
+  CTI_TEST_equal_(intel.claims[0].provenanceOrigin,'CURRENT_SNAPSHOT','A currently observed claim is not labelled historical-only');
+}
+
+function CTI_TEST_rootUrlEquivalence_() {
+  function compare(a,b){
+    var source=normalizeSourceItem_({name:'Portal',type:'Reading',sourceTypeRaw:'imswl_xmlv1p3',sourceLinks:[a]});
+    var dest=normalizeCourseraItem_({id:'portal',name:'Portal',type:'Plugin',payload:{textSample:'Choose Plugin External Webpage',links:[b],linkEvidenceConfidence:0.97}});
+    return qaExternalWebpageEvidence_(source,dest);
+  }
+  var same=compare('https://portal.example','https://portal.example/');
+  CTI_TEST_equal_(same.status,'VERIFIED_CONFIGURATION','Empty HTTP path is the root path');
+  CTI_TEST_equal_(same.reasonCode,'EQUIVALENT_ROOT_URL_PRESERVED','Equivalent syntax is explained without claiming literal equality');
+  CTI_TEST_equal_(same.runtime.launchStatus,'NOT_VERIFIED','URL preservation does not prove launch');
+  [['https://portal.example/a','https://portal.example/a/'],['https://portal.example/?course=1','https://portal.example/?course=2'],['https://portal.example/#one','https://portal.example/#two'],['https://portal.example/A','https://portal.example/a']].forEach(function(pair){
+    CTI_TEST_equal_(compare(pair[0],pair[1]).reasonCode,'LAUNCH_URL_DIFFERS','Meaningful target differences remain visible');
+  });
+}
+
+function CTI_TEST_unobservedPluginType_() {
+  var source=normalizeSourceItem_({name:'Portal',path:'Module One',type:'Reading',sourceTypeRaw:'imswl_xmlv1p3',sourceLinks:['https://portal.example/']});
+  var dest=normalizeCourseraItem_({id:'portal',name:'Portal',path:'Module One',type:'Plugin',payload:{links:['https://portal.example/'],linkEvidenceConfidence:0.97}});
+  var r=compareItemFidelity_(source,dest,1,[dest],{mode:'RAW_INGESTION'});
+  CTI_TEST_equal_(r.checks.type.status,'UNVERIFIED','Possible web-link conversion requires configuration evidence');
+  CTI_TEST_assert_(r.issues.indexOf('TYPE_MUTATION')<0,'Unknown plugin configuration is not a confirmed conversion defect');
+  CTI_TEST_assert_(!r.checks.externalWebpageTransformation,'Unknown configuration is not accepted as verified');
+  CTI_TEST_equal_(r.checks.externalWebpageEvidence.reasonCode,'PLUGIN_CONFIGURATION_UNOBSERVED','Specific missing evidence remains explicit');
+}
+
+function CTI_TEST_v8BlankClaimScope_() {
+  var source={name:'Unrelated lesson',path:'Module One',textSample:'Observed source payload '.repeat(8)};
+  var intelligence={claims:[{type:'GENERATED_CONTENT_FALLBACK',subject:'',pathHint:'',excerpt:'Generated replacement reading.'}]};
+  CTI_TEST_equal_(qaSmartIngestionClaimsForSource_(source,intelligence).length,0,'An empty subject is not a name match');
+  var result=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'VERIFIED',issues:[],checks:{}},intelligence);
+  CTI_TEST_equal_(result.verdict,'VERIFIED','Unscoped provenance must not fabricate an item failure');
+  intelligence.claims[0].subject='Unrelated lesson';
+  CTI_TEST_equal_(qaSmartIngestionClaimsForSource_(source,intelligence).length,1,'Explicitly named source claims remain matched');
+}
+
+function CTI_TEST_v8MetadataClaimBoundary_() {
+  var item={id:'aar',name:'Author Alignment Report',path:'[DELETE ME]',textSample:'This report summarizes transformations and gap-filling performed during Smart Ingestion. AI-Generated Mandatory Field Generated module descriptions because they were missing in the source content. Generated learning objectives because they were missing in the source content. Module: Module One Item: Earlier named lesson Content Adaptation Reformatted headings. Module: Module Two Item: supplement Opens in a new tab AI-Generated Mandatory Field Generated an estimated completion time because no duration was provided in the source. Left answer feedback empty because the source had none. Item: Target reading AI-Generated Mandatory Field Generated reading content because the source file payload was empty. DO NOT PUBLISH THIS READING.'};
+  var intel=qaParseSmartIngestionIntelligence_([item]);
+  var fallbacks=intel.claims.filter(function(x){return x.context==='AAR_EVENT_V8'&&x.type==='GENERATED_CONTENT_FALLBACK';});
+  CTI_TEST_equal_(fallbacks.length,1,'Metadata and empty feedback do not become generated reading claims');
+  CTI_TEST_equal_(fallbacks[0].subject,'Target reading','The current named item owns the claim');
+  CTI_TEST_equal_(fallbacks[0].pathHint,'Module Two','The current module owns the claim');
+  CTI_TEST_assert_(!/DO NOT PUBLISH|Item:|Module:/.test(fallbacks[0].detail),'Structural headings end an event');
+  CTI_TEST_equal_(qaSmartIngestionClaimsForSource_({name:'Earlier named lesson',path:'Module Two'},intel).length,0,'Previous item context cannot cross into a new module');
+}
+
+function CTI_TEST_v8BrightspaceCoverageSummary_() {
+  var quizzes=[{id:'a',name:'Bank quiz',questions:[{QuestionId:1}],questionsStatus:'CAPTURED',questionCoverage:{status:'TOTAL_UNVERIFIED',completenessVerified:false}},{id:'b',name:'Known quiz',questions:[{QuestionId:2}],questionsStatus:'CAPTURED',questionCoverage:{status:'MATCH',completenessVerified:true}}];
+  var result=qaBrightspaceQuizCaptureSummary_(quizzes);
+  CTI_TEST_equal_(result.capturedQuestionDefinitions,2,'Observed definitions remain counted');
+  CTI_TEST_equal_(result.quizEvidenceGaps,1,'Unverified source bank coverage requires review');
+  CTI_TEST_equal_(result.items[0].status,'TOTAL_UNVERIFIED','The summary preserves explicit uncertainty');
+  CTI_TEST_equal_(result.items[1].status,'CAPTURED','Verified coverage remains captured');
+}
+
+function CTI_TEST_v8PolicySummary_() {
+  var rows=[{sourceName:'Instructor notes',sourcePath:'Instructor Resources',verdict:'MISSING',ownerAction:{severity:'CRITICAL'}},
+    {sourceName:'Archive error',sourcePath:'Archive',verdict:'INGESTION_FAILURE',ownerAction:{severity:'CRITICAL'}}];
+  workBuildRawQaOperationalPolicy_('NAIT',rows,[],{});
+  workApplyPolicyAwareOperatorGuidance_(rows,[]);
+  var s=qaBuildSummary_(rows,[]);
+  CTI_TEST_equal_(s.missing,1,'Audit counts retain the absent instructor item');
+  CTI_TEST_equal_(s.ingestionFailures,1,'Audit counts retain the archive failure');
+  CTI_TEST_equal_(s.ownerCritical,0,'Final policy-aware actions drive the owner count');
+  CTI_TEST_equal_(s.criticalBlockers,0,'Exempt failures cannot block learner readiness');
+  rows.push({sourceName:'Final assessment',sourcePath:'Module One',verdict:'INGESTION_FAILURE'});
+  s=qaBuildSummary_(rows,[]);
+  CTI_TEST_equal_(s.criticalBlockers,1,'An explicit learner ingestion failure still blocks without an action object');
+  CTI_TEST_equal_(s.headlineStatus,'BLOCKED','Real learner failure remains prominent');
+}
+
+function CTI_TEST_v8DeclaredAssignmentAsset_() {
+  var hash='a'.repeat(64),text='Use the supplied planning template to record your observations and explain your decisions.';
+  var source=normalizeSourceItem_({name:'Planning task',type:'Assignment',path:'Module One',sourceTextSample:text,sourceTextFormat:'learner-text',sourceFiles:[{name:'Planning template.docx',path:'assignment/task/attachments/Planning template.docx',extension:'docx',presentInPackage:true,sha256:hash,evidenceSource:'assignment-xml-attachment'}]});
+  var dest=normalizeCourseraItem_({id:'task',name:'Planning task',type:'Assignment',path:'Module One',payload:{textSample:text,textEvidenceCompleteness:1,textConfidence:'high',assets:[],published:false}});
+  var r=compareItemFidelity_(source,dest,1,[dest],{mode:'RAW_INGESTION'});
+  CTI_TEST_assert_(r.verdict!=='VERIFIED','Matching instructions cannot certify an uncaptured template');
+  CTI_TEST_assert_(r.checks.assets.expected.indexOf('Planning template.docx')>-1,'Declared package bytes stay in the required asset dimension');
+  dest.assetDetails=[{name:'Renamed template.docx',sha256:hash}];
+  r=compareItemFidelity_(source,dest,1,[dest],{mode:'RAW_INGESTION'});
+  CTI_TEST_equal_(r.checks.assets.status,'VERIFIED','Exact bytes recover the declared file despite renaming');
+}
+
 function CTI_TEST_v8FailedAttemptActionability_() {
   var op=qaApplyIngestionActionabilityPolicy_({recommendationCode:'REINGEST',recommendationLabel:'redo',recommendationReason:'defect'},
     {ingestionCapabilityStatus:'LATEST_ATTEMPT_FAILED_NO_OUTPUT'},{mode:'RAW_INGESTION'});
@@ -4782,4 +4975,251 @@ function CTI_TEST_v8GradebookAbsence_(){
   CTI_TEST_equal_(r.settings.graded,null,'Absence of gradebook linkage does not establish ungraded quiz behavior');
   r=qaBrightspaceQuizBehaviorV8_({description:'This is an optional, ungraded quiz.',raw:{GradeItemId:0,AutoExportToGrades:false}});
   CTI_TEST_equal_(r.settings.graded,false,'Explicit source statement remains useful evidence');
+}
+
+
+function CTI_TEST_exactRawReplay_() {
+  var a=qaSha256Base64_(Utilities.base64Encode('saved XLSX')),b=qaSha256Base64_(Utilities.base64Encode('saved JSON'));
+  var ctx={mode:'RAW_INGESTION',publicationPolicy:'OBSERVE_NOT_PENALIZE'};
+  var mem={rawBaselineRunId:'raw-first',rawBaselineItems:[{courseraId:'a'}],latestNonRawRunId:'later-current',
+    rawBaselineEvidence:{excelSha256:a,jsonSha256:b,hasReadingRecovery:false}};
+  var input={excelSha256:a,jsonSha256:b,hasReadingRecovery:false};
+  var replay=qaApplySnapshotStageGuard_(ctx,mem,[{id:'a'}],input);
+  CTI_TEST_equal_(replay.mode,'RAW_INGESTION','Identical files are reanalysis, not a new later-stage observation');
+  CTI_TEST_assert_(replay.rawEvidenceReplay,'Replay reason must be explicit');
+  CTI_TEST_equal_(replay.canonicalRawBaselineRunId,'raw-first','Immutable baseline remains the reference');
+  CTI_TEST_assert_(!ctx.rawEvidenceReplay && !mem.rawEvidenceReplay,'Input context and saved history are not mutated');
+  [Object.assign({},input,{jsonSha256:a}),Object.assign({},input,{excelSha256:b}),
+   Object.assign({},input,{jsonSha256:''}),Object.assign({},input,{hasReadingRecovery:true}),null].forEach(function(v){
+    CTI_TEST_equal_(qaApplySnapshotStageGuard_(ctx,mem,[{id:'a'}],v).mode,'OPS_CURRENT','Same IDs cannot substitute for complete file identity');
+  });
+  mem.rawBaselineEvidence.hasReadingRecovery=true;
+  CTI_TEST_equal_(qaApplySnapshotStageGuard_(ctx,mem,[{id:'a'}],input).mode,'OPS_CURRENT','Unidentified supplemental baseline evidence prevents replay');
+  mem.rawBaselineEvidence={excelSha256:'invalid',jsonSha256:'invalid'};
+  CTI_TEST_equal_(qaApplySnapshotStageGuard_(ctx,mem,[{id:'a'}],{excelSha256:'invalid',jsonSha256:'invalid'}).mode,'OPS_CURRENT','Identical malformed hashes prove nothing');
+  mem.rawBaselineEvidence={excelSha256:a,jsonSha256:b};
+  CTI_TEST_equal_(qaApplySnapshotStageGuard_({mode:'OPS_CURRENT'},mem,[{id:'a'}],input).mode,'OPS_CURRENT','Replay cannot change an explicit current-stage selection');
+}
+
+function CTI_TEST_rawReplayIdentityFields_() {
+  var rows=qaLineageRows_([['Run ID','Package UUID','Lineage Generation','Mode','Snapshot Stage','C0 XLSX SHA256','C0 JSON SHA256'],
+    ['raw','package',1,'SINGLE_C0','RAW_UNPUBLISHED','excel-hash','json-hash'],['other','different',1,'SINGLE_C0','RAW_UNPUBLISHED','x','y']],'package');
+  CTI_TEST_equal_(rows.length,1,'Other packages are not replay candidates');
+  CTI_TEST_equal_(rows[0].c0Hash,'excel-hash','Workbook fingerprint is preserved');
+  CTI_TEST_equal_(rows[0].c0JsonHash,'json-hash','JSON fingerprint is separately preserved');
+  CTI_TEST_equal_(rows[0].generation,1,'Input identity stays within the saved generation');
+}
+
+function CTI_TEST_ownerReportedAsset_() {
+  var source={name:'Assignment Two',path:'Tasks',assetDetails:[{name:'Planning task.docx'}]};
+  var claim={type:'UNRESOLVED_SOURCE_ASSET',subject:'Planning task.docx',pathHint:'Tasks',provenanceOrigin:'CURRENT_SNAPSHOT',severity:'CRITICAL'};
+  var r=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'UNVERIFIED',courseraId:'task',issues:['PAYLOAD_UNVERIFIED'],checks:{assets:{unresolved:['Planning task.docx']}}},{claims:[claim]},[]);
+  CTI_TEST_equal_(r.ownerAction.severity,'CRITICAL','Explicit reported attachment failure stays actionable');
+  CTI_TEST_contains_(r.ownerAction.action,'Planning task.docx','The owner gets the actual filename');
+  CTI_TEST_contains_(r.ownerAction.action,'if absent','The owner confirms current access before restoring');
+  CTI_TEST_assert_(!/No repair is proven|only if 100%/.test(r.ownerAction.action),'No conflicting all-clear on an explicit failure');
+  qaAttachReadinessActions_([r],[{id:'task',name:'Assignment Two',path:'Tasks'}],{findings:[
+    {code:'AI_GRADER_PLACEHOLDER',itemId:'task',severity:'REVIEW',action:'Configure the grader instructions.'},
+    {code:'SI_UNRESOLVED_SOURCE_ASSET',itemId:'task',severity:'CRITICAL',action:'Duplicate restore instruction.'}]});
+  CTI_TEST_contains_(r.ownerAction.action,'Configure the grader','Independent grader check survives');
+  CTI_TEST_assert_(r.ownerAction.action.indexOf('Duplicate restore')<0,'The same asset action is not repeated');
+  r.checks.assets.unresolved.push('Other handout.pdf');
+  var action=qaOwnerActionForResult_(r).action;
+  CTI_TEST_contains_(action,'Other handout.pdf','Other unresolved content still needs evidence');
+  CTI_TEST_contains_(action,'Incomplete capture alone','Uncertainty on another file is not turned into loss');
+  var inherited=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'UNVERIFIED',issues:['PAYLOAD_UNVERIFIED'],checks:{}},{claims:[Object.assign({},claim,{provenanceOrigin:'EVIDENCE_MEMORY'})]},[]);
+  CTI_TEST_assert_(inherited.ownerAction.severity!=='CRITICAL','Historical attachment warning alone cannot order repair');
+}
+
+function CTI_TEST_learnerReadinessCarrier_() {
+  var item={id:'lesson',name:'Team practices',path:'Module One',type:'Reading',textScopeKind:'external-frame'};
+  var f={code:'EXTERNAL_PAGE_PAYLOAD_UNVERIFIED',severity:'EVIDENCE',itemId:'lesson',itemName:item.name,path:item.path,action:'Verify this learner embed.'};
+  var ready={findings:[f]};
+  var row={sourceName:'Instructor image',sourcePath:'Instructor Resources',courseraId:'lesson',courseraName:item.name,courseraPath:item.path,
+    verdict:'REPACKAGED',operationalPolicy:{inDecisionGate:false,reason:'Instructor-only source'},checks:{destinationReadiness:[f]},ownerAction:{severity:'REVIEW',action:f.action}};
+  workApplyPolicyAwareOperatorGuidance_([row],[]);
+  var summary=qaApplyReadinessToSummary_(qaBuildSummary_([row],[]),[row],[item],ready);
+  CTI_TEST_equal_(summary.ownerEvidence,1,'Learner readiness counts even when its source match is exempt');
+  CTI_TEST_equal_(row.ownerAction.severity,'INFO','Instructor source finding remains exempt');
+  var source=CTI_TEST_indexSource_(),begin=source.indexOf('function qaReadinessActionRepresented_('),end=source.indexOf(' function qaCapturedExtractorLabel_',begin);
+  CTI_TEST_assert_(begin>=0 && end>begin,'Exercise shipped owner task renderer');
+  var render=new Function(source.slice(begin,end)+';return qaOwnerTasksText;')();
+  var report=render({itemResults:[row],destinationReadiness:ready});
+  CTI_TEST_contains_(report,'[EVIDENCE] Module One → Team practices [lesson]','Learner item has a visible standalone owner task');
+  CTI_TEST_equal_((report.match(/Verify this learner embed/g)||[]).length,1,'Check appears once');
+  var eligible=Object.assign({},row,{operationalPolicy:{inDecisionGate:true},ownerAction:{severity:'EVIDENCE',action:f.action}});
+  report=render({itemResults:[row,eligible],destinationReadiness:ready});
+  CTI_TEST_equal_((report.match(/Verify this learner embed/g)||[]).length,1,'Eligible source row already carrying the task prevents duplication');
+  CTI_TEST_assert_(!qaReadinessActionRepresented_(eligible,Object.assign({},f,{itemId:'different'})),'Matching titles cannot suppress another stable destination ID');
+  var critical=Object.assign({},f,{severity:'CRITICAL'});
+  summary=qaApplyReadinessToSummary_(qaBuildSummary_([row],[]),[row],[item],{findings:[critical]});
+  CTI_TEST_equal_(summary.criticalBlockers,1,'A learner blocker cannot disappear under an exempt source row');
+}
+
+function CTI_TEST_unsupportedAssetLocalization_() {
+  var detail='The original assignment referenced an attached Word document "Planning task.docx", but the attachment itself could not be represented here.';
+  var claims=['UNRESOLVED_SOURCE_ASSET','UNSUPPORTED_CONTENT_FALLBACK'].map(function(type){return {type:type,subject:'',severity:type==='UNRESOLVED_SOURCE_ASSET'?'CRITICAL':'REVIEW',detail:detail,excerpt:detail,pathHint:'Tasks',provenanceOrigin:'CURRENT_SNAPSHOT'};});
+  var source={id:'source-task',name:'Assignment Two',path:'Tasks',assetDetails:[{name:'Planning task.docx'}]};
+  var items=[{id:'task',name:'Assignment Two',path:'Tasks',type:'Assignment'}],rows=[{sourceId:'source-task',courseraId:'task',checks:{}}];
+  var resolution=qaResolveHistoricalCurrentState_([source],items,rows,{claims:claims},{},{mode:'RAW_INGESTION'});
+  CTI_TEST_equal_(resolution.resolutions.length,2,'Both diagnostic types retained once for audit');
+  resolution.resolutions.forEach(function(r){CTI_TEST_equal_(r.currentItemId,'task','Each claim is localized to the assignment');CTI_TEST_equal_(r.subject,'Planning task.docx','Quoted filename identifies the affected asset');});
+  var ready=qaAssessDestinationReadiness_(items,{claims:claims},{},{mode:'RAW_INGESTION'},resolution,'NAIT');
+  CTI_TEST_equal_(ready.manualRepairCount,1,'One failed asset produces one required repair check');
+  CTI_TEST_assert_(!ready.findings.some(function(f){return /UNSUPPORTED_CONTENT_FALLBACK/.test(f.code);}), 'No duplicate unlocalized owner task for the same supported asset warning');
+  var ambiguous=qaNormalizeIngestionClaimScope_({type:'UNSUPPORTED_CONTENT_FALLBACK',detail:'Cannot include "One.docx" or "Two.docx".'});
+  CTI_TEST_assert_(!ambiguous.subject,'Multiple filenames remain ambiguous');
+}
+
+function CTI_TEST_manualAssetRecommendation_() {
+  var readiness={manualRepairCount:1,manualRepairFindings:[{itemName:'Assignment Two'}],criticalCount:1};
+  ['KEEP','REVIEW'].forEach(function(code){
+    var op=qaApplyDestinationReadinessPolicy_({recommendationCode:code},readiness);
+    CTI_TEST_equal_(op.recommendationCode,'MANUAL_REMEDIATION','Explicit asset failure reaches the next-action header');
+    CTI_TEST_contains_(op.recommendationReason,'Assignment Two','Next action identifies the assignment');
+    CTI_TEST_equal_(qaApplyIngestionActionabilityPolicy_(op,{ingestionCapabilityStatus:'LATEST_APPLIED'},{}).recommendationCode,'MANUAL_REMEDIATION','Already latest ingestion does not request another attempt');
+  });
+  CTI_TEST_equal_(qaApplyDestinationReadinessPolicy_({recommendationCode:'REINGEST'},readiness).recommendationCode,'REINGEST','Other proven ingestion defects retain their recommendation');
+  CTI_TEST_equal_(qaApplyDestinationReadinessPolicy_({recommendationCode:'REVIEW'},{manualRepairCount:0,evidenceGapCount:1}).recommendationCode,'REVIEW','Capture uncertainty alone cannot demand remediation');
+}
+
+function CTI_TEST_unsupportedAssetCurrentProof_() {
+  var source={name:'Planning task',path:'Module One',assetDetails:[{name:'Planning task.docx'}]};
+  var claims=['UNRESOLVED_SOURCE_ASSET','UNSUPPORTED_CONTENT_FALLBACK'].map(function(type){return {type:type,subject:'Planning task.docx',pathHint:'Module One',provenanceOrigin:'CURRENT_SNAPSHOT'};});
+  var item={id:'task',name:'Planning task',path:'Module One',type:'Reading',assetDetails:[{name:'Planning task.docx',url:'https://files.example/planning.docx'}]};
+  var r=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'VERIFIED',courseraId:'task',issues:[],checks:{}},{claims:claims},[item]);
+  CTI_TEST_equal_(r.verdict,'VERIFIED','Positive current asset evidence resolves both labels for the same failure');
+  CTI_TEST_equal_(r.checks.ingestionProvenance.claims.length,2,'Both diagnostic labels remain auditable');
+  claims.forEach(function(c){c.provenanceOrigin='EVIDENCE_MEMORY';});
+  r=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'VERIFIED',courseraId:'task',issues:[],checks:{}},{claims:claims},[]);
+  CTI_TEST_equal_(r.verdict,'VERIFIED','Inherited unsupported warning alone cannot downgrade fresh fidelity evidence');
+  claims.forEach(function(c){c.provenanceOrigin='CURRENT_SNAPSHOT';});
+  r=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'VERIFIED',courseraId:'task',issues:[],checks:{}},{claims:claims},[]);
+  CTI_TEST_equal_(r.verdict,'PARTIAL','Explicit unresolved current asset still overrides a premature verified verdict');
+}
+
+function CTI_TEST_readinessStableIdentity_() {
+  var items=['first','second'].map(function(id){return {id:id,name:'New Reading',type:'Reading',path:'Module One',textScopeKind:'document-viewer'};});
+  var ready=qaAssessDestinationReadiness_(items,{}, {},{mode:'RAW_INGESTION'},null,'NAIT');
+  CTI_TEST_equal_(ready.evidenceGapCount,2,'Distinct editors cannot collapse because names and evidence reasons are identical');
+  CTI_TEST_equal_(ready.findings[0].itemId,'first','First destination identity retained');
+  CTI_TEST_equal_(ready.findings[1].itemId,'second','Second destination identity retained');
+  CTI_TEST_equal_(qaReadinessForDestination_(items[0],items,ready).length,1,'Only the exact destination finding attaches');
+}
+
+function CTI_TEST_markupAssetClaimBoundary_() {
+  var text='Content Adaptation Converted the two-column table into a consecutive sequence of an image asset and paragraphs to meet CML structural restrictions where assets cannot be nested inside table cells. Lifted all YouTube video widgets out of parent paragraph elements to conform as top-level blocks.';
+  var report={name:'Author Alignment Report',path:'[DELETE ME]',textSample:'Smart Ingestion transformations and gap-filling. Module: Module One Item: supplement '+text};
+  var intel=qaParseSmartIngestionIntelligence_([report]);
+  CTI_TEST_equal_(intel.claims.filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';}).length,0,'Markup restrictions do not assert asset loss');
+  CTI_TEST_assert_(intel.claims.some(function(c){return c.type==='CONTENT_MARKUP_ADAPTATION' && c.severity==='INFO' && /assets cannot be nested/.test(c.excerpt);}), 'The adaptation remains visible as informational provenance');
+  CTI_TEST_equal_(qaAssessDestinationReadiness_([],intel,{}, {mode:'RAW_INGESTION'}).manualRepairCount,0,'No file repair is requested');
+  var memory=qaMergeGenerationIngestionIntelligence_({claims:[]},{claims:[{type:'UNRESOLVED_SOURCE_ASSET',subject:'',detail:text,excerpt:text,severity:'CRITICAL'}]},'previous');
+  CTI_TEST_equal_(memory.claims[0].type,'CONTENT_MARKUP_ADAPTATION','Saved false claim is reinterpreted');
+  CTI_TEST_equal_(memory.claims[0].originalClaimType,'UNRESOLVED_SOURCE_ASSET','Original interpretation is retained for audit');
+  CTI_TEST_equal_(memory.claims[0].provenanceOrigin,'EVIDENCE_MEMORY','Historical origin is retained');
+  CTI_TEST_equal_(qaIngestionAssetEventKind_('Could not include learning objectives because none were specified.'),'','A non-asset omission is not an attachment failure');
+  report.textSample+=' Could not attach the document "Worksheet.docx" because no asset identifier exists.';
+  var mixed=qaParseSmartIngestionIntelligence_([report]);
+  CTI_TEST_assert_(mixed.claims.some(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET' && c.subject==='Worksheet.docx';}), 'A separate explicit asset failure must survive the adaptation in the same event');
+}
+
+function CTI_TEST_plaintextAttachmentFailure_() {
+  var text='Content Adaptation Mapped the original file-based submission to a single file-upload, manually graded question. Appended the attachment file path "attachments\\Assignment 1 Planning.docx" as plain text at the end of the question prompt so the document is visible to authors despite lacking an asset identifier for embedding.';
+  var intel=qaParseSmartIngestionIntelligence_([{name:'Author Alignment Report',path:'[DELETE ME]',textSample:'Smart Ingestion transformations and gap-filling. Module: Tasks Item: gradedAssignment '+text}]);
+  var assets=intel.claims.filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';});
+  CTI_TEST_equal_(assets.length,1,'Named file failure is parsed once');
+  CTI_TEST_equal_(assets[0].subject,'Assignment 1 Planning.docx','The local directory is not part of the asset name');
+  CTI_TEST_equal_(assets[0].severity,'CRITICAL','The explicit failed attachment is actionable');
+  CTI_TEST_equal_(intel.claims.filter(function(c){return c.type==='REPAIR_INSTRUCTION';}).length,0,'File-upload is not a separate instruction to upload a source document');
+  var source={name:'Assignment 1',path:'Tasks',type:'Assignment',assetDetails:[]};
+  CTI_TEST_equal_(qaSmartIngestionClaimsForSource_(source,intel).filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';}).length,1,'A uniquely named assignment can match even when an older source scan omitted declared files');
+  var r=qaApplySmartIngestionProvenanceToResult_(source,{verdict:'VERIFIED',issues:[],checks:{}},intel,[]);
+  CTI_TEST_equal_(r.verdict,'PARTIAL','Preserved prompt text cannot hide its explicit missing attachment claim');
+  var historical=qaNormalizeIngestionClaimScope_({type:'REPAIR_INSTRUCTION',excerpt:text,detail:text,severity:'REVIEW'});
+  CTI_TEST_equal_(historical.type,'UNRESOLVED_SOURCE_ASSET','Existing memory receives the same interpretation');
+  CTI_TEST_equal_(historical.originalClaimType,'REPAIR_INSTRUCTION','Original repair classification is retained');
+}
+
+function CTI_TEST_assetEventDeduplication_() {
+  var event='Unsupported Content Fallback Could not attach or embed the referenced document "Planning task.docx" because no asset identifier exists.';
+  function parse(text){return qaParseSmartIngestionIntelligence_([{name:'Author Alignment Report',path:'[DELETE ME]',textSample:'Smart Ingestion transformations and gap-filling. '+text}]);}
+  var single=parse('Module: Module One '+event);
+  CTI_TEST_equal_(single.claims.filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';}).length,1,'Legacy and event parsers describe a single failure');
+  CTI_TEST_equal_(qaAssessDestinationReadiness_([],single,{}, {mode:'RAW_INGESTION'}).manualRepairCount,1,'The owner sees one repair check');
+  var separate=parse('Module: Module One '+event+' Module: Module Two '+event);
+  var assets=separate.claims.filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';});
+  CTI_TEST_equal_(assets.length,2,'An identical filename in a different module retains its own event');
+  CTI_TEST_assert_(assets.some(function(c){return c.pathHint==='Module One';}) && assets.some(function(c){return c.pathHint==='Module Two';}), 'Both locations remain available');
+  var many=[];for(var n=0;n<225;n++)many.push('Module: Module '+n+' Content Adaptation Could not attach the document "Worksheet '+n+'.docx" because no asset identifier exists.');
+  var large=parse(many.join(' '));
+  CTI_TEST_equal_(large.claims.filter(function(c){return c.type==='UNRESOLVED_SOURCE_ASSET';}).length,225,'Fresh parsing must not apply the storage compactor claim limit');
+  CTI_TEST_equal_(large.categoryCounts.UNRESOLVED_SOURCE_ASSET,225,'Category totals include the complete parsed event set');
+}
+
+function CTI_TEST_attachmentPresenceBoundary_() {
+  var item={id:'task',name:'Planning task',path:'Tasks',type:'Assignment',nativeAssignment:{currentStateEvidence:{editorSurfaceObserved:true},attachments:[{inferredFileName:'Planning task.docx',url:'',evidenceSource:'visible-editor-file-link'}]}};
+  var claim={type:'UNRESOLVED_SOURCE_ASSET',subject:'Planning task.docx',severity:'CRITICAL',provenanceOrigin:'EVIDENCE_MEMORY'};
+  CTI_TEST_assert_(!qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_(claim.subject,[item],item.id)), 'A file label claiming to be a link is insufficient without a captured URL');
+  CTI_TEST_assert_(qaResolveHistoricalClaimCurrentState_(claim,null,item,[item],{},{}).status!=='RESOLVED','A label cannot resolve historical loss');
+  item.nativeAssignment.attachments[0].url='attachments/Planning task.docx';
+  CTI_TEST_assert_(!qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_(claim.subject,[item],item.id)), 'A relative source path is not a captured download');
+  item.nativeAssignment.attachments[0].evidenceSource='visible-editor-file-chip';
+  CTI_TEST_assert_(qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_(claim.subject,[item],item.id)), 'A file chip on the observed editor is positive presence evidence');
+  delete item.nativeAssignment.currentStateEvidence;
+  CTI_TEST_assert_(!qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_(claim.subject,[item],item.id)), 'An unscoped chip label cannot substitute for observing its editor');
+  item.nativeAssignment.attachments[0].evidenceSource='visible-editor-file-link';
+  item.nativeAssignment.attachments[0].url='https://files.example.test/Planning-task.docx';
+  CTI_TEST_assert_(qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_(claim.subject,[item],item.id)), 'Captured absolute file URL establishes a carrier, not verified bytes');
+  var metadata={id:'preferred',name:'Planning task',assetDetails:[{name:'Planning task.docx'}]};
+  CTI_TEST_equal_(qaFindCurrentAttachmentEvidence_(claim.subject,[metadata,item],'preferred').itemId,'task','Observed carrier wins over a preferred name-only entry');
+  CTI_TEST_assert_(!qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_('Unrelated worksheet.pdf',[item],item.id)), 'Observed unrelated files do not resolve the named asset');
+  var hashed={id:'bytes',assetDetails:[{name:claim.subject,sha256:'a'.repeat(64)}]};
+  CTI_TEST_assert_(qaCurrentAttachmentIsObserved_(qaFindCurrentAttachmentEvidence_(claim.subject,[hashed],'')), 'Captured byte hash remains valid positive evidence');
+}
+
+function CTI_TEST_nativeGraderReadiness_() {
+  var item={id:'journal',name:'Journal',type:'Assignment',path:'Tasks',textSample:'Reflect on the scenario and upload your response.',nativeAssignment:{settings:{graderType:'AI'},submission:{aiGraded:true},currentStateEvidence:{editorSurfaceObserved:true},authoringSemanticText:'AI Grader Instructions (Not shown to learners) Enter instructions for AI graders... Show academic integrity options'}};
+  var ready=qaAssessDestinationReadiness_([item],{}, {}, {mode:'RAW_INGESTION'});
+  var f=ready.findings.filter(function(x){return x.code==='AI_GRADER_PLACEHOLDER';});
+  CTI_TEST_equal_(f.length,1,'Clean learner text does not discard a separately captured authoring placeholder');
+  CTI_TEST_equal_(f[0].itemId,'journal','The finding targets the observed assignment');
+  CTI_TEST_equal_(f[0].severity,'REVIEW','Placeholder is a configuration review, not conclusive loss');
+  CTI_TEST_contains_(f[0].action,'if empty','Owner checks actual instructions before editing');
+  var r={courseraId:'journal',verdict:'VERIFIED',issues:[],checks:{}};
+  qaAttachReadinessActions_([r],[item],ready);
+  CTI_TEST_equal_(r.verdict,'VERIFIED','Readiness does not rewrite prompt fidelity');
+  CTI_TEST_equal_(r.ownerAction.severity,'REVIEW','Verified source text still surfaces grader review');
+  item.nativeAssignment.authoringSemanticText='AI Grader Instructions (Not shown to learners) Evaluate the response against the scenario rubric. Show academic integrity options';
+  CTI_TEST_assert_(!qaHasAiGraderPlaceholder_(item),'Nonempty instructions do not receive an empty-field warning');
+  item.nativeAssignment.authoringSemanticText='AI Grader Instructions (Not shown to learners) Enter instructions for AI graders... Show academic integrity options';
+  delete item.nativeAssignment.currentStateEvidence;
+  CTI_TEST_assert_(!qaHasAiGraderPlaceholder_(item),'Unobserved authoring metadata is not a current editor finding');
+  item.nativeAssignment.currentStateEvidence={editorSurfaceObserved:true};
+  item.nativeAssignment.settings.graderType='STAFF';item.nativeAssignment.submission.aiGraded=false;
+  CTI_TEST_assert_(!qaHasAiGraderPlaceholder_(item),'Inactive AI controls do not flag manually graded assignments');
+  item.type='Discussion';item.textSample='Discuss the wording Enter instructions for AI graders.';
+  CTI_TEST_assert_(!qaHasAiGraderPlaceholder_(item),'Quoted discussion content cannot become a grader warning');
+}
+
+function CTI_TEST_readinessSeverityPreservation_() {
+  var item={id:'reading',name:'Reading',path:'Module One',type:'Reading'};
+  ['EVIDENCE','REVIEW','CRITICAL'].forEach(function(severity){
+    var row={courseraId:item.id,verdict:'VERIFIED',issues:[],checks:{}};
+    qaAttachReadinessActions_([row],[item],{findings:[{itemId:item.id,itemName:item.name,path:item.path,code:'CAPTURE_CHECK',severity:severity,action:'Inspect this captured item.'}]});
+    CTI_TEST_equal_(row.ownerAction.severity,severity,'Readiness severity is preserved: '+severity);
+    CTI_TEST_equal_(row.verdict,'VERIFIED','Presentation leaves source fidelity intact');
+  });
+  var critical={courseraId:item.id,verdict:'MISSING',issues:[],checks:{},ownerAction:{severity:'CRITICAL',action:'Confirm source content.'}};
+  qaAttachReadinessActions_([critical],[item],{findings:[{itemId:item.id,code:'CAPTURE_CHECK',severity:'EVIDENCE',action:'Inspect capture.'}]});
+  CTI_TEST_equal_(critical.ownerAction.severity,'CRITICAL','Evidence follow-up cannot downgrade an existing blocker');
+}
+
+function CTI_TEST_missingOwnerRestorationBoundary_() {
+  var row={verdict:'MISSING',sourceName:'Welcome',issues:[],checks:{}};
+  var action=qaOwnerActionForResult_(row);
+  CTI_TEST_equal_(action.severity,'CRITICAL','Unmatched required source item remains a blocker');
+  CTI_TEST_contains_(action.action,'consolidated','Owner verifies whether content exists in another item');
+  CTI_TEST_contains_(action.action,'template','Owner is not told to reproduce unfinished source templates');
+  CTI_TEST_equal_(row.verdict,'MISSING','Guidance cannot silently clear the unmatched source verdict');
 }

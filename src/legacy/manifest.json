@@ -1,0 +1,679 @@
+{
+  "baseline": "5280adf",
+  "qaBuild": "v8.0.0-asset-claim-scope-20260927",
+  "baselineSha256": "c041c0c1eda2f73ce3e80afa4266b1d1b1c85faaa497788d52a838f1f953b257",
+  "browserExports": [
+    "normalizeCourseraItem_",
+    "qaParseSmartIngestionIntelligence_",
+    "qaAssessDestinationReadiness_",
+    "qaCaptureTraversalSummary_",
+    "qaAssertNotDiagnosticCapture_",
+    "qaBrightspaceFlattenTopics_",
+    "qaNormalizeBrightspaceAssignment_",
+    "ctiExtractorDelivery_",
+    "qaCleanText_",
+    "qaReadingEvidenceGap_",
+    "compareItemFidelity_",
+    "normalizeSourceItem_",
+    "CTI_RELEASE_REGISTRY_",
+    "CTI_FEATURE_MANIFEST_"
+  ],
+  "parts": [
+    {
+      "file": "src/legacy/server/001-cti-architecture-version.js",
+      "lines": 28,
+      "symbols": [
+        "CTI_ARCHITECTURE_VERSION_",
+        "CTI_RELEASE_REGISTRY_",
+        "CTI_FEATURE_MANIFEST_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/002-cti-coursera-extractor-base64-chunks.js",
+      "lines": 15,
+      "symbols": [
+        "CTI_COURSERA_EXTRACTOR_BASE64_CHUNKS_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/003-cti-brightspace-extractor-base64-chunks.js",
+      "lines": 358,
+      "symbols": [
+        "CTI_BRIGHTSPACE_EXTRACTOR_BASE64_CHUNKS_",
+        "ctiCanonicalCourseraExtractorSource_",
+        "ctiCanonicalBrightspaceExtractorSource_",
+        "getCtiBootstrap",
+        "getCtiFeatureManifest",
+        "getCtiExtractor",
+        "ctiExtractorDelivery_",
+        "ctiEvidenceEnvelope_",
+        "setBuildTimestamp",
+        "getDeploymentTimestamp",
+        "doGet",
+        "authorize_",
+        "registerWorkflowFileId_",
+        "validateWorkflowFileId_",
+        "VALID_STATUSES_",
+        "validateDateOnly_",
+        "validateStatus_",
+        "validateDriveLink_",
+        "validateUuid_",
+        "nonNegativeInteger_",
+        "versionToken_",
+        "assertCurrentVersion_",
+        "sheetSafeText_",
+        "normalizeFileName_",
+        "canonicalDisplayFileName_",
+        "invalidateAnalyticsCache_",
+        "getMatchKey_",
+        "packageSemanticKey_",
+        "updateCatalogMapSheet_",
+        "loadCatalogMap_",
+        "syncCatalogsFromDrive",
+        "workNormalizeHeader_",
+        "workHeaderIndex_",
+        "workOwnerKey_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/004-workdateonly.js",
+      "lines": 344,
+      "symbols": [
+        "workDateOnly_",
+        "workValidateDateOnly_",
+        "workCampaignId_",
+        "workDisplayCode_",
+        "workNumberOrZero_",
+        "workScormCount_",
+        "workBuildNaitCatalog_",
+        "workBuildMarshallCatalog_",
+        "workBuildScormIndex_",
+        "workResolveCatalogCandidate_",
+        "workExtractCatalogKeysFromText_",
+        "workReadPlannerGroups_",
+        "workPackageMetricsFromRow_",
+        "workPackageMetricsFromPayload_",
+        "getPackageScanHistorySheet_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/005-appendpackagescanhistory.js",
+      "lines": 345,
+      "symbols": [
+        "appendPackageScanHistory_",
+        "loadLatestPackageScanHistoryMap_",
+        "loadLatestRawQaMap_",
+        "workRedoPolicyDefinition_",
+        "workPathRoot_",
+        "workSourceItemPolicy_",
+        "workExtraItemPolicy_",
+        "workBuildRawQaOperationalPolicy_",
+        "qaApplyIngestionActionabilityPolicy_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/006-workrawqarecommendation.js",
+      "lines": 330,
+      "symbols": [
+        "workRawQaRecommendation_",
+        "workIsImportOnlyAssignment_",
+        "workHasScormFlag_",
+        "workHasSourceRuntimeFlag_",
+        "workHasExistingCourseraShell_",
+        "workEvidenceChecklistSteps_",
+        "workValidateEvidenceChecklistPatch_",
+        "workNormalizeEvidenceChecklist_",
+        "getWorkStateSheet_",
+        "loadWorkStateMap_",
+        "workDefaultState_",
+        "workValidateStatePatch_",
+        "updateRedoWorkItemState",
+        "workBuildPackageIndex_",
+        "workPlannerEvidenceForItem_",
+        "workNextAction_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/007-getredoworkqueuedb.js",
+      "lines": 332,
+      "symbols": [
+        "getRedoWorkQueueDb",
+        "DB_SPREADSHEET_NAME",
+        "PACKAGES_SHEET_NAME",
+        "TREE_STORE_SHEET_NAME",
+        "DUPLICATE_ARCHIVE_SHEET_NAME",
+        "QA_RUNS_SHEET_NAME",
+        "QA_RUN_CHUNKS_SHEET_NAME",
+        "QA_RUN_SCHEMA_VERSION_",
+        "QA_RUN_CHUNK_SIZE_",
+        "WORK_STATE_SHEET_NAME",
+        "PACKAGE_SCAN_HISTORY_SHEET_NAME",
+        "WORK_STATE_SCHEMA_VERSION_",
+        "PACKAGE_SCAN_HISTORY_SCHEMA_VERSION_",
+        "CTI_WORK_QUEUE_BUILD_ID_",
+        "CTI_WORK_DEFAULT_FROM_",
+        "CTI_WORK_DEFAULT_TO_",
+        "CTI_WORK_DEFAULT_SCAN_AFTER_",
+        "CTI_WORK_SOURCE_CONFIG_",
+        "DB_SCHEMA_VERSION",
+        "TREE_CELL_LIMIT_",
+        "TREE_CHUNK_SIZE_",
+        "getDatabaseSheet_",
+        "findPackageSheet_",
+        "hasPackageHeaders_",
+        "findBestLegacyDatabase_",
+        "initializePackageSheet_",
+        "getTreeStoreSheet_",
+        "removeStoredCourseTree_",
+        "prepareCourseTreeCell_",
+        "loadTreeStoreMap_",
+        "resolveCourseTreeJson_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/008-getqarunssheet.js",
+      "lines": 315,
+      "symbols": [
+        "getQaRunsSheet_",
+        "getQaRunChunksSheet_",
+        "qaHexDigest_",
+        "qaSha256Base64_",
+        "qaExtractorIdentityFromResult_",
+        "qaCourseIdFromSnapshot_",
+        "qaRunHeaderMap_",
+        "qaLatestSourceScanForUuid_",
+        "qaNormalizeRequestedGeneration_",
+        "qaSnapshotStageFromResult_",
+        "qaLineageRows_",
+        "qaRequestedGenerationFromMemory_",
+        "qaCompactIngestionIntelligence_",
+        "qaMergeGenerationIngestionIntelligence_",
+        "qaSelectCanonicalRawBaselineRow_",
+        "qaPhysicalDestinationIds_",
+        "qaObsoleteAggregateStageGuard_",
+        "qaIsExactRawEvidenceReplay_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/009-qaapplysnapshotstageguard.js",
+      "lines": 359,
+      "symbols": [
+        "qaApplySnapshotStageGuard_",
+        "qaLoadGenerationEvidenceContext_",
+        "qaLineageItemKey_",
+        "qaApplySameGenerationManualAttribution_",
+        "qaResolveLineage_",
+        "qaRepeatedExportRepairCandidates_",
+        "qaRepairRepeatedExportLineage_",
+        "repairQaRepeatedExportLineage"
+      ]
+    },
+    {
+      "file": "src/legacy/server/010-qabuildlongitudinaldelta.js",
+      "lines": 332,
+      "symbols": [
+        "qaBuildLongitudinalDelta_",
+        "qaLoadRunPayloadById_",
+        "qaItemEvolutionDelta_",
+        "qaBuildStageDelta_",
+        "persistQaRun_",
+        "getQaRunHistory",
+        "getQaStoredRun",
+        "removeTreeCellStorage_",
+        "migratePackageSheetToUuid_",
+        "normalizePartnerName_",
+        "duplicateDigest_",
+        "duplicateTimestampNumber_",
+        "duplicateDisplayTimestamp_",
+        "duplicateCellIsBlank_",
+        "duplicateComparableValue_",
+        "duplicateScanFingerprint_",
+        "chooseOldestDuplicateRecord_",
+        "chooseLatestDuplicateRecord_",
+        "mergeDuplicateMetadata_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/011-buildduplicateplan.js",
+      "lines": 357,
+      "symbols": [
+        "buildDuplicatePlan_",
+        "duplicateGroupForClient_",
+        "getDuplicateEntryPreview",
+        "getDuplicateArchiveSheet_",
+        "duplicateArchiveRow_",
+        "archiveDuplicateEntries",
+        "recordSiteVisit",
+        "savePackageAuditToDb",
+        "updatePackageInDb",
+        "updatePackageMetadataInDb",
+        "deletePackageFromDb",
+        "getPartnerAnalyticsDb"
+      ]
+    },
+    {
+      "file": "src/legacy/server/012-fetchpackagestructuredb.js",
+      "lines": 358,
+      "symbols": [
+        "fetchPackageStructureDb",
+        "countEmptyFolders_",
+        "computeRiskMetrics_",
+        "parseSourceEvidence_",
+        "basicSourceFileEvidence_",
+        "sourcePayloadForResource_",
+        "analyzeImsccFromXmlString",
+        "validateManifestItems_",
+        "resolveHiddenPlugins_",
+        "buildCourseTree_",
+        "processNode_",
+        "sanitizeAndFlattenTree_",
+        "exportMasterManifestAsGoogleSheet",
+        "ctiDriveConversionRetryable_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/013-ctidriveimportmatches.js",
+      "lines": 217,
+      "symbols": [
+        "ctiDriveImportMatches_",
+        "ctiImportXlsxAsSheet_",
+        "uploadAndScanMaster",
+        "MACMILLAN_TIME_MODEL_VERSION_",
+        "macmillanTimePolicyRows_",
+        "macmillanEstimateItemTime_",
+        "macmillanSafeMatrix_",
+        "macmillanPersistValidatedTab_",
+        "createTab"
+      ]
+    },
+    {
+      "file": "src/legacy/server/014-executedynamicnsplitandscan.js",
+      "lines": 186,
+      "symbols": [
+        "executeDynamicNSplitAndScan",
+        "exportSpecAsXlsxBlob"
+      ]
+    },
+    {
+      "file": "src/legacy/server/015-qacomparegptoutput.js",
+      "lines": 367,
+      "symbols": [
+        "qaCompareGptOutput"
+      ]
+    },
+    {
+      "file": "src/legacy/server/016-isadministrativetitle.js",
+      "lines": 352,
+      "symbols": [
+        "isAdministrativeTitle_",
+        "countCoreEmptyFolders_",
+        "deterministicPreflightMessage_",
+        "callGeminiText_",
+        "runPreFlightInspector",
+        "generateAiRiskReportDb",
+        "executeDeepArchitectureAudit",
+        "runCTISystemHealthCheck",
+        "predictLaborHours",
+        "calculateCosineSimilarity",
+        "vectorizeCourse",
+        "CTI_GATEWAY_RELEASE_",
+        "CTI_QA_ENGINE_BUILD_ID_",
+        "CTI_MACMILLAN_BUILD_ID_",
+        "qaCleanText_",
+        "qaCleanName_",
+        "qaMatchTitleKey_",
+        "qaPathParts_",
+        "qaTokenSet_",
+        "qaJaccard_",
+        "levenshtein_",
+        "fuzzyMatchScore_",
+        "qaPathSimilarity_",
+        "normalizeCourseraType_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/017-qatypescompatible.js",
+      "lines": 339,
+      "symbols": [
+        "qaTypesCompatible_",
+        "qaFileName_",
+        "qaAssetKey_",
+        "qaLooksLikeAsset_",
+        "qaAssetDescriptor_",
+        "qaUniqueAssetDescriptors_",
+        "qaUniqueAssets_",
+        "qaPerceptualHashSimilarity_",
+        "qaAssetSimilarity_",
+        "qaNormalizeUrl_",
+        "qaIsTechnicalSchemaUrl_",
+        "qaExternalLinks_",
+        "qaAssetEvidenceCandidates_",
+        "qaFindAssetEvidence_",
+        "qaFindAsset_",
+        "qaFindLink_",
+        "qaCrossItemCanonicalAssetName_",
+        "qaCrossItemInformativeTokens_",
+        "qaCrossItemRoleSignature_",
+        "qaCrossItemCandidateIsConcrete_",
+        "qaCrossItemGenericExpectedAsset_",
+        "qaCrossItemGenericMethodIsSufficient_",
+        "qaCrossItemDirectionalCoverage_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/018-qacrossitemsemanticassetevidence.js",
+      "lines": 359,
+      "symbols": [
+        "qaCrossItemSemanticAssetEvidence_",
+        "qaCrossItemAssetMatchIsStrong_",
+        "qaFindCrossItemAssetEvidence_",
+        "qaFindCrossItemTitleAssetEvidence_",
+        "qaFindCrossItemLinkEvidence_",
+        "qaFindCrossItemPayloadEvidence_",
+        "qaFindCrossItemSemanticRepackagingEvidence_",
+        "qaInteractionIdentityKey_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/019-qafindcrossitemstructuralrepackagingevidence.js",
+      "lines": 358,
+      "symbols": [
+        "qaFindCrossItemStructuralRepackagingEvidence_",
+        "qaAugmentCrossItemRecoveryWithSemanticEvidence_",
+        "qaSmartIngestionReportLooksValid_",
+        "qaSmartIngestionClaimExcerpt_",
+        "qaParseSmartIngestionIntelligence_",
+        "qaIngestionAssetEventKind_",
+        "qaNormalizeIngestionClaimScope_",
+        "qaSmartIngestionClaimsForSource_",
+        "qaExplicitExclusionClaimForSource_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/020-qaonetomanyaggregateforsource.js",
+      "lines": 335,
+      "symbols": [
+        "qaOneToManyAggregateForSource_",
+        "qaDecorateOneToManyResult_",
+        "qaApplySmartIngestionProvenanceToResult_",
+        "qaClaimResolutionKey_",
+        "qaCurrentItemDeepObserved_",
+        "qaCurrentAttachmentCandidates_",
+        "qaCurrentAttachmentIsObserved_",
+        "qaFindCurrentAttachmentEvidence_",
+        "qaCurrentGeneratedBehaviorMatches_",
+        "qaFindCurrentItemBySubject_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/021-qaresolvehistoricalclaimcurrentstate.js",
+      "lines": 308,
+      "symbols": [
+        "qaResolveHistoricalClaimCurrentState_",
+        "qaResolveHistoricalCurrentState_",
+        "qaApplyCurrentStateResolutionsToResults_",
+        "qaCaptureTraversalSummary_",
+        "qaQuestionImageFailures_",
+        "qaObservedEmptyAssessmentBody_",
+        "qaHasAiGraderPlaceholder_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/022-qaassessdestinationreadiness.js",
+      "lines": 317,
+      "symbols": [
+        "qaAssessDestinationReadiness_",
+        "qaApplyDestinationReadinessPolicy_",
+        "qaIsProvenHardPayloadLoss_",
+        "qaResolveSnapshotContext_",
+        "qaAssessSnapshotCoherence_",
+        "qaLifecycleSourceKey_",
+        "qaLifecyclePublication_",
+        "qaLifecycleContentStatus_",
+        "qaLifecycleRubricCount_",
+        "qaLifecycleRubricMismatch_",
+        "qaLifecycleGoodVerdict_",
+        "qaLifecycleBadRank_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/023-qacomparelifecyclesnapshots.js",
+      "lines": 246,
+      "symbols": [
+        "qaCompareLifecycleSnapshots_",
+        "qaLifecycleSnapshotView_",
+        "runPostIngestionLifecycleQa",
+        "qaBuildIntentionalExclusionResult_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/024-qabuildrepackagedmissingresult.js",
+      "lines": 327,
+      "symbols": [
+        "qaBuildRepackagedMissingResult_",
+        "qaBrightspaceText_",
+        "qaBrightspacePath_",
+        "qaBrightspaceCourseCode_",
+        "qaBrightspaceFlattenTopics_",
+        "qaBrightspaceQuestionType_",
+        "qaBrightspaceQuizQuestion_",
+        "qaBrightspaceDeclaredQuizCount_",
+        "qaBrightspaceQuizToAssessment_",
+        "qaBrightspaceQuizCaptureSummary_",
+        "qaBrightspaceAssignmentBehavior_",
+        "qaBrightspaceExternalComparableLinks_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/025-qaparsebrightspacegroundtruthcapture.js",
+      "lines": 342,
+      "symbols": [
+        "qaParseBrightspaceGroundTruthCapture_",
+        "qaBrightspaceIdentityGuard_",
+        "qaBrightspaceTopicType_",
+        "qaBrightspaceMatchScore_",
+        "qaMergeInteractiveSignals_",
+        "qaApplyBrightspaceGroundTruth_",
+        "qaApplyLiveSourceReviewPolicy_",
+        "flattenTreeForQa_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/026-qahiddendependencykind.js",
+      "lines": 350,
+      "symbols": [
+        "qaHiddenDependencyKind_",
+        "qaLegacyDiscussionText_",
+        "qaApplyUnreachedCarrierGap_",
+        "qaApplySourceTextGap_",
+        "qaLegacyAssignmentText_",
+        "qaNormalizeBrightspaceAssignment_",
+        "qaLegacyWebLinkEvidence_",
+        "qaLaunchUrlComparisonKey_",
+        "qaExternalWebpageEvidence_",
+        "qaExternalWebpageTransformation_",
+        "normalizeSourceItem_",
+        "qaMergeCourseraStructuredEvidence_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/027-normalizeassignmentmetadatav61325.js",
+      "lines": 294,
+      "symbols": [
+        "normalizeAssignmentMetadataV61325",
+        "qaNormalizeNativeAssignment_",
+        "qaNormalizeIngestionFailure_",
+        "qaPayloadField_",
+        "qaApplyReadingRecovery_",
+        "qaReadingCaptureReceipt_",
+        "qaObservedEmptyAssessmentReceipt_",
+        "qaReadingAttachmentLabels_",
+        "qaReadingAttachmentCoverage_",
+        "qaReadingAttachmentEvidence_",
+        "qaReadingEvidenceGap_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/028-normalizecourseraitem.js",
+      "lines": 337,
+      "symbols": [
+        "normalizeCourseraItem_",
+        "qaMatchScore_",
+        "qaBuildGlobalMatchPlan_",
+        "qaBehaviorComparison_",
+        "qaRuntimeReview_",
+        "qaExternalRuntimeEvidenceForPackage_",
+        "qaApplyExternalRuntimePolicy_",
+        "qaBuildHiddenDependencyResult_",
+        "qaCourseLevelFailure_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/029-qacharngramcosine.js",
+      "lines": 344,
+      "symbols": [
+        "qaCharNgramCosine_",
+        "qaTextPreview_",
+        "qaLearnerMarkupText_",
+        "qaAssessmentText_",
+        "qaQuestionTypeKey_",
+        "qaNormalizeQuestion_",
+        "qaNormalizeAssessment_",
+        "qaParseCourseraAssignmentText_",
+        "qaQuestionPromptSimilarity_",
+        "qaQuestionTypesCompatible_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/030-qaassessmentfieldsimilarity.js",
+      "lines": 314,
+      "symbols": [
+        "qaAssessmentFieldSimilarity_",
+        "qaAnswerSetSimilarity_",
+        "qaAssessmentLabelKey_",
+        "qaNormalizeOptionSemantic_",
+        "qaOptionSemanticSimilarity_",
+        "qaOptionSetSimilarity_",
+        "qaCorrectOptionModels_",
+        "ctiSeparateJoinedOptionFeedback_",
+        "qaSeparateCourseraOptionFeedback_",
+        "ctiOptionLabelLooksLikeFeedback_",
+        "ctiOptionFeedbackRisk_",
+        "ctiGuardOptionEvidence_",
+        "qaCompareAssessmentQuestion_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/031-qastructuredassessmentcomparison.js",
+      "lines": 324,
+      "symbols": [
+        "qaStructuredAssessmentComparison_",
+        "qaBestSemanticSourceField_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/032-qatextcomparison.js",
+      "lines": 322,
+      "symbols": [
+        "qaTextComparison_",
+        "qaSemanticTokenList_",
+        "qaDirectionalSemanticSimilarity_",
+        "qaNativeRubricSemanticText_",
+        "qaNativePromptSemanticText_",
+        "qaNativeAssignmentSemanticText_",
+        "qaSourcePdfComparisonSet_",
+        "qaBestDocumentSemanticMatch_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/033-qanativerubricanchorevidence.js",
+      "lines": 246,
+      "symbols": [
+        "qaNativeRubricAnchorEvidence_",
+        "qaNativeTransformationComparison_",
+        "qaQuestionMediaAction_",
+        "qaConfirmedEmptyComparison_",
+        "qaAssessmentAnswerOnlyGap_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/034-qaowneractionforresult.js",
+      "lines": 340,
+      "symbols": [
+        "qaOwnerActionForResult_",
+        "workApplyPolicyAwareOperatorGuidance_",
+        "qaClassifyExtraItem_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/035-qaevidencestrength.js",
+      "lines": 96,
+      "symbols": [
+        "qaEvidenceStrength_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/036-compareitemfidelity.js",
+      "lines": 349,
+      "symbols": [
+        "compareItemFidelity_",
+        "qaBuildSummary_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/037-qacourseracapturereadiness.js",
+      "lines": 96,
+      "symbols": [
+        "qaCourseraCaptureReadiness_",
+        "qaMergeCourseraPayload_",
+        "qaAssertNotDiagnosticCapture_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/038-runpostingestionqa.js",
+      "lines": 624,
+      "symbols": [
+        "runPostIngestionQa"
+      ]
+    },
+    {
+      "file": "src/legacy/server/039-tokenjaccardsimilarity.js",
+      "lines": 345,
+      "symbols": [
+        "tokenJaccardSimilarity_",
+        "synthesizeQaRemediationPlanDb",
+        "qaReadinessForDestination_",
+        "qaAttachReadinessActions_",
+        "qaReadinessActionRepresented_",
+        "qaApplyReadinessToSummary_",
+        "qaMissingReconciliationDiagnostic_",
+        "qaBuildDestinationOwnerView_",
+        "qaAttachSourceAssetProvenance_",
+        "qaSourceAssetCarrierAction_",
+        "qaDocumentScopeComparison_",
+        "qaYoutubeVideoId_",
+        "qaPluginRuntimeSummary_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/040-qabrightspacequizbehaviorv8.js",
+      "lines": 280,
+      "symbols": [
+        "qaBrightspaceQuizBehaviorV8_",
+        "qaCanonicalMathTextV8_",
+        "CTI_V7931_qaQuestionPromptSimilarity_",
+        "CTI_V7931_qaAssessmentFieldSimilarity_",
+        "CTI_V7931_qaNormalizeQuestion_",
+        "CTI_V7931_qaBehaviorComparison_",
+        "qaEvidenceDimensionsV8_",
+        "qaApplyDimensionalVerdictGateV8_",
+        "CTI_V7931_compareItemFidelity_",
+        "CTI_V7931_qaFindCrossItemSemanticRepackagingEvidence_",
+        "CTI_V7931_qaParseSmartIngestionIntelligence_",
+        "CTI_V7931_qaApplySmartIngestionProvenanceToResult_",
+        "CTI_V7931_qaApplyIngestionActionabilityPolicy_",
+        "CTI_V7931_qaBuildSummary_"
+      ]
+    }
+  ]
+}

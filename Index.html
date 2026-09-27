@@ -1830,10 +1830,20 @@
    });
    return lines.join('\n');
  }
+ function qaReadinessActionRepresented_(row, finding) {
+    var owner=row.ownerAction || {};
+    if(row.operationalPolicy && row.operationalPolicy.inDecisionGate===false)return false;
+    if(['CRITICAL','REVIEW','EVIDENCE'].indexOf(owner.severity)<0 || !owner.action)return false;
+    return (row.checks && row.checks.destinationReadiness || []).some(function(x){
+        return x.code===finding.code && x.itemName===finding.itemName && x.path===finding.path &&
+          (!finding.itemId || String(x.itemId||'')===String(finding.itemId));
+    });
+}
  function qaOwnerTasksText(res) {
     var lines=['OWNER TASKS — what to do and where'],refresh=[],tasks=[],byKey=Object.create(null);
     function add(severity,path,name,id,action,sourceLabel) {
       if(['CRITICAL','REVIEW','EVIDENCE'].indexOf(severity)===-1||!action) return;
+      name=name||'Unmapped finding — identify the affected item';
       var key=JSON.stringify([id||'',path,name,severity,action]);
       // Without stable destination identity, keep separate source tasks.
       if(!id) key+=':'+tasks.length;
@@ -1851,7 +1861,8 @@
     var sourceCarriers=(res.injected||[]).filter(function(i){return i.classification==='SOURCE_ASSET_CARRIER' && !(i.operationalPolicy&&i.operationalPolicy.classification==='NON_LFM_POLICY_EXEMPT');});
     if(sourceCarriers.length)lines.push('[REVIEW] Source attachment placement and visibility: '+sourceCarriers.length+' destination item(s) contain exact source-file matches. Review their organization and any answer-key visibility in the additional-items section. File provenance is verified; the intended learner visibility and surrounding item content remain separate checks.');
     (res.destinationReadiness&&res.destinationReadiness.findings||[]).forEach(function(f){
-      if((res.itemResults||[]).some(function(r){return (r.checks&&r.checks.destinationReadiness||[]).some(function(x){return x.code===f.code&&x.itemName===f.itemName&&x.path===f.path;});})) return;
+      if(f.policyExempt)return;
+      if((res.itemResults||[]).some(function(r){return qaReadinessActionRepresented_(r,f);})) return;
       add(f.severity,f.path||'Course',f.itemName,f.itemId||'',f.action,'');
     });
     tasks.forEach(function(t){
@@ -2532,7 +2543,8 @@
        technicalAppendix += "Status: " + (drTxt.status || '') + " | critical=" + Number(drTxt.criticalCount || 0) + " | review=" + Number(drTxt.reviewCount || 0) + " | evidence gaps=" + Number(drTxt.evidenceGapCount || 0) + " | manual repairs=" + Number(drTxt.manualRepairCount || 0) + "\n";
        (drTxt.criticalFindings || []).slice(0,20).forEach(function(f){ technicalAppendix += "  CRITICAL " + (f.code || '') + (f.itemName ? " | " + f.itemName : "") + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
        (drTxt.reviewFindings || []).slice(0,30).forEach(function(f){ technicalAppendix += "  REVIEW " + (f.code || '') + (f.itemName ? " | " + f.itemName : "") + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
-       (drTxt.evidenceFindings || []).slice(0,10).forEach(function(f){ technicalAppendix += "  EVIDENCE " + (f.code || '') + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
+       (drTxt.evidenceFindings || []).slice(0,40).forEach(function(f){ technicalAppendix += "  EVIDENCE " + (f.code || '') + (f.itemName ? " | " + f.itemName : "") + (f.path ? " @ " + f.path : "") + " | " + (f.detail || '') + " | ACTION: " + (f.action || '') + "\n"; });
+       (drTxt.findings || []).filter(function(f){return f.policyExempt;}).forEach(function(f){ technicalAppendix += "  POLICY-EXEMPT " + (f.code || '') + " | " + (f.itemName || '') + " @ " + (f.path || '') + " | " + (f.detail || '') + " | Optional housekeeping; excluded from learner-facing tasks.\n"; });
      }
 
      var extractorMeta = (res.stats && res.stats.extractorMeta) || {};
@@ -2721,7 +2733,7 @@
          text += "  Content: UNVERIFIED — " + checks.content.reason + "\n";
        }
        if(checks.sourceLinkNormalization)text+='  Source URL evidence: '+checks.sourceLinkNormalization.status+' — '+checks.sourceLinkNormalization.reason+'\n';
-       if(checks.externalWebpageTransformation)text+='  External webpage conversion: exact source URL retained | learner launch NOT_OBSERVED | '+checks.externalWebpageTransformation.sourceUrl+'\n';
+       if(checks.externalWebpageTransformation)text+='  External webpage conversion: source target preserved | learner launch NOT_OBSERVED | '+checks.externalWebpageTransformation.sourceUrl+'\n';
        else if(checks.externalWebpageEvidence)text+=qaExternalWebpageDiagnosticText_(checks.externalWebpageEvidence);
        if (checks.structuredAssessment) {
          var sa = checks.structuredAssessment;
@@ -4177,7 +4189,7 @@
  function extractTextEvidence_(text, extension) {
     text = String(text || '');
     var normalizedText = text.replace(/\s+/g, ' ').trim();
-    var links = [], images = [], refs = [], assignmentFormats = [];
+    var links = [], images = [], refs = [], assignmentFormats = [], declaredAttachments = [];
     var ext = String(extension || '').toLowerCase();
 
     if (ext === 'html' || ext === 'htm' || ext === 'xhtml') {
@@ -4223,6 +4235,10 @@
         if(assignmentBodies.length!==1 || assignmentTitles.length>1 || assignmentBodies[0].children.length || (assignmentTitles.length&&assignmentTitles[0].children.length))throw new Error('Unsupported assignment XML instruction structure.');
         if(!/^text\/(?:html|plain)$/i.test(String(assignmentBodies[0].getAttribute('texttype')||'')))throw new Error('Unsupported assignment instruction text type.');
         semanticNodes=assignmentTitles.concat(assignmentBodies);
+        elements.filter(function(el){return qtiLocalName_(el)==='attachment'&&el.namespaceURI===assignmentNs;}).forEach(function(el){
+          var href=String(el.getAttribute('href')||'').trim();
+          if(href)declaredAttachments.push({href:href,role:String(el.getAttribute('role')||'')});
+        });
         assignmentChildren.filter(function(el){return qtiLocalName_(el)==='submission_formats'&&el.namespaceURI===assignmentNs;}).forEach(function(container){Array.from(container.children||[]).forEach(function(el){if(qtiLocalName_(el)==='format'&&el.namespaceURI===assignmentNs)assignmentFormats.push(String(el.getAttribute('type')||''));});});
       }
       normalizedText = semanticNodes.map(qtiLearnerNodeText_).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
@@ -4244,6 +4260,7 @@
     return {
       normalizedText: normalizedText,
       assignmentFormats: assignmentFormats,
+      declaredAttachments: declaredAttachments,
       links: uniqueStrings_(links.filter(function(url) { return !isTechnicalSourceUrl_(url); }), 200),
       images: uniqueStrings_(images, 200),
       refs: uniqueStrings_(refs, 300)
@@ -4895,9 +4912,9 @@
       // Schema 4 existed both before and after the first PDF-text patch, which made
       // an old stored scan indistinguishable from a fresh extraction failure.
       schemaVersion: 8,
-      extractor: 'CTI Source Evidence v6.8.6',
-      buildId: 'v6.8.6-response-profile-20260920',
-      capabilities: { pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true },
+      extractor: 'CTI Source Evidence v6.8.7',
+      buildId: 'v6.8.7-declared-assignment-attachments-20260926',
+      capabilities: { declaredAssignmentAttachments: true, pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true },
       manifestOnly: false,
       manifestPath: manifestPath,
       resources: {},
@@ -4937,8 +4954,8 @@
 
       var resourceEvidence = {
         schemaVersion: 8,
-        evidenceExtractor: 'CTI Source Evidence v6.8.6',
-        evidenceBuildId: 'v6.8.6-response-profile-20260920',
+        evidenceExtractor: 'CTI Source Evidence v6.8.7',
+        evidenceBuildId: 'v6.8.7-declared-assignment-attachments-20260926',
         files: [],
         links: [],
         images: [],
@@ -4964,30 +4981,36 @@
       if (resourceHref && fileNodes.indexOf(resourceHref) === -1) fileNodes.unshift(resourceHref);
       resourceEvidence.dependencies = Array.isArray(res.dependencies) ? res.dependencies.slice() : [];
       resourceEvidence.resourceHref = resourceHref;
+      var fileQueue=fileNodes.map(function(href){return {href:href,relativeTo:manifestPath};});
+      var seenResourceFiles=Object.create(null);
 
-      for (var f = 0; f < fileNodes.length; f++) {
+      for (var f = 0; f < fileQueue.length; f++) {
         if (inspectedCount >= evidence.limits.maxFiles) {
           resourceEvidence.evidenceTruncated = true;
           break;
         }
 
-        var href = String(fileNodes[f] || '');
+        var queuedFile=fileQueue[f];
+        var href = String(queuedFile.href || '');
         if (!href) continue;
+        var fileIdentity=resolveZipHref_(queuedFile.relativeTo,href)||href;
+        if(seenResourceFiles[fileIdentity])continue;
+        seenResourceFiles[fileIdentity]=true;
         inspectedCount++;
         notifyPackageProgress_(onProgress, {phase:"Read content", completed:r, total:resources.length, file:href});
         if (onProgress && Date.now() - lastProgressPaint >= 100) { await new Promise(function(resolve) { setTimeout(resolve, 0); }); lastProgressPaint = Date.now(); }
 
-        var resolved = resolveZipHref_(manifestPath, href);
-        var zipResolution = resolveZipEntryV8_(zipLookup, zipPaths, manifestPath, href);
+        var resolved = resolveZipHref_(queuedFile.relativeTo, href);
+        var zipResolution = resolveZipEntryV8_(zipLookup, zipPaths, queuedFile.relativeTo, href);
         var exactPath = zipResolution.path;
-        var cleanHref = href.split('#')[0].split('?')[0];
-        var name = cleanHref.split('/').pop() || cleanHref;
+        var cleanHref = href.replace(/\\/g,'/').split('#')[0].split('?')[0];
+        var name = (exactPath || resolved || cleanHref).replace(/\\/g,'/').split('/').pop() || cleanHref;
         var dot = name.lastIndexOf('.');
         var extension = dot > -1 ? name.slice(dot + 1).toLowerCase() : '';
 
         var fileEvidence = {
           href: href,
-          path: resolved || cleanHref,
+          path: exactPath || resolved || cleanHref,
           name: name,
           extension: extension,
           presentInPackage: !!exactPath,
@@ -4996,6 +5019,11 @@
           pathResolutionAmbiguous: zipResolution.ambiguous === true,
           pathResolutionCandidates: zipResolution.candidates || []
         };
+        if(queuedFile.declaredBy){
+          fileEvidence.evidenceSource='assignment-xml-attachment';
+          fileEvidence.declaredBy=queuedFile.declaredBy;
+          fileEvidence.attachmentRole=queuedFile.role||'';
+        }
 
         if (exactPath && !zip.files[exactPath].dir) {
           var entry = zip.files[exactPath];
@@ -5033,6 +5061,9 @@
               var rawText = await entry.async('string');
               if (resourceType.indexOf('assignment') > -1 && /(?:file[ _-]+(?:upload|submission)|text[ _-]+submission|submission[ _-]+type|grade[ _-]+out[ _-]+of|attempts?)/i.test(rawText)) behaviorFragments.push(rawText.slice(0,16000));
               var parsedText = extractTextEvidence_(rawText, extension);
+              (parsedText.declaredAttachments||[]).forEach(function(a){
+                fileQueue.push({href:a.href,relativeTo:exactPath,declaredBy:exactPath,role:a.role});
+              });
               var normalized = parsedText.normalizedText || '';
               if((parsedText.assignmentFormats||[]).indexOf('file')>=0)behaviorFragments.push('file submission');
               if((parsedText.assignmentFormats||[]).indexOf('text')>=0)behaviorFragments.push('text submission');
@@ -5278,7 +5309,7 @@
       return new Promise(function(resolve, reject) {
         var reader = new FileReader();
         reader.onload = function(e) {
-          resolve({ xmlString: e.target.result, sourceEvidenceJson: JSON.stringify({ schemaVersion: 8, extractor: 'CTI Source Evidence v6.8.6', buildId: 'v6.8.6-response-profile-20260920', capabilities: { pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true }, manifestOnly: true, resources: {}, manifestParse: { mode: 'manifest-only', repaired: false } }) });
+          resolve({ xmlString: e.target.result, sourceEvidenceJson: JSON.stringify({ schemaVersion: 8, extractor: 'CTI Source Evidence v6.8.7', buildId: 'v6.8.7-declared-assignment-attachments-20260926', capabilities: { pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true }, manifestOnly: true, resources: {}, manifestParse: { mode: 'manifest-only', repaired: false } }) });
         };
         reader.onerror = function() { reject(new Error('Could not read the XML file.')); };
         reader.readAsText(file);

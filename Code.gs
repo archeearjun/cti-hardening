@@ -1909,6 +1909,7 @@ function qaLineageRows_(values, targetUuid) {
       mode:String(field(row,'Mode') || ''), stage:String(field(row,'Snapshot Stage') || ''),
       courseId:String(field(row,'C1 Course ID') || field(row,'C0 Course ID') || ''),
       c0Hash:String(field(row,'C0 XLSX SHA256') || ''),
+      c0JsonHash:String(field(row,'C0 JSON SHA256') || ''),
       summary:json(field(row,'Summary JSON')), delta:json(field(row,'Delta JSON')),
       release:String(field(row,'Gateway Release') || ''), engine:String(field(row,'QA Engine Build') || ''),
       provenance:String(field(row,'Generation Provenance') || ''), warning:String(field(row,'Generation Warning') || ''),
@@ -1942,7 +1943,9 @@ function qaCompactIngestionIntelligence_(intel) {
       excerpt:String(c.excerpt || '').slice(0,560), confidence:Number(c.confidence || 0),
       detail:String(c.detail || '').slice(0,560), pathHint:String(c.pathHint || '').slice(0,300),
       context:String(c.context || '').slice(0,700), severity:String(c.severity || ''),
-      remediation:String(c.remediation || '').slice(0,560)
+      remediation:String(c.remediation || '').slice(0,560),
+      originalClaimType:String(c.originalClaimType || ''), originalClaimSubject:String(c.originalClaimSubject || ''),
+      classificationReason:String(c.classificationReason || '').slice(0,560)
     };
   }) : [];
   var counts = {};
@@ -1971,6 +1974,7 @@ function qaMergeGenerationIngestionIntelligence_(currentIntel, inheritedIntel, s
   var claims = [], seen = Object.create(null);
   function addClaim(c, origin) {
     if (!c) return;
+    c = qaNormalizeIngestionClaimScope_(c);
     var key = [String(c.type||''),qaCleanName_(c.subject||''),qaCleanName_(c.target||''),qaCleanName_(c.pathHint||''),String(c.excerpt||'').toLowerCase()].join('|');
     if (!key || seen[key]) return;
     seen[key] = true;
@@ -1978,8 +1982,8 @@ function qaMergeGenerationIngestionIntelligence_(currentIntel, inheritedIntel, s
     clone.provenanceOrigin = origin;
     claims.push(clone);
   }
-  (inheritedIntel.claims || []).forEach(function(c){ addClaim(c,'EVIDENCE_MEMORY'); });
   (currentIntel.claims || []).forEach(function(c){ addClaim(c,'CURRENT_SNAPSHOT'); });
+  (inheritedIntel.claims || []).forEach(function(c){ addClaim(c,'EVIDENCE_MEMORY'); });
   var counts = {};
   claims.forEach(function(c){ if(c.type) counts[c.type]=(counts[c.type]||0)+1; });
   var inheritedCount = claims.filter(function(c){return c.provenanceOrigin === 'EVIDENCE_MEMORY';}).length;
@@ -2051,7 +2055,19 @@ function qaObsoleteAggregateStageGuard_(result, baseline, priorNonRaw) {
   return legacyMissing.length===Number(m[1]) && legacyMissing.every(function(id){return /^cti-aggregate:/.test(id);});
 }
 
-function qaApplySnapshotStageGuard_(snapshotContext, generationContext, courseraItems) {
+// Reanalysis of exactly the saved raw inputs is not a new course snapshot.
+// Both hashes are computed by the server; missing hashes or supplemental inputs
+// cannot establish replay identity. The first raw baseline remains immutable.
+function qaIsExactRawEvidenceReplay_(generationContext, inputIdentity) {
+  var saved=generationContext && generationContext.rawBaselineEvidence || {}, incoming=inputIdentity || {};
+  if(saved.hasReadingRecovery || incoming.hasReadingRecovery)return false;
+  return ['excelSha256','jsonSha256'].every(function(key){
+    return /^[a-f0-9]{64}$/i.test(String(saved[key]||'')) &&
+      String(saved[key]).toLowerCase()===String(incoming[key]||'').toLowerCase();
+  });
+}
+
+function qaApplySnapshotStageGuard_(snapshotContext, generationContext, courseraItems, inputIdentity) {
   snapshotContext = snapshotContext || {};
   generationContext = generationContext || {};
   courseraItems = Array.isArray(courseraItems) ? courseraItems : [];
@@ -2059,6 +2075,13 @@ function qaApplySnapshotStageGuard_(snapshotContext, generationContext, coursera
   if (String(snapshotContext.mode || '') !== 'RAW_INGESTION') return snapshotContext;
   if (!generationContext.rawBaselineRunId || !Array.isArray(generationContext.rawBaselineItems) || !generationContext.rawBaselineItems.length) {
     return snapshotContext;
+  }
+
+  if (qaIsExactRawEvidenceReplay_(generationContext,inputIdentity)) {
+    return Object.assign({},snapshotContext,{
+      rawEvidenceReplay:true, canonicalRawBaselineRunId:String(generationContext.rawBaselineRunId),
+      reason:'The submitted XLSX and JSON exactly match the immutable raw baseline. This is reanalysis of saved raw evidence, not a new observation of the current shell.'
+    });
   }
 
   var reasons = [];
@@ -2143,6 +2166,9 @@ function qaLoadGenerationEvidenceContext_(targetUuid, lineageMeta) {
       if (Array.isArray(items) && items.length) {
         out.rawBaselineRunId = rawRows[j].runId;
         out.rawBaselineItems = items;
+        var rawMeta=(rawResult.stats || rawResult.rawSnapshot && rawResult.rawSnapshot.stats || {}).extractorMeta || {};
+        out.rawBaselineEvidence={excelSha256:rawRows[j].c0Hash,jsonSha256:rawRows[j].c0JsonHash,
+          hasReadingRecovery:!!rawMeta.supplementalReadingRecovery};
         break;
       }
     }
@@ -4364,7 +4390,7 @@ function runCTISystemHealthCheck(includeExternalSources) {
   authorize_();
   var started = new Date();
   var checks = [];
-  add('CTI v7 architecture registry', CTI_RELEASE_REGISTRY_.gateway === 'v7.9.31' && CTI_ARCHITECTURE_VERSION_ ? 'PASS' : 'FAIL', CTI_ARCHITECTURE_VERSION_ + ' · ' + CTI_RELEASE_REGISTRY_.gateway);
+  add('CTI architecture registry', CTI_RELEASE_REGISTRY_.gateway === CTI_GATEWAY_RELEASE_ && CTI_RELEASE_REGISTRY_.qaEngine === CTI_GATEWAY_RELEASE_ && CTI_ARCHITECTURE_VERSION_ ? 'PASS' : 'FAIL', CTI_ARCHITECTURE_VERSION_ + ' · ' + CTI_RELEASE_REGISTRY_.gateway);
   add('Feature parity manifest', CTI_FEATURE_MANIFEST_.directory && CTI_FEATURE_MANIFEST_.qa && CTI_FEATURE_MANIFEST_.macmillan ? 'PASS' : 'FAIL', 'Directory + QA + Macmillan capability groups registered.');
   try {
     var csSource = ctiCanonicalCourseraExtractorSource_();
@@ -4455,7 +4481,7 @@ function vectorizeCourse(pkg) {
 //   4) append-only, versioned QA run storage for future longitudinal/ML analysis.
 // The extractor itself is intentionally unchanged.
 var CTI_GATEWAY_RELEASE_ = 'v8.0.0';
-var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-evidence-dimension-hardening-20260926';
+var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-asset-claim-scope-20260927';
 var CTI_MACMILLAN_BUILD_ID_ = 'v6.8.2-partner-ready-doc-projection-20260912';
 // Coursera verdict scoring semantics remain unchanged. v6.8.2 changes only Macmillan Content Map delivery presentation after deterministic QA.
 // Structure + type + placement + assets + links + text + publication.
@@ -5532,6 +5558,51 @@ function qaParseSmartIngestionIntelligence_(courseraEvidenceItems) {
     };
 }
 
+// Keep format restrictions separate from statements that a source file was not
+// attached. Test the failure verb, not a loose "asset ... cannot" word window.
+function qaIngestionAssetEventKind_(text) {
+    text=qaCleanText_(text||'');
+    var direct=/\b(?:could not|cannot|unable to|failed to)\s+(?:be\s+)?(?:attach(?:ed)?|embed(?:ded)?|upload(?:ed)?|include(?:d)?|represent(?:ed)?|resolve(?:d)?)\b/i.test(text) && /\b(?:attachments?|documents?|files?|assets?|images?|videos?)\b/i.test(text);
+    var unavailable=/\b(?:attachment|document|file|asset)\b[^.!?]{0,180}\b(?:not (?:available|represented|attached|embedded)|missing from|no corresponding asset)\b/i.test(text);
+    var noIdentifier=/\b(?:lacking|without|no|missing)\s+(?:an?\s+)?(?:corresponding\s+)?asset\s+(?:identifier|id)\b/i.test(text) &&
+        /\b(?:attachment|document|file)\b/i.test(text) && /\b(?:plain text|embedding|attach|upload)\b/i.test(text);
+    if(direct||unavailable||noIdentifier)return 'UNRESOLVED_SOURCE_ASSET';
+    var nesting=/\b(?:assets?|images?|tables?)\b[^.!?]{0,90}\b(?:cannot be nested|(?:not|never) (?:allowed|supported) (?:inside|within))\b|\b(?:CML|HTML)\b[^.!?]{0,70}\b(?:does not support|does not allow)\b[^.!?]{0,70}\b(?:inside|within)\b/i.test(text);
+    if(nesting && /\b(?:converted|transformed|lifted|extracted|moved)\b/i.test(text))return 'CONTENT_MARKUP_ADAPTATION';
+    return '';
+}
+
+// Reclassify old memory with the same evidence rules as freshly parsed claims.
+// Keep original fields so the audit trail explains every changed interpretation.
+function qaNormalizeIngestionClaimScope_(claim) {
+    var c=Object.assign({},claim||{}), originalType=c.type, originalSubject=c.subject||'';
+    if(['UNRESOLVED_SOURCE_ASSET','UNSUPPORTED_CONTENT_FALLBACK','REPAIR_INSTRUCTION'].indexOf(c.type)<0)return c;
+    var text=qaCleanText_((c.excerpt||'')+' '+(c.detail||''));
+    var files=[],fileRe=/["\u201c\u201d']([^"\u201c\u201d'\n]{1,220}\.(?:docx?|pdf|pptx?|xlsx?|zip|html?|mp[34]|wav|png|jpe?g))["\u201c\u201d']/gi,fileMatch;
+    while((fileMatch=fileRe.exec(text))!==null){var fileName=qaFileName_(fileMatch[1]);if(files.indexOf(fileName)<0)files.push(fileName);}
+    if(files.length===1)c.subject=files[0];
+    var separate=/\bseparate\s+(?:rubric\s+)?document\b/i.test(text) && /\bnot available\s+(?:with)?in\s+this item\b/i.test(text);
+    var explicitLoss=/\b(?:could not|cannot|unable to)\s+(?:attach|embed|upload|include)\b|\b(?:attachment|file|asset)\b.{0,100}\b(?:could not be represented|not represented|missing from|no asset identifier)\b/i.test(text);
+    var eventKind=qaIngestionAssetEventKind_(text);
+    if(c.type==='REPAIR_INSTRUCTION' && eventKind==='UNRESOLVED_SOURCE_ASSET' && files.length===1){
+        c.type='UNRESOLVED_SOURCE_ASSET';c.severity='CRITICAL';
+        c.remediation='Confirm learner access to '+c.subject+'; restore or link the source file if absent. A local file path in the prompt does not establish an accessible attachment.';
+        c.classificationReason='The ingestion report describes a named file left as text because no asset identifier was available.';
+    } else if(c.type==='UNRESOLVED_SOURCE_ASSET' && eventKind==='CONTENT_MARKUP_ADAPTATION'){
+        c.type='CONTENT_MARKUP_ADAPTATION';c.severity='INFO';c.remediation='';
+        c.classificationReason='The statement describes moving preserved content out of unsupported markup, without reporting file loss.';
+    } else if(c.type==='UNRESOLVED_SOURCE_ASSET' && separate&&!explicitLoss){
+        c.type='SOURCE_ASSET_SCOPE_REVIEW';c.severity='REVIEW';
+        c.remediation='Check the separate rubric document and its learner access. Unavailable within this item does not establish that the document is missing from the course.';
+        c.classificationReason='The report describes a document outside this item, without establishing course-wide asset loss.';
+    } else if(files.length===1 && c.subject!==originalSubject)c.classificationReason='The quoted source filename identifies the asset; an item-type label does not identify its carrier.';
+    if(c.type!==originalType || c.subject!==originalSubject){
+        c.originalClaimType=c.originalClaimType||originalType;
+        if(!c.originalClaimSubject)c.originalClaimSubject=originalSubject;
+    }
+    return c;
+}
+
 function qaSmartIngestionClaimsForSource_(source, intelligence) {
     if (!source || !intelligence || !Array.isArray(intelligence.claims)) return [];
     var name = qaCleanName_(source.name || '');
@@ -5556,10 +5627,10 @@ function qaSmartIngestionClaimsForSource_(source, intelligence) {
         return useful >= 3 && hits >= Math.min(3, Math.ceil(useful * 0.30));
     }
 
-    return intelligence.claims.filter(function(claim) {
+    return intelligence.claims.map(qaNormalizeIngestionClaimScope_).filter(function(claim) {
         if (!pathCompatible(claim)) return false;
         var subject = qaCleanName_(claim.subject || '');
-        if (name && name.length >= 4 && (subject === name || (subject.length >= name.length + 3 && subject.indexOf(name) > -1) || (name.length >= subject.length + 3 && name.indexOf(subject) > -1))) return true;
+        if (name && name.length >= 4 && subject.length >= 4 && (subject === name || (subject.length >= name.length + 3 && subject.indexOf(name) > -1) || (name.length >= subject.length + 3 && name.indexOf(subject) > -1))) return true;
         if (assetNames.some(function(a) { return a.length >= 4 && subject && (subject === a || subject.indexOf(a) > -1 || a.indexOf(subject) > -1); })) return true;
         if (scenarioItem && claim.type === 'CONSOLIDATION' && /five distinct scenario workbooks/i.test(String(claim.excerpt || ''))) return true;
         // v7.2: do not smear generic Smart Ingestion claims across every item
@@ -5773,26 +5844,30 @@ function qaDecorateOneToManyResult_(source, aggregate, result) {
     return result;
 }
 
-function qaApplySmartIngestionProvenanceToResult_(source, result, intelligence) {
+function qaApplySmartIngestionProvenanceToResult_(source, result, intelligence, courseraItems) {
     if(!result || !source || !intelligence) return result;
     var claims=qaSmartIngestionClaimsForSource_(source,intelligence);
     if(!claims.length) return result;
     result.checks=result.checks||{};
-    result.checks.ingestionProvenance={status:'CLAIMS_OBSERVED',claims:claims,trustModel:'CLAIM_PLUS_OBSERVATION',reason:'Smart Ingestion provenance claims were mapped to this source item. Positive claims do not override observed evidence; explicit failure/fallback claims are treated as direct ingestion diagnostics.'};
+    result.checks.ingestionProvenance={status:'CLAIMS_OBSERVED',claims:claims,unresolvedAssetClaims:[],trustModel:'CLAIM_PLUS_OBSERVATION',reason:'Smart Ingestion provenance claims were mapped to this source item. Positive claims do not override observed evidence; explicit failure/fallback claims are treated as direct ingestion diagnostics.'};
     result.evidenceSources=(result.evidenceSources||[]).concat(['Smart Ingestion Author Alignment Report']);
     var issues=Array.isArray(result.issues)?result.issues.slice():[];
     function addIssue(v){if(issues.indexOf(v)===-1)issues.push(v);}
     var hasSourcePayload=qaCleanText_(source.textSample||'').length>=80 || (source.assetDetails||[]).some(function(a){var d=qaAssetDescriptor_(a);return d.referenceOnly!==true&&d.presentInPackage!==false;}) || (source.links||[]).length>0;
-    var laterStage = String(result.snapshotContext && result.snapshotContext.mode || '') !== 'RAW_INGESTION';
     claims.forEach(function(c){
         var inherited = c && c.provenanceOrigin === 'EVIDENCE_MEMORY';
-        if(inherited && laterStage){
+        if(inherited){
             // v7.3: historical provenance is not itself a current defect.
             // A separate current-state resolver decides whether the claim is
             // RESOLVED, STILL_PRESENT, PARTIAL, or UNOBSERVED.
             return;
         }
-        if(c.type==='UNRESOLVED_SOURCE_ASSET') addIssue('SI_UNRESOLVED_SOURCE_ASSET');
+        if(c.type==='UNRESOLVED_SOURCE_ASSET'){
+            var hit=qaFindCurrentAttachmentEvidence_(c.subject,courseraItems||[],result.courseraId);
+            if(qaCurrentAttachmentIsObserved_(hit))return;
+            result.checks.ingestionProvenance.unresolvedAssetClaims.push(c);
+            addIssue('SI_UNRESOLVED_SOURCE_ASSET');
+        }
         else if(c.type==='GENERATED_CONTENT_FALLBACK') addIssue(hasSourcePayload?'SI_GENERATED_CONTENT_FALLBACK_HARD':'SI_GENERATED_CONTENT_FALLBACK_REVIEW');
         else if(c.type==='GENERATED_BEHAVIOR') addIssue('SI_GENERATED_BEHAVIOR');
         else if(c.type==='BROKEN_LINK_FALLBACK') addIssue('SI_BROKEN_LINK_FALLBACK');
@@ -5836,6 +5911,11 @@ function qaCurrentAttachmentCandidates_(item) {
     return out;
 }
 
+function qaCurrentAttachmentIsObserved_(hit) {
+    return !!(hit && hit.score>=0.90 && hit.presenceObserved &&
+      (hit.concrete || /^(SHA256_EXACT|NAME_SIZE_EXACT|NAME_EXACT)$/.test(hit.method)));
+}
+
 function qaFindCurrentAttachmentEvidence_(expectedName, courseraItems, preferredId) {
     var best=null;
     (courseraItems||[]).forEach(function(item){
@@ -5843,10 +5923,14 @@ function qaFindCurrentAttachmentEvidence_(expectedName, courseraItems, preferred
             var cmp=qaAssetSimilarity_(expectedName,entry.descriptor);
             var preferred=preferredId && String(item.id||'')===String(preferredId||'');
             var evidenceSource=String((entry.attachment&&entry.attachment.evidenceSource)||entry.descriptor.evidenceSource||'').toLowerCase();
-            var concrete=entry.kind==='assignment-attachment' && /visible-editor-file-chip|visible-editor-file-link|active-editor/.test(evidenceSource);
-            var adjusted=Number(cmp.score||0)+(preferred?0.02:0)+(concrete?0.02:0);
+            var url=String(entry.descriptor.url||'').trim();
+            var downloadable=/^https?:\/\/[^\s/]+(?:[/?#]|$)/i.test(url);
+            var chip=entry.kind==='assignment-attachment' && evidenceSource==='visible-editor-file-chip' && qaCurrentItemDeepObserved_(item);
+            var concrete=chip || (entry.kind==='assignment-attachment' && downloadable && /visible-editor-file-link|active-editor/.test(evidenceSource));
+            var presenceObserved=downloadable || /^[a-f0-9]{64}$/i.test(String(entry.descriptor.sha256||'')) || !!entry.descriptor.assetId || chip;
+            var adjusted=Number(cmp.score||0)+(preferred?0.02:0)+(concrete?0.02:0)+(presenceObserved?1:0);
             if(!best||adjusted>best.adjusted){
-                best={adjusted:adjusted,score:Number(cmp.score||0),method:cmp.method,reason:cmp.reason,itemId:item.id||'',itemName:item.name||'',itemPath:item.path||'',candidate:entry.descriptor,kind:entry.kind,attachment:entry.attachment||null,concrete:concrete};
+                best={adjusted:adjusted,score:Number(cmp.score||0),method:cmp.method,reason:cmp.reason,itemId:item.id||'',itemName:item.name||'',itemPath:item.path||'',candidate:entry.descriptor,kind:entry.kind,attachment:entry.attachment||null,concrete:concrete,presenceObserved:presenceObserved};
             }
         });
     });
@@ -5903,7 +5987,7 @@ function qaFindCurrentItemBySubject_(subject,courseraItems) {
 }
 
 function qaResolveHistoricalClaimCurrentState_(claim, source, currentItem, courseraItems, extractorMeta, snapshotContext) {
-    claim=claim||{};
+    claim=qaNormalizeIngestionClaimScope_(claim);
     var type=String(claim.type||'');
     var base={
         key:qaClaimResolutionKey_(claim),
@@ -5913,14 +5997,26 @@ function qaResolveHistoricalClaimCurrentState_(claim, source, currentItem, cours
         status:'UNOBSERVED',severity:'EVIDENCE',detail:'Current destination evidence is not sufficient to resolve this historical Smart Ingestion claim.',action:'Inspect the current destination state only if this finding matters to completion.',evidence:[]
     };
     var laterStage=String(snapshotContext&&snapshotContext.mode||'')!=='RAW_INGESTION';
-    if(!laterStage){
+    if(type==='SOURCE_ASSET_SCOPE_REVIEW'){
+        base.status='SOURCE_ASSET_SCOPE_REVIEW';base.severity='REVIEW';base.detail=claim.detail||claim.excerpt||'';
+        base.action=claim.remediation;return base;
+    }
+    if(!qaCleanText_(claim.subject||'') && /^(UNRESOLVED_SOURCE_ASSET|GENERATED_CONTENT_FALLBACK|GENERATED_BEHAVIOR|UNSUPPORTED_CONTENT_FALLBACK|SI_PROCESSING_FAILURE)$/.test(type)){
+        base.status='UNLOCALIZED_PROVENANCE';base.severity='EVIDENCE';
+        base.detail=(claim.detail||claim.excerpt||'')+' The report does not identify one source item or asset.';
+        base.action='Identify the affected item in the ingestion report'+(base.pathHint?' under '+base.pathHint:'')+' and compare it with the captured source and destination. This unlocalized claim alone does not establish a course repair.';
+        return base;
+    }
+    var rawAssetHit=type==='UNRESOLVED_SOURCE_ASSET'?qaFindCurrentAttachmentEvidence_(claim.subject,courseraItems,currentItem&&currentItem.id):null;
+    var rawAssetObserved=qaCurrentAttachmentIsObserved_(rawAssetHit);
+    if(!laterStage && claim.provenanceOrigin!=='EVIDENCE_MEMORY' && !rawAssetObserved){
         base.status='RAW_PROVENANCE'; base.severity=claim.severity||'REVIEW'; base.detail=claim.detail||'Smart Ingestion provenance observed in the raw snapshot.'; base.action=claim.remediation||'Review this ingestion-time finding.';
         return base;
     }
 
     if(type==='UNRESOLVED_SOURCE_ASSET'){
         var hit=qaFindCurrentAttachmentEvidence_(claim.subject,courseraItems,currentItem&&currentItem.id);
-        if(hit && hit.score>=0.90 && (hit.concrete || hit.method==='SHA256_EXACT' || hit.method==='NAME_SIZE_EXACT' || hit.method==='NAME_EXACT')){
+        if(qaCurrentAttachmentIsObserved_(hit)){
             base.status='RESOLVED'; base.severity='RESOLVED';
             base.currentItemId=hit.itemId;base.currentItemName=hit.itemName;base.currentItemPath=hit.itemPath;
             base.detail='The source asset that Smart Ingestion originally failed to attach is now positively observed in the current Coursera shell.';
@@ -6099,7 +6195,7 @@ function qaResolveHistoricalCurrentState_(sourceItems,courseraItems,itemResults,
         });
     });
 
-    (intelligence&&intelligence.claims||[]).forEach(function(claim){
+    (intelligence&&intelligence.claims||[]).map(qaNormalizeIngestionClaimScope_).forEach(function(claim){
         var k=qaClaimResolutionKey_(claim);
         if(seen[k]) return;
         seen[k]=true;
@@ -6109,7 +6205,7 @@ function qaResolveHistoricalCurrentState_(sourceItems,courseraItems,itemResults,
     var counts={};
     resolutions.forEach(function(r){counts[r.status]=(counts[r.status]||0)+1;});
     return {
-        engineVersion:'current-state-resolution-v2',
+        engineVersion:'current-state-resolution-v3',
         resolutions:resolutions,
         counts:counts,
         resolvedCount:resolutions.filter(function(r){return /^RESOLVED/.test(r.status);}).length,
@@ -6185,21 +6281,35 @@ function qaObservedEmptyAssessmentBody_(item,extractorMeta) {
     });
 }
 
+function qaHasAiGraderPlaceholder_(item) {
+    item=item||{};
+    if(!/Assignment|Assessment|Quiz/i.test(item.type||''))return false;
+    var native=item.nativeAssignment||{},settings=native.settings||{},submission=native.submission||{};
+    var hasNative=!!item.nativeAssignment;
+    if(hasNative && submission.aiGraded!==true && !/^AI$/i.test(String(settings.graderType||'')))return false;
+    var body=qaCleanText_(item.textSample||'');
+    if(/Enter instructions for AI graders/i.test(body))return true;
+    if(!hasNative || !qaCurrentItemDeepObserved_(item))return false;
+    var authoring=qaCleanText_(native.authoringSemanticText||'');
+    return /AI Grader Instructions\s*(?:\(Not shown to learners\))?\s*\*?\s*Enter instructions for AI graders(?:\.{3}|…)?(?:\s+(?:Show academic integrity options|Rubric\b|Grading details)|$)/i.test(authoring);
+}
+
 function qaAssessDestinationReadiness_(courseraItems, intelligence, extractorMeta, snapshotContext, currentStateResolution, partnerName) {
     var findings=[];
-    function push(code,severity,itemName,path,detail,action){findings.push({code:code,severity:severity,itemName:itemName||'',path:path||'',detail:detail||'',action:action||''});}
+    function push(code,severity,itemName,path,detail,action,itemId){findings.push({code:code,severity:severity,itemName:itemName||'',path:path||'',detail:detail||'',action:action||'',itemId:itemId||''});}
     (courseraItems||[]).forEach(function(item){
+        function pushItem(code,severity,name,path,detail,action){push(code,severity,name,path,detail,action,item.id);}
         var name=qaCleanText_(item.name||'');
         var text=qaCleanText_(item.textSample||'');
         var combined=name+' '+text;
         var readingGap=qaReadingEvidenceGap_(item);
-        if(readingGap)push(readingGap.code,'EVIDENCE',name,item.path,readingGap.reason,'Verify the specific unread document or page before publication. Do not edit course content solely because its capture is incomplete.');
+        if(readingGap)pushItem(readingGap.code,'EVIDENCE',name,item.path,readingGap.reason,'Verify the specific unread document or page before publication. Do not edit course content solely because its capture is incomplete.');
         var attachments=qaReadingAttachmentEvidence_(item);
-        if(attachments && attachments.unresolvedLabels.length)push('ATTACHMENT_DOWNLOAD_URLS_UNVERIFIED','EVIDENCE',name,item.path,
+        if(attachments && attachments.unresolvedLabels.length)pushItem('ATTACHMENT_DOWNLOAD_URLS_UNVERIFIED','EVIDENCE',name,item.path,
             'Coursera item '+item.id+': '+attachments.resolvedLabelCount+'/'+attachments.observedLabelCount+' observed attachment labels have captured download URLs. Unresolved: '+attachments.unresolvedLabels.join('; ')+'. Reading text coverage is separate from attachment coverage.',
             'Recover the unresolved attachment URLs from this exact Coursera item. This capture gap does not establish missing course files; do not recreate or delete attachments based on it.');
         var attachmentReceipt=item.readingAttachmentEvidence,network=attachmentReceipt && attachmentReceipt.network;
-        if(attachments && attachmentReceipt && attachmentReceipt.itemId===String(item.id) && network && Number.isSafeInteger(network.omittedResponses) && network.omittedResponses>0)push('READING_NETWORK_CAPTURE_LIMIT','EVIDENCE',name,item.path,
+        if(attachments && attachmentReceipt && attachmentReceipt.itemId===String(item.id) && network && Number.isSafeInteger(network.omittedResponses) && network.omittedResponses>0)pushItem('READING_NETWORK_CAPTURE_LIMIT','EVIDENCE',name,item.path,
             network.omittedResponses+' eligible reading responses exceeded the bounded extraction budget.',
             'Inspect or recover this item separately. Editor traversal and text capture do not establish attachment completeness.');
         var emptyAssessment=/Assignment|Assessment|Quiz/i.test(item.type||'') &&
@@ -6208,34 +6318,29 @@ function qaAssessDestinationReadiness_(courseraItems, intelligence, extractorMet
             !(item.structuredAssessment&&item.structuredAssessment.questions&&item.structuredAssessment.questions.length) &&
             Number(item.textEvidenceCompleteness||0)>=0.75 && /scoped|assignment/.test(item.textScopeKind||'');
         var emptyReceipt=qaObservedEmptyAssessmentReceipt_(item);
-        if(emptyAssessment || emptyReceipt)push('EMPTY_ASSESSMENT_EDITOR_OBSERVED','REVIEW',name,item.path,
+        if(emptyAssessment || emptyReceipt)pushItem('EMPTY_ASSESSMENT_EDITOR_OBSERVED','REVIEW',name,item.path,
             emptyReceipt?'The exact assignment outline and body both showed an empty editor in two stable observations. This confirms the captured destination state; source completeness remains undetermined.':'The captured item-scoped editor explicitly shows its empty-content state and no question structure.',
             emptyReceipt?'Compare this empty destination assignment with its matched source assessment. Restore content only if the source confirms it belongs here.':'Open this exact assignment once and check whether the source questions were created. The capture shows an empty editor; do not assume a question bank was merely truncated. Confirm before restoring questions.');
-        else if(qaObservedEmptyAssessmentBody_(item,extractorMeta))push('EMPTY_ASSESSMENT_BODY_REVIEW','REVIEW',name,item.path,
+        else if(qaObservedEmptyAssessmentBody_(item,extractorMeta))pushItem('EMPTY_ASSESSMENT_BODY_REVIEW','REVIEW',name,item.path,
             'The observed assignment body contains only Coursera\'s empty-content creation controls. Full outline evidence was not captured.',
             'Check this exact assignment against its source questions. Confirm the empty state before adding or restoring content; this body-only capture does not establish complete assessment coverage.');
-        if(/^\[empty\]/i.test(name)) push('EMPTY_PLACEHOLDER_ITEM','REVIEW',name,item.path,'A placeholder/empty learner item exists in the destination shell.','Confirm whether this item should be populated or removed before publication.');
-        if(/\[(?:add|insert|enter)\s+[^\]]{3,80}\]/i.test(combined)) push('TEMPLATE_PLACEHOLDER_TEXT','REVIEW',name,item.path,'Template placeholder text is still present in learner-facing content.','Replace or intentionally remove the placeholder before publication.');
-        if(/first\.last\.?@email\.com|\(000\)\s*000[-\s]?0000|000[-\s]?000[-\s]?0000/i.test(combined)) push('PLACEHOLDER_CONTACT_INFO','REVIEW',name,item.path,'Generic facilitator contact placeholders remain in the destination content.','Replace with the intended facilitator/contact details or remove the placeholder fields.');
-        if(/Enter instructions for AI graders/i.test(combined)) push('AI_GRADER_PLACEHOLDER','REVIEW',name,item.path,'An AI-grader instruction placeholder is present.','Configure the grader instructions or change grading mode before publication.');
-        if(/author alignment report|author.?s eyes/i.test(name+' '+String(item.path||''))) push('AUTHOR_ALIGNMENT_REPORT_PRESENT','INFO',name,item.path,'The Smart Ingestion Author Alignment Report is still in the shell.','Delete the [DELETE ME] Author Alignment Report module before publication, as instructed by Smart Ingestion.');
-        if(normalizeCourseraType_(item.type)==='Video' && Number(item.timeEstimateMinutes)===0) push('ZERO_MINUTE_VIDEO','REVIEW',name,item.path,'A video is configured with a 0-minute time estimate.','Set an appropriate learner time estimate before publication.');
+        if(/^\[empty\]/i.test(name)) pushItem('EMPTY_PLACEHOLDER_ITEM','REVIEW',name,item.path,'A placeholder/empty learner item exists in the destination shell.','Confirm whether this item should be populated or removed before publication.');
+        if(/\[(?:add|insert|enter)\s+[^\]]{3,80}\]/i.test(combined)) pushItem('TEMPLATE_PLACEHOLDER_TEXT','REVIEW',name,item.path,'Template placeholder text is still present in learner-facing content.','Replace or intentionally remove the placeholder before publication.');
+        if(/first\.last\.?@email\.com|\(000\)\s*000[-\s]?0000|000[-\s]?000[-\s]?0000/i.test(combined)) pushItem('PLACEHOLDER_CONTACT_INFO','REVIEW',name,item.path,'Generic facilitator contact placeholders remain in the destination content.','Replace with the intended facilitator/contact details or remove the placeholder fields.');
+        if(qaHasAiGraderPlaceholder_(item)) pushItem('AI_GRADER_PLACEHOLDER','REVIEW',name,item.path,'The captured assignment authoring surface shows an AI-grader instruction placeholder. Learner text fidelity does not verify grader setup.','Inspect the AI-grader instructions. Configure them if empty, or select the intended grading mode, before publication.');
+        if(/author alignment report|author.?s eyes/i.test(name+' '+String(item.path||''))) pushItem('AUTHOR_ALIGNMENT_REPORT_PRESENT','INFO',name,item.path,'The Smart Ingestion Author Alignment Report is still in the shell.','Delete the [DELETE ME] Author Alignment Report module before publication, as instructed by Smart Ingestion.');
+        if(normalizeCourseraType_(item.type)==='Video' && Number(item.timeEstimateMinutes)===0) pushItem('ZERO_MINUTE_VIDEO','REVIEW',name,item.path,'A video is configured with a 0-minute time estimate.','Set an appropriate learner time estimate before publication.');
     });
-    var laterStage = String(snapshotContext && snapshotContext.mode || '') !== 'RAW_INGESTION';
-    if(!laterStage){
-        (intelligence && intelligence.claims || []).forEach(function(c){
-            if(c.type==='UNRESOLVED_SOURCE_ASSET') push('SI_UNRESOLVED_SOURCE_ASSET','CRITICAL',c.subject,c.pathHint,c.detail,c.remediation||'Restore the missing source asset.');
-            else if(c.type==='GENERATED_CONTENT_FALLBACK') push('SI_GENERATED_CONTENT_FALLBACK','CRITICAL',c.subject,c.pathHint,c.detail,c.remediation||'Verify the generated content against the real source.');
-            else if(c.type==='GENERATED_BEHAVIOR') push('SI_GENERATED_BEHAVIOR','REVIEW',c.subject,c.pathHint,c.detail,'Confirm this generated grading/submission behavior is acceptable and source-equivalent.');
-            else if(c.type==='BROKEN_LINK_FALLBACK') push('SI_BROKEN_LINK_FALLBACK','REVIEW',c.subject,c.pathHint,c.detail,'Restore a working learner-accessible link if the source resource is required.');
-            else if(c.type==='PLACEHOLDER_FALLBACK') push('SI_PLACEHOLDER_FALLBACK','REVIEW',c.subject,c.pathHint,c.detail,'Confirm whether the placeholder should be removed or populated.');
-        });
-    } else {
-        (currentStateResolution && currentStateResolution.resolutions || []).forEach(function(r){
-            if(r.severity==='REVIEW') push('CURRENT_STATE_'+String(r.claimType||r.status), 'REVIEW', r.currentItemName||r.subject, r.currentItemPath||r.pathHint, r.detail, r.action);
-            else if(r.severity==='EVIDENCE') push('CURRENT_STATE_EVIDENCE_'+String(r.claimType||r.status), 'EVIDENCE', r.currentItemName||r.subject, r.currentItemPath||r.pathHint, r.detail, r.action);
-        });
-    }
+    var resolutions=currentStateResolution && currentStateResolution.resolutions;
+    if(!Array.isArray(resolutions))resolutions=(intelligence && intelligence.claims || []).map(function(c){return qaResolveHistoricalClaimCurrentState_(c,null,null,courseraItems,extractorMeta,snapshotContext);});
+    resolutions.forEach(function(r){
+        var raw=r.status==='RAW_PROVENANCE';
+        if(raw&&!/^(UNRESOLVED_SOURCE_ASSET|GENERATED_CONTENT_FALLBACK|GENERATED_BEHAVIOR|BROKEN_LINK_FALLBACK|PLACEHOLDER_FALLBACK)$/.test(r.claimType))return;
+        if(['CRITICAL','REVIEW','EVIDENCE'].indexOf(r.severity)<0)return;
+        var code=raw?'SI_'+r.claimType:(r.severity==='EVIDENCE'?'CURRENT_STATE_EVIDENCE_':'CURRENT_STATE_')+String(r.claimType||r.status);
+        var label=r.currentItemName||r.sourceName||r.subject||('Unmapped ingestion finding ('+String(r.claimType||r.status)+')');
+        push(code,r.severity,label,r.currentItemPath||r.sourcePath||r.pathHint,r.detail,r.action,r.currentItemId);
+    });
     var crawl=extractorMeta && extractorMeta.activeSpaCrawl || {};
     var traversal=qaCaptureTraversalSummary_(extractorMeta);
     if(traversal.recorded&&!traversal.complete){
@@ -6244,13 +6349,17 @@ function qaAssessDestinationReadiness_(courseraItems, intelligence, extractorMet
             'Recover or inspect the unresolved item editors before treating unobserved payload as absent. Keep independently confirmed defects visible; do not rebuild items solely because their editor was not reached.');
     }
     findings.forEach(function(f){
-        if(/^(EMPTY_PLACEHOLDER_ITEM|TEMPLATE_PLACEHOLDER_TEXT|PLACEHOLDER_CONTACT_INFO|AI_GRADER_PLACEHOLDER)$/.test(f.code) && !workSourceItemPolicy_(partnerName||'',{sourcePath:f.path}).inDecisionGate){
-            f.severity='INFO';f.policyExempt=true;f.detail='Placeholder observed in a policy-exempt source area.';
+        if(!f.itemId && f.itemName){
+            var matches=(courseraItems||[]).filter(function(item){return qaCleanName_(item.name)===qaCleanName_(f.itemName)&&qaCleanText_(item.path)===qaCleanText_(f.path);});
+            if(matches.length===1)f.itemId=matches[0].id||'';
+        }
+        if(!workSourceItemPolicy_(partnerName||'',{sourcePath:f.path}).inDecisionGate){
+            f.originalSeverity=f.severity;f.originalAction=f.action;f.severity='INFO';f.policyExempt=true;
             f.action='Optional housekeeping in '+f.path+'. Retain for audit and change only if the course requirements call for it; this does not block the learner-facing audit.';
         }
     });
     var dedup=Object.create(null), unique=[];
-    findings.forEach(function(f){var k=[f.code,qaCleanName_(f.itemName),qaCleanName_(f.path),qaCleanName_(f.detail)].join('|');if(!dedup[k]){dedup[k]=true;unique.push(f);}});
+    findings.forEach(function(f){var k=[f.code,String(f.itemId||''),qaCleanName_(f.itemName),qaCleanName_(f.path),qaCleanName_(f.detail)].join('|');if(!dedup[k]){dedup[k]=true;unique.push(f);}});
     var critical=unique.filter(function(f){return f.severity==='CRITICAL';});
     var review=unique.filter(function(f){return f.severity==='REVIEW';});
     var evidence=unique.filter(function(f){return f.severity==='EVIDENCE';});
@@ -6277,7 +6386,11 @@ function qaApplyDestinationReadinessPolicy_(operationalPolicy, readiness) {
     operationalPolicy.readinessReviewNames=(readiness.reviewFindings||[]).map(function(f){return f.itemName||f.code;}).filter(Boolean);
     operationalPolicy.manualRepairRequired=Number(readiness.manualRepairCount||0)>0;
     operationalPolicy.manualRepairNames=(readiness.manualRepairFindings||[]).map(function(f){return f.itemName||f.code;}).filter(Boolean);
-    if((readiness.criticalCount||0)>0 && operationalPolicy.recommendationCode==='KEEP'){
+    if(operationalPolicy.manualRepairRequired && ['KEEP','REVIEW'].indexOf(operationalPolicy.recommendationCode)>=0){
+        operationalPolicy.recommendationCode='MANUAL_REMEDIATION';
+        operationalPolicy.recommendationLabel='Resolve reported attachment failures before publication';
+        operationalPolicy.recommendationReason='Current Smart Ingestion reports an attachment it could not include: '+operationalPolicy.manualRepairNames.join('; ')+'. Confirm learner access and restore or link the source file if absent. These explicit failures require a targeted check; repeating ingestion is not established as a remedy.';
+    } else if((readiness.criticalCount||0)>0 && operationalPolicy.recommendationCode==='KEEP'){
         operationalPolicy.recommendationCode='REVIEW';
         operationalPolicy.recommendationLabel='REVIEW';
         operationalPolicy.recommendationReason='Source-fidelity thresholds pass, but destination readiness has critical Smart Ingestion fallbacks or unresolved source assets. Fix those before KEEP.';
@@ -7022,6 +7135,7 @@ function qaBrightspaceQuizCaptureSummary_(quizzes) {
     var match=description.match(/\b(?:has|contains)\s+(\d+)[ -]+questions?\b/i)||description.match(/\b(\d+)[ -]+questions?\b/i);
     var stated=q.declaredQuestionCount!=null&&Number.isFinite(Number(q.declaredQuestionCount))?Number(q.declaredQuestionCount):(match?Number(match[1]):null);
     var status=q.questionsStatus==='PARTIAL'?'PARTIAL_API_CAPTURE':q.questionsStatus==='UNAVAILABLE'?'UNAVAILABLE':(q.questionsStatus==='NOT_REQUESTED'?'NOT_REQUESTED':(captured===0?'NO_DEFINITIONS_CAPTURED':(stated!=null&&stated!==captured?'COUNT_DIFFERS':'CAPTURED')));
+    if(status==='CAPTURED' && q.questionCoverage && q.questionCoverage.completenessVerified===false) status=String(q.questionCoverage.status||'TOTAL_UNVERIFIED');
     return {id:String(q.id||''),name:String(q.name||q.title||'Quiz'),capturedQuestionDefinitions:captured,descriptionQuestionCount:stated,status:status,pageEvidence:q.questionPageEvidence||null,definitionCoverage:q.questionCoverage||null};
   });
   return {quizzes:rows.length,capturedQuestionDefinitions:rows.reduce(function(n,q){return n+q.capturedQuestionDefinitions;},0),quizEvidenceGaps:rows.filter(function(q){return q.status!=='CAPTURED';}).length,items:rows,
@@ -7557,6 +7671,12 @@ function qaLegacyWebLinkEvidence_(item) {
     } catch(e) {return gap;}
 }
 
+function qaLaunchUrlComparisonKey_(value) {
+    // HTTP(S) empty paths and '/' are equivalent. Preserve path case, non-root
+    // trailing slashes, query strings and fragments; they can select content.
+    return String(value||'').trim().replace(/^(https?:\/\/[^/?#\s]+)(?=[?#]|$)/i,'$1/');
+}
+
 function qaExternalWebpageEvidence_(source,coursera) {
     if(!/^(?:Ungraded )?Plugin$/i.test(coursera.type) || !(/^imswl_/i.test(String(source.sourceTypeRaw||'')) || source.type==='Reading'))return null;
     var raw=coursera.original||{},payload=raw.payload||{},plugin=coursera.pluginEvidence||payload.pluginEvidence||null;
@@ -7569,7 +7689,7 @@ function qaExternalWebpageEvidence_(source,coursera) {
     if(scoped){marker=marker||plugin.kind==='EXTERNAL_WEBPAGE';youtube=youtube||plugin.kind==='YOUTUBE';}
     var out={status:'UNVERIFIED',kind:youtube?'YOUTUBE_PLUGIN_WRAPPER':'EXTERNAL_WEBPAGE_WRAPPER',sourceTypeRaw:String(source.sourceTypeRaw||''),sourceUrls:expected,capturedUrls:captured,
         linkEvidenceConfidence:Number.isFinite(confidence)?confidence:null,configurationMarkerObserved:marker||youtube,launchStatus:'NOT_OBSERVED',
-        transformationCandidate:/^imswl_/i.test(String(source.sourceTypeRaw||''))&&(marker||youtube),runtime:qaPluginRuntimeSummary_(scoped?plugin:null)};
+        transformationCandidate:/^imswl_/i.test(String(source.sourceTypeRaw||'')),runtime:qaPluginRuntimeSummary_(scoped?plugin:null)};
     function gap(code,reason){out.reasonCode=code;out.reason=reason;return out;}
     if(!/^imswl_/i.test(out.sourceTypeRaw))return gap('SOURCE_WEBLINK_TYPE_UNCONFIRMED','The stored source resource type does not establish an IMS web link. Inspect the source resource before accepting the plugin conversion.');
     if(source.sourceLinkNormalization && source.sourceLinkNormalization.status==='SOURCE_REFRESH_REQUIRED')return gap(source.sourceLinkNormalization.reasonCode,source.sourceLinkNormalization.reason);
@@ -7586,12 +7706,12 @@ function qaExternalWebpageEvidence_(source,coursera) {
     if(!Number.isFinite(confidence)||confidence<0.9)return gap('CAPTURED_LINK_CONFIDENCE_LOW','The captured destination URL evidence is too weak to verify the plugin configuration. Inspect its configuration or refresh the Coursera capture.');
     if(!targets.length)return gap('CAPTURED_URL_NOT_AVAILABLE','No complete destination URL survived a confirmed item-identity match. Check the XLSX item ID and refresh the Coursera capture if needed.');
     // Collapse equivalent bare YouTube forms only; semantic query parameters survive.
-    var uniqueTargets=[];targets.forEach(function(u){if(!uniqueTargets.some(function(v){return v===u||(qaYoutubeVideoId_(u)&&qaYoutubeVideoId_(u)===qaYoutubeVideoId_(v));}))uniqueTargets.push(u);});
+    var uniqueTargets=[];targets.forEach(function(u){if(!uniqueTargets.some(function(v){return qaLaunchUrlComparisonKey_(v)===qaLaunchUrlComparisonKey_(u)||(qaYoutubeVideoId_(u)&&qaYoutubeVideoId_(u)===qaYoutubeVideoId_(v));}))uniqueTargets.push(u);});
     if(uniqueTargets.length!==1)return gap('CAPTURED_URL_AMBIGUOUS','Multiple distinct destination targets were captured. The intended launch target is not established.');
-    var exact=expected[0]===uniqueTargets[0],sameVideo=youtube&&qaYoutubeVideoId_(expected[0])&&qaYoutubeVideoId_(expected[0])===qaYoutubeVideoId_(uniqueTargets[0]);
+    var exact=qaLaunchUrlComparisonKey_(expected[0])===qaLaunchUrlComparisonKey_(uniqueTargets[0]),sameVideo=youtube&&qaYoutubeVideoId_(expected[0])&&qaYoutubeVideoId_(expected[0])===qaYoutubeVideoId_(uniqueTargets[0]);
     if(!exact&&!sameVideo)return gap('LAUNCH_URL_DIFFERS','The source and destination targets differ. Query, fragment and video identity differences remain material; review the recorded targets.');
-    out.status='VERIFIED_CONFIGURATION';out.sourceUrl=expected[0];out.courseraUrl=uniqueTargets[0];out.reasonCode=sameVideo?'YOUTUBE_VIDEO_ID_PRESERVED':'EXACT_LAUNCH_URL_PRESERVED';
-    out.reason=youtube?'The source video target is preserved in the observed Coursera YouTube configuration. Playback remains unverified.':'The source web-link target is preserved exactly in a captured Coursera External Webpage plugin. Learner launch and remote availability have not been observed.';
+    out.status='VERIFIED_CONFIGURATION';out.sourceUrl=expected[0];out.courseraUrl=uniqueTargets[0];out.reasonCode=sameVideo?'YOUTUBE_VIDEO_ID_PRESERVED':(expected[0]===uniqueTargets[0]?'EXACT_LAUNCH_URL_PRESERVED':'EQUIVALENT_ROOT_URL_PRESERVED');
+    out.reason=youtube?'The source video target is preserved in the observed Coursera YouTube configuration. Playback remains unverified.':'The source web-link target is preserved in a captured Coursera External Webpage plugin'+(out.reasonCode==='EQUIVALENT_ROOT_URL_PRESERVED'?' (equivalent empty path and root slash)':'')+'. Learner launch and remote availability have not been observed.';
     return out;
 }
 
@@ -9991,7 +10111,7 @@ function qaOwnerActionForResult_(result) {
         return {severity:'REVIEW',label:'Check video playback',action:'The source YouTube video target is preserved in the captured plugin configuration: '+checks.externalWebpageTransformation.sourceUrl+'. Confirm playback in learner preview; configuration evidence alone does not prove playback.'};
     }
     if(result.verdict==='EXPECTED_TRANSFORMATION' && checks.externalWebpageTransformation){
-        return {severity:'REVIEW',label:'Verify external webpage launch',action:'The source URL is preserved exactly in the Coursera External Webpage plugin: '+checks.externalWebpageTransformation.sourceUrl+'. Open its learner preview to confirm that the intended page loads and is accessible. URL/configuration preservation is verified; launch behavior remains unobserved.'};
+        return {severity:'REVIEW',label:'Verify external webpage launch',action:'The source URL is preserved in the Coursera External Webpage plugin: '+checks.externalWebpageTransformation.sourceUrl+'. Open its learner preview to confirm that the intended page loads and is accessible. URL/configuration preservation is verified; launch behavior remains unobserved.'};
     }
 
     if (result.verdict === 'EXPECTED_TRANSFORMATION' && !(checks.transformationFamily || checks.oneToManyTransformation)) {
@@ -10037,7 +10157,7 @@ function qaOwnerActionForResult_(result) {
     if (result.verdict === 'MISSING' || issues.indexOf('MISSING_ITEM') > -1) {
         var diagnostic = checks.reconciliationDiagnostic || {};
         if ((diagnostic.candidates || []).length) return {severity:'CRITICAL',label:'Verify candidate before restoring',action:'A possible same-module destination already exists: ' + diagnostic.candidates.map(function(c){return c.name+' ['+c.id+']';}).join('; ') + '. The automatic source-to-destination match is unconfirmed. Compare its prompt and attachments with the source before creating anything. Refresh the original source fingerprint if its recorded evidence is stale or incomplete; restore only content confirmed absent.'};
-        return { severity: 'CRITICAL', label: 'Restore missing item', action: 'Create or restore this source item in the matching Coursera module, then re-run fidelity QA.' };
+        return { severity: 'CRITICAL', label: 'Resolve unmatched source item', action: 'Confirm whether the required learner content is absent or already consolidated elsewhere. Restore confirmed missing content in the matching Coursera module, then re-run fidelity QA. Review any source template instructions or placeholders before copying them into the learner course.' };
     }
 
     var family = checks.transformationFamily || checks.oneToManyTransformation;
@@ -10145,10 +10265,22 @@ function qaOwnerActionForResult_(result) {
         actions.push('Move the item back to the expected module if the placement change is not intentional.');
     }
 
+    var assetProvenance=checks.ingestionProvenance || {};
+    var reportedAssets=issues.indexOf('SI_UNRESOLVED_SOURCE_ASSET')<0 ? [] :
+      (assetProvenance.unresolvedAssetClaims || assetProvenance.claims || []).filter(function(c){
+        return c.type==='UNRESOLVED_SOURCE_ASSET' && c.provenanceOrigin!=='EVIDENCE_MEMORY' && !!c.subject;
+      }).map(function(c){return c.subject;}).filter(function(v,i,a){return a.indexOf(v)===i;});
+    if(reportedAssets.length){
+        severity='CRITICAL';
+        actions.push('Smart Ingestion explicitly reports that it could not include '+reportedAssets.join(', ')+'. Confirm learner access in this assignment and any intended source-file carrier; restore or link the source file if absent. Resolve this reported attachment failure before publication.');
+    }
+
     if (issues.indexOf('PAYLOAD_UNVERIFIED') > -1 && !(checks.structuredAssessment && checks.structuredAssessment.sourceAnswerRefreshRequired === true)) {
         if (severity === 'NONE') severity = 'EVIDENCE';
         var unresolved = checks.assets && checks.assets.unresolved ? checks.assets.unresolved : [];
-        var expected = unresolved.length ? unresolved : (checks.assets && checks.assets.expected ? checks.assets.expected : []);
+        var expected = (unresolved.length ? unresolved : (checks.assets && checks.assets.expected ? checks.assets.expected : [])).filter(function(name){
+            return !reportedAssets.some(function(asset){return qaCleanName_(qaFileName_(asset))===qaCleanName_(qaFileName_(name));});
+        });
         if(checks.content && checks.content.reasonCode==='DESCRIPTION_VS_DOCUMENT_SURFACE') {
             actions.push('The PDF is preserved byte-for-byte. Check whether its short introductory description is present and intended; captured PDF-viewer text cannot establish that. Keep the preserved PDF.');
         } else if(checks.externalWebpageEvidence && checks.externalWebpageEvidence.status==='UNVERIFIED') {
@@ -10170,8 +10302,8 @@ function qaOwnerActionForResult_(result) {
                 actions.push('All '+sa.sourceQuestionCount+' question prompts align and their captured choices show no material mismatch. Confirm whether an answer key is required for this activity. If required, obtain the missing source and/or destination answer evidence; if no correct answers apply, record that decision explicitly. The title alone does not establish this, and no missing question positions are identified by this comparison.');
             } else if((sa.captureIssueQuestionNumbers||[]).length)actions.push('Refresh the Coursera capture or inspect the answer fields for question(s) '+sa.captureIssueQuestionNumbers.join(', ')+'. Their captured choices include unresolved feedback text. All '+sa.courseraQuestionCount+' captured questions remain recorded; no answer-key change is proven for these fields.');
             else actions.push('Verify this assessment before approval: source ' + sa.sourceQuestionCount + ' questions; destination ' + sa.courseraQuestionCount + '; aligned ' + sa.alignedQuestionCount + '. Inspect the question bank and random-selection settings, and capture the unobserved questions/answers. An incomplete capture does not prove deletion.');
-        } else if (expected.length) actions.push('No repair is proven yet for unresolved payload: ' + expected.join(', ') + '. Escalate to manual inspection only if 100% verification is required.');
-        else actions.push('No repair is proven yet. Automated deep verification could not obtain enough learner-facing evidence; escalate to manual inspection only if 100% verification is required.');
+        } else if (expected.length) actions.push('Separate evidence gap for '+expected.join(', ')+': verify the file content or learner access before approval. Incomplete capture alone does not establish that these additional files need repair.');
+        else if(!reportedAssets.length) actions.push('No repair is proven yet. Automated deep verification could not obtain enough learner-facing evidence; escalate to manual inspection only if 100% verification is required.');
     }
 
     var mediaAction=qaQuestionMediaAction_(checks.structuredAssessment);
@@ -11063,7 +11195,10 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         // Auto snapshot detection must use what exists NOW, not a historical
         // Author Alignment Report remembered from an earlier snapshot.
         var snapshotContext = qaResolveSnapshotContext_(snapshotMode, courseraItems, currentSnapshotIngestionIntelligence);
-        snapshotContext = qaApplySnapshotStageGuard_(snapshotContext, generationContext, courseraItems);
+        snapshotContext = qaApplySnapshotStageGuard_(snapshotContext, generationContext, courseraItems, {
+            excelSha256:qaSha256Base64_(excelBase64),jsonSha256:qaSha256Base64_(jsonBase64),
+            hasReadingRecovery:!!readingRecoveryBase64 || !!extractorMeta.supplementalReadingRecovery
+        });
         var destinationReadiness = null;
         var courseLevelFailure = qaCourseLevelFailure_(coreItems, courseraItems, (dbData.packageMeta && dbData.packageMeta.partner) || '');
 
@@ -11202,7 +11337,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
             if(coursera.syntheticOneToMany===true){ (coursera.oneToMany && coursera.oneToMany.childIds || []).forEach(function(cid){ courseraItems.forEach(function(real){ if(String(real.id||'')===String(cid||'')) real.matched=true; }); }); }
             var result = compareItemFidelity_(source, coursera, bestScore, courseraEvidenceItems, snapshotContext, ingestionIntelligence);
             if(coursera.syntheticOneToMany===true) result = qaDecorateOneToManyResult_(source,coursera,result);
-            result = qaApplySmartIngestionProvenanceToResult_(source,result,ingestionIntelligence);
+            result = qaApplySmartIngestionProvenanceToResult_(source,result,ingestionIntelligence,courseraItems);
             result.matchMethod = plannedMatch ? plannedMatch.method : 'UNPLANNED';
             itemResults.push(result);
             ((result.checks && result.checks.assets && result.checks.assets.relocated) || []).forEach(function(m) { markConsolidationCarrier_(m.carrierId, source.name); });
@@ -11332,13 +11467,14 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
             else unverifiedBundled.push(asset);
         });
 
-        var summary = qaBuildSummary_(itemResults, injected);
         var externalRuntimeEvidence = qaExternalRuntimeEvidenceForPackage_(dbData.packageMeta || {});
         var operationalPolicy = workBuildRawQaOperationalPolicy_((dbData.packageMeta && dbData.packageMeta.partner) || '', itemResults, injected, courseLevelFailure);
         // v7.6: the policy gate and operator instructions must say the same thing.
         // Policy-exempt Instructor Resources/Archive findings remain visible for audit
         // but must not tell operators to restore/publish learner content automatically.
         workApplyPolicyAwareOperatorGuidance_(itemResults, injected);
+        // Count the final operator actions, including explicit policy exemptions.
+        var summary = qaBuildSummary_(itemResults, injected);
         operationalPolicy = qaApplyExternalRuntimePolicy_(operationalPolicy, externalRuntimeEvidence);
         operationalPolicy = qaApplyLiveSourceReviewPolicy_(operationalPolicy, liveSourceGroundTruth);
         operationalPolicy = qaApplyDestinationReadinessPolicy_(operationalPolicy, destinationReadiness);
@@ -11349,7 +11485,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         summary.operationalPolicy = operationalPolicy;
         summary.externalRuntimeEvidence = externalRuntimeEvidence;
         summary.liveSourceGroundTruth = liveSourceGroundTruth;
-        summary.destinationReadiness = destinationReadiness;
+        qaApplyReadinessToSummary_(summary,itemResults,courseraItems,destinationReadiness);
         summary.currentStateResolution = currentStateResolution;
 
         var qaResult = {
@@ -11626,9 +11762,34 @@ function qaAttachReadinessActions_(results, items, readiness) {
         if (!active.length) return;
         r.checks = r.checks || {}; r.checks.destinationReadiness = active;
         var owner = r.ownerAction && typeof r.ownerAction === 'object' ? r.ownerAction : qaOwnerActionForResult_(r);
-        var detail = active.map(function(f) {return f.action;}).filter(Boolean).join(' ');
-        r.ownerAction = {severity:owner.severity === 'CRITICAL' || active.some(function(f){return f.severity==='CRITICAL';}) ? 'CRITICAL' : 'REVIEW', label:'Destination readiness action', action:(owner.severity==='NONE'?'Source fidelity and destination readiness are separate checks. ':owner.action+' ') + detail};
+        var handlesAsset=!!(r.checks.ingestionProvenance && (r.checks.ingestionProvenance.unresolvedAssetClaims||[]).length && (r.issues||[]).indexOf('SI_UNRESOLVED_SOURCE_ASSET')>=0);
+        var detail = active.filter(function(f){return !(handlesAsset && f.code==='SI_UNRESOLVED_SOURCE_ASSET');}).map(function(f) {return f.action;}).filter(Boolean).join(' ');
+        var severity=owner.severity === 'CRITICAL' || active.some(function(f){return f.severity==='CRITICAL';}) ? 'CRITICAL' : owner.severity === 'REVIEW' || active.some(function(f){return f.severity==='REVIEW';}) ? 'REVIEW' : 'EVIDENCE';
+        r.ownerAction = {severity:severity, label:'Destination readiness action', action:(owner.severity==='NONE'?'Source fidelity and destination readiness are separate checks. ':owner.action+' ') + detail};
     });
+}
+function qaReadinessActionRepresented_(row, finding) {
+    var owner=row.ownerAction || {};
+    if(row.operationalPolicy && row.operationalPolicy.inDecisionGate===false)return false;
+    if(['CRITICAL','REVIEW','EVIDENCE'].indexOf(owner.severity)<0 || !owner.action)return false;
+    return (row.checks && row.checks.destinationReadiness || []).some(function(x){
+        return x.code===finding.code && x.itemName===finding.itemName && x.path===finding.path &&
+          (!finding.itemId || String(x.itemId||'')===String(finding.itemId));
+    });
+}
+function qaApplyReadinessToSummary_(summary, results, items, readiness) {
+    summary.destinationReadiness=readiness;
+    // Mapped actions already contribute to the summary. Add only findings that
+    // have no matching source-result carrier, to avoid double-counting blockers.
+    var extras=(readiness&&readiness.findings||[]).filter(function(f){
+        if(f.policyExempt || ['CRITICAL','REVIEW','EVIDENCE'].indexOf(f.severity)<0)return false;
+        return !(results||[]).some(function(r){return qaReadinessActionRepresented_(r,f);});
+    });
+    extras.forEach(function(f){var key=f.severity==='CRITICAL'?'ownerCritical':f.severity==='REVIEW'?'ownerReview':'ownerEvidence';summary[key]=Number(summary[key]||0)+1;});
+    summary.criticalBlockers=Number(summary.criticalBlockers||0)+extras.filter(function(f){return f.severity==='CRITICAL';}).length;
+    if(summary.criticalBlockers){summary.headlineStatus='BLOCKED';summary.headlineText='BLOCKED — '+summary.criticalBlockers+' critical learner-facing finding'+(summary.criticalBlockers===1?'':'s');}
+    else if(extras.length){summary.headlineStatus='REVIEW';summary.headlineText='REVIEW — evidence gaps or owner checks remain';}
+    return summary;
 }
 function qaMissingReconciliationDiagnostic_(source, destinations) {
     var raw=source.original||{};
@@ -11917,49 +12078,74 @@ qaFindCrossItemSemanticRepackagingEvidence_=function(source,courseraItems,exclud
 var CTI_V7931_qaParseSmartIngestionIntelligence_=qaParseSmartIngestionIntelligence_;
 qaParseSmartIngestionIntelligence_=function(courseraEvidenceItems){
   var out=CTI_V7931_qaParseSmartIngestionIntelligence_.apply(this,arguments)||{reportItems:[],claims:[]};
-  out.claims=Array.isArray(out.claims)?out.claims:[];
+  out.claims=Array.isArray(out.claims)?out.claims.map(qaNormalizeIngestionClaimScope_):[];
   var seen=Object.create(null);out.claims.forEach(function(c){seen[qaClaimResolutionKey_(c)]=true;});
   function push(type,subject,path,excerpt,severity,remediation){
-    var c={type:type,subject:qaCleanText_(subject||''),target:'',excerpt:qaSmartIngestionClaimExcerpt_(excerpt||''),confidence:0.97,detail:qaSmartIngestionClaimExcerpt_(excerpt||''),pathHint:qaCleanText_(path||''),context:'AAR_EVENT_V8',severity:severity||'REVIEW',remediation:qaCleanText_(remediation||'')};
+    var c=qaNormalizeIngestionClaimScope_({type:type,subject:qaCleanText_(subject||''),target:'',excerpt:qaCleanText_(excerpt||''),confidence:0.97,detail:qaCleanText_(excerpt||''),pathHint:qaCleanText_(path||''),context:'AAR_EVENT_V8',severity:severity||'REVIEW',remediation:qaCleanText_(remediation||'')});
+    c.excerpt=qaSmartIngestionClaimExcerpt_(c.excerpt);c.detail=qaSmartIngestionClaimExcerpt_(c.detail);
+    // The legacy parser may already describe the same event without its category
+    // heading. Keep that evidence once, while retaining separate failures for
+    // different items, modules, or event wording.
+    if(c.type==='UNRESOLVED_SOURCE_ASSET' && out.claims.some(function(prior){
+      if(prior.type!==c.type || qaCleanName_(prior.subject)!==qaCleanName_(c.subject) || qaCleanName_(prior.pathHint)!==qaCleanName_(c.pathHint))return false;
+      var a=qaCleanText_(prior.excerpt||'').toLowerCase(),b=c.excerpt.toLowerCase();
+      return a.length>=50 && b.length>=50 && (a.indexOf(b)>=0 || b.indexOf(a)>=0);
+    }))return;
     var k=qaClaimResolutionKey_(c);if(!c.excerpt||seen[k])return;seen[k]=true;out.claims.push(c);
   }
   (courseraEvidenceItems||[]).forEach(function(item){
     if(!qaSmartIngestionReportLooksValid_(item))return;
     var text=qaCleanText_(item.textSample||'');if(!text)return;
     var markers='AI-Generated Mandatory Field|Content Adaptation|Content Excluded|Unsupported Content Fallback|Empty Module Structure';
-    var re=new RegExp('\\b('+markers+')\\b([\\s\\S]*?)(?=\\b(?:'+markers+'|Module:|Item:|DO NOT PUBLISH)\\b|$)','gi'),m;
+    var re=new RegExp('\\b('+markers+')\\b([\\s\\S]*?)(?=\\b(?:'+markers+'|DO NOT PUBLISH)\\b|\\b(?:Module|Item):\\s|$)','gi'),m;
     while((m=re.exec(text))!==null){
       var cat=m[1],body=qaCleanText_(m[2]||''),prefix=text.slice(Math.max(0,m.index-12000),m.index);
       var mods=[...prefix.matchAll(/Module:\s+(.+?)(?=\s+(?:Item:|AI-Generated Mandatory Field|Content Adaptation|Content Excluded|Unsupported Content Fallback|Empty Module Structure|$))/gi)];
       var path=mods.length?qaCleanText_(mods[mods.length-1][1]):'';
       var items=[...prefix.matchAll(/Item:\s+(.+?)(?=\s+(?:Module:|AI-Generated Mandatory Field|Content Adaptation|Content Excluded|Unsupported Content Fallback|Empty Module Structure|$))/gi)];
-      var subject=items.length?qaCleanText_(items[items.length-1][1]):path;
+      var currentItem=items.length && (!mods.length || items[items.length-1].index>mods[mods.length-1].index) ? items[items.length-1] : null;
+      var subject=currentItem?qaCleanText_(currentItem[1]):path;
+      if(/^(?:supplement|ungradedAssignment|gradedAssignment|assignment|ungradedWidget|gradedWidget|widget|plugin|lecture|discussionPrompt)(?:\s+Opens in a new tab)?$/i.test(subject)) subject='';
       var event=cat+' '+body;
       if(cat==='Content Excluded')push('INTENTIONAL_EXCLUSION',subject,path,event,'REVIEW','Confirm the exclusion is intentional.');
       if(cat==='Unsupported Content Fallback')push('UNSUPPORTED_CONTENT_FALLBACK',subject,path,event,'REVIEW','Inspect/recreate only the unsupported learner payload identified here.');
-      if(/(?:attachment|document|file|asset).{0,180}(?:could not|cannot|no corresponding asset|not available|not represented|unable)/i.test(event))
-        push('UNRESOLVED_SOURCE_ASSET',subject,path,event,'CRITICAL','Reattach or otherwise restore equivalent learner access to the identified source asset.');
+      var assetKind=qaIngestionAssetEventKind_(event);
+      if(assetKind==='UNRESOLVED_SOURCE_ASSET')
+        push(assetKind,subject,path,event,'CRITICAL','Confirm learner access to the identified source asset; restore or link the file if absent. A filename or local path alone is not an accessible attachment.');
+      else if(assetKind==='CONTENT_MARKUP_ADAPTATION')push(assetKind,subject,path,event,'INFO','');
       if(/(?:NonRetryable|Exception|ERROR DURING DISTILLATION|distillation|parsing failure|malformed model|failed to (?:parse|convert|distill))/i.test(event))
         push('SI_PROCESSING_FAILURE',subject,path,event,'CRITICAL','Escalate the Smart Ingestion processing failure and restore from source evidence if required.');
       if(cat==='AI-Generated Mandatory Field' && /(?:passing threshold|passing score|grader type|rubric|graded|grade setting)/i.test(event))
         push('GENERATED_BEHAVIOR',subject,path,event,'REVIEW','Compare generated behavior with the source LMS behavior before approval.');
-      else if(cat==='AI-Generated Mandatory Field' && /(?:generated reading content|generated content|source .* missing|source .* empty)/i.test(event))
+      else if(cat==='AI-Generated Mandatory Field' && /\bgenerated\s+(?:the\s+)?(?:replacement\s+)?reading\s+content\b/i.test(body))
         push('GENERATED_CONTENT_FALLBACK',subject,path,event,'REVIEW','Compare generated content with actual source evidence.');
-      if(/(?:reattach|re-attach|recreate|re-create|manually add|course team should|restore|upload).*?(?:file|attachment|question|content|document|asset)/i.test(event))
+      if(assetKind!=='UNRESOLVED_SOURCE_ASSET' && /(?:^|[\s.])(?:reattach|re-attach|recreate|re-create|manually add|course team should|restore|upload)\b.*?(?:file|attachment|question|content|document|asset)/i.test(event))
         push('REPAIR_INSTRUCTION',subject,path,event,'REVIEW',body);
     }
     var failRe=/(NonRetryable[A-Za-z0-9_.$:-]*Exception[^.]{0,500}|\[ERROR DURING DISTILLATION\][^.]{0,500}|malformed model JSON[^.]{0,500})/gi,f;
     while((f=failRe.exec(text))!==null)push('SI_PROCESSING_FAILURE','Smart Ingestion processing','',f[0],'CRITICAL','Escalate the processing failure; do not attribute it to missing source content without source evidence.');
   });
-  out.parserVersion='aar-event-parser-v8';return out;
+  // Rebuild projections after event parsing without applying the persistence
+  // compactor's claim-count limit to a fresh report.
+  out.categoryCounts={};out.claims.forEach(function(c){out.categoryCounts[c.type]=(out.categoryCounts[c.type]||0)+1;});
+  out.criticalClaims=out.claims.filter(function(c){return c.severity==='CRITICAL';}).slice(0,60);
+  out.reviewClaims=out.claims.filter(function(c){return c.severity==='REVIEW';}).slice(0,80);
+  out.parserVersion='aar-event-parser-v8.1';return out;
 };
 
 var CTI_V7931_qaApplySmartIngestionProvenanceToResult_=qaApplySmartIngestionProvenanceToResult_;
 qaApplySmartIngestionProvenanceToResult_=function(source,result,intelligence){
   result=CTI_V7931_qaApplySmartIngestionProvenanceToResult_.apply(this,arguments);
+  var argumentsDestinations=arguments[3]||[];
   var claims=qaSmartIngestionClaimsForSource_(source,intelligence),issues=result.issues||[];result.checks=result.checks||{};
   claims.forEach(function(c){
-    if(c.type==='UNSUPPORTED_CONTENT_FALLBACK' && ['VERIFIED','EXPECTED_TRANSFORMATION'].indexOf(result.verdict)>-1){result.verdict='UNVERIFIED';if(issues.indexOf('SI_UNSUPPORTED_CONTENT')<0)issues.push('SI_UNSUPPORTED_CONTENT');}
+    if(c.provenanceOrigin==='EVIDENCE_MEMORY')return;
+    if(c.type==='UNSUPPORTED_CONTENT_FALLBACK' && ['VERIFIED','EXPECTED_TRANSFORMATION'].indexOf(result.verdict)>-1){
+      var pairedAsset=claims.some(function(other){return other.type==='UNRESOLVED_SOURCE_ASSET' && !!c.subject && qaCleanName_(other.subject)===qaCleanName_(c.subject);});
+      var hit=pairedAsset?qaFindCurrentAttachmentEvidence_(c.subject,argumentsDestinations,result.courseraId):null;
+      var observed=qaCurrentAttachmentIsObserved_(hit);
+      if(!observed){result.verdict='UNVERIFIED';if(issues.indexOf('SI_UNSUPPORTED_CONTENT')<0)issues.push('SI_UNSUPPORTED_CONTENT');}
+    }
     if(c.type==='SI_PROCESSING_FAILURE'){
       if(issues.indexOf('SI_PROCESSING_FAILURE')<0)issues.push('SI_PROCESSING_FAILURE');
       var empty=result.checks.destinationReadiness&&JSON.stringify(result.checks.destinationReadiness).indexOf('EMPTY_ASSESSMENT_EDITOR_OBSERVED')>-1;
@@ -11993,7 +12179,7 @@ qaApplyIngestionActionabilityPolicy_=function(operationalPolicy,lineageMeta,snap
 var CTI_V7931_qaBuildSummary_=qaBuildSummary_;
 qaBuildSummary_=function(itemResults,injected){
   var s=CTI_V7931_qaBuildSummary_.apply(this,arguments);
-  var critical=(itemResults||[]).filter(function(r){return r&&((r.ownerAction&&r.ownerAction.severity==='CRITICAL')||r.verdict==='INGESTION_FAILURE');});
+  var critical=(itemResults||[]).filter(function(r){return r&&!(r.operationalPolicy&&r.operationalPolicy.inDecisionGate===false)&&((r.ownerAction&&r.ownerAction.severity==='CRITICAL')||r.verdict==='INGESTION_FAILURE');});
   s.criticalBlockers=critical.length;
   s.headlineStatus=critical.length?'BLOCKED':((s.ownerReview||s.ownerEvidence||s.unverified||s.partial||!itemResults||!itemResults.length)?'REVIEW':'NO_BLOCKERS_OBSERVED');
   s.headlineText=critical.length?('BLOCKED — '+critical.length+' critical learner-facing finding'+(critical.length===1?'':'s')):(s.headlineStatus==='REVIEW'?'REVIEW — evidence gaps or owner checks remain':'No critical learner-facing blocker observed; publication approval remains separate');

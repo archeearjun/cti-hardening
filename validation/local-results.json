@@ -3,7 +3,7 @@
   "reports": [
     {
       "suite": "fast",
-      "passed": 200,
+      "passed": 228,
       "failed": 0,
       "failures": [],
       "skipped": [
