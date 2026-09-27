@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
+import FullWorkspace from "./FullWorkspace";
 import type {
   ExtractorDelivery,
   ReviewOptions,
@@ -28,7 +29,9 @@ function elapsed(seconds: number) {
 }
 
 export default function App() {
-  const [workspace, setWorkspace] = useState<"capture" | "package">("capture");
+  const [workspace, setWorkspace] = useState<"capture" | "package" | "full">(
+    "full",
+  );
   const [packageBusy, setPackageBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [options, setOptions] = useState<ReviewOptions>({
@@ -174,15 +177,22 @@ export default function App() {
           </p>
         </section>
         <aside className="scope">
-          <strong>This is a limited migration preview.</strong>
+          <strong>CTI migration workspace.</strong>
           <p>
-            Use the existing CTI app for full source-to-Coursera comparison with
-            XLSX, shared course records, permissions, lifecycle tracking and
-            Macmillan workflows. This review does not establish source fidelity
-            or publication readiness.
+            Run full comparisons and track work here. Connect the shared service
+            and import existing records before retiring the Apps Script app. A
+            completed report does not by itself establish publication readiness.
           </p>
         </aside>
         <nav className="workspace-tabs" aria-label="Choose a workspace">
+          <button
+            className={workspace === "full" ? "primary" : "secondary"}
+            aria-pressed={workspace === "full"}
+            disabled={busy || packageBusy}
+            onClick={() => setWorkspace("full")}
+          >
+            Full CTI workspace
+          </button>
           <button
             className={workspace === "capture" ? "primary" : "secondary"}
             aria-pressed={workspace === "capture"}
@@ -200,6 +210,9 @@ export default function App() {
             Inspect a package
           </button>
         </nav>
+        <div hidden={workspace !== "full"}>
+          <FullWorkspace />
+        </div>
         <div hidden={workspace !== "package"}>
           <PackageWorkspace onBusyChange={setPackageBusy} />
         </div>

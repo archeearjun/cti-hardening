@@ -736,3 +736,130 @@ footer {
     padding: 20px;
   }
 }
+
+.full-workspace {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.full-workspace .card {
+  padding: 24px;
+  min-width: 0;
+}
+.full-workspace h2 {
+  margin-bottom: 16px;
+}
+.full-workspace h3 {
+  margin-top: 24px;
+}
+.full-workspace label {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.full-workspace input:not([type="checkbox"]),
+.full-workspace select,
+.full-workspace textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #c7d4df;
+  border-radius: 6px;
+  background: white;
+}
+.full-workspace textarea {
+  min-height: 96px;
+}
+.full-workspace .workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+.full-workspace .settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 12px 20px;
+}
+.full-workspace .check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.full-workspace input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+.full-workspace .anchor-row {
+  padding: 10px 0;
+  border-bottom: 1px solid #e5ebf0;
+}
+.full-workspace .anchor-row label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.full-workspace .owner-report {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 20px;
+  background: #f7f9fc;
+  border: 1px solid #e0e7ee;
+  border-radius: 8px;
+  font:
+    13px/1.7 ui-monospace,
+    monospace;
+}
+.full-workspace .evidence-json {
+  max-height: 55vh;
+}
+.full-workspace details {
+  margin: 18px 0;
+}
+.full-workspace .text-button {
+  text-align: left;
+}
+.full-workspace .table-wrap {
+  overflow: auto;
+}
+.full-workspace .hint {
+  color: #516576;
+  font-size: 14px;
+}
+.full-workspace button + button {
+  margin-left: 0;
+}
+@media (max-width: 600px) {
+  .full-workspace .card {
+    padding: 16px;
+  }
+  .full-workspace .workspace-tabs button {
+    padding: 10px;
+  }
+}
+.owner-evidence details {
+  padding: 14px;
+  border: 1px solid #dce5ec;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+.owner-evidence summary span {
+  display: block;
+  font-size: 13px;
+  color: #506475;
+  margin-left: 18px;
+}
+.owner-evidence blockquote {
+  padding: 12px;
+  margin: 12px 0;
+  border-left: 3px solid #55a9b4;
+  white-space: pre-wrap;
+}
+.owner-evidence small {
+  color: #607789;
+  margin-top: 10px;
+}

@@ -74,15 +74,20 @@ function ctiImportXlsxAsSheet_(blob, name, adapter) {
 
 function uploadAndScanMaster(fileData, fileName) {
   authorize_('editor');
+  return uploadAndScanMasterCore_(fileData, fileName, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function uploadAndScanMasterCore_(fileData, fileName, io) {
   var importedFileId = null;
   try {
     if (!fileData || String(fileData).length > 35000000) return { success: false, error: "Select an .xlsx file smaller than 25 MB." };
     if (!/\.xlsx$/i.test(String(fileName || ""))) return { success: false, error: "The Master file must be an .xlsx workbook." };
     var blob = Utilities.newBlob(Utilities.base64Decode(fileData), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileName);
     var masterName = String(fileName).replace(/\.xlsx$/i, ' (Master)');
-    var tempFile = ctiImportXlsxAsSheet_(blob, masterName);
+    var tempFile = io.importWorkbook(blob, masterName);
     importedFileId = tempFile.id;
-    var ss = SpreadsheetApp.openById(importedFileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
+    var ss = io.openWorkbook(importedFileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
     if (!data || data.length < 2) throw new Error("The Master workbook contains no data rows.");
     var headers = data[0].map(function(value) { return String(value).trim().toLowerCase(); });
     var levelIdx = headers.indexOf('level'), nameIdx = headers.indexOf('name');
@@ -117,10 +122,10 @@ function uploadAndScanMaster(fileData, fileName) {
     }
 
     if (filteredModules.length === 0) throw new Error("No Level 1 modules/anchors were found in this document.");
-    registerWorkflowFileId_(importedFileId);
+    io.registerWorkbook(importedFileId);
     return { success: true, fileId: importedFileId, totalRows: data.length - 1, totalL1: allL1Modules.length, primaryCount: filteredModules.length, totalL2: l2Count, filteredModules: filteredModules, excludedModules: excludedModules };
   } catch (e) {
-    if (importedFileId) try { DriveApp.getFileById(importedFileId).setTrashed(true); } catch (cleanupError) {}
+    if (importedFileId) try { io.getTemporaryFile(importedFileId).setTrashed(true); } catch (cleanupError) {}
     return { success: false, error: "Master Scan Error: " + e.message };
   }
 }

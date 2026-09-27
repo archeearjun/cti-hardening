@@ -28,8 +28,12 @@ function download(scan: PackageScan) {
 }
 export default function PackageWorkspace({
   onBusyChange,
+  onResult,
+  fileInputId = "package-file",
 }: {
   onBusyChange: (busy: boolean) => void;
+  fileInputId?: string;
+  onResult?: (result: PackageScan) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,6 +104,7 @@ export default function PackageWorkspace({
       else if (data.kind === "package-error") fail(data.message);
       else if (data.kind === "package-result") {
         setResult(data.result);
+        onResult?.(data.result);
         setProgress({ phase: "Package inspection complete" });
         setSeconds(Math.floor((Date.now() - started) / 1000));
         stop();
@@ -133,12 +138,12 @@ export default function PackageWorkspace({
           Choose an IMSCC or ZIP up to 250 MiB. XML is accepted for
           structure-only inspection. Files are processed on this computer.
         </p>
-        <label className="file-picker" htmlFor="package-file">
+        <label className="file-picker" htmlFor={fileInputId}>
           <strong>{file?.name || "Choose an IMSCC package"}</strong>
           <span>Nothing is saved to your shared CTI catalogue.</span>
         </label>
         <input
-          id="package-file"
+          id={fileInputId}
           type="file"
           accept=".imscc,.zip,.xml"
           disabled={busy}

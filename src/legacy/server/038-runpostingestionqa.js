@@ -1,7 +1,12 @@
 
 
 function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName) {
-    authorize_('editor');
+  authorize_('editor');
+  return runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName, io) {
     var tempFileId = null;
     if (persistResult === undefined || persistResult === null) persistResult = true;
     if (typeof lineageMeta === 'string' && lineageMeta) { try { lineageMeta = JSON.parse(lineageMeta); } catch (e) { lineageMeta = {}; } }
@@ -16,7 +21,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         if (sourceLiveBase64 && String(sourceLiveBase64).length > 56000000) return { success:false, error:"Brightspace live-source JSON is larger than the 40 MB QA safety limit." };
         targetUuid = validateUuid_(targetUuid);
 
-        var dbData = fetchPackageStructureDb(targetUuid);
+        var dbData = io.loadPackage(targetUuid);
         if (!dbData.success) throw new Error("Could not load original package structure for comparison.");
 
         var originalItems = flattenTreeForQa_(dbData.tree);
@@ -101,10 +106,10 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 excelName
             );
-            var tempFile = ctiImportXlsxAsSheet_(blob, 'Temp_QA_' + targetUuid);
+            var tempFile = io.importWorkbook(blob, 'Temp_QA_' + targetUuid);
             tempFileId = tempFile.id;
 
-            var ss = SpreadsheetApp.openById(tempFileId);
+            var ss = io.openWorkbook(tempFileId);
             var sheet = ss.getSheetByName('FOR IMPORT') || ss.getSheets()[0];
             var data = sheet.getDataRange().getValues();
             var validTypes = [
@@ -247,7 +252,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         // authoritative Coursera structure and live JSON has been merged as payload
         // evidence. This keeps Auto-detect correct for both XLSX+JSON and JSON-only
         // runs while preserving Excel-only structural authority.
-        var generationContext = qaLoadGenerationEvidenceContext_(targetUuid,lineageMeta);
+        var generationContext = io.loadGeneration(targetUuid,lineageMeta);
         var currentSnapshotIngestionIntelligence = qaParseSmartIngestionIntelligence_(courseraEvidenceItems);
         var ingestionIntelligence = qaMergeGenerationIngestionIntelligence_(
             currentSnapshotIngestionIntelligence,
@@ -529,7 +534,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
             else unverifiedBundled.push(asset);
         });
 
-        var externalRuntimeEvidence = qaExternalRuntimeEvidenceForPackage_(dbData.packageMeta || {});
+        var externalRuntimeEvidence = io.externalRuntime(dbData.packageMeta || {});
         var operationalPolicy = workBuildRawQaOperationalPolicy_((dbData.packageMeta && dbData.packageMeta.partner) || '', itemResults, injected, courseLevelFailure);
         // v7.6: the policy gate and operator instructions must say the same thing.
         // Policy-exempt Instructor Resources/Archive findings remain visible for audit
@@ -602,7 +607,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         };
         if (persistResult) {
             var isRaw = snapshotContext && snapshotContext.mode === 'RAW_INGESTION';
-            qaResult.persistence = persistQaRun_(targetUuid, isRaw ? 'SINGLE_C0' : 'SINGLE_C1', qaResult, {
+            qaResult.persistence = io.persistRun(targetUuid, isRaw ? 'SINGLE_C0' : 'SINGLE_C1', qaResult, {
                 c0ExcelName:isRaw ? excelName : '', c0JsonName:isRaw ? jsonName : '',
                 c1ExcelName:isRaw ? '' : excelName, c1JsonName:isRaw ? '' : jsonName,
                 c0ExcelSha256:isRaw ? qaSha256Base64_(excelBase64) : '', c0JsonSha256:isRaw ? qaSha256Base64_(jsonBase64) : '',
@@ -619,7 +624,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         return { success: false, error: "QA Diff Error: " + e.message };
     } finally {
         if (tempFileId) {
-            try { DriveApp.getFileById(tempFileId).setTrashed(true); } catch (e) {}
+            try { io.getTemporaryFile(tempFileId).setTrashed(true); } catch (e) {}
         }
     }
 }

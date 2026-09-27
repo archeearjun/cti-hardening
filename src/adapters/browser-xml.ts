@@ -1,48 +1,62 @@
-// Minimal XmlService-compatible read adapter. Only used for caller-provided
-// package XML; it has no access to Google services or stored course records.
-interface XmlElement {
+// Read-only XmlService compatibility for caller-supplied XML.
+export interface Namespace {
+  getURI(): string;
+}
+interface ElementLike {
+  localName: string | null;
+  nodeName: string;
+  namespaceURI: string | null;
+  textContent: string | null;
+  childNodes: ArrayLike<any>;
+  hasAttribute(name: string): boolean;
+  getAttribute(name: string): string | null;
+}
+export interface XmlElement {
   getName(): string;
-  getNamespace(): string;
+  getNamespace(): Namespace;
   getText(): string;
   getAttribute(name: string): { getValue(): string } | null;
-  getChildren(name: string, ns: string): XmlElement[];
-  getChild(name: string, ns: string): XmlElement | null;
+  getChildren(name?: string, ns?: Namespace | string): XmlElement[];
+  getChild(name: string, ns?: Namespace | string): XmlElement | null;
 }
-function wrap(element: Element): XmlElement {
+export function wrapXml(element: ElementLike): XmlElement {
+  const children = (name?: string, ns?: Namespace | string) =>
+    Array.from(element.childNodes).filter(
+      (child) =>
+        child.nodeType === 1 &&
+        (name === undefined ||
+          (child.localName === name &&
+            (child.namespaceURI || "") ===
+              (typeof ns === "string" ? ns : ns?.getURI() || ""))),
+    );
   return {
-    getName: () => element.localName,
-    getNamespace: () => element.namespaceURI || "",
+    getName: () => element.localName || element.nodeName,
+    getNamespace: () => ({ getURI: () => element.namespaceURI || "" }),
     getText: () => element.textContent || "",
-    getAttribute: (name: string) =>
+    getAttribute: (name) =>
       element.hasAttribute(name)
         ? { getValue: () => element.getAttribute(name) || "" }
         : null,
-    getChildren: (name: string, ns: string) =>
-      Array.from(element.children)
-        .filter(
-          (child) =>
-            child.localName === name && (child.namespaceURI || "") === ns,
-        )
-        .map(wrap),
-    getChild: (name: string, ns: string): ReturnType<typeof wrap> | null => {
-      const child = Array.from(element.children).find(
-        (child) =>
-          child.localName === name && (child.namespaceURI || "") === ns,
-      );
-      return child ? wrap(child) : null;
+    getChildren: (name, ns) => children(name, ns).map(wrapXml),
+    getChild: (name, ns) => {
+      const child = children(name, ns)[0];
+      return child ? wrapXml(child) : null;
     },
   };
 }
+export function checkXmlInput(xml: string) {
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml))
+    throw new Error("XML declarations are unsupported.");
+}
 export const browserXml = {
   parse(xml: string) {
-    if (/<!DOCTYPE|<!ENTITY/i.test(xml))
-      throw new Error("XML declarations are unsupported.");
+    checkXmlInput(xml);
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     const error = Array.from(doc.getElementsByTagName("*")).find(
       (el) => el.localName === "parsererror",
     );
     if (error || !doc.documentElement)
       throw new Error(error?.textContent || "Invalid XML.");
-    return { getRootElement: () => wrap(doc.documentElement) };
+    return { getRootElement: () => wrapXml(doc.documentElement) };
   },
 };

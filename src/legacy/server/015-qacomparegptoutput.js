@@ -11,9 +11,14 @@
  */
 function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum) {
   authorize_('editor');
+  return qaCompareGptOutputCore_(fileData, fileName, masterFileId, stageName, specNum, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function qaCompareGptOutputCore_(fileData, fileName, masterFileId, stageName, specNum, io) {
   var importedFileId = null;
   try {
-    validateWorkflowFileId_(masterFileId);
+    io.validateWorkbook(masterFileId);
     stageName = String(stageName || '').trim();
     if (['Metadata', 'Merged', 'ContentMap'].indexOf(stageName) === -1) return { success: false, error: 'Unknown QA stage: ' + stageName + '.' };
     specNum = Number(specNum);
@@ -21,7 +26,7 @@ function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum
     if (!fileData || String(fileData).length > 35000000) return { success: false, error: 'Select an .xlsx file smaller than 25 MB.' };
     if (!/\.xlsx$/i.test(String(fileName || ''))) return { success: false, error: 'The QA input must be an .xlsx workbook.' };
 
-    var masterSs = SpreadsheetApp.openById(masterFileId);
+    var masterSs = io.openWorkbook(masterFileId);
     var baselineSheet = masterSs.getSheetByName('Spec' + specNum + '_Clean');
     if (!baselineSheet) return { success: false, error: "Baseline tab 'Spec" + specNum + "_Clean' was not found. Re-run Stage 2 first." };
 
@@ -94,10 +99,10 @@ function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum
 
     var blob = Utilities.newBlob(Utilities.base64Decode(fileData), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileName);
     var tempName = 'CTI_QA_' + stageName + '_S' + specNum + '_' + new Date().getTime();
-    var tempFile = ctiImportXlsxAsSheet_(blob, tempName);
+    var tempFile = io.importWorkbook(blob, tempName);
     importedFileId = tempFile.id;
 
-    var qaSs = SpreadsheetApp.openById(importedFileId);
+    var qaSs = io.openWorkbook(importedFileId);
     var qaSheet = qaSs.getSheetByName('export') || qaSs.getSheets()[0];
     var dataRange = qaSheet.getDataRange();
     var data = dataRange.getDisplayValues();
@@ -363,6 +368,6 @@ function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum
   } catch (e) {
     return { success:false, error:stageName + ' QA Error: ' + e.message };
   } finally {
-    if (importedFileId) try { DriveApp.getFileById(importedFileId).setTrashed(true); } catch (cleanupError) {}
+    if (importedFileId) try { io.getTemporaryFile(importedFileId).setTrashed(true); } catch (cleanupError) {}
   }
 }

@@ -1,0 +1,153 @@
+# Set up the shared CTI workspace
+
+Keep the existing Apps Script app available while you configure and verify the
+new workspace. The migrated workflows can already run in **local mode**. Local
+mode saves only in that browser; it is not shared with colleagues.
+
+This setup uses the existing Cloudflare Pages project, Cloudflare D1 and
+Cloudflare Access. Use **Free** plans only. No installation is required on a
+work laptop. Free services have request, storage and user limits; this is not
+an unlimited-storage promise. Do not select a paid subscription to continue.
+
+## 1. Create the database in the dashboard
+
+1. In Cloudflare, open **Storage & databases → D1 SQL database → Create**.
+2. Name it `cti-workspace`.
+3. Open its **Console**. Copy and run the complete contents of
+   [server/schema.sql](../server/schema.sql). It creates the tables and indexes;
+   it does not delete existing data.
+4. Open **Workers & Pages → cti-hardening → Settings → Bindings → Add → D1**.
+   Set the variable name to **`CTI_DB`** and choose `cti-workspace`.
+
+## 2. Configure team sign-in
+
+1. Open **Zero Trust** and choose its **Free** plan. Choose your team name.
+2. In the Pages project, open **Settings → General → Enable access policy**.
+   Use **Manage** to open the generated preview Access application. Under its
+   public hostname, remove the wildcard subdomain so it protects
+   **`cti-hardening.pages.dev`**, then save. Re-enable the Pages access policy to
+   create a separate preview policy. Verify that both production and preview
+   hostnames are covered. No custom domain purchase is required. Cloudflare's
+   [Pages Access instructions](https://developers.cloudflare.com/pages/platform/known-issues/#enable-access-on-your-pagesdev-domain)
+   describe this production-versus-preview distinction.
+3. Create an **Allow** policy containing the specific coworkers' email addresses
+   who should use CTI. Use email one-time PIN or your organisation's existing
+   identity provider. Do not use a public Bypass policy.
+4. Copy the application **Audience (AUD)** and team domain
+   (`https://YOUR-TEAM.cloudflareaccess.com`).
+5. In the Pages project's **Settings → Variables and Secrets**, add these
+   **production** values:
+
+| Variable | Value |
+| --- | --- |
+| `CTI_ACCESS_ISSUER` | Your complete `https://…cloudflareaccess.com` team URL |
+| `CTI_ACCESS_AUD` | The Access application's audience tag |
+| `CTI_ADMINS` | Your email; comma-separated if more than one administrator |
+| `CTI_EDITORS` | Coworkers who may change records, comma-separated |
+| `NODE_VERSION` | `24` |
+
+Everyone admitted by the Access policy who is not an admin or editor has
+**read-only** access to the team catalogue, reports and downloads. Admins and
+editors can edit all team course records; the Owner field is an assignment,
+not a private access boundary. Admins additionally import legacy backup records.
+The API verifies the signed Access token itself. Missing configuration or an
+invalid token is rejected even if someone knows a preview URL.
+
+Cloudflare currently advertises Access Free for teams under 50 users. Its
+signup flow may require account/billing verification; do not choose a paid plan
+or assume that a credit card is required by CTI. If your work policy blocks
+that signup, keep using the existing Apps Script app for shared work.
+
+## 3. Redeploy and verify the connection
+
+Keep the existing Pages build settings: branch `codex/typescript-pages-migration`,
+build `npm run build`, output **`dist`**, repository root blank. Save the binding
+and variables, then create a new deployment of the latest commit.
+
+Open the site, sign in and choose **Full CTI workspace → Setup → Connect shared
+workspace**. The banner must say **Shared team workspace**, your email and your
+role. A local-mode banner is not confirmation of shared storage. The selected
+mode is remembered for this browser.
+
+If setup is incomplete, CTI displays an error and does not pretend that local
+records are shared. Do not remove authentication to make the error disappear.
+
+## 4. Bring over existing Apps Script records
+
+You do not need to replace the entire old app just to export its data:
+
+1. Open your existing Apps Script project. Add a script file named
+   **`MigrationExport.gs`**.
+2. Paste the small helper from
+   [042-migration-export.js](../src/legacy/server/042-migration-export.js).
+   If that function is already installed, do not add a second definition.
+3. Run **`exportCtiWorkspaceForMigration`**. The existing editor authorization
+   still applies. Open the private Drive URL printed in the execution log and
+   download the JSON. The helper does not delete or change old records.
+4. In the new site's **Setup**, choose this file, review the record count and
+   warnings, then click **Import prepared records** while connected as an admin.
+5. Check catalogue counts, course UUIDs, owners, source trees, several old
+   reports, and before/after history before relying on the new workspace.
+
+The export includes all database sheets, chunked source trees and full reports,
+work-state rows, external-runtime evidence, the three email/domain permission
+settings, and this account's registered Macmillan master workbooks. Access
+policies are not silently recreated from Google settings: use the exported
+settings to configure the intended Access allowlist and editor roles.
+
+Google's master-workbook registry is per account and retains up to five active
+IDs. Other owners can run their own export, or upload their saved XLSX master
+workbooks separately. Export warnings identify inaccessible workbooks. Existing
+source packages and original evidence files remain in their original folders;
+this is a records export, not a copy of all Drive files.
+
+Import preserves course and audit IDs, skips existing IDs and never overwrites
+stored audits. Unknown tables stay in the original backup record. Unlinked old
+checklists can be assigned to a course in **Work queue**. Generation `0` retains the old app’s original-import convention; it is not
+silently converted to re-ingestion 1.
+
+## 5. Verify collaboration before retiring the old app
+
+- Have an editor save a course detail and a second user load the same record.
+- Have a viewer confirm that viewing/download work and saving is unavailable.
+- Open the same course in two editor tabs; a stale second save must report a
+  conflict, not overwrite the first.
+- Compare one retained complete source/XLSX/JSON set with its accepted old
+  report. Then verify a saved raw/current pair and one Macmillan stage chain.
+- Download a recovery backup. Keep original IMSCC/XLSX/capture files separately.
+
+The backup button exports the current catalogue, full saved audit records,
+workbooks and checklists. It does not flatten report payloads to visible fields.
+It does not include superseded catalogue/workbook revisions; these remain in
+D1. Use D1's database export for a complete revision-level backup.
+
+## Limits and recovery
+
+Each saved artifact has a **32 MiB** limit; chunks are 128 KiB. Audits are
+immutable. Other edits create retained versions with optimistic concurrency.
+Incomplete uploads never appear as saved records. Monitor D1 storage and Pages
+Functions usage in Cloudflare. Stay on Free: reaching limits can make shared
+operations unavailable; it does not make a comparison more complete.
+
+To reclaim abandoned uploads older than seven days without touching saved
+revisions, an administrator can run this in the D1 console:
+
+```sql
+DELETE FROM chunks WHERE upload_id IN (
+  SELECT id FROM uploads WHERE committed=0
+    AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')
+);
+DELETE FROM uploads WHERE committed=0
+  AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days');
+```
+
+If an import stops halfway, reconnect, reload the catalogue and import the same
+file again. Preserved IDs make completed records safe to skip. Keep the original
+export until reconciliation is finished.
+
+Official references: [D1 dashboard setup](https://developers.cloudflare.com/d1/get-started/),
+[Pages bindings](https://developers.cloudflare.com/pages/functions/bindings/),
+[Access token verification](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/),
+[Access plans](https://www.cloudflare.com/plans/zero-trust-services/),
+[D1 limits](https://developers.cloudflare.com/d1/platform/limits/),
+[Pages Functions pricing](https://developers.cloudflare.com/pages/functions/pricing/).

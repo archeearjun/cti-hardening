@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + reviewed pure IMSCC entry point (Google authorization retained)",
+  "baseline": "5280adf + reviewed workflow IO separation",
   "qaBuild": "v8.0.0-asset-claim-scope-20260927",
-  "baselineSha256": "00466e54c8aa8ba59e614c00876d029c2b4e137d1745bf6e99da059a6b775f67",
+  "baselineSha256": "df2f02593739642e4def1ac718e9ecdff54393d493dc97446141850777f7d2e2",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -17,7 +17,21 @@
     "normalizeSourceItem_",
     "CTI_RELEASE_REGISTRY_",
     "CTI_FEATURE_MANIFEST_",
-    "analyzeImsccCore_"
+    "analyzeImsccCore_",
+    "uploadAndScanMasterCore_",
+    "executeDynamicNSplitAndScanCore_",
+    "qaCompareGptOutputCore_",
+    "runPostIngestionQaCore_",
+    "qaCompareLifecycleSnapshots_",
+    "qaLifecycleSnapshotView_",
+    "qaCompactIngestionIntelligence_",
+    "qaObsoleteAggregateStageGuard_",
+    "predictLaborHours",
+    "vectorizeCourse",
+    "calculateCosineSimilarity",
+    "workEvidenceChecklistSteps_",
+    "workNormalizeEvidenceChecklist_",
+    "workValidateEvidenceChecklistPatch_"
   ],
   "parts": [
     {
@@ -275,7 +289,7 @@
     },
     {
       "file": "src/legacy/server/013-ctidriveimportmatches.js",
-      "lines": 217,
+      "lines": 222,
       "symbols": [
         "ctiDriveImportMatches_",
         "ctiImportXlsxAsSheet_",
@@ -285,22 +299,25 @@
         "macmillanEstimateItemTime_",
         "macmillanSafeMatrix_",
         "macmillanPersistValidatedTab_",
-        "createTab"
+        "createTab",
+        "uploadAndScanMasterCore_"
       ]
     },
     {
       "file": "src/legacy/server/014-executedynamicnsplitandscan.js",
-      "lines": 186,
+      "lines": 191,
       "symbols": [
         "executeDynamicNSplitAndScan",
-        "exportSpecAsXlsxBlob"
+        "exportSpecAsXlsxBlob",
+        "executeDynamicNSplitAndScanCore_"
       ]
     },
     {
       "file": "src/legacy/server/015-qacomparegptoutput.js",
-      "lines": 367,
+      "lines": 372,
       "symbols": [
-        "qaCompareGptOutput"
+        "qaCompareGptOutput",
+        "qaCompareGptOutputCore_"
       ]
     },
     {
@@ -633,9 +650,10 @@
     },
     {
       "file": "src/legacy/server/038-runpostingestionqa.js",
-      "lines": 624,
+      "lines": 629,
       "symbols": [
-        "runPostIngestionQa"
+        "runPostIngestionQa",
+        "runPostIngestionQaCore_"
       ]
     },
     {
@@ -675,6 +693,20 @@
         "CTI_V7931_qaApplySmartIngestionProvenanceToResult_",
         "CTI_V7931_qaApplyIngestionActionabilityPolicy_",
         "CTI_V7931_qaBuildSummary_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/041-workflow-io.js",
+      "lines": 14,
+      "symbols": [
+        "ctiWorkflowIo_"
+      ]
+    },
+    {
+      "file": "src/legacy/server/042-migration-export.js",
+      "lines": 19,
+      "symbols": [
+        "exportCtiWorkspaceForMigration"
       ]
     }
   ]

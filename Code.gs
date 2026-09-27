@@ -3552,15 +3552,20 @@ function ctiImportXlsxAsSheet_(blob, name, adapter) {
 
 function uploadAndScanMaster(fileData, fileName) {
   authorize_('editor');
+  return uploadAndScanMasterCore_(fileData, fileName, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function uploadAndScanMasterCore_(fileData, fileName, io) {
   var importedFileId = null;
   try {
     if (!fileData || String(fileData).length > 35000000) return { success: false, error: "Select an .xlsx file smaller than 25 MB." };
     if (!/\.xlsx$/i.test(String(fileName || ""))) return { success: false, error: "The Master file must be an .xlsx workbook." };
     var blob = Utilities.newBlob(Utilities.base64Decode(fileData), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileName);
     var masterName = String(fileName).replace(/\.xlsx$/i, ' (Master)');
-    var tempFile = ctiImportXlsxAsSheet_(blob, masterName);
+    var tempFile = io.importWorkbook(blob, masterName);
     importedFileId = tempFile.id;
-    var ss = SpreadsheetApp.openById(importedFileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
+    var ss = io.openWorkbook(importedFileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
     if (!data || data.length < 2) throw new Error("The Master workbook contains no data rows.");
     var headers = data[0].map(function(value) { return String(value).trim().toLowerCase(); });
     var levelIdx = headers.indexOf('level'), nameIdx = headers.indexOf('name');
@@ -3595,10 +3600,10 @@ function uploadAndScanMaster(fileData, fileName) {
     }
 
     if (filteredModules.length === 0) throw new Error("No Level 1 modules/anchors were found in this document.");
-    registerWorkflowFileId_(importedFileId);
+    io.registerWorkbook(importedFileId);
     return { success: true, fileId: importedFileId, totalRows: data.length - 1, totalL1: allL1Modules.length, primaryCount: filteredModules.length, totalL2: l2Count, filteredModules: filteredModules, excludedModules: excludedModules };
   } catch (e) {
-    if (importedFileId) try { DriveApp.getFileById(importedFileId).setTrashed(true); } catch (cleanupError) {}
+    if (importedFileId) try { io.getTemporaryFile(importedFileId).setTrashed(true); } catch (cleanupError) {}
     return { success: false, error: "Master Scan Error: " + e.message };
   }
 }
@@ -3697,11 +3702,16 @@ function createTab(ss, tabName, data) {
 
 function executeDynamicNSplitAndScan(fileId, anchorRows, specNames, partnerName, approvedGrayItems, workflowMode) {
   authorize_('editor');
+  return executeDynamicNSplitAndScanCore_(fileId, anchorRows, specNames, partnerName, approvedGrayItems, workflowMode, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function executeDynamicNSplitAndScanCore_(fileId, anchorRows, specNames, partnerName, approvedGrayItems, workflowMode, io) {
   try {
-    validateWorkflowFileId_(fileId);
+    io.validateWorkbook(fileId);
     if (!Array.isArray(anchorRows) || !Array.isArray(specNames) || anchorRows.length !== specNames.length) return { success: false, error: "Split anchors and specialization names must have matching lengths." };
     if (anchorRows.length < 1 || anchorRows.length > 4) return { success: false, error: "Choose between 1 and 4 specializations." };
-    var ss = SpreadsheetApp.openById(fileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
+    var ss = io.openWorkbook(fileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
     if (!data || data.length < 2) return { success: false, error: "The master spreadsheet contains no data rows." };
     var headers = data[0], normalizedHeaders = headers.map(function(header) { return String(header).trim().toLowerCase(); });
     var levelIdx = normalizedHeaders.indexOf('level'), nameIdx = normalizedHeaders.indexOf('name'), toolIdx = normalizedHeaders.indexOf('assignment_tool');
@@ -3892,9 +3902,14 @@ function exportSpecAsXlsxBlob(fileId, specNum) {
  */
 function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum) {
   authorize_('editor');
+  return qaCompareGptOutputCore_(fileData, fileName, masterFileId, stageName, specNum, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function qaCompareGptOutputCore_(fileData, fileName, masterFileId, stageName, specNum, io) {
   var importedFileId = null;
   try {
-    validateWorkflowFileId_(masterFileId);
+    io.validateWorkbook(masterFileId);
     stageName = String(stageName || '').trim();
     if (['Metadata', 'Merged', 'ContentMap'].indexOf(stageName) === -1) return { success: false, error: 'Unknown QA stage: ' + stageName + '.' };
     specNum = Number(specNum);
@@ -3902,7 +3917,7 @@ function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum
     if (!fileData || String(fileData).length > 35000000) return { success: false, error: 'Select an .xlsx file smaller than 25 MB.' };
     if (!/\.xlsx$/i.test(String(fileName || ''))) return { success: false, error: 'The QA input must be an .xlsx workbook.' };
 
-    var masterSs = SpreadsheetApp.openById(masterFileId);
+    var masterSs = io.openWorkbook(masterFileId);
     var baselineSheet = masterSs.getSheetByName('Spec' + specNum + '_Clean');
     if (!baselineSheet) return { success: false, error: "Baseline tab 'Spec" + specNum + "_Clean' was not found. Re-run Stage 2 first." };
 
@@ -3975,10 +3990,10 @@ function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum
 
     var blob = Utilities.newBlob(Utilities.base64Decode(fileData), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileName);
     var tempName = 'CTI_QA_' + stageName + '_S' + specNum + '_' + new Date().getTime();
-    var tempFile = ctiImportXlsxAsSheet_(blob, tempName);
+    var tempFile = io.importWorkbook(blob, tempName);
     importedFileId = tempFile.id;
 
-    var qaSs = SpreadsheetApp.openById(importedFileId);
+    var qaSs = io.openWorkbook(importedFileId);
     var qaSheet = qaSs.getSheetByName('export') || qaSs.getSheets()[0];
     var dataRange = qaSheet.getDataRange();
     var data = dataRange.getDisplayValues();
@@ -4244,7 +4259,7 @@ function qaCompareGptOutput(fileData, fileName, masterFileId, stageName, specNum
   } catch (e) {
     return { success:false, error:stageName + ' QA Error: ' + e.message };
   } finally {
-    if (importedFileId) try { DriveApp.getFileById(importedFileId).setTrashed(true); } catch (cleanupError) {}
+    if (importedFileId) try { io.getTemporaryFile(importedFileId).setTrashed(true); } catch (cleanupError) {}
   }
 }
 
@@ -10944,7 +10959,12 @@ function qaAssertNotDiagnosticCapture_(parsed) {
 }
 
 function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName) {
-    authorize_('editor');
+  authorize_('editor');
+  return runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName, io) {
     var tempFileId = null;
     if (persistResult === undefined || persistResult === null) persistResult = true;
     if (typeof lineageMeta === 'string' && lineageMeta) { try { lineageMeta = JSON.parse(lineageMeta); } catch (e) { lineageMeta = {}; } }
@@ -10959,7 +10979,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         if (sourceLiveBase64 && String(sourceLiveBase64).length > 56000000) return { success:false, error:"Brightspace live-source JSON is larger than the 40 MB QA safety limit." };
         targetUuid = validateUuid_(targetUuid);
 
-        var dbData = fetchPackageStructureDb(targetUuid);
+        var dbData = io.loadPackage(targetUuid);
         if (!dbData.success) throw new Error("Could not load original package structure for comparison.");
 
         var originalItems = flattenTreeForQa_(dbData.tree);
@@ -11044,10 +11064,10 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 excelName
             );
-            var tempFile = ctiImportXlsxAsSheet_(blob, 'Temp_QA_' + targetUuid);
+            var tempFile = io.importWorkbook(blob, 'Temp_QA_' + targetUuid);
             tempFileId = tempFile.id;
 
-            var ss = SpreadsheetApp.openById(tempFileId);
+            var ss = io.openWorkbook(tempFileId);
             var sheet = ss.getSheetByName('FOR IMPORT') || ss.getSheets()[0];
             var data = sheet.getDataRange().getValues();
             var validTypes = [
@@ -11190,7 +11210,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         // authoritative Coursera structure and live JSON has been merged as payload
         // evidence. This keeps Auto-detect correct for both XLSX+JSON and JSON-only
         // runs while preserving Excel-only structural authority.
-        var generationContext = qaLoadGenerationEvidenceContext_(targetUuid,lineageMeta);
+        var generationContext = io.loadGeneration(targetUuid,lineageMeta);
         var currentSnapshotIngestionIntelligence = qaParseSmartIngestionIntelligence_(courseraEvidenceItems);
         var ingestionIntelligence = qaMergeGenerationIngestionIntelligence_(
             currentSnapshotIngestionIntelligence,
@@ -11472,7 +11492,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
             else unverifiedBundled.push(asset);
         });
 
-        var externalRuntimeEvidence = qaExternalRuntimeEvidenceForPackage_(dbData.packageMeta || {});
+        var externalRuntimeEvidence = io.externalRuntime(dbData.packageMeta || {});
         var operationalPolicy = workBuildRawQaOperationalPolicy_((dbData.packageMeta && dbData.packageMeta.partner) || '', itemResults, injected, courseLevelFailure);
         // v7.6: the policy gate and operator instructions must say the same thing.
         // Policy-exempt Instructor Resources/Archive findings remain visible for audit
@@ -11545,7 +11565,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         };
         if (persistResult) {
             var isRaw = snapshotContext && snapshotContext.mode === 'RAW_INGESTION';
-            qaResult.persistence = persistQaRun_(targetUuid, isRaw ? 'SINGLE_C0' : 'SINGLE_C1', qaResult, {
+            qaResult.persistence = io.persistRun(targetUuid, isRaw ? 'SINGLE_C0' : 'SINGLE_C1', qaResult, {
                 c0ExcelName:isRaw ? excelName : '', c0JsonName:isRaw ? jsonName : '',
                 c1ExcelName:isRaw ? '' : excelName, c1JsonName:isRaw ? '' : jsonName,
                 c0ExcelSha256:isRaw ? qaSha256Base64_(excelBase64) : '', c0JsonSha256:isRaw ? qaSha256Base64_(jsonBase64) : '',
@@ -11562,7 +11582,7 @@ function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, target
         return { success: false, error: "QA Diff Error: " + e.message };
     } finally {
         if (tempFileId) {
-            try { DriveApp.getFileById(tempFileId).setTrashed(true); } catch (e) {}
+            try { io.getTemporaryFile(tempFileId).setTrashed(true); } catch (e) {}
         }
     }
 }
@@ -12190,3 +12210,36 @@ qaBuildSummary_=function(itemResults,injected){
   s.headlineText=critical.length?('BLOCKED — '+critical.length+' critical learner-facing finding'+(critical.length===1?'':'s')):(s.headlineStatus==='REVIEW'?'REVIEW — evidence gaps or owner checks remain':'No critical learner-facing blocker observed; publication approval remains separate');
   return s;
 };
+
+function ctiWorkflowIo_() {
+  return {
+    openWorkbook:function(id){return SpreadsheetApp.openById(id);},
+    importWorkbook:ctiImportXlsxAsSheet_,
+    validateWorkbook:validateWorkflowFileId_,
+    registerWorkbook:registerWorkflowFileId_,
+    getTemporaryFile:function(id){return DriveApp.getFileById(id);},
+    loadPackage:fetchPackageStructureDb,
+    loadGeneration:qaLoadGenerationEvidenceContext_,
+    externalRuntime:qaExternalRuntimeEvidenceForPackage_,
+    persistRun:persistQaRun_
+  };
+}
+
+// Run once in the authorized existing Apps Script project. This exports records,
+// not access tokens or API keys, and does not delete or modify existing data.
+function exportCtiWorkspaceForMigration() {
+  authorize_('editor');
+  var ss = getDatabaseSheet_().getParent();
+  var out = {kind:'CTI_WORKSPACE_MIGRATION',schemaVersion:1,exportedAt:new Date().toISOString(),sheets:{},externalRuntimeByPackage:{},workbooks:[],warnings:[],accessPolicy:{}};
+  ss.getSheets().forEach(function(sheet){out.sheets[sheet.getName()]=sheet.getDataRange().getValues();});
+  var rows = out.sheets[PACKAGES_SHEET_NAME] || [];
+  rows.slice(1).forEach(function(row){if(row[18])out.externalRuntimeByPackage[String(row[18])]=qaExternalRuntimeEvidenceForPackage_({partner:row[1],fileName:row[2]});});
+  var props=PropertiesService.getScriptProperties();
+  ['AUTHORIZED_DOMAIN','AUTHORIZED_EMAILS','EDITOR_EMAILS'].forEach(function(key){out.accessPolicy[key]=props.getProperty(key)||'';});
+  var ids=[];try{ids=JSON.parse(PropertiesService.getUserProperties().getProperty('ACTIVE_MASTER_FILE_IDS')||'[]');}catch(e){out.warnings.push('Registered master workbook list could not be read.');}
+  ids.forEach(function(id){try{var book=SpreadsheetApp.openById(id),entry={id:id,name:book.getName(),sheets:{}};book.getSheets().forEach(function(sheet){entry.sheets[sheet.getName()]={values:sheet.getDataRange().getValues(),display:sheet.getDataRange().getDisplayValues()};});out.workbooks.push(entry);}catch(e){out.warnings.push('Master workbook '+id+' could not be exported: '+e.message);}});
+  out.warnings.push('Only this account’s registered master workbooks were exported. Other owners can export their own registered workbooks, or download and import those XLSX files separately.');
+  var file=DriveApp.createFile('CTI_workspace_migration_'+new Date().getTime()+'.json',JSON.stringify(out),MimeType.PLAIN_TEXT);
+  Logger.log(file.getUrl());
+  return {success:true,url:file.getUrl(),packageCount:Math.max(0,rows.length-1),note:'Download this private JSON, then import it into the new workspace. Existing records were not changed.'};
+}

@@ -2,11 +2,16 @@
 
 function executeDynamicNSplitAndScan(fileId, anchorRows, specNames, partnerName, approvedGrayItems, workflowMode) {
   authorize_('editor');
+  return executeDynamicNSplitAndScanCore_(fileId, anchorRows, specNames, partnerName, approvedGrayItems, workflowMode, ctiWorkflowIo_());
+}
+
+// Deterministic workflow; storage is supplied explicitly by the host.
+function executeDynamicNSplitAndScanCore_(fileId, anchorRows, specNames, partnerName, approvedGrayItems, workflowMode, io) {
   try {
-    validateWorkflowFileId_(fileId);
+    io.validateWorkbook(fileId);
     if (!Array.isArray(anchorRows) || !Array.isArray(specNames) || anchorRows.length !== specNames.length) return { success: false, error: "Split anchors and specialization names must have matching lengths." };
     if (anchorRows.length < 1 || anchorRows.length > 4) return { success: false, error: "Choose between 1 and 4 specializations." };
-    var ss = SpreadsheetApp.openById(fileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
+    var ss = io.openWorkbook(fileId), sheet = ss.getSheetByName('export') || ss.getSheets()[0], data = sheet.getDataRange().getValues();
     if (!data || data.length < 2) return { success: false, error: "The master spreadsheet contains no data rows." };
     var headers = data[0], normalizedHeaders = headers.map(function(header) { return String(header).trim().toLowerCase(); });
     var levelIdx = normalizedHeaders.indexOf('level'), nameIdx = normalizedHeaders.indexOf('name'), toolIdx = normalizedHeaders.indexOf('assignment_tool');

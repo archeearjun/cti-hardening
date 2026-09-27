@@ -53,3 +53,54 @@ The browser source scanner is generated from 34 complete canonical client functi
 Checks: the existing 277 local checks, strict TypeScript and production build pass. The reproducible browser package check exercises root-versus-nested manifest selection, two distinct questions with identical wording, SHA-256 evidence, learner text, a PDF text sample, assignment dependency PDF propagation, search, expansion, JSON download, malformed-XML recovery, manifest-only uncertainty and cancellation. The 390-pixel layout check exposed and fixed an input-width overflow. No page errors or external network requests were observed. CSP blocks styles in parsed source HTML; these expected warnings do not execute source content or affect text extraction.
 
 The private saved CITC923 package produced 29 manifest resources, 63 file evidence records, three assignments, two discussions and six web links. It contains no QTI assessment resources; the synthetic QTI fixture supplies that test coverage. This is not a 15-title parity certification, a Coursera runtime test or a shared-data migration.
+
+## Full workflow migration — 2026-09-27
+
+Implemented in this release: source/XLSX/Coursera/Brightspace comparisons,
+canonical complete owner reports, ordered destination owner view, catalogue
+save/rescan, immutable QA history, work queue/checklists, Macmillan workbook
+stages, portfolio analytics, and a separate authenticated D1 service.
+
+Verification completed:
+
+- Production Vite build and Cloudflare Pages Functions compilation with Wrangler 4.142.0 both pass.
+- **300 passing local checks** with `CTI_PRE_MIGRATION_GS` supplied: 228 original
+  FAST, 23 source-contract, 17 extractor hardening, nine initial migration,
+  18 workflow and five shared-service tests. The default suite has 299 passing
+  checks and one explicitly skipped pre-migration-file parity check.
+- All nine previously skipped XML/scanner cases execute with the strict worker
+  XML adapter, including namespace-sensitive assignment/discussion/web-link
+  recovery, invalid XML, lexical/z-score diagnostics and depth limits.
+- The full comparison result equals the pre-refactor GAS result on the synthetic
+  complete fixture. This verifies the I/O separation; it does not certify the
+  original XLSX/capture pairs for all 15 private courses.
+- Macmillan source scan/split uses real XLSX round-trips. The original stage
+  integration assertions execute through the new workbook adapter: valid
+  Metadata, Merged and ContentMap stages pass; excluded-module reintroduction,
+  time changes and module reordering fail. Exact minutes remain conserved.
+- Database tests use actual SQLite tables/transactions: missing configuration
+  and invalid sign-in fail closed, viewers cannot write, cross-origin writes
+  are blocked, uploads remain invisible until complete, downloaded hashes
+  match, conflicting saves are rejected, audits are immutable and old versions
+  remain stored. Live Cloudflare identity/D1 verification is still outstanding.
+- Browser checks cover full worker comparisons, report download and destination
+  view, import identity, persistence after reload, old-report reopening, manual
+  checklist persistence, Macmillan inclusion triage and XLSX export, analytics,
+  concurrent local-edit conflicts, an explicit unconfigured-team error and
+  390px layouts. No page exceptions.
+- The package browser suite also passes, including PDF/QTI/dependency evidence,
+  malformed XML recovery, cancellation, manifest-only uncertainty and no
+  external content requests. The private CITC923 replay still finds **29
+  resources and 63 fingerprinted files** with no scanner warnings.
+
+Generation 0 preserves the original-import convention. Latest-ingestion
+capability is an explicit operator input and reaches the existing actionability
+policy. Different re-ingestion attempts use observational comparisons; they
+never inherit the same-attempt engine's manual-change assumptions or intentional
+exclusions from a previous attempt.
+
+Not claimed: live team configuration, Google-record import completion, all-title
+full-report parity, complete extraction of inaccessible content, publication
+approval, or elimination of all legacy Google integration gates. Existing
+extractors are unchanged. See [setup](shared-workspace-setup.md) before retiring
+Apps Script.
