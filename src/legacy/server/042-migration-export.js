@@ -13,7 +13,7 @@ function exportCtiWorkspaceForMigration() {
   var ids=[];try{ids=JSON.parse(PropertiesService.getUserProperties().getProperty('ACTIVE_MASTER_FILE_IDS')||'[]');}catch(e){out.warnings.push('Registered master workbook list could not be read.');}
   ids.forEach(function(id){try{var book=SpreadsheetApp.openById(id),entry={id:id,name:book.getName(),sheets:{}};book.getSheets().forEach(function(sheet){entry.sheets[sheet.getName()]={values:sheet.getDataRange().getValues(),display:sheet.getDataRange().getDisplayValues()};});out.workbooks.push(entry);}catch(e){out.warnings.push('Master workbook '+id+' could not be exported: '+e.message);}});
   out.warnings.push('Only this account’s registered master workbooks were exported. Other owners can export their own registered workbooks, or download and import those XLSX files separately.');
-  var file=DriveApp.createFile('CTI_workspace_migration_'+new Date().getTime()+'.json',JSON.stringify(out),MimeType.PLAIN_TEXT);
+  var file=DriveApp.createFile(Utilities.newBlob(JSON.stringify(out),'application/json','CTI_workspace_migration_'+new Date().getTime()+'.json'));
   Logger.log(file.getUrl());
   return {success:true,url:file.getUrl(),packageCount:Math.max(0,rows.length-1),note:'Download this private JSON, then import it into the new workspace. Existing records were not changed.'};
 }

@@ -84,6 +84,11 @@ You do not need to replace the entire old app just to export its data:
 3. Run **`exportCtiWorkspaceForMigration`**. The existing editor authorization
    still applies. Open the private Drive URL printed in the execution log and
    download the JSON. The helper does not delete or change old records.
+   If an older helper fails with "exceeds the maximum file size" at file
+   creation, replace its `DriveApp.createFile(name, text, mimeType)` call with
+   the current helper's `DriveApp.createFile(Utilities.newBlob(...))` call.
+   The former overload has a 10 MB text limit. The blob-based export preserves
+   the same JSON format and imports through the existing Setup screen.
 4. In the new site's **Setup**, choose this file, review the record count and
    warnings, then click **Import prepared records** while connected as an admin.
 5. Check catalogue counts, course UUIDs, owners, source trees, several old
