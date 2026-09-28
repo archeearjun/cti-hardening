@@ -27,7 +27,7 @@ Available workflows:
 - Import of existing Google records and recovery backups; complete report payloads
   and original migration sheets are preserved.
 
-The canonical extractors are unchanged: **Coursera v6.14.0/schema 34** and
+The canonical extractors are **Coursera v6.14.1/schema 34** and
 **Brightspace v1.0.5/schema 2**. Processing runs locally; comparisons and Macmillan
 QA use cancellable Web Workers. Saving in team mode uploads the resulting record
 and evidence to the configured team database. Local records are not shared.
@@ -139,7 +139,7 @@ node tools/check.cjs
 node tools/hardening-check.cjs
 ```
 
-The first command runs 228 FAST and 23 SOURCE_CONTRACT checks, compiles the embedded extractor, and checks the copyable Index. Nine XML-service cases are explicitly skipped. The second runs 17 focused simulations, including 172-question traversal, mixed content parts, duplicate question wording, stalled downloads, cache identity and evidence-gate negatives.
+The first command runs 228 FAST and 23 SOURCE_CONTRACT checks, compiles the embedded extractor, and checks the copyable Index. Nine XML-service cases are explicitly skipped. The second runs 20 focused simulations, including 172-question traversal, mixed content parts, duplicate question wording, stalled downloads, cache identity and evidence-gate negatives.
 
 GitHub Actions runs these checks through `npm test`, plus migration tests and the production build, for pushes and pull requests. The local DOM fixture exercises production extraction functions; it does not replace a live Coursera capture.
 

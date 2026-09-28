@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + reviewed workflow IO separation",
-  "qaBuild": "v8.0.0-asset-claim-scope-20260927",
-  "baselineSha256": "df986918b210e1261be8ef06dd37cbd3f652784ce4064cc01e6be8c5964e1bf3",
+  "baseline": "5280adf + workflow IO separation + v6.14.1 option boundaries and QA guard",
+  "qaBuild": "v8.0.0-option-boundary-20260928",
+  "baselineSha256": "d593e094cfd012e465f3d73a76affb019d0a23688f3ce27d9c19ceac780cc6f2",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -45,7 +45,7 @@
     },
     {
       "file": "src/legacy/server/002-cti-coursera-extractor-base64-chunks.js",
-      "lines": 15,
+      "lines": 16,
       "symbols": [
         "CTI_COURSERA_EXTRACTOR_BASE64_CHUNKS_"
       ]
@@ -565,7 +565,7 @@
     },
     {
       "file": "src/legacy/server/030-qaassessmentfieldsimilarity.js",
-      "lines": 314,
+      "lines": 321,
       "symbols": [
         "qaAssessmentFieldSimilarity_",
         "qaAnswerSetSimilarity_",

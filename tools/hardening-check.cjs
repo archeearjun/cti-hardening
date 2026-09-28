@@ -8,6 +8,31 @@ function hashFixture(options={}){
  vm.createContext(h);vm.runInContext(functionCode('canonicalRemoteAssetKeyV614')+functionCode('hashRemoteAsset'),h);return {h,calls:()=>calls,budget:()=>({remaining:5000,cache:new Map(),deadline:Date.now()+3000})};
 }
 (async()=>{
+ await test('Observed option rows preserve units, compass abbreviations and their correct answer',()=>{
+  for(const labels of [
+   ['Unit Alpha, 120 V.S. U.P.M.','Unit Beta, 240 V.S. U.P.M.','Unit Gamma, 360 V.S. U.P.M.','Unit Delta, 480 V.S. U.P.M.'],
+   ['N.E. sector 8-12','N.W. sector 8-12','S.W. sector 8-12','S.E. sector 8-12']
+  ])for(const correct of [0,3]){
+   const {El}=require('./assessment-fixture.cjs'),f=fixture(),part=new El('section',{'data-testid':'assignment-part-0',id:'test~q1'});
+   part.append(new El('p',{},'1Auto-Graded 1 point Prompt * Which specification matches the plan? Options *'));
+   labels.forEach((label,i)=>{const row=new El('div',{'data-testid':'option'});row.append(new El('p',{},label),new El('span',{},i===correct?'Correct':'Incorrect'));part.append(row);});
+   part.append(new El('button',{},'Add Variant'));f.content.replaceChildren(part);
+   const q=f.c.parseAssignmentPartDomV665(part,f.fp,1,'');
+   assert.deepEqual(Array.from(q.options,o=>o.label),labels);assert.deepEqual(Array.from(q.correctAnswers),[labels[correct]]);
+   assert(q.options.every(o=>!o.description));assert(q.optionTextReliable);assert(q.answerTextReliable);
+  }
+ });
+ await test('Explicit option descriptions and feedback remain separated',()=>{
+  const {El}=require('./assessment-fixture.cjs'),f=fixture(),part=new El('section',{'data-testid':'assignment-part-0',id:'test~q1'});
+  part.append(new El('p',{},'1Auto-Graded 1 point Prompt * Which specification matches the plan? Options *'));
+  for(const [label,status] of [['A','Correct'],['B','Incorrect']]){const row=new El('div',{'data-testid':'option'});row.append(new El('p',{},label),new El('p',{},'Description:'),new El('p',{},'A bounded description.'),new El('div',{'data-testid':'option-feedback'},'Feedback for '+label),new El('span',{},status));part.append(row);}
+  f.content.replaceChildren(part);const q=f.c.parseAssignmentPartDomV665(part,f.fp,1,'');
+  assert.deepEqual(Array.from(q.options,o=>o.label),['A','B']);assert(q.options.every(o=>o.description==='A bounded description.'));assert(q.options.every(o=>o.optionFeedback));assert.deepEqual(Array.from(q.correctAnswers),['A']);
+ });
+ await test('Browser and server flag previously split options without reconstructing answers',()=>{
+  const f=fixture(),q={options:[{label:'Alpha, 120 V.S. U.P.M.',description:'Beta, 240 V.S.',correct:true},{label:'U.P.M.',description:'Gamma, 360 V.S.',correct:false},{label:'U.P.M.',description:'Add Variant',correct:false}],correctAnswers:['Alpha, 120 V.S. U.P.M.'],optionTextReliable:true,answerTextReliable:true};
+  const raw=JSON.stringify(q);for(const engine of [c,f.c]){const guarded=engine.ctiGuardOptionEvidence_(q);assert.equal(guarded.optionCaptureIssue,'OPTION_ROW_BOUNDARY_UNRESOLVED');assert.equal(guarded.optionTextReliable,false);assert.equal(guarded.answerTextReliable,false);assert.equal(JSON.stringify(q),raw);}
+ });
  await test('172 virtualized question cards do not shrink the declared count to visible cards',async()=>{const f=fixture({count:172,budget:900000});assert.equal(f.c.assessmentDeclaredCountV662(f.envelope),172);const r=await f.runFull();assert.equal(r.assessment.questionCount,172);assert.equal(r.assessment.answerEvidenceQuestionCount,172);assert(r.assessment.captureCompleteness.questionCoverageComplete);});
  await test('Content(29) with one typed text block captures all 28 questions including part 29',async()=>{
   const f=fixture({count:29,budget:900000});const old=f.c.assessmentOutlineCandidatesV613;f.c.assessmentOutlineCandidatesV613=(...args)=>old(...args).map(x=>x.ordinal===1?{...x,id:'course~textBlock!~intro'}:x);
@@ -39,7 +64,7 @@ function hashFixture(options={}){
   const functions=[...html.matchAll(/^ function (\w+)\(/gm)];const hit=functions.findIndex((x,i)=>html.slice(x.index,functions[i+1]?.index).includes('The reading check and deployed extractor do not match'));
   assert(hit>=0);const f=functions[hit],context={};vm.createContext(context);vm.runInContext(html.slice(f.index,functions[hit+1].index),context);
   const delivery=c.ctiExtractorDelivery_('coursera'),script=context[f[1]](delivery);
-  new vm.Script(script);assert(script.includes("version:'v6.14.0'"));assert(script.includes('SINGLE_READING_CHECK_NOT_A_FULL_COURSE_CAPTURE'));
+  new vm.Script(script);assert(script.includes("version:'v6.14.1'"));assert(script.includes('SINGLE_READING_CHECK_NOT_A_FULL_COURSE_CAPTURE'));
  });
  const hash='a'.repeat(64),clean=()=>({verdict:'VERIFIED',issues:[],checks:{structure:{status:'VERIFIED'}}});
  await test('Missing asset/link checks cannot default to verified',()=>{for(const source of [{type:'Reading',assetDetails:[{name:'x.pdf',sha256:hash}]},{type:'Reading',links:[{raw:'https://example.test'}]}]){const r=c.qaApplyDimensionalVerdictGateV8_(source,{},clean());assert.equal(r.verdict,'UNVERIFIED');}});

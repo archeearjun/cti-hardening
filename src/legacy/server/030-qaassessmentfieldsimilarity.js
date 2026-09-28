@@ -191,6 +191,12 @@ function ctiOptionFeedbackRisk_(rows) {
     if(rows.some(function(o){return o.optionFieldIssue==='FEEDBACK_ONLY_OPTION_FIELD';}))return 'FEEDBACK_ONLY_OPTION_FIELD';
     if(rows.length<2)return '';
     var labels=rows.map(function(o){return String(o.label||o.text||'').trim();});
+    // Older flattened captures could split abbreviations into neighbouring
+    // descriptions and carry an editor button into the final description.
+    // Retain those bytes, but neither verify them nor report a course change.
+    if(rows.length>=3 && /^(?:Add Variant|Add Answer Variant|Add Option|Add Answer)$/.test(String(rows[rows.length-1].description||'').trim()) &&
+        rows.every(function(o){return typeof o.correct==='boolean';}) &&
+        new Set(labels).size<labels.length && rows.slice(0,-1).every(function(o){return !!String(o.description||'').trim();}))return 'OPTION_ROW_BOUNDARY_UNRESOLVED';
     // Repeated state badges cannot identify distinct choices. Preserve the
     // legitimate two-choice Correct/Incorrect case; never invent lost labels.
     if (rows.length>2 && new Set(labels.map(function(s){return s.toLowerCase();})).size<rows.length &&
