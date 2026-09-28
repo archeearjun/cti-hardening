@@ -34,7 +34,8 @@ and evidence to the configured team database. Local records are not shared.
 
 Saved captures can be checked together using the [private evidence batch replay](docs/evidence-corpus.md).
 The current QA build preserves unknown Brightspace question totals instead of
-verifying matching subsets. Existing source and destination inputs can be reused.
+verifying matching subsets and uses matching XLSX container IDs to correct false
+editor-coverage gaps. Existing source and destination inputs can be reused.
 
 ### Deploy on the existing free Pages project
 

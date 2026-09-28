@@ -4501,7 +4501,7 @@ function vectorizeCourse(pkg) {
 //   4) append-only, versioned QA run storage for future longitudinal/ML analysis.
 // The extractor itself is intentionally unchanged.
 var CTI_GATEWAY_RELEASE_ = 'v8.0.0';
-var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-corpus-coverage-20260928';
+var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-corpus-review-20260928';
 var CTI_MACMILLAN_BUILD_ID_ = 'v6.8.2-partner-ready-doc-projection-20260912';
 // Coursera verdict scoring semantics remain unchanged. v6.8.2 changes only Macmillan Content Map delivery presentation after deterministic QA.
 // Structure + type + placement + assets + links + text + publication.
@@ -6260,6 +6260,28 @@ function qaApplyCurrentStateResolutionsToResults_(itemResults,resolutionReport) 
 }
 
 // A searched-for item is not a visited editor. Reconstruct coverage for older captures too.
+function qaCourseraExcelItemTypes_() {
+    return ['reading','video','assignment','practice assignment','discussion prompt','graded discussion prompt','quiz','peer review','programming','app item','ungraded lab','teammate review','plugin','lti','ungraded plugin','graded plugin','graded assignment'];
+}
+
+function qaXlsxTraversalInventory_(rows, jsonItems, page, excelName, jsonName) {
+    var types=qaCourseraExcelItemTypes_(), items=[], containers=[];
+    (rows||[]).forEach(function(row){
+        var kind=String(row[0]||'').trim(),name=String(row[1]||'').trim();
+        if(types.indexOf(kind.toLowerCase())>=0&&name)items.push(normalizeCourseraItem_({id:String(row[7]||'').trim(),type:kind,name:name,payload:{}}));
+        if(/^\*\*(?:Lesson|Module) ID$/i.test(kind)&&name)containers.push(name);
+    });
+    var coherence=qaAssessSnapshotCoherence_(items,jsonItems||[],page||{},excelName||'',jsonName||'');
+    var itemIds=items.map(function(x){return x.id;}).filter(function(id,i,a){return id&&a.indexOf(id)===i;});
+    var jsonIds=(jsonItems||[]).map(function(x){return String(x.id||'');}).filter(function(id,i,a){return id&&a.indexOf(id)===i;});
+    var denominator=Math.min(itemIds.length,jsonIds.length),exactMatches=itemIds.filter(function(id){return jsonIds.indexOf(id)>=0;}).length;
+    return {source:'COURSERA_XLSX_STRUCTURAL_IDS',coherenceStatus:coherence.status,
+        identityVerified:coherence.status==='PASS'&&denominator>=5&&exactMatches/denominator>=0.90,
+        containerIds:containers.filter(function(id,i,a){return a.indexOf(id)===i&&itemIds.indexOf(id)<0;}),
+        conflictingIds:containers.filter(function(id,i,a){return a.indexOf(id)===i&&itemIds.indexOf(id)>=0;}),
+        itemIds:itemIds,excelName:String(excelName||'')};
+}
+
 function qaCaptureTraversalSummary_(meta) {
     var c=meta&&meta.activeSpaCrawl||{}, rows=c.targetDiagnostics||[], retry=c.retryDiagnostics||[];
     var ids=Array.isArray(c.targetIds)?c.targetIds.map(String).filter(function(v,i,a){return v&&a.indexOf(v)===i;}):[];
@@ -6273,11 +6295,18 @@ function qaCaptureTraversalSummary_(meta) {
     (recovery&&recovery.recoveredEditorIds||[]).forEach(function(id){if(ids.indexOf(String(id))>=0)visited[String(id)]=true;});
     var observed=ids.length&&rows.length?ids.filter(function(id){return visited[id];}).length:Number(c.effectiveNavigated!=null?c.effectiveNavigated:c.navigated||c.completedTargets||0);
     observed=Math.max(0,Math.min(total,observed));
+    var rawTotal=total,rawObserved=observed,inventory=meta&&meta.xlsxTraversalInventory;
+    // Only a coherent authoritative export can identify non-item containers.
+    // Names such as "Lesson" and an Unknown capture type are not sufficient.
+    var excluded=ids.length&&rows.length&&inventory&&inventory.source==='COURSERA_XLSX_STRUCTURAL_IDS'&&inventory.identityVerified===true
+        ?ids.filter(function(id){return (inventory.containerIds||[]).indexOf(id)>=0&&(inventory.itemIds||[]).indexOf(id)<0;}):[];
+    if(excluded.length){ids=ids.filter(function(id){return excluded.indexOf(id)<0;});total=Math.max(0,total-excluded.length);observed=ids.filter(function(id){return visited[id];}).length;}
     var unresolved=ids.filter(function(id){return !visited[id];});
-    return {recorded:total>0,eligible:total,searched:rows.length||Number(c.routeAttempts||0),visited:observed,
+    return {recorded:rawTotal>0,eligible:total,searched:rows.length||Number(c.routeAttempts||0),visited:observed,
+        rawEligible:rawTotal,rawVisited:rawObserved,excludedContainerIds:excluded,excludedContainerCount:excluded.length,
         unresolvedCount:Math.max(0,total-observed),unresolvedItemIds:rows.length?unresolved:[],
         neverSearchedItemIds:ids.filter(function(id){return !map[id];}),
-        complete:total>0&&observed>=total&&c.coverageLimitedByCap!==true,
+        complete:rawTotal>0&&observed>=total&&c.coverageLimitedByCap!==true,
         meaning:'Visited means an item editor or item-scoped DOM surface was observed; search attempts alone do not establish access.'};
 }
 
@@ -6313,6 +6342,7 @@ function qaHasAiGraderPlaceholder_(item) {
     var authoring=qaCleanText_(native.authoringSemanticText||'');
     return /AI Grader Instructions\s*(?:\(Not shown to learners\))?\s*\*?\s*Enter instructions for AI graders(?:\.{3}|…)?(?:\s+(?:Show academic integrity options|Rubric\b|Grading details)|$)/i.test(authoring);
 }
+
 
 function qaAssessDestinationReadiness_(courseraItems, intelligence, extractorMeta, snapshotContext, currentStateResolution, partnerName) {
     var findings=[];
@@ -10973,6 +11003,7 @@ function qaCourseraCaptureReadiness_(meta, itemResults) {
   else if(gaps.length){status=actual?'CAPTURE_INCOMPLETE':'VERSION_UNKNOWN_WITH_GAPS';action='Assessment capture is incomplete. Review the uncaptured question positions, answer evidence, and stopping reason before approval. A capture gap does not prove content deletion.';}
   if(observedEmpty.length)action+=(action?' ':'')+observedEmpty.length+' source-matched assignment editor(s) were confirmed empty. Review their source content and intended placement; the empty-state evidence does not require another identical crawl. This is a content review, and does not establish course completeness.';
   var traversal=qaCaptureTraversalSummary_(meta);
+  if(traversal.excludedContainerCount)action+=(action?' ':'')+traversal.excludedContainerCount+' capture-queue entries are lesson/module containers confirmed by the matching XLSX export. They have been excluded from the item-editor denominator; the original traversal evidence is retained.';
   if(traversal.recorded&&!traversal.complete){status='EDITOR_TRAVERSAL_INCOMPLETE';action='Only '+traversal.visited+'/'+traversal.eligible+' item editors were observed; '+traversal.unresolvedCount+' remain unresolved. Recover or inspect those specific items before concluding that their payload is missing. Independently observed content defects still require correction. '+action;}
   return {status:status,observedVersion:actual?'v'+actual.join('.'):'',observedBuild:observed,expectedVersion:expected,traversal:traversal,olderCapture:!!actual&&order<0,assessmentGaps:gaps,observedEmptySourceAssessments:observedEmpty,action:action};
 }
@@ -11097,6 +11128,9 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
             if(readingRecoveryBase64)parsed=qaApplyReadingRecovery_(parsed,JSON.parse(Utilities.newBlob(Utilities.base64Decode(readingRecoveryBase64)).getDataAsString()),readingRecoveryName);
             liveEmbeddedFiles = parsed.embeddedFiles || [];
             extractorMeta = parsed.meta || parsed.extractionMeta || {};
+            // This receipt is computed from the supplied XLSX below; never trust
+            // one embedded in an old or externally edited capture JSON.
+            delete extractorMeta.xlsxTraversalInventory;
             parsedPageMeta = parsed.page || {};
             extractorMeta.schemaVersion = parsed.schemaVersion || extractorMeta.schemaVersion || null;
             extractorMeta.buildId = parsed.buildId || extractorMeta.buildId || '';
@@ -11152,12 +11186,7 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
             var ss = io.openWorkbook(tempFileId);
             var sheet = ss.getSheetByName('FOR IMPORT') || ss.getSheets()[0];
             var data = sheet.getDataRange().getValues();
-            var validTypes = [
-                'reading', 'video', 'assignment', 'practice assignment', 'discussion prompt',
-                'graded discussion prompt', 'quiz', 'peer review', 'programming', 'app item',
-                'ungraded lab', 'teammate review', 'plugin', 'lti', 'ungraded plugin',
-                'graded plugin', 'graded assignment'
-            ];
+            var validTypes = qaCourseraExcelItemTypes_();
             var excelItems = [];
             var currentModule = '';
             var currentLesson = '';
@@ -11210,6 +11239,7 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
 
             inputCoherence = qaAssessSnapshotCoherence_(excelItems, jsonItemsForCoherence.length ? jsonItemsForCoherence : courseraItems, parsedPageMeta, excelName, jsonName);
             extractorMeta.inputCoherence = inputCoherence;
+            extractorMeta.xlsxTraversalInventory=qaXlsxTraversalInventory_(data,jsonItemsForCoherence.length?jsonItemsForCoherence:courseraItems,parsedPageMeta,excelName,jsonName);
             if (jsonBase64 && inputCoherence.status === 'FAIL') {
                 return { success:false, error:'Input coherence check failed: ' + inputCoherence.reason + ' XLSX=' + String(excelName || '') + ' | JSON=' + String(jsonName || '') };
             }
@@ -11668,6 +11698,7 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
         }
     }
 }
+
 
 
 // -------------------------------------------------------------------

@@ -57,6 +57,9 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
             if(readingRecoveryBase64)parsed=qaApplyReadingRecovery_(parsed,JSON.parse(Utilities.newBlob(Utilities.base64Decode(readingRecoveryBase64)).getDataAsString()),readingRecoveryName);
             liveEmbeddedFiles = parsed.embeddedFiles || [];
             extractorMeta = parsed.meta || parsed.extractionMeta || {};
+            // This receipt is computed from the supplied XLSX below; never trust
+            // one embedded in an old or externally edited capture JSON.
+            delete extractorMeta.xlsxTraversalInventory;
             parsedPageMeta = parsed.page || {};
             extractorMeta.schemaVersion = parsed.schemaVersion || extractorMeta.schemaVersion || null;
             extractorMeta.buildId = parsed.buildId || extractorMeta.buildId || '';
@@ -112,12 +115,7 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
             var ss = io.openWorkbook(tempFileId);
             var sheet = ss.getSheetByName('FOR IMPORT') || ss.getSheets()[0];
             var data = sheet.getDataRange().getValues();
-            var validTypes = [
-                'reading', 'video', 'assignment', 'practice assignment', 'discussion prompt',
-                'graded discussion prompt', 'quiz', 'peer review', 'programming', 'app item',
-                'ungraded lab', 'teammate review', 'plugin', 'lti', 'ungraded plugin',
-                'graded plugin', 'graded assignment'
-            ];
+            var validTypes = qaCourseraExcelItemTypes_();
             var excelItems = [];
             var currentModule = '';
             var currentLesson = '';
@@ -170,6 +168,7 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
 
             inputCoherence = qaAssessSnapshotCoherence_(excelItems, jsonItemsForCoherence.length ? jsonItemsForCoherence : courseraItems, parsedPageMeta, excelName, jsonName);
             extractorMeta.inputCoherence = inputCoherence;
+            extractorMeta.xlsxTraversalInventory=qaXlsxTraversalInventory_(data,jsonItemsForCoherence.length?jsonItemsForCoherence:courseraItems,parsedPageMeta,excelName,jsonName);
             if (jsonBase64 && inputCoherence.status === 'FAIL') {
                 return { success:false, error:'Input coherence check failed: ' + inputCoherence.reason + ' XLSX=' + String(excelName || '') + ' | JSON=' + String(jsonName || '') };
             }

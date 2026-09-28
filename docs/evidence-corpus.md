@@ -1,6 +1,6 @@
 # Reuse saved evidence across releases
 
-QA build: **v8.0.0-corpus-coverage-20260928**. The Coursera and Brightspace
+QA build: **v8.0.0-corpus-review-20260928**. The Coursera and Brightspace
 extractors are unchanged. This release does not require a fresh extraction.
 
 ## Batch replay
@@ -66,6 +66,19 @@ Observed answer defects remain actionable. Independently captured package QTI
 definitions retain their own evidence and are not downgraded by an unrelated
 Brightspace API gap. Owner guidance points to the source definition gap rather
 than requesting another identical destination crawl.
+
+## Lesson containers in older captures
+
+Older captures can queue empty lesson containers as unknown items. The QA engine
+now recognizes exact `**Lesson ID` and `**Module ID` rows from the paired XLSX.
+It excludes those IDs from the editor denominator only when at least five stable
+item IDs establish strong exact overlap with the capture. Conflicting item IDs,
+name-only matches, and incoherent exports do not qualify. Original target and
+visited counts are retained beside the adjusted inventory.
+
+This correction works on saved captures: it does not require visiting the course
+again. It does not assert that every observed editor has complete payload, that
+an external plugin works, or that an actually missing item was recovered.
 
 ## Validation boundary
 

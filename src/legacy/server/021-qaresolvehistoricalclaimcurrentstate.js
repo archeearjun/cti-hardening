@@ -254,6 +254,28 @@ function qaApplyCurrentStateResolutionsToResults_(itemResults,resolutionReport) 
 }
 
 // A searched-for item is not a visited editor. Reconstruct coverage for older captures too.
+function qaCourseraExcelItemTypes_() {
+    return ['reading','video','assignment','practice assignment','discussion prompt','graded discussion prompt','quiz','peer review','programming','app item','ungraded lab','teammate review','plugin','lti','ungraded plugin','graded plugin','graded assignment'];
+}
+
+function qaXlsxTraversalInventory_(rows, jsonItems, page, excelName, jsonName) {
+    var types=qaCourseraExcelItemTypes_(), items=[], containers=[];
+    (rows||[]).forEach(function(row){
+        var kind=String(row[0]||'').trim(),name=String(row[1]||'').trim();
+        if(types.indexOf(kind.toLowerCase())>=0&&name)items.push(normalizeCourseraItem_({id:String(row[7]||'').trim(),type:kind,name:name,payload:{}}));
+        if(/^\*\*(?:Lesson|Module) ID$/i.test(kind)&&name)containers.push(name);
+    });
+    var coherence=qaAssessSnapshotCoherence_(items,jsonItems||[],page||{},excelName||'',jsonName||'');
+    var itemIds=items.map(function(x){return x.id;}).filter(function(id,i,a){return id&&a.indexOf(id)===i;});
+    var jsonIds=(jsonItems||[]).map(function(x){return String(x.id||'');}).filter(function(id,i,a){return id&&a.indexOf(id)===i;});
+    var denominator=Math.min(itemIds.length,jsonIds.length),exactMatches=itemIds.filter(function(id){return jsonIds.indexOf(id)>=0;}).length;
+    return {source:'COURSERA_XLSX_STRUCTURAL_IDS',coherenceStatus:coherence.status,
+        identityVerified:coherence.status==='PASS'&&denominator>=5&&exactMatches/denominator>=0.90,
+        containerIds:containers.filter(function(id,i,a){return a.indexOf(id)===i&&itemIds.indexOf(id)<0;}),
+        conflictingIds:containers.filter(function(id,i,a){return a.indexOf(id)===i&&itemIds.indexOf(id)>=0;}),
+        itemIds:itemIds,excelName:String(excelName||'')};
+}
+
 function qaCaptureTraversalSummary_(meta) {
     var c=meta&&meta.activeSpaCrawl||{}, rows=c.targetDiagnostics||[], retry=c.retryDiagnostics||[];
     var ids=Array.isArray(c.targetIds)?c.targetIds.map(String).filter(function(v,i,a){return v&&a.indexOf(v)===i;}):[];
@@ -267,11 +289,18 @@ function qaCaptureTraversalSummary_(meta) {
     (recovery&&recovery.recoveredEditorIds||[]).forEach(function(id){if(ids.indexOf(String(id))>=0)visited[String(id)]=true;});
     var observed=ids.length&&rows.length?ids.filter(function(id){return visited[id];}).length:Number(c.effectiveNavigated!=null?c.effectiveNavigated:c.navigated||c.completedTargets||0);
     observed=Math.max(0,Math.min(total,observed));
+    var rawTotal=total,rawObserved=observed,inventory=meta&&meta.xlsxTraversalInventory;
+    // Only a coherent authoritative export can identify non-item containers.
+    // Names such as "Lesson" and an Unknown capture type are not sufficient.
+    var excluded=ids.length&&rows.length&&inventory&&inventory.source==='COURSERA_XLSX_STRUCTURAL_IDS'&&inventory.identityVerified===true
+        ?ids.filter(function(id){return (inventory.containerIds||[]).indexOf(id)>=0&&(inventory.itemIds||[]).indexOf(id)<0;}):[];
+    if(excluded.length){ids=ids.filter(function(id){return excluded.indexOf(id)<0;});total=Math.max(0,total-excluded.length);observed=ids.filter(function(id){return visited[id];}).length;}
     var unresolved=ids.filter(function(id){return !visited[id];});
-    return {recorded:total>0,eligible:total,searched:rows.length||Number(c.routeAttempts||0),visited:observed,
+    return {recorded:rawTotal>0,eligible:total,searched:rows.length||Number(c.routeAttempts||0),visited:observed,
+        rawEligible:rawTotal,rawVisited:rawObserved,excludedContainerIds:excluded,excludedContainerCount:excluded.length,
         unresolvedCount:Math.max(0,total-observed),unresolvedItemIds:rows.length?unresolved:[],
         neverSearchedItemIds:ids.filter(function(id){return !map[id];}),
-        complete:total>0&&observed>=total&&c.coverageLimitedByCap!==true,
+        complete:rawTotal>0&&observed>=total&&c.coverageLimitedByCap!==true,
         meaning:'Visited means an item editor or item-scoped DOM surface was observed; search attempts alone do not establish access.'};
 }
 

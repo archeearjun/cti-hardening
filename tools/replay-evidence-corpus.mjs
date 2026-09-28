@@ -39,7 +39,7 @@ export function inspectSavedCapture(capture,brightspace) {
       optionBoundaryGaps:questions.filter(q=>q.optionCaptureIssue).length,
       capturedBelowDeclaration:Number(a.declaredQuestionCount)>questions.length};
   });
-  const traversal=qa.qaCaptureTraversalSummary_(capture.meta||capture.extractionMeta||{});
+  const traversal=qa.qaCaptureTraversalSummary_({... (capture.meta||capture.extractionMeta||{}),xlsxTraversalInventory:undefined});
   const source=brightspace?qa.qaParseBrightspaceGroundTruthCapture_(Buffer.from(JSON.stringify(brightspace)).toString('base64'),'saved-brightspace.json'):null;
   const sourceQuizzes=source?qa.qaBrightspaceQuizCaptureSummary_(source.quizzes):null;
   const groups=[];
@@ -73,7 +73,16 @@ export function runEvidenceCorpus(manifestFile,outputDirectory,{onCase=()=>{}}={
       }
       const json=key=>JSON.parse(new TextDecoder().decode(loaded[key].bytes));
       row.capture=inspectSavedCapture(json('coursera'),loaded.brightspace?json('brightspace'):null);
-      if(loaded.excel){const wb=readWorkbook(loaded.excel.bytes,loaded.excel.name);row.workbook={sheets:Object.entries(wb.sheets).map(([name,s])=>({name,rows:s.values.length}))};}
+      if(loaded.excel){
+        const wb=readWorkbook(loaded.excel.bytes,loaded.excel.name);row.workbook={sheets:Object.entries(wb.sheets).map(([name,s])=>({name,rows:s.values.length}))};
+        const capture=json('coursera'),rows=(wb.sheets['FOR IMPORT']||Object.values(wb.sheets)[0]).values;
+        const inventory=qa.qaXlsxTraversalInventory_(rows,capture.fingerprints.map(qa.normalizeCourseraItem_),capture.page,loaded.excel.name,loaded.coursera.name);
+        row.capture.rawTraversal=row.capture.traversal;
+        row.capture.traversal=qa.qaCaptureTraversalSummary_({... (capture.meta||capture.extractionMeta||{}),xlsxTraversalInventory:inventory});
+        row.capture.structuralInventory=inventory;
+        row.capture.groups=row.capture.groups.filter(g=>g!=='EDITOR_NOT_OBSERVED');
+        if(row.capture.traversal.recorded&&!row.capture.traversal.complete)row.capture.groups.push('EDITOR_NOT_OBSERVED');
+      }
       if(loaded.brightspace){
         const guard=qa.qaBrightspaceIdentityGuard_({course:json('brightspace').course,page:json('brightspace').page},{fileName:c.course+'.imscc'});
         if(!guard.ok)throw Error(guard.reason);
