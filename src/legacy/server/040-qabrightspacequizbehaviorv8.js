@@ -56,6 +56,10 @@ qaQuestionPromptSimilarity_=function(a,b){
 };
 var CTI_V7931_qaAssessmentFieldSimilarity_=qaAssessmentFieldSimilarity_;
 qaAssessmentFieldSimilarity_=function(a,b){
+  // Inspect untouched representations before the older prose normalizer erases
+  // the TeX/visual/speech boundaries needed to prove exact math equivalence.
+  var am=qaAssessmentMathKey_(a),bm=qaAssessmentMathKey_(b);
+  if(am && bm)return am===bm?1:0;
   return CTI_V7931_qaAssessmentFieldSimilarity_(qaCanonicalMathTextV8_(a),qaCanonicalMathTextV8_(b));
 };
 var CTI_V7931_qaNormalizeQuestion_=qaNormalizeQuestion_;

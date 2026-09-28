@@ -16,6 +16,7 @@ function qaStructuredAssessmentComparison_(source, coursera) {
         courseraDeclaredQuestionCount:cAssessment?cAssessment.declaredQuestionCount:0,
         sourceDefinitionCoverage:sAssessment?sAssessment.definitionCoverage:null,
         courseraDefinitionCoverage:cAssessment?cAssessment.definitionCoverage:null,
+        courseraCaptureCompleteness:cAssessment?cAssessment.captureCompleteness:null,
         definitionCoverageUnverified:!!((sAssessment && sAssessment.definitionCoverage && sAssessment.definitionCoverage.completenessVerified!==true) || (cAssessment && cAssessment.definitionCoverage && cAssessment.definitionCoverage.completenessVerified!==true)),
         captureCoverageUnverified: !!(cAssessment && cAssessment.captureCompleteness && cAssessment.captureCompleteness.questionCoverageComplete === false),
         alignedQuestionCount: 0,

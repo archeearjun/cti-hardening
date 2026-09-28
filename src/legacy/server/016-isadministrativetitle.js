@@ -155,7 +155,7 @@ function runCTISystemHealthCheck(includeExternalSources) {
   } catch (courseraExtractorError) { add('Coursera canonical extractor','FAIL',String(courseraExtractorError && courseraExtractorError.message || courseraExtractorError)); }
   try {
     var bsSource = ctiCanonicalBrightspaceExtractorSource_();
-    add('Brightspace canonical extractor', bsSource.indexOf('Brightspace v1.0.6') > -1 && bsSource.indexOf('SCHEMA_VERSION = 2') > -1 ? 'PASS' : 'FAIL', 'Code.gs owns the canonical Brightspace v1.0.6/schema 2 source.');
+    add('Brightspace canonical extractor', bsSource.indexOf('Brightspace v1.0.7') > -1 && bsSource.indexOf('SCHEMA_VERSION = 2') > -1 ? 'PASS' : 'FAIL', 'Code.gs owns the canonical Brightspace v1.0.7/schema 2 source.');
   } catch (extractorError) { add('Brightspace canonical extractor','FAIL',String(extractorError && extractorError.message || extractorError)); }
 
   function add(name, status, detail) { checks.push({name:name,status:status,detail:String(detail || '')}); }
@@ -238,7 +238,7 @@ function vectorizeCourse(pkg) {
 //   4) append-only, versioned QA run storage for future longitudinal/ML analysis.
 // The extractor itself is intentionally unchanged.
 var CTI_GATEWAY_RELEASE_ = 'v8.0.0';
-var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-corpus-extraction-20260929';
+var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-field-evidence-20260929';
 var CTI_MACMILLAN_BUILD_ID_ = 'v6.8.2-partner-ready-doc-projection-20260912';
 // Coursera verdict scoring semantics remain unchanged. v6.8.2 changes only Macmillan Content Map delivery presentation after deterministic QA.
 // Structure + type + placement + assets + links + text + publication.

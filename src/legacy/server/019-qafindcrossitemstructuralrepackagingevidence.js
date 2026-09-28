@@ -310,6 +310,22 @@ function qaNormalizeIngestionClaimScope_(claim) {
     return c;
 }
 
+function qaClaimQuestionScope_(source, claim) {
+    if (!claim || !/^(UNRESOLVED_SOURCE_ASSET|UNSUPPORTED_CONTENT_FALLBACK|REPAIR_INSTRUCTION)$/.test(claim.type || '')) return null;
+    var text=String(claim.excerpt || claim.detail || ''), stems=[], m;
+    var pattern=/\bQuestion\s+['"\u201c]([^\n]{12,700}?\?)['"\u201d]/gi;
+    while ((m=pattern.exec(text))) {
+        var stem=qaAssessmentText_(m[1]).toLowerCase();
+        if(stems.indexOf(stem)<0)stems.push(stem);
+    }
+    if(!stems.length)return null;
+    var questions=source && source.structuredAssessment && source.structuredAssessment.questions || [];
+    var indices=stems.map(function(stem){return questions.map(function(q,i){return qaAssessmentText_(q.prompt).toLowerCase()===stem?i+1:null;}).filter(Boolean);});
+    // A shared filename cannot override an explicit quoted question. Ambiguous
+    // or split-across-item quotes remain unlocalized instead of guessing.
+    return {method:'EXACT_QUOTED_QUESTION',matched:indices.every(function(hits){return hits.length===1;}),questionNumbers:indices.map(function(hits){return hits[0];}).filter(Boolean)};
+}
+
 function qaSmartIngestionClaimsForSource_(source, intelligence) {
     if (!source || !intelligence || !Array.isArray(intelligence.claims)) return [];
     var name = qaCleanName_(source.name || '');
@@ -322,6 +338,8 @@ function qaSmartIngestionClaimsForSource_(source, intelligence) {
         var hint = qaCleanName_(claim.pathHint || '');
         if (!hint) return true;
         if (!path) return false;
+        var hintModule=hint.match(/\bmodule\s+(\d+)\b/), pathModule=path.match(/\bmodule\s+(\d+)\b/);
+        if(hintModule && pathModule && Number(hintModule[1])!==Number(pathModule[1]))return false;
         return path.indexOf(hint) > -1 || hint.indexOf(path) > -1 || fuzzyMatchScore_(path,hint) >= 0.78;
     }
     function semanticContextMatch(claim) {
@@ -336,6 +354,11 @@ function qaSmartIngestionClaimsForSource_(source, intelligence) {
 
     return intelligence.claims.map(qaNormalizeIngestionClaimScope_).filter(function(claim) {
         if (!pathCompatible(claim)) return false;
+        var questionScope=qaClaimQuestionScope_(source,claim);
+        if(questionScope) {
+            if(questionScope.matched)claim.questionScopeEvidence=questionScope;
+            return questionScope.matched;
+        }
         var subject = qaCleanName_(claim.subject || '');
         if (name && name.length >= 4 && subject.length >= 4 && (subject === name || (subject.length >= name.length + 3 && subject.indexOf(name) > -1) || (name.length >= subject.length + 3 && name.indexOf(subject) > -1))) return true;
         if (assetNames.some(function(a) { return a.length >= 4 && subject && (subject === a || subject.indexOf(a) > -1 || a.indexOf(subject) > -1); })) return true;

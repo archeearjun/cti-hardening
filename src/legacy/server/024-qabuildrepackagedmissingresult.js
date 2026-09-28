@@ -243,13 +243,27 @@ function qaBrightspaceQuizQuestion_(q, index) {
   };
 }
 
+function ctiDeclaredQuizCountFromText_(value) {
+  var text=String(value || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+  // Exam length is metadata, not a proof of question-bank or pool completeness.
+  var pattern=/\b(\d+)[ -]+(?:(?:short[ -]answer|true\s*\/\s*false|multiple[ -]choice|multiple[ -]select|matching|essay|numeric|written[ -]response)(?:\s*,?\s*(?:and\s+)?))*questions?\b/gi;
+  var counts=[],m;
+  while((m=pattern.exec(text))) {
+    var before=text.slice(Math.max(0,m.index-70),m.index);
+    // Do not mistake "answer 5 of 20 questions" for a declared exam total.
+    if (/\b(?:\d+\s+of|from|pool of|bank of)\s*$/i.test(before)) continue;
+    var n=Number(m[1]);
+    if(n>0 && Number.isSafeInteger(n) && counts.indexOf(n)<0) counts.push(n);
+  }
+  return counts.length===1?counts[0]:null;
+}
+
 function qaBrightspaceDeclaredQuizCount_(quiz) {
   quiz = quiz || {};
   var direct = Number(quiz.declaredQuestionCount || 0);
   if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
   var desc = qaBrightspaceText_(quiz.description) || qaBrightspaceText_(quiz.raw && quiz.raw.Description);
-  var m = desc.match(/\b(?:has|contains)\s+(\d+)\s+questions?\b/i);
-  return m ? Number(m[1]) : null;
+  return ctiDeclaredQuizCountFromText_(desc);
 }
 
 function qaBrightspaceQuizToAssessment_(quiz) {
@@ -285,10 +299,7 @@ function qaBrightspaceQuizCaptureSummary_(quizzes) {
   var rows=(Array.isArray(quizzes)?quizzes:[]).map(function(q){
     q=q||{};
     var captured=Array.isArray(q.questions)?q.questions.length:0;
-    var description=qaBrightspaceText_(q.description);
-    if(!description || description==='[object Object]') description=qaBrightspaceText_(q.raw&&q.raw.Description);
-    var match=description.match(/\b(?:has|contains)\s+(\d+)[ -]+questions?\b/i)||description.match(/\b(\d+)[ -]+questions?\b/i);
-    var stated=q.declaredQuestionCount!=null&&Number.isFinite(Number(q.declaredQuestionCount))?Number(q.declaredQuestionCount):(match?Number(match[1]):null);
+    var stated=qaBrightspaceDeclaredQuizCount_(q);
     var status=q.questionsStatus==='PARTIAL'?'PARTIAL_API_CAPTURE':q.questionsStatus==='UNAVAILABLE'?'UNAVAILABLE':(q.questionsStatus==='NOT_REQUESTED'?'NOT_REQUESTED':(captured===0?'NO_DEFINITIONS_CAPTURED':(stated!=null&&stated!==captured?'COUNT_DIFFERS':'CAPTURED')));
     if(status==='CAPTURED' && q.questionCoverage && q.questionCoverage.completenessVerified===false) status=String(q.questionCoverage.status||'TOTAL_UNVERIFIED');
     return {id:String(q.id||''),name:String(q.name||q.title||'Quiz'),capturedQuestionDefinitions:captured,descriptionQuestionCount:stated,status:status,pageEvidence:q.questionPageEvidence||null,definitionCoverage:q.questionCoverage||null};

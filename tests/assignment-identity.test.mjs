@@ -104,11 +104,11 @@ test('Owner diagnostics separate duplicate records and non-applicable answer key
     stats:{extractorMeta:{activeSpaCrawl:{targetDiagnostics:[{id:'one',name:'Assessment',questionCycleCaptureCompleteness:qc}]}}}});}
   const duplicate=report({declared:3,captured:3,uniqueQuestionIds:1,questionCoverageComplete:false,answerEvidence:0,requiredAnswerCoverageComplete:false,missingQuestionOrdinals:[2,3]});
   assert.match(duplicate,/question records=3\/3 \| unique question IDs=1 \| question coverage=NO/);
-  assert.match(duplicate,/Uncaptured question positions: 2, 3/);
+  assert.match(duplicate,/Question positions absent at this intermediate stage: 2, 3/);
   const written=report({declared:1,captured:1,uniqueQuestionIds:1,questionCoverageComplete:true,answerEvidence:0,answerCoverageComplete:false,requiredAnswerCoverageComplete:true,answerKeyNotApplicableQuestionOrdinals:[1],missingRequiredAnswerOrdinals:[],unansweredQuestionOrdinals:[1]});
   assert.match(written,/answer keys=0\/0 \| applicable evidence complete=YES/);
   assert.match(written,/Answer key not applicable at positions: 1/);
-  assert.doesNotMatch(written,/Positions without reliable answer keys: 1/);
+  assert.doesNotMatch(written,/Positions without reliable answer keys at this intermediate stage: 1/);
 });
 
 test('An unresolved single question is retained without a completeness claim',async()=>{

@@ -1,8 +1,31 @@
 
 
+// Narrow representation equivalence only: never evaluate, round, or repair math.
+// Historical captures may contain visual, TeX and screen-reader copies together.
+function qaAssessmentMathKey_(value) {
+    var text = qaAssessmentText_(value).replace(/[\u200b-\u200d\ufeff]/g, '').replace(/−/g, '-').trim();
+    var duplicate = text.match(/^(\d+)′′\s+((\d*)\\frac\{(\d+)\}\{(\d+)\}'')\s+(\d+)′′(.+)$/);
+    if (duplicate) {
+        var whole=duplicate[3], numerator=duplicate[4], denominator=duplicate[5];
+        var spoken=(whole ? whole+', ' : '')+'start fraction, '+numerator+', divided by, '+denominator+', end fraction, start superscript, prime, prime, end superscript';
+        if (duplicate[1]!==whole+numerator+denominator || duplicate[6]!==whole+denominator+numerator || duplicate[7]!==spoken) return null;
+        text=duplicate[2];
+    }
+    text=text.replace(/^\\\(\s*([\s\S]*?)\s*\\\)$/, '$1').trim();
+    text=text.replace(/′′|″/g, "''").replace(/′/g, "'");
+    var fraction=text.match(/^(\d*)\s*\\frac\{(\d+)\}\{(\d+)\}\s*(''|'|in|ft)?$/);
+    if (fraction) return 'math:fraction:'+fraction[1]+':'+fraction[2]+'/'+fraction[3]+':'+(fraction[4]||'');
+    var number=text.match(/^([+-]?\d+(?:\.\d+)?|[+-]?\.\d+)\s*(?:(mm|cm|km|m|in|ft)(?:\s*(?:\^\s*([23])|([23])|([²³])))?|(%|''|'))?$/i);
+    if (!number) return null;
+    var exponent=number[3]||number[4]||(number[5]==='²'?'2':number[5]==='³'?'3':'');
+    return 'math:number:'+number[1]+':'+String(number[2]||number[6]||'').toLowerCase()+':'+exponent;
+}
+
 function qaAssessmentFieldSimilarity_(a, b) {
     a = qaAssessmentText_(a); b = qaAssessmentText_(b);
     if (!a || !b) return 0;
+    var am=qaAssessmentMathKey_(a), bm=qaAssessmentMathKey_(b);
+    if (am && bm) return am===bm ? 1 : 0;
     var an = a.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     var bn = b.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     if (!an || !bn) return 0;
@@ -45,7 +68,7 @@ function qaAssessmentLabelKey_(value) {
     // decoration, not the semantic identity of a multiple-select option.
     text = text.replace(/\(\s*(?:\+\/-\s*)?\d+(?:\.\d+)?\s*(?:pts?|points?)\s+per\s+answer\s*\)/gi, ' ');
     text = text.replace(/(?:\+\/-\s*)?\d+(?:\.\d+)?\s*(?:pts?|points?)\s+per\s+answer/gi, ' ');
-    return text.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return qaAssessmentMathKey_(text) || text.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function qaNormalizeOptionSemantic_(option) {

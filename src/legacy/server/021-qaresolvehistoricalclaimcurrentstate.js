@@ -16,6 +16,13 @@ function qaResolveHistoricalClaimCurrentState_(claim, source, currentItem, cours
         base.action=claim.remediation;return base;
     }
     if(!qaCleanText_(claim.subject||'') && /^(UNRESOLVED_SOURCE_ASSET|GENERATED_CONTENT_FALLBACK|GENERATED_BEHAVIOR|UNSUPPORTED_CONTENT_FALLBACK|SI_PROCESSING_FAILURE)$/.test(type)){
+        var questionScope=qaClaimQuestionScope_(source,claim);
+        if(questionScope && questionScope.matched) {
+            base.status='QUESTION_MEDIA_REVIEW';base.severity='EVIDENCE';
+            base.detail=(claim.detail||claim.excerpt||'')+' Exact quoted prompts locate this finding at source question(s) '+questionScope.questionNumbers.join(', ')+'.';
+            base.action='Check the referenced media in the mapped assessment question(s). The historical ingestion warning does not by itself establish that the media is still missing.';
+            base.evidence.push(questionScope);return base;
+        }
         base.status='UNLOCALIZED_PROVENANCE';base.severity='EVIDENCE';
         base.detail=(claim.detail||claim.excerpt||'')+' The report does not identify one source item or asset.';
         base.action='Identify the affected item in the ingestion report'+(base.pathHint?' under '+base.pathHint:'')+' and compare it with the captured source and destination. This unlocalized claim alone does not establish a course repair.';
