@@ -4501,7 +4501,7 @@ function vectorizeCourse(pkg) {
 //   4) append-only, versioned QA run storage for future longitudinal/ML analysis.
 // The extractor itself is intentionally unchanged.
 var CTI_GATEWAY_RELEASE_ = 'v8.0.0';
-var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-option-boundary-20260928';
+var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-assessment-guidance-20260928';
 var CTI_MACMILLAN_BUILD_ID_ = 'v6.8.2-partner-ready-doc-projection-20260912';
 // Coursera verdict scoring semantics remain unchanged. v6.8.2 changes only Macmillan Content Map delivery presentation after deterministic QA.
 // Structure + type + placement + assets + links + text + publication.
@@ -10054,7 +10054,7 @@ function qaQuestionMediaAction_(assessment) {
     var absent=numbers('NOT_IN_PACKAGE'),mislocated=numbers('PRESENT_DIFFERENT_PATH');
     if(absent)actions.push('Recover referenced images for source question(s) '+absent+' from the source LMS or owner: those files are absent from the package. Repeating ingestion cannot supply them.');
     if(mislocated)actions.push('Verify and repair image references for source question(s) '+mislocated+': matching filenames exist at different package paths.');
-    if((assessment.sourceMediaQuestionNumbers||[]).length)actions.push('Check destination rendering for question media; aligned prompts do not verify images.');
+    if((assessment.sourceMediaQuestionNumbers||[]).length)actions.push('Check destination rendering for media referenced by source question(s) '+assessment.sourceMediaQuestionNumbers.join(', ')+'; aligned prompts do not verify images.');
     return actions.join(' ');
 }
 
@@ -10083,6 +10083,32 @@ function qaAssessmentAnswerOnlyGap_(q) {
         !(q.captureIssueQuestionNumbers||[]).length && !(q.sourceMediaQuestionNumbers||[]).length &&
         q.sourceAnswerRefreshRequired!==true);
 }
+
+// These are guidance guards, not verdict overrides. Keep image, behavior, and
+// publication checks even when the question/answer fields themselves align.
+function qaAssessmentMediaOnlyGap_(q) {
+    return !!(q && q.status==='UNVERIFIED' && q.questionMediaStatus==='UNVERIFIED' &&
+        (q.sourceMediaQuestionNumbers||[]).length && Number(q.sourceQuestionCount)>0 &&
+        Number(q.sourceQuestionCount)===Number(q.courseraQuestionCount) &&
+        Number(q.alignedQuestionCount)===Number(q.sourceQuestionCount) &&
+        Number(q.sourceDeclaredQuestionCount)>0 && Number(q.sourceDeclaredQuestionCount)<=Number(q.sourceQuestionCount) &&
+        Number(q.courseraDeclaredQuestionCount)>0 && Number(q.courseraDeclaredQuestionCount)<=Number(q.courseraQuestionCount) &&
+        q.declaredCaptureIncomplete===false && Number(q.answerEvidenceCoverage)>=0.99 &&
+        Number(q.hardMismatchCount)===0 && Number(q.unknownTypeCount)===0 &&
+        Number(q.fidelity)>=0.90 && Number(q.evidenceCoverage)>=0.55 &&
+        Number(q.sourceParserConfidence)>=0.80 && Number(q.courseraParserConfidence)>=0.80 &&
+        ['VERIFIED','NOT_OBSERVED'].indexOf(q.selectionPolicyStatus)>-1 &&
+        !(q.unmatchedSourceQuestions||[]).length && !(q.unmatchedCourseraQuestions||[]).length &&
+        !(q.captureIssueQuestionNumbers||[]).length && q.sourceAnswerRefreshRequired!==true);
+}
+
+function qaAssessmentAnswerEvidenceSide_(q, side) {
+    if(!q || q.answerEvidenceApplicable===false)return 'NOT_APPLICABLE';
+    var total=q[side+'AnswerableQuestionCount'],captured=q[side+'AnswerEvidenceQuestionCount'];
+    if(total==null || captured==null || !Number.isFinite(Number(total)) || !Number.isFinite(Number(captured)) || Number(total)<0 || Number(captured)<0)return 'UNKNOWN';
+    return Number(captured)<Number(total)?'INCOMPLETE':'COMPLETE';
+}
+
 
 function qaOwnerActionForResult_(result) {
     if(result&&result.checks&&result.checks.captureGap){
@@ -10327,7 +10353,14 @@ function qaOwnerActionForResult_(result) {
                 actions.push('This destination assignment is confirmed empty; the matched source contains '+sa.sourceQuestionCount+' question definitions. Check their intended placement and any approved exclusion, then restore them here only if required and not already preserved elsewhere. Repeating the same extraction is not needed to establish this empty state.');
             } else if(qaAssessmentAnswerOnlyGap_(sa)) {
                 actions.push('All '+sa.sourceQuestionCount+' question prompts align and their captured choices show no material mismatch. Confirm whether an answer key is required for this activity. If required, obtain the missing source and/or destination answer evidence; if no correct answers apply, record that decision explicitly. The title alone does not establish this, and no missing question positions are identified by this comparison.');
+            } else if(qaAssessmentMediaOnlyGap_(sa)) {
+                actions.push('All '+sa.sourceQuestionCount+' question prompts align, answer evidence is complete, and no material question-field mismatch was detected. The remaining structured-assessment check concerns the referenced media; no missing question positions are identified by this comparison.');
             } else if((sa.captureIssueQuestionNumbers||[]).length)actions.push('Refresh the Coursera capture or inspect the answer fields for question(s) '+sa.captureIssueQuestionNumbers.join(', ')+'. Their captured choices include unresolved feedback text. All '+sa.courseraQuestionCount+' captured questions remain recorded; no answer-key change is proven for these fields.');
+            else if(Number(sa.courseraDeclaredQuestionCount)>0 && Number(sa.courseraQuestionCount)===Number(sa.courseraDeclaredQuestionCount) && (sa.unmatchedSourceQuestions||[]).length) {
+                actions.push('Captured '+sa.courseraQuestionCount+'/'+sa.courseraDeclaredQuestionCount+' questions declared by this Coursera assessment, compared with '+sa.sourceQuestionCount+' source questions. Source question(s) '+sa.unmatchedSourceQuestions.join(', ')+' have no aligned destination question. Check their intended placement, any approved omission, and question-pool settings before deciding what to restore. This count difference alone does not establish an incomplete Coursera crawl.');
+                if(qaAssessmentAnswerEvidenceSide_(sa,'source')==='INCOMPLETE')actions.push('Inspect the original source answer evidence; repeating the Coursera extraction cannot recover missing source keys.');
+                if(qaAssessmentAnswerEvidenceSide_(sa,'coursera')==='INCOMPLETE')actions.push('Obtain the missing destination answer evidence for the captured questions before approval.');
+            }
             else actions.push('Verify this assessment before approval: source ' + sa.sourceQuestionCount + ' questions; destination ' + sa.courseraQuestionCount + '; aligned ' + sa.alignedQuestionCount + '. Inspect the question bank and random-selection settings, and capture the unobserved questions/answers. An incomplete capture does not prove deletion.');
         } else if (expected.length) actions.push('Separate evidence gap for '+expected.join(', ')+': verify the file content or learner access before approval. Incomplete capture alone does not establish that these additional files need repair.');
         else if(!reportedAssets.length) actions.push('No repair is proven yet. Automated deep verification could not obtain enough learner-facing evidence; escalate to manual inspection only if 100% verification is required.');
@@ -10423,6 +10456,7 @@ function qaClassifyExtraItem_(item) {
         action: severity === 'INFO' ? 'Confirm this item is expected template/administrative content; no source restoration is implied.' : 'Confirm this extra item is intentional; remove it if it should not be learner-facing.'
     };
 }
+
 
 
 function qaEvidenceStrength_(result) {
@@ -10887,15 +10921,20 @@ function qaCourseraCaptureReadiness_(meta, itemResults) {
     var captured=Number(q.courseraQuestionCount||0),declared=Number(q.courseraDeclaredQuestionCount||0);
     var partial=declared>0&&captured<declared;
     var answerGap=q.status==='UNVERIFIED'&&q.answerEvidenceApplicable!==false&&q.answerEvidenceCoverage!=null&&Number(q.answerEvidenceCoverage)<1;
-    if(partial||answerGap)gaps.push({id:String(r.courseraId||''),name:String(r.courseraName||r.sourceName||'Assessment'),captured:captured,declared:declared,sourceQuestions:Number(q.sourceQuestionCount||0),declaredObserved:declared>0,answerEvidenceIncomplete:answerGap,answerEvidenceOnly:qaAssessmentAnswerOnlyGap_(q)});
+    if(partial||answerGap)gaps.push({id:String(r.courseraId||''),name:String(r.courseraName||r.sourceName||'Assessment'),captured:captured,declared:declared,sourceQuestions:Number(q.sourceQuestionCount||0),declaredObserved:declared>0,questionCaptureIncomplete:partial,answerEvidenceIncomplete:answerGap,sourceAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'source'),destinationAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'coursera'),answerEvidenceOnly:qaAssessmentAnswerOnlyGap_(q),sourceEvidenceOnly:answerGap&&!partial&&declared>0&&captured===declared&&!(q.captureIssueQuestionNumbers||[]).length&&qaAssessmentAnswerEvidenceSide_(q,'source')==='INCOMPLETE'&&qaAssessmentAnswerEvidenceSide_(q,'coursera')==='COMPLETE'});
   });
   var status=!actual?'VERSION_UNKNOWN':(order<0?'OLDER_CAPTURE':(order>0?'NEWER_CAPTURE':'CURRENT_VERSION'));
   var action='';
-  if(gaps.length&&order<0&&actual&&!gaps.every(function(g){return g.answerEvidenceOnly;})){status='OLDER_CAPTURE_WITH_GAPS';action='The uploaded Coursera JSON was captured with '+('v'+actual.join('.'))+'; '+expected+' is available. A newer version alone does not establish that these evidence gaps are fixed. Inspect the specific uncaptured fields and stopping reasons; repeat extraction when a relevant recovery fix is available or the course has changed. Existing captured evidence remains usable.';}
+  if(gaps.length&&gaps.every(function(g){return g.sourceEvidenceOnly;})) {
+    status=actual?'SOURCE_ASSESSMENT_EVIDENCE_REVIEW':'VERSION_UNKNOWN_WITH_GAPS';
+    action='Captured Coursera question counts meet their destination declarations. The remaining answer evidence gaps are in the source assessment data. Inspect original source keys and any source-to-destination question differences; repeating the Coursera extraction cannot resolve these source gaps. This does not establish complete course fidelity.';
+  }
+  else if(gaps.length&&order<0&&actual&&!gaps.every(function(g){return g.answerEvidenceOnly;})){status='OLDER_CAPTURE_WITH_GAPS';action='The uploaded Coursera JSON was captured with '+('v'+actual.join('.'))+'; '+expected+' is available. A newer version alone does not establish that these evidence gaps are fixed. Inspect the specific uncaptured fields and stopping reasons; repeat extraction when a relevant recovery fix is available or the course has changed. Existing captured evidence remains usable.';}
   else if(gaps.length && gaps.every(function(g){return g.answerEvidenceOnly;})) {
     status=actual?'ANSWER_EVIDENCE_REVIEW':'VERSION_UNKNOWN_WITH_GAPS';
     action='The captured question counts and prompts align for '+gaps.length+' assessment(s); answer evidence or its applicability still needs review. Confirm whether answer keys apply and obtain any required source/destination keys before approval. These comparisons do not identify missing question positions.';
   }
+  else if(gaps.length&&gaps.every(function(g){return !g.questionCaptureIncomplete;})){status=actual?'ASSESSMENT_EVIDENCE_REVIEW':'VERSION_UNKNOWN_WITH_GAPS';action='Assessment answer evidence still needs review. Inspect the source and destination answer fields and their applicability; the captured counts do not identify a shortfall against a known destination declaration. Unknown totals and missing answer evidence remain unresolved. This does not establish complete assessment fidelity.';}
   else if(gaps.length){status=actual?'CAPTURE_INCOMPLETE':'VERSION_UNKNOWN_WITH_GAPS';action='Assessment capture is incomplete. Review the uncaptured question positions, answer evidence, and stopping reason before approval. A capture gap does not prove content deletion.';}
   if(observedEmpty.length)action+=(action?' ':'')+observedEmpty.length+' source-matched assignment editor(s) were confirmed empty. Review their source content and intended placement; the empty-state evidence does not require another identical crawl. This is a content review, and does not establish course completeness.';
   var traversal=qaCaptureTraversalSummary_(meta);
@@ -10964,6 +11003,7 @@ function qaAssertNotDiagnosticCapture_(parsed) {
         throw new Error('This is a focused extractor trial, not a full Coursera capture. Keep it for diagnostic review and use the full extractor JSON for course QA.');
     }
 }
+
 
 function runPostIngestionQa(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName) {
   authorize_('editor');

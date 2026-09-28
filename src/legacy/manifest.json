@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + workflow IO separation + option boundaries and v6.14.2 runtime stability",
-  "qaBuild": "v8.0.0-option-boundary-20260928",
-  "baselineSha256": "416090cc5c98ec5b6787396064da4359ddc911b7a216d87d9b5c6684ff31d828",
+  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance",
+  "qaBuild": "v8.0.0-assessment-guidance-20260928",
+  "baselineSha256": "edef1a66b59a31b111bd689824771b60a0c7d11adeb9aa262f92eb7b7b93417f",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -606,18 +606,20 @@
     },
     {
       "file": "src/legacy/server/033-qanativerubricanchorevidence.js",
-      "lines": 246,
+      "lines": 272,
       "symbols": [
         "qaNativeRubricAnchorEvidence_",
         "qaNativeTransformationComparison_",
         "qaQuestionMediaAction_",
         "qaConfirmedEmptyComparison_",
-        "qaAssessmentAnswerOnlyGap_"
+        "qaAssessmentAnswerOnlyGap_",
+        "qaAssessmentMediaOnlyGap_",
+        "qaAssessmentAnswerEvidenceSide_"
       ]
     },
     {
       "file": "src/legacy/server/034-qaowneractionforresult.js",
-      "lines": 340,
+      "lines": 348,
       "symbols": [
         "qaOwnerActionForResult_",
         "workApplyPolicyAwareOperatorGuidance_",
@@ -641,7 +643,7 @@
     },
     {
       "file": "src/legacy/server/037-qacourseracapturereadiness.js",
-      "lines": 96,
+      "lines": 102,
       "symbols": [
         "qaCourseraCaptureReadiness_",
         "qaMergeCourseraPayload_",

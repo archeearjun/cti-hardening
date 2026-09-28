@@ -216,7 +216,7 @@ function qaQuestionMediaAction_(assessment) {
     var absent=numbers('NOT_IN_PACKAGE'),mislocated=numbers('PRESENT_DIFFERENT_PATH');
     if(absent)actions.push('Recover referenced images for source question(s) '+absent+' from the source LMS or owner: those files are absent from the package. Repeating ingestion cannot supply them.');
     if(mislocated)actions.push('Verify and repair image references for source question(s) '+mislocated+': matching filenames exist at different package paths.');
-    if((assessment.sourceMediaQuestionNumbers||[]).length)actions.push('Check destination rendering for question media; aligned prompts do not verify images.');
+    if((assessment.sourceMediaQuestionNumbers||[]).length)actions.push('Check destination rendering for media referenced by source question(s) '+assessment.sourceMediaQuestionNumbers.join(', ')+'; aligned prompts do not verify images.');
     return actions.join(' ');
 }
 
@@ -244,4 +244,29 @@ function qaAssessmentAnswerOnlyGap_(q) {
         ['VERIFIED','NOT_OBSERVED'].indexOf(q.selectionPolicyStatus)>-1 &&
         !(q.captureIssueQuestionNumbers||[]).length && !(q.sourceMediaQuestionNumbers||[]).length &&
         q.sourceAnswerRefreshRequired!==true);
+}
+
+// These are guidance guards, not verdict overrides. Keep image, behavior, and
+// publication checks even when the question/answer fields themselves align.
+function qaAssessmentMediaOnlyGap_(q) {
+    return !!(q && q.status==='UNVERIFIED' && q.questionMediaStatus==='UNVERIFIED' &&
+        (q.sourceMediaQuestionNumbers||[]).length && Number(q.sourceQuestionCount)>0 &&
+        Number(q.sourceQuestionCount)===Number(q.courseraQuestionCount) &&
+        Number(q.alignedQuestionCount)===Number(q.sourceQuestionCount) &&
+        Number(q.sourceDeclaredQuestionCount)>0 && Number(q.sourceDeclaredQuestionCount)<=Number(q.sourceQuestionCount) &&
+        Number(q.courseraDeclaredQuestionCount)>0 && Number(q.courseraDeclaredQuestionCount)<=Number(q.courseraQuestionCount) &&
+        q.declaredCaptureIncomplete===false && Number(q.answerEvidenceCoverage)>=0.99 &&
+        Number(q.hardMismatchCount)===0 && Number(q.unknownTypeCount)===0 &&
+        Number(q.fidelity)>=0.90 && Number(q.evidenceCoverage)>=0.55 &&
+        Number(q.sourceParserConfidence)>=0.80 && Number(q.courseraParserConfidence)>=0.80 &&
+        ['VERIFIED','NOT_OBSERVED'].indexOf(q.selectionPolicyStatus)>-1 &&
+        !(q.unmatchedSourceQuestions||[]).length && !(q.unmatchedCourseraQuestions||[]).length &&
+        !(q.captureIssueQuestionNumbers||[]).length && q.sourceAnswerRefreshRequired!==true);
+}
+
+function qaAssessmentAnswerEvidenceSide_(q, side) {
+    if(!q || q.answerEvidenceApplicable===false)return 'NOT_APPLICABLE';
+    var total=q[side+'AnswerableQuestionCount'],captured=q[side+'AnswerEvidenceQuestionCount'];
+    if(total==null || captured==null || !Number.isFinite(Number(total)) || !Number.isFinite(Number(captured)) || Number(total)<0 || Number(captured)<0)return 'UNKNOWN';
+    return Number(captured)<Number(total)?'INCOMPLETE':'COMPLETE';
 }
