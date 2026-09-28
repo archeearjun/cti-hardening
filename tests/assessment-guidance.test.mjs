@@ -13,7 +13,7 @@ function comparison({media=false,sourceGap=false}={}) {
   return c.qaStructuredAssessmentComparison_({isStructuredAssessment:true,structuredAssessment:assessment(source)},{structuredAssessment:assessment([question('one'),question('two')])});
 }
 function result(q){return {courseraId:'exam',courseraName:'Test exam',sourceName:'Source exam',verdict:'PAYLOAD_UNVERIFIED',issues:['PAYLOAD_UNVERIFIED'],checks:{structuredAssessment:q}};}
-function readiness(q,version='v6.14.3'){return c.qaCourseraCaptureReadiness_({buildId:version},[result(q)]);}
+function readiness(q,version=c.CTI_RELEASE_REGISTRY_.courseraExtractor.version){return c.qaCourseraCaptureReadiness_({buildId:version},[result(q)]);}
 
 test('Media-only review retains the image check without inventing missing questions',()=>{
   const q=comparison({media:true}),original=JSON.stringify(q);
@@ -28,6 +28,7 @@ test('Media-only review retains the image check without inventing missing questi
 
 test('Media-only advice cannot hide independent uncertainty or source media loss',()=>{
   const q=comparison({media:true});
+  for(const key of ['captureCoverageUnverified','definitionCoverageUnverified'])assert.equal(c.qaAssessmentMediaOnlyGap_({...q,[key]:true}),false,key);
   for(const [key,value] of [['courseraDeclaredQuestionCount',3],['sourceDeclaredQuestionCount',3],['alignedQuestionCount',1],['answerEvidenceCoverage',.5],['hardMismatchCount',1],['unknownTypeCount',1],['selectionPolicyStatus','UNVERIFIED'],['sourceParserConfidence',.3],['courseraParserConfidence',.3],['captureIssueQuestionNumbers',[1]],['unmatchedSourceQuestions',[1]],['sourceAnswerRefreshRequired',true]]) {
     assert.equal(c.qaAssessmentMediaOnlyGap_({...q,[key]:value}),false,key);
   }
@@ -71,7 +72,7 @@ test('Mixed destination gaps, unknown keys and incomplete traversal remain unres
     assert.equal(r.assessmentGaps[0].sourceEvidenceOnly,false);
   }
   assert.equal(readiness(q,'').status,'VERSION_UNKNOWN_WITH_GAPS');
-  const meta={buildId:'v6.14.3',activeSpaCrawl:{eligibleTargets:2,targetIds:['a','b'],visitedEditorCount:1,unreachedEditorIds:['b'],allEditorsVisited:false}};
+  const meta={buildId:c.CTI_RELEASE_REGISTRY_.courseraExtractor.version,activeSpaCrawl:{eligibleTargets:2,targetIds:['a','b'],visitedEditorCount:1,unreachedEditorIds:['b'],allEditorsVisited:false}};
   assert.equal(c.qaCourseraCaptureReadiness_(meta,[result(q)]).status,'EDITOR_TRAVERSAL_INCOMPLETE');
 });
 

@@ -131,6 +131,10 @@ function qaOwnerActionForResult_(result) {
         var bound=checks.structuredAssessment;
         actions.push('Capture the unobserved assessment questions: source '+bound.sourceQuestionCount+'/'+bound.sourceDeclaredQuestionCount+' declared; destination '+bound.courseraQuestionCount+'/'+bound.courseraDeclaredQuestionCount+' declared. Matching captured subsets do not prove full coverage.');
     }
+    if (checks.structuredAssessment && checks.structuredAssessment.captureCoverageUnverified) {
+        if(severity==='NONE')severity='EVIDENCE';
+        actions.push('The saved destination receipt reports unresolved question positions or identities. Review that item’s outline and capture diagnostics; matching record counts alone do not prove full question coverage.');
+    }
     if (checks.structuredAssessment && checks.structuredAssessment.definitionCoverageUnverified) {
         if(severity==='NONE')severity='EVIDENCE';
         actions.push('Question-definition completeness is unverified. Check the retained source/package definitions and the capture coverage receipt; matching observed questions do not establish the full bank. Repeating an unchanged destination capture will not resolve an unknown source total.');

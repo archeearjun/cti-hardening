@@ -67,7 +67,9 @@ function qaQuestionTypeKey_(value) {
     if (/single correct|multiple choice|single choice|radio/.test(t)) return 'single-select';
     if (/true\s*(?:or|\/)\s*false|truefalse/.test(t)) return 'true-false';
     if (/regular expression|regex/.test(t)) return 'regex';
-    if (/fill|text entry|string|short answer/.test(t)) return 'text-entry';
+    if (/^(?:text match|text[- ]entry|numeric|numeric answer)$/.test(t) || /fill|text entry|string|short answer/.test(t)) return 'text-entry';
+    if (/^reflective text answer$/.test(t)) return 'essay';
+    if (/^(?:(?:ai|manual|peer|staff)[- ]graded )?file upload(?: test)?(?: question)?$/.test(t)) return 'file-upload';
     if (/essay|long answer/.test(t)) return 'essay';
     return t.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
 }
@@ -113,8 +115,12 @@ function qaNormalizeQuestion_(q, index) {
     return {
         id: String(q.id || q.identifier || (index + 1)),
         index: index + 1,
-        type: qaQuestionTypeKey_(q.type || q.questionType || ''),
-        rawType: qaAssessmentText_(q.type || q.questionType || ''),
+        type: /^(?:text match|reflective text answer)$/i.test(qaAssessmentText_(q.rawType)) ? qaQuestionTypeKey_(q.rawType) : qaQuestionTypeKey_(q.type && q.type!=='unknown' ? q.type : (q.questionType || q.rawType || q.type || '')),
+        rawType: qaAssessmentText_(q.rawType || q.questionType || q.type || ''),
+        courseraQuestionId: String(q.courseraQuestionId || ''),
+        questionOrdinalObserved: q.questionOrdinalObserved === true,
+        responseTypeEvidence: q.responseTypeEvidence ? JSON.parse(JSON.stringify(q.responseTypeEvidence)) : null,
+        promptBoundaryEvidence: q.promptBoundaryEvidence ? JSON.parse(JSON.stringify(q.promptBoundaryEvidence)) : null,
         mediaRefs:Array.isArray(q.mediaRefs)?q.mediaRefs.map(String).filter(Boolean):[],
         sourceTypeEvidence:q.sourceTypeEvidence||null,
         mediaPresence:Array.isArray(q.mediaPresence)?q.mediaPresence:[],
@@ -200,6 +206,9 @@ function qaNormalizeAssessment_(assessment, origin) {
             source: String(assessment.selectionPolicy.source || '')
         } : { observed:false, selectCount:null, poolSize:null, randomSelection:null, source:'' },
         questions: qs,
+        captureCompleteness: assessment.captureCompleteness ? JSON.parse(JSON.stringify(assessment.captureCompleteness)) : null,
+        outlineEvidence: assessment.outlineEvidence ? JSON.parse(JSON.stringify(assessment.outlineEvidence)) : null,
+        cycleEvidence: assessment.cycleEvidence ? JSON.parse(JSON.stringify(assessment.cycleEvidence)) : null,
         parserConfidence: confidence,
         warnings: Array.isArray(assessment.warnings) ? assessment.warnings.slice(0, 20) : []
     };

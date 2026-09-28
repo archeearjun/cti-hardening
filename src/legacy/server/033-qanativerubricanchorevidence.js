@@ -236,7 +236,7 @@ function qaAssessmentAnswerOnlyGap_(q) {
         Number(q.alignedQuestionCount)===Number(q.sourceQuestionCount) &&
         Number(q.sourceDeclaredQuestionCount)>0 && Number(q.sourceDeclaredQuestionCount)<=Number(q.sourceQuestionCount) &&
         Number(q.courseraDeclaredQuestionCount)>0 && Number(q.courseraDeclaredQuestionCount)<=Number(q.courseraQuestionCount) &&
-        q.declaredCaptureIncomplete===false && q.answerEvidenceApplicable!==false &&
+        q.declaredCaptureIncomplete===false && q.captureCoverageUnverified!==true && q.definitionCoverageUnverified!==true && q.answerEvidenceApplicable!==false &&
         q.answerEvidenceCoverage!=null && Number(q.answerEvidenceCoverage)>=0 && Number(q.answerEvidenceCoverage)<0.99 &&
         Number(q.hardMismatchCount)===0 && Number(q.unknownTypeCount)===0 &&
         Number(q.fidelity)>=0.90 && Number(q.evidenceCoverage)>=0.55 &&
@@ -255,7 +255,7 @@ function qaAssessmentMediaOnlyGap_(q) {
         Number(q.alignedQuestionCount)===Number(q.sourceQuestionCount) &&
         Number(q.sourceDeclaredQuestionCount)>0 && Number(q.sourceDeclaredQuestionCount)<=Number(q.sourceQuestionCount) &&
         Number(q.courseraDeclaredQuestionCount)>0 && Number(q.courseraDeclaredQuestionCount)<=Number(q.courseraQuestionCount) &&
-        q.declaredCaptureIncomplete===false && Number(q.answerEvidenceCoverage)>=0.99 &&
+        q.declaredCaptureIncomplete===false && q.captureCoverageUnverified!==true && q.definitionCoverageUnverified!==true && Number(q.answerEvidenceCoverage)>=0.99 &&
         Number(q.hardMismatchCount)===0 && Number(q.unknownTypeCount)===0 &&
         Number(q.fidelity)>=0.90 && Number(q.evidenceCoverage)>=0.55 &&
         Number(q.sourceParserConfidence)>=0.80 && Number(q.courseraParserConfidence)>=0.80 &&

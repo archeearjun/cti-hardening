@@ -11,8 +11,8 @@ var CTI_RELEASE_REGISTRY_ = Object.freeze({
   gateway:'v8.0.0',
   qaEngine:'v8.0.0',
   architecture:CTI_ARCHITECTURE_VERSION_,
-  courseraExtractor:{version:'v6.14.3',schema:34,build:'v6.14.3-assignment-identity-20260928',delivery:'CODE_GS_CANONICAL'},
-  brightspaceExtractor:{version:'v1.0.5',schema:2,build:'v1.0.5-question-coverage-20260922',delivery:'CODE_GS_CANONICAL'},
+  courseraExtractor:{version:'v6.14.4',schema:34,build:'v6.14.4-corpus-extraction-20260929',delivery:'CODE_GS_CANONICAL'},
+  brightspaceExtractor:{version:'v1.0.6',schema:2,build:'v1.0.6-paged-inventory-20260929',delivery:'CODE_GS_CANONICAL'},
   evidenceEnvelopeSchema:1,
   qaRunSchema:5,
   macmillanTimeModel:'m2-leaf-evidence-20260911'

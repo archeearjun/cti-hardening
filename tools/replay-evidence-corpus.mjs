@@ -34,7 +34,11 @@ export function inspectSavedCapture(capture,brightspace) {
   const normalized=capture.fingerprints.map(qa.normalizeCourseraItem_);
   const assessments=normalized.filter(x=>x.structuredAssessment).map(x=>{
     const a=x.structuredAssessment,questions=a.questions||[],ids=questions.map(q=>String(q.id||'')).filter(Boolean);
+    const coverage=a.captureCompleteness;
     return {id:x.id,name:x.name,records:questions.length,declared:a.declaredQuestionCount,
+      uniqueQuestionIds:new Set(questions.map(q=>q.courseraQuestionId).filter(Boolean)).size,
+      questionCoverageComplete:typeof coverage?.questionCoverageComplete==='boolean'?coverage.questionCoverageComplete:null,
+      unresolvedQuestionPositions:coverage?.missingQuestionOrdinals||[],
       uniqueRecordIds:new Set(ids).size,unknownTypes:questions.filter(q=>!q.type||q.type==='unknown').length,
       optionBoundaryGaps:questions.filter(q=>q.optionCaptureIssue).length,
       capturedBelowDeclaration:Number(a.declaredQuestionCount)>questions.length};
@@ -46,6 +50,7 @@ export function inspectSavedCapture(capture,brightspace) {
   if(traversal.recorded&&!traversal.complete)groups.push('EDITOR_NOT_OBSERVED');
   if(assessments.some(a=>a.capturedBelowDeclaration))groups.push('QUESTION_COUNT_EVIDENCE_GAP');
   if(assessments.some(a=>a.unknownTypes))groups.push('UNKNOWN_QUESTION_TYPE');
+  if(assessments.some(a=>a.questionCoverageComplete===false))groups.push('QUESTION_COVERAGE_UNVERIFIED');
   if(assessments.some(a=>a.optionBoundaryGaps))groups.push('OPTION_FEEDBACK_BOUNDARY');
   if(sourceQuizzes?.quizEvidenceGaps)groups.push('SOURCE_QUESTION_TOTAL_UNVERIFIED');
   return {capturedAt:capture.extractedAt||capture.capturedAt||'',

@@ -277,6 +277,10 @@ function qaMergeCourseraStructuredEvidence_(primary, fallback) {
     if (!p) return f || primary;
     if (!f) return p || primary;
 
+    // Modern item-scoped question identities and explicit coverage outrank a
+    // flattened text sample. A clipped viewer must not reorder or duplicate them.
+    if (primary.captureCompleteness && p.questions.some(function(q){return q.courseraQuestionId;})) return p;
+
     // The text parser sees explicit numbered question boundaries and therefore
     // provides the safer canonical order/count. Overlay higher-trust DOM badge
     // evidence on the matching prompt. This prevents an omitted middle DOM card

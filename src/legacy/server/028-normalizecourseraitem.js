@@ -66,6 +66,8 @@ function normalizeCourseraItem_(item) {
         }
     }
 
+    if (structuredAssessment) structuredAssessment = qaNormalizeAssessment_(structuredAssessment, 'coursera-assignment');
+
     return {
         id: String(item.id || item.itemId || ''),
         name: qaCleanText_(item.name || item.title || 'Untitled Item'),

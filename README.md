@@ -27,8 +27,8 @@ Available workflows:
 - Import of existing Google records and recovery backups; complete report payloads
   and original migration sheets are preserved.
 
-The canonical extractors are **Coursera v6.14.3/schema 34** and
-**Brightspace v1.0.5/schema 2**. Processing runs locally; comparisons and Macmillan
+The canonical extractors are **Coursera v6.14.4/schema 34** and
+**Brightspace v1.0.6/schema 2**. Processing runs locally; comparisons and Macmillan
 QA use cancellable Web Workers. Saving in team mode uploads the resulting record
 and evidence to the configured team database. Local records are not shared.
 
@@ -36,6 +36,9 @@ Saved captures can be checked together using the [private evidence batch replay]
 The current QA build preserves unknown Brightspace question totals instead of
 verifying matching subsets and uses matching XLSX container IDs to correct false
 editor-coverage gaps. Existing source and destination inputs can be reused.
+The [shared extraction update](docs/corpus-extraction-hardening.md) adds text-match
+answer preservation, stable question/coverage receipts, published YouTube target
+recognition and paginated Brightspace quiz inventories.
 
 ### Deploy on the existing free Pages project
 

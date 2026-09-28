@@ -18,7 +18,7 @@
 
 var CTI_TEST_SUITE_VERSION_ = '3.0.0';
 var CTI_TEST_BASELINE_GATEWAY_ = 'v8.0.0';
-var CTI_TEST_BASELINE_EXTRACTOR_ = 'v6.14.3';
+var CTI_TEST_BASELINE_EXTRACTOR_ = 'v6.14.4';
 var CTI_TEST_BASELINE_EXTRACTOR_SCHEMA_ = 34;
 var CTI_TEST_BASELINE_TIME_MODEL_ = 'm2-leaf-evidence-20260911';
 var CTI_TEST_INDEX_SOURCE_CACHE_ = null;
@@ -1187,12 +1187,12 @@ function CTI_TEST_workEvidenceChecklistIsolation_() {
 function CTI_TEST_releaseIdentityContract_() {
   var source = CTI_TEST_indexSource_();
   CTI_TEST_equal_(CTI_GATEWAY_RELEASE_,CTI_TEST_BASELINE_GATEWAY_,'Backend gateway identity');
-  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-corpus-review-20260928','Backend QA build identity');
+  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-corpus-extraction-20260929','Backend QA build identity');
   CTI_TEST_equal_(CTI_MACMILLAN_BUILD_ID_,'v6.8.2-partner-ready-doc-projection-20260912','Backend Macmillan build identity');
   CTI_TEST_equal_(CTI_WORK_QUEUE_BUILD_ID_,'v1.6-evidence-checklist-20260919','Backend work-queue build identity');
   CTI_TEST_equal_(MACMILLAN_TIME_MODEL_VERSION_,CTI_TEST_BASELINE_TIME_MODEL_,'Backend time-model identity');
   CTI_TEST_contains_(source,CTI_TEST_BASELINE_GATEWAY_,'Frontend gateway release label');
-  CTI_TEST_contains_(source,'v6.14.3','Coursera extractor version');
+  CTI_TEST_contains_(source,'v6.14.4','Coursera extractor version');
   CTI_TEST_contains_(source,'schema 34','Frozen Coursera extractor schema label');
 }
 
@@ -2519,7 +2519,7 @@ function CTI_TEST_workInternalRuntimeKeepGate_() {
 function CTI_TEST_semanticQaUiContract_() {
   // Extractor implementation is server-owned in v7; combine UI contract text with the canonical source.
   var source = CTI_TEST_indexSource_() + '\n' + ctiCanonicalCourseraExtractorSource_();
-  CTI_TEST_contains_(source,'v6.14.3-assignment-identity-20260928','Embedded v6.14.3 extractor build identity');
+  CTI_TEST_contains_(source,'v6.14.4-corpus-extraction-20260929','Embedded v6.14.4 extractor build identity');
   CTI_TEST_contains_(source,'schema 34','Extractor schema 34 label');
   CTI_TEST_contains_(source,'detectCourseraIngestionFailure','Extractor deterministic ingestion-failure detector');
   CTI_TEST_contains_(source,'collectAssessmentSelectionPolicyFromText_','Extractor question-pool behavior detector');
@@ -2534,7 +2534,7 @@ function CTI_TEST_semanticQaUiContract_() {
   CTI_TEST_assert_(CTI_TEST_sourceHasFunction_(source,'semanticPackageKey'),'Frontend semantic package identity helper exists');
   CTI_TEST_contains_(source,'external inventory is supplemental, not exhaustive','Explore discloses that external SCORM inventory is not negative authority');
   CTI_TEST_contains_(source,'ctiCourseraExportName(id, "ITEM_FINGERPRINT")','Extractor success path requests the searchable ITEM_FINGERPRINT export name');
-  CTI_TEST_contains_(source,'__v6.14.3_s34__${suffix}.json','Extractor filename template retains version/schema plus dynamic evidence-kind suffix');
+  CTI_TEST_contains_(source,'__v6.14.4_s34__${suffix}.json','Extractor filename template retains version/schema plus dynamic evidence-kind suffix');
   CTI_TEST_contains_(source,'Field alignment: source','QA report exposes source-field ↔ destination-field semantic alignment');
   CTI_TEST_assert_(source.indexOf('ITEM_FINGERPRINT_v6_7_0.json') === -1,'Stale v6.7.0 extractor filename is absent');
   CTI_TEST_contains_(source,'Repair repeated-export lineage','Legacy lineage repair action exists');
@@ -2669,18 +2669,18 @@ function CTI_TEST_courseraCanonicalExtractor_() {
   CTI_TEST_equal_(CTI_RELEASE_REGISTRY_.courseraExtractor.delivery,'CODE_GS_CANONICAL','Coursera extractor canonical delivery');
   var script=ctiCanonicalCourseraExtractorSource_();
   CTI_TEST_assert_(script.length > 250000,'Canonical Coursera extractor payload is present');
-  CTI_TEST_assert_(script.indexOf('v6.14.3') > -1,'Canonical Coursera extractor version present');
-  CTI_TEST_assert_(script.indexOf('v6.14.3-assignment-identity-20260928') > -1,'Canonical Coursera build present');
+  CTI_TEST_assert_(script.indexOf('v6.14.4') > -1,'Canonical Coursera extractor version present');
+  CTI_TEST_assert_(script.indexOf('v6.14.4-corpus-extraction-20260929') > -1,'Canonical Coursera build present');
   CTI_TEST_assert_(/Delete|Publish|Save/.test(script),'Extractor safety vocabulary remains auditable');
   var served=ctiExtractorDelivery_('coursera');
-  CTI_TEST_equal_(served.version,'v6.14.3','Served Coursera version');
+  CTI_TEST_equal_(served.version,'v6.14.4','Served Coursera version');
   CTI_TEST_equal_(served.schemaVersion,CTI_TEST_BASELINE_EXTRACTOR_SCHEMA_,'Served Coursera schema');
   CTI_TEST_assert_(served.script === script,'Server returns canonical Coursera script exactly');
 }
 
 function CTI_TEST_brightspaceCanonicalExtractor_() {
   var source=ctiCanonicalBrightspaceExtractorSource_();
-  CTI_TEST_contains_(source,'Brightspace v1.0.5','Canonical extractor version');
+  CTI_TEST_contains_(source,'Brightspace v1.0.6','Canonical extractor version');
   CTI_TEST_contains_(source,"const SCHEMA_VERSION = 2",'Canonical extractor schema');
   CTI_TEST_contains_(source,"methodsUsed:['GET']",'GET-only safety evidence');
   CTI_TEST_contains_(source,'401/403 means unavailable','Permission-boundary safety evidence');
@@ -2740,7 +2740,7 @@ function CTI_TEST_courseraCanonicalUiContract_() {
   var src=CTI_TEST_indexSource_();
   CTI_TEST_contains_(src,"ctiLoadCanonicalExtractor_('coursera','extractorScriptCode'",'Coursera UI lazy-loads canonical server extractor');
   CTI_TEST_contains_(src,'Coursera extractor source is canonical in Code.gs','Coursera UI does not duplicate canonical script source');
-  CTI_TEST_assert_(src.indexOf('v6.14.3-assignment-identity-20260928') > -1,'Coursera UI still exposes version/build badge');
+  CTI_TEST_assert_(src.indexOf('v6.14.4-corpus-extraction-20260929') > -1,'Coursera UI still exposes version/build badge');
   CTI_TEST_contains_(src,'Transformation family','Assignment-owner help explains source→destination families');
   CTI_TEST_contains_(src,'CTI checked these together','Item detail surfaces grouped destination children');
 }
@@ -2994,7 +2994,7 @@ function CTI_TEST_unobservedPluginTarget_() {
 }
 
 function CTI_TEST_courseraV68CoverageUiContract_() {
-  CTI_TEST_equal_(CTI_TEST_BASELINE_EXTRACTOR_,'v6.14.3','v6.14.3 baseline extractor');
+  CTI_TEST_equal_(CTI_TEST_BASELINE_EXTRACTOR_,'v6.14.4','v6.14.4 baseline extractor');
   CTI_TEST_equal_(CTI_TEST_BASELINE_EXTRACTOR_SCHEMA_,34,'v6.11 schema 34');
   var server=ctiCanonicalCourseraExtractorSource_();
   CTI_TEST_contains_(server,'MAX_ACTIVE_CRAWL_ITEMS = 0','Primary crawl has no fixed item-count cap');
@@ -3202,7 +3202,7 @@ function CTI_TEST_courseraSearchableFilename_() {
   CTI_TEST_contains_(script,'CTI__COURSERA__','Coursera filename begins with a searchable platform prefix');
   CTI_TEST_contains_(script,'__COURSE_','Coursera filename retains the unique course/branch identifier after the human title');
   CTI_TEST_contains_(script,'ctiLocalFileTimestamp','Coursera filename includes local date/time and timezone');
-  CTI_TEST_contains_(script,'__v6.14.3_s34__${suffix}.json','Coursera filename template exposes extractor version/schema and dynamic evidence kind');
+  CTI_TEST_contains_(script,'__v6.14.4_s34__${suffix}.json','Coursera filename template exposes extractor version/schema and dynamic evidence kind');
   CTI_TEST_contains_(script,'ctiCourseraExportName(id, "ITEM_FINGERPRINT")','Coursera success export explicitly uses ITEM_FINGERPRINT as the evidence kind');
   CTI_TEST_contains_(script,'result.meta.exportFileName','Coursera JSON records its own exported filename');
 }
@@ -3212,7 +3212,7 @@ function CTI_TEST_brightspaceSearchableFilename_() {
   CTI_TEST_contains_(script,'CTI__BRIGHTSPACE__','Brightspace filename begins with a searchable platform prefix');
   CTI_TEST_contains_(script,'__ORG_${slug(orgUnitId)}__','Brightspace filename includes the unique OrgUnit identifier');
   CTI_TEST_contains_(script,'fileTimestamp(new Date())','Brightspace filename includes local date/time and timezone');
-  CTI_TEST_contains_(script,'__v1.0.5_s2__SOURCE_GROUND_TRUTH.json','Brightspace filename exposes extractor version/schema and evidence kind');
+  CTI_TEST_contains_(script,'__v1.0.6_s2__SOURCE_GROUND_TRUTH.json','Brightspace filename exposes extractor version/schema and evidence kind');
   CTI_TEST_contains_(script,'capture.exportFileName = exportFileName','Brightspace JSON records its own exported filename');
 }
 
@@ -3661,20 +3661,20 @@ function CTI_TEST_sourceTextContract_() {
 function CTI_TEST_captureInputReadiness_() {
   var partial={courseraId:'final',courseraName:'Final Evaluation',verdict:'UNVERIFIED',checks:{structuredAssessment:{status:'UNVERIFIED',courseraQuestionCount:27,courseraDeclaredQuestionCount:79,answerEvidenceCoverage:1}}};
   var before=JSON.stringify(partial);
-  var old=qaCourseraCaptureReadiness_({buildId:'v6.14.3-wrapper',activeSpaCrawl:{buildId:'v6.12.0-capless-adaptive-crawl-20260917'}},[partial]);
+  var old=qaCourseraCaptureReadiness_({buildId:'v6.14.4-wrapper',activeSpaCrawl:{buildId:'v6.12.0-capless-adaptive-crawl-20260917'}},[partial]);
   CTI_TEST_equal_(old.status,'OLDER_CAPTURE_WITH_GAPS','Actual crawl version takes precedence over wrapper metadata');
   CTI_TEST_equal_(old.observedVersion,'v6.12.0','Uploaded capture version retained');
-  CTI_TEST_equal_(old.expectedVersion,'v6.14.3','Available extractor comes from release registry');
+  CTI_TEST_equal_(old.expectedVersion,'v6.14.4','Available extractor comes from release registry');
   CTI_TEST_contains_(old.action,'A newer version alone does not establish','Version difference alone must not force another crawl');
   CTI_TEST_assert_(old.action.indexOf('upload the newly downloaded')===-1,'No blanket repeat-extraction instruction');
   CTI_TEST_equal_(old.assessmentGaps[0].captured,27,'Captured count is never raised by current app version');
   CTI_TEST_equal_(JSON.stringify(partial),before,'Capture guidance does not rewrite verdict or question evidence');
-  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.3-current'},[partial]).status,'CAPTURE_INCOMPLETE','Current extractor with a gap is not blamed on an old version');
+  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.4-current'},[partial]).status,'CAPTURE_INCOMPLETE','Current extractor with a gap is not blamed on an old version');
   CTI_TEST_equal_(qaCourseraCaptureReadiness_({},[partial]).status,'VERSION_UNKNOWN_WITH_GAPS','Unknown capture version stays unknown');
   CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v99.0.0-future'},[]).status,'NEWER_CAPTURE','Newer capture not marked obsolete');
   CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.12.0-older'},[]).action,'','Old complete evidence remains usable without a forced re-capture');
   var recovered=JSON.parse(before);recovered.checks.structuredAssessment.courseraQuestionCount=79;recovered.checks.structuredAssessment.status='VERIFIED';
-  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.3-current'},[recovered]).assessmentGaps.length,0,'Actual 79/79 capture clears question gap');
+  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.4-current'},[recovered]).assessmentGaps.length,0,'Actual 79/79 capture clears question gap');
 }
 
 function CTI_TEST_brightspaceCaptureCounts_() {
@@ -3699,7 +3699,7 @@ function CTI_TEST_extractorDeliveryIntegrity_() {
   var current=ctiExtractorDelivery_('coursera');
   CTI_TEST_assert_(current.success,'Canonical Coursera delivery succeeds');
   CTI_TEST_equal_(current.script,ctiCanonicalCourseraExtractorSource_(),'Delivered source is the complete embedded script');
-  CTI_TEST_equal_(current.version,'v6.14.3','Delivered version is v6.14.3');
+  CTI_TEST_equal_(current.version,'v6.14.4','Delivered version is v6.14.4');
   CTI_TEST_equal_(current.gatewayRelease,'v8.0.0','Response identifies its deployed app version');
   var original=ctiCanonicalCourseraExtractorSource_;
   try {
@@ -4167,7 +4167,7 @@ function CTI_TEST_placeholderPolicyConsistency_() {
 }
 
 function CTI_TEST_editorTraversalTruth_() {
-  var meta={buildId:'v6.14.3-test',activeSpaCrawl:{eligibleTargets:3,targets:3,targetIds:['a','b','c'],allTargetsAttempted:true,unvisitedDueToBudget:0,completedTargets:2,
+  var meta={buildId:'v6.14.4-test',activeSpaCrawl:{eligibleTargets:3,targets:3,targetIds:['a','b','c'],allTargetsAttempted:true,unvisitedDueToBudget:0,completedTargets:2,
     targetDiagnostics:[{id:'a',found:true,editorSurfaceCaptured:true},{id:'b',found:false},{id:'c',found:false,retryResult:{found:true,navigated:true,surface:true}}]}};
   var t=qaCaptureTraversalSummary_(meta);
   CTI_TEST_equal_(t.visited,2,'Search attempts never count as observed editors');
@@ -4420,7 +4420,7 @@ function CTI_TEST_confirmedEmptyComparison_() {
   CTI_TEST_equal_(action.severity,'REVIEW','Source comparison remains actionable');
   CTI_TEST_contains_(action.action,'confirmed empty','Guidance explains the observed editor');
   CTI_TEST_assert_(!/question bank|capture the unobserved/.test(action.action),'Do not send owner back to extract a confirmed empty bank');
-  var capture=qaCourseraCaptureReadiness_({buildId:'v6.14.3'},[r]);
+  var capture=qaCourseraCaptureReadiness_({buildId:'v6.14.4'},[r]);
   CTI_TEST_equal_(capture.assessmentGaps.length,0,'Empty destination is not a failed answer capture');
   CTI_TEST_equal_(capture.observedEmptySourceAssessments.length,1,'It remains visible as a source content review');
   CTI_TEST_contains_(capture.action,'does not establish course completeness','No publication approval from traversal or emptiness');
@@ -4444,12 +4444,12 @@ function CTI_TEST_invalidEmptyComparison_() {
     if(kind==='fractional')e.samples=2.5;
     var q=qaStructuredAssessmentComparison_(f.source,f.destination),r=CTI_TEST_reportResult_(q);
     CTI_TEST_equal_(qaConfirmedEmptyComparison_(r),null,kind+' does not establish an empty comparison');
-    CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.3'},[r]).observedEmptySourceAssessments.length,0,kind+' cannot suppress evidence gaps');
+    CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.4'},[r]).observedEmptySourceAssessments.length,0,kind+' cannot suppress evidence gaps');
   });
   var f=CTI_TEST_reportEmptyFixture_(),q=qaStructuredAssessmentComparison_(f.source,f.destination),r=CTI_TEST_reportResult_(q);
   r.courseraId='different';
   CTI_TEST_equal_(qaConfirmedEmptyComparison_(r),null,'Receipt is rebound to the matched result ID');
-  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.3'},[r]).assessmentGaps.length,1,'Mismatched result identity retains evidence gap');
+  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.4'},[r]).assessmentGaps.length,1,'Mismatched result identity retains evidence gap');
   r.courseraId='week1';q.courseraDeclaredQuestionCount=2;
   CTI_TEST_equal_(qaConfirmedEmptyComparison_(r),null,'Positive declared count contradicts zero-content claim');
 }
@@ -4464,7 +4464,7 @@ function CTI_TEST_answerOnlyGuidance_() {
   CTI_TEST_equal_(q.status,'UNVERIFIED','Missing answers are not silently exempted');
   CTI_TEST_equal_(q.answerEvidenceCoverage,0,'No answer evidence is invented');
   CTI_TEST_assert_(qaAssessmentAnswerOnlyGap_(q),'Complete comparable fields identify the answer-only review');
-  var a=qaOwnerActionForResult_(r),capture=qaCourseraCaptureReadiness_({buildId:'v6.14.3'},[r]);
+  var a=qaOwnerActionForResult_(r),capture=qaCourseraCaptureReadiness_({buildId:'v6.14.4'},[r]);
   CTI_TEST_contains_(a.action,'whether an answer key is required','Applicability is checked explicitly');
   CTI_TEST_assert_(!/question bank|capture the unobserved/.test(a.action),'Complete prompts do not trigger a question-bank recrawl');
   CTI_TEST_equal_(capture.status,'ANSWER_EVIDENCE_REVIEW','Capture input summary explains the specific gap');
@@ -4479,11 +4479,11 @@ function CTI_TEST_answerOnlyBoundaries_() {
   cases.forEach(function(entry){var c=JSON.parse(JSON.stringify(q));c[entry[0]]=entry[1];CTI_TEST_assert_(!qaAssessmentAnswerOnlyGap_(c),entry[0]+' remains a broader review');});
   var f=CTI_TEST_reportEmptyFixture_(),empty=CTI_TEST_reportResult_(qaStructuredAssessmentComparison_(f.source,f.destination));
   var answer=CTI_TEST_reportResult_(q);answer.courseraId='survey';answer.courseraName='Survey';
-  var mixed=qaCourseraCaptureReadiness_({buildId:'v6.14.3'},[empty,answer]);
+  var mixed=qaCourseraCaptureReadiness_({buildId:'v6.14.4'},[empty,answer]);
   CTI_TEST_equal_(mixed.observedEmptySourceAssessments.length,1,'Mixed report retains empty content review');
   CTI_TEST_equal_(mixed.assessmentGaps.length,1,'Only actual answer evidence goes into capture gaps');
   var partial=JSON.parse(JSON.stringify(q));partial.courseraDeclaredQuestionCount=2;
-  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.3'},[CTI_TEST_reportResult_(partial)]).status,'CAPTURE_INCOMPLETE','Uncaptured declared questions retain incomplete status');
+  CTI_TEST_equal_(qaCourseraCaptureReadiness_({buildId:'v6.14.4'},[CTI_TEST_reportResult_(partial)]).status,'CAPTURE_INCOMPLETE','Uncaptured declared questions retain incomplete status');
 }
 
 function CTI_TEST_assignmentTextBlocks_() {

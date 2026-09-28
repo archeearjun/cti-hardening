@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins + saved corpus replay and Brightspace definition coverage + XLSX container traversal inventory",
-  "qaBuild": "v8.0.0-corpus-review-20260928",
-  "baselineSha256": "665ebb564629870aa15c46001ba0bce6c4401cccc70e325e0b2011db9614baf4",
+  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins + saved corpus replay and Brightspace definition coverage + XLSX container traversal inventory + corpus extraction type and coverage preservation + paged Brightspace quiz inventory",
+  "qaBuild": "v8.0.0-corpus-extraction-20260929",
+  "baselineSha256": "0532abbbe0a1487b65cb8e265bccf640c5d8ffeefce39e4b8f3d82f7ce2e89a6",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -501,7 +501,7 @@
     },
     {
       "file": "src/legacy/server/026-qahiddendependencykind.js",
-      "lines": 357,
+      "lines": 361,
       "symbols": [
         "qaHiddenDependencyKind_",
         "qaLegacyDiscussionText_",
@@ -536,7 +536,7 @@
     },
     {
       "file": "src/legacy/server/028-normalizecourseraitem.js",
-      "lines": 337,
+      "lines": 339,
       "symbols": [
         "normalizeCourseraItem_",
         "qaMatchScore_",
@@ -551,7 +551,7 @@
     },
     {
       "file": "src/legacy/server/029-qacharngramcosine.js",
-      "lines": 348,
+      "lines": 357,
       "symbols": [
         "qaCharNgramCosine_",
         "qaTextPreview_",
@@ -586,7 +586,7 @@
     },
     {
       "file": "src/legacy/server/031-qastructuredassessmentcomparison.js",
-      "lines": 331,
+      "lines": 335,
       "symbols": [
         "qaStructuredAssessmentComparison_",
         "qaBestSemanticSourceField_"
@@ -621,7 +621,7 @@
     },
     {
       "file": "src/legacy/server/034-qaowneractionforresult.js",
-      "lines": 352,
+      "lines": 356,
       "symbols": [
         "qaOwnerActionForResult_",
         "workApplyPolicyAwareOperatorGuidance_",

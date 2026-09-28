@@ -16,7 +16,7 @@ function qaCourseraCaptureReadiness_(meta, itemResults) {
       return;
     }
     var captured=Number(q.courseraQuestionCount||0),declared=Number(q.courseraDeclaredQuestionCount||0);
-    var partial=declared>0&&captured<declared;
+    var partial=(declared>0&&captured<declared)||q.captureCoverageUnverified===true;
     var answerGap=q.status==='UNVERIFIED'&&q.answerEvidenceApplicable!==false&&q.answerEvidenceCoverage!=null&&Number(q.answerEvidenceCoverage)<1;
     if(partial||answerGap)gaps.push({id:String(r.courseraId||''),name:String(r.courseraName||r.sourceName||'Assessment'),captured:captured,declared:declared,sourceQuestions:Number(q.sourceQuestionCount||0),declaredObserved:declared>0,questionCaptureIncomplete:partial,answerEvidenceIncomplete:answerGap,sourceAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'source'),destinationAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'coursera'),answerEvidenceOnly:qaAssessmentAnswerOnlyGap_(q),sourceEvidenceOnly:answerGap&&!partial&&declared>0&&captured===declared&&!(q.captureIssueQuestionNumbers||[]).length&&qaAssessmentAnswerEvidenceSide_(q,'source')==='INCOMPLETE'&&qaAssessmentAnswerEvidenceSide_(q,'coursera')==='COMPLETE'});
   });
