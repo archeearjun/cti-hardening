@@ -27,7 +27,7 @@ Available workflows:
 - Import of existing Google records and recovery backups; complete report payloads
   and original migration sheets are preserved.
 
-The canonical extractors are **Coursera v6.14.1/schema 34** and
+The canonical extractors are **Coursera v6.14.2/schema 34** and
 **Brightspace v1.0.5/schema 2**. Processing runs locally; comparisons and Macmillan
 QA use cancellable Web Workers. Saving in team mode uploads the resulting record
 and evidence to the configured team database. Local records are not shared.
