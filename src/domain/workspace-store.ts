@@ -1,4 +1,8 @@
 import { validateRecord } from "./workspace-validation.ts";
+import {
+  workspaceRequest as request,
+  type TransferOptions,
+} from "./workspace-http.ts";
 import type {
   EvidenceObject,
   WorkspaceRecord,
@@ -10,7 +14,10 @@ export interface WorkspaceStore {
   email: string;
   list(): Promise<WorkspaceRecord[]>;
   get(id: string): Promise<WorkspaceRecord>;
-  save(record: WorkspaceRecord): Promise<WorkspaceRecord>;
+  save(
+    record: WorkspaceRecord,
+    options?: TransferOptions,
+  ): Promise<WorkspaceRecord>;
   versions(id: string): Promise<EvidenceObject[]>;
 }
 export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
@@ -159,28 +166,6 @@ export function localStore(): WorkspaceStore {
     },
   };
 }
-async function request(path: string, init?: RequestInit): Promise<any> {
-  const res = await fetch("/api/" + path, {
-    signal: AbortSignal.timeout(45000),
-    ...init,
-    credentials: "same-origin",
-    headers: {
-      ...(init?.body && typeof init.body === "string"
-        ? { "Content-Type": "application/json" }
-        : {}),
-      ...init?.headers,
-    },
-  });
-  const data = await res
-    .json()
-    .catch(() => ({ error: "Unexpected service response." }));
-  if (!res.ok)
-    throw Object.assign(
-      new Error(data.error || `Service returned ${res.status}`),
-      { status: res.status },
-    );
-  return data;
-}
 export async function teamStore(): Promise<WorkspaceStore> {
   const session = await request("session");
   return {
@@ -215,7 +200,7 @@ export async function teamStore(): Promise<WorkspaceStore> {
       if (hash !== m.sha256) throw new Error("Saved evidence checksum failed.");
       return { ...m.record, data: JSON.parse(new TextDecoder().decode(bytes)) };
     },
-    async save(record) {
+    async save(record, options = {}) {
       validateRecord(record);
       if (session.role === "viewer")
         throw new Error("Your account has read-only access.");
@@ -226,34 +211,63 @@ export async function teamStore(): Promise<WorkspaceStore> {
         );
       const size = 128 * 1024,
         parts = Math.ceil(bytes.length / size);
-      const init = await request("uploads", {
-        method: "POST",
-        body: JSON.stringify({
-          record: recordSummary(record),
-          bytes: bytes.length,
-          parts,
-          sha256: await digest(bytes),
-        }),
-      });
+      const label = `"${record.title}" (${record.id})`;
+      options.onProgress?.(`Preparing ${label}`);
+      const init = await request(
+        "uploads",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            record: recordSummary(record),
+            bytes: bytes.length,
+            parts,
+            sha256: await digest(bytes),
+          }),
+        },
+        { ...options, context: `Preparing ${label}` },
+      );
+      if (
+        typeof init.id !== "string" ||
+        !/^[A-Za-z0-9_-]{1,120}$/.test(init.id)
+      )
+        throw new Error(
+          `Preparing ${label}: the service did not return a valid upload ID.`,
+        );
       for (let i = 0; i < parts; i++) {
         const chunk = bytes.slice(i * size, (i + 1) * size);
-        const r = await fetch(`/api/uploads/${init.id}/chunks/${i}`, {
-          method: "PUT",
-          signal: AbortSignal.timeout(45000),
-          headers: { "Content-Type": "application/octet-stream" },
-          body: chunk,
-        });
-        if (!r.ok) {
-          const error = await r
-            .json()
-            .catch(() => ({ error: "Evidence upload failed." }));
-          throw new Error(error.error);
-        }
+        const context = `Uploading ${label}, chunk ${i + 1}/${parts}`;
+        options.onProgress?.(context);
+        const uploaded = await request(
+          `uploads/${init.id}/chunks/${i}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: chunk,
+          },
+          { ...options, context },
+        );
+        if (uploaded.success !== true)
+          throw new Error(
+            `${context}: the service did not confirm this chunk. Retry the import; saved records will be skipped.`,
+          );
       }
-      const saved = await request(`uploads/${init.id}/commit`, {
-        method: "POST",
-        body: "{}",
-      });
+      options.onProgress?.(`Finalizing ${label}`);
+      const saved = await request(
+        `uploads/${init.id}/commit`,
+        {
+          method: "POST",
+          body: "{}",
+        },
+        { ...options, context: `Finalizing ${label}` },
+      );
+      if (
+        !saved.record ||
+        saved.record.id !== record.id ||
+        saved.record.version !== record.version + 1
+      )
+        throw new Error(
+          `Finalizing ${label}: the service did not confirm the saved record. Retry the import to check saved IDs first.`,
+        );
       return { ...saved.record, data: record.data };
     },
   };

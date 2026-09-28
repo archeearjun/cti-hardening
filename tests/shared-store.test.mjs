@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { handleApi, handleAuthorized } from "../server/api.ts";
-import { newRecord, digest } from "../src/domain/workspace-store.ts";
+import { newRecord, digest, teamStore } from "../src/domain/workspace-store.ts";
 import { recordSummary } from "../src/domain/workspace-store.ts";
 import { comparisonFixture } from "./workflow-fixtures.mjs";
 function database() {
@@ -245,4 +245,97 @@ test("immutable audit history and checklist course assignment survive storage", 
       .packageId,
     courseId,
   );
+});
+
+test("team client safely retries a stored chunk whose acknowledgement was lost", async (t) => {
+  const db = database(),
+    call = client(db);
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    db.sql.close();
+  });
+  const requests = [],
+    progress = [];
+  let loseAcknowledgement = true;
+  globalThis.fetch = async (path, init = {}) => {
+    requests.push({ path, method: init.method || "GET" });
+    const response = await call(
+      path.replace(/^\/api\//, ""),
+      init.method || "GET",
+      init.body,
+    );
+    if (init.method === "PUT" && loseAcknowledgement) {
+      loseAcknowledgement = false;
+      assert.equal(response.status, 200);
+      return new Response("<html>Temporary gateway failure</html>", {
+        status: 502,
+        headers: { "cf-ray": "synthetic-test" },
+      });
+    }
+    return response;
+  };
+  const store = await teamStore();
+  const course = comparisonFixture().course;
+  course.data.padding = "x".repeat(150000);
+  const saved = await store.save(course, {
+    onProgress: (message) => progress.push(message),
+  });
+  assert.equal(saved.version, 1);
+  const puts = requests.filter((r) => r.method === "PUT");
+  assert.equal(puts.length, 3);
+  assert.equal(puts[0].path, puts[1].path);
+  assert.equal(requests.filter((r) => r.path === "/api/uploads").length, 1);
+  assert.equal(requests.filter((r) => r.path.endsWith("/commit")).length, 1);
+  assert.equal((await store.list()).length, 1);
+  assert.deepEqual((await store.get(course.id)).data, course.data);
+  assert(progress.some((p) => /HTTP 502.*retry 2\/3/.test(p)));
+});
+
+test("failed evidence upload leaves earlier records committed; retry skips them and saves only the remaining ID", async (t) => {
+  const db = database(),
+    call = client(db);
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    db.sql.close();
+  });
+  let failChunks = false;
+  globalThis.fetch = async (path, init = {}) => {
+    if (failChunks && init.method === "PUT")
+      return new Response("<html>Unavailable</html>", {
+        status: 503,
+        headers: { "retry-after": "120", "cf-ray": "synthetic-ray" },
+      });
+    return call(path.replace(/^\/api\//, ""), init.method || "GET", init.body);
+  };
+  const store = await teamStore();
+  const first = comparisonFixture().course,
+    second = comparisonFixture().course;
+  await store.save(first);
+  failChunks = true;
+  await assert.rejects(
+    store.save(second),
+    (e) =>
+      e.message.includes(second.id) &&
+      /chunk 1\/1.*HTTP 503.*synthetic-ray.*120 seconds/.test(e.message),
+  );
+  assert.deepEqual(
+    (await store.list()).map((r) => r.id),
+    [first.id],
+  );
+  failChunks = false;
+  const existing = new Set((await store.list()).map((r) => r.id));
+  let skipped = 0;
+  for (const r of [first, second]) {
+    if (existing.has(r.id)) {
+      skipped++;
+      continue;
+    }
+    await store.save(r);
+  }
+  assert.equal(skipped, 1);
+  assert.equal((await store.list()).length, 2);
+  assert.equal((await store.versions(first.id)).length, 1);
+  assert.deepEqual((await store.get(second.id)).data, second.data);
 });

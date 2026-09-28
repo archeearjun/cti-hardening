@@ -182,6 +182,16 @@ If an import stops halfway, reconnect, reload the catalogue and import the same
 file again. Preserved IDs make completed records safe to skip. Keep the original
 export until reconciliation is finished.
 
+Uploads retry temporary network, timeout, HTTP 429 and server failures up to three
+attempts for each evidence chunk. A repeated chunk is checked against its saved
+digest. Upload creation and final commit are not automatically repeated. Import
+progress identifies the record and chunk; failures show the HTTP status and a
+Cloudflare Ray ID when available. If the service asks for a delay over 30 seconds,
+the import stops and reports that delay instead of retrying early. Stop also
+cancels active uploads and retry waits. A generic failure from an older deployment
+does not establish whether the cause was connectivity, authentication or a service
+limit; retry with the updated client to retain the diagnostic details.
+
 Official references: [D1 dashboard setup](https://developers.cloudflare.com/d1/get-started/),
 [Pages bindings](https://developers.cloudflare.com/pages/functions/bindings/),
 [Access token verification](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/),

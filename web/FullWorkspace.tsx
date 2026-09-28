@@ -1533,14 +1533,20 @@ export default function FullWorkspace() {
                       for (const r of importPlan.records) {
                         if (controller.current?.signal.aborted)
                           throw new Error("Import stopped by you.");
-                        setImportProgress(
-                          `Saving record ${saved + skipped + 1} of ${importPlan.records.length}`,
-                        );
+                        const position = `Record ${saved + skipped + 1} of ${importPlan.records.length}`;
+                        setImportProgress(`${position}: ${r.title}`);
                         if (existing.has(r.id)) {
                           skipped++;
                           continue;
                         }
-                        await store!.save({ ...r, version: 0 });
+                        await store!.save(
+                          { ...r, version: 0 },
+                          {
+                            signal: controller.current?.signal,
+                            onProgress: (message) =>
+                              setImportProgress(`${position}: ${message}`),
+                          },
+                        );
                         existing.add(r.id);
                         saved++;
                       }
