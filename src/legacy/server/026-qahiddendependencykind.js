@@ -160,7 +160,14 @@ function qaExternalWebpageEvidence_(source,coursera) {
     var confidence=Number(coursera.linkEvidenceConfidence),text=String(payload.textSample||coursera.textSample||'');
     var marker=/\bChoose Plugin\s+External Webpage\b/i.test(text),youtube=/\bChoose Plugin\s+YouTube\b/i.test(text);
     var scoped=plugin && plugin.itemId===coursera.id && plugin.scope==='ITEM_EDITOR';
-    if(scoped){marker=marker||plugin.kind==='EXTERNAL_WEBPAGE';youtube=youtube||plugin.kind==='YOUTUBE';}
+    if(scoped){
+        marker=marker||plugin.kind==='EXTERNAL_WEBPAGE';youtube=youtube||plugin.kind==='YOUTUBE';
+        // Published authoring surfaces expose View Configuration instead of
+        // Choose Plugin. Require the same item's scoped capture and exact UI
+        // boundary; prose mentioning a plugin does not establish configuration.
+        if(plugin.kind==='PLUGIN' && (payload.textScopeKind||coursera.textScopeKind)==='scoped-subtree' &&
+            /^PLUGIN\s+.+\s+External Webpage\s+View Configuration(?:\s+Settings\b|$)/i.test(text.trim()))marker=true;
+    }
     var out={status:'UNVERIFIED',kind:youtube?'YOUTUBE_PLUGIN_WRAPPER':'EXTERNAL_WEBPAGE_WRAPPER',sourceTypeRaw:String(source.sourceTypeRaw||''),sourceUrls:expected,capturedUrls:captured,
         linkEvidenceConfidence:Number.isFinite(confidence)?confidence:null,configurationMarkerObserved:marker||youtube,launchStatus:'NOT_OBSERVED',
         transformationCandidate:/^imswl_/i.test(String(source.sourceTypeRaw||'')),runtime:qaPluginRuntimeSummary_(scoped?plugin:null)};

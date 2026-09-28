@@ -13,7 +13,7 @@ function comparison({media=false,sourceGap=false}={}) {
   return c.qaStructuredAssessmentComparison_({isStructuredAssessment:true,structuredAssessment:assessment(source)},{structuredAssessment:assessment([question('one'),question('two')])});
 }
 function result(q){return {courseraId:'exam',courseraName:'Test exam',sourceName:'Source exam',verdict:'PAYLOAD_UNVERIFIED',issues:['PAYLOAD_UNVERIFIED'],checks:{structuredAssessment:q}};}
-function readiness(q,version='v6.14.2'){return c.qaCourseraCaptureReadiness_({buildId:version},[result(q)]);}
+function readiness(q,version='v6.14.3'){return c.qaCourseraCaptureReadiness_({buildId:version},[result(q)]);}
 
 test('Media-only review retains the image check without inventing missing questions',()=>{
   const q=comparison({media:true}),original=JSON.stringify(q);
@@ -46,7 +46,7 @@ test('Source-only answer gaps do not blame the complete destination question cap
   q.status='UNVERIFIED';
   assert.equal(q.sourceAnswerableQuestionCount,3);assert.equal(q.sourceAnswerEvidenceQuestionCount,2);
   assert.equal(q.courseraAnswerEvidenceQuestionCount,2);
-  for(const version of ['v6.14.2','v6.12.0']) {
+  for(const version of ['v6.14.3','v6.12.0']) {
     const r=readiness(q,version);
     assert.equal(r.status,'SOURCE_ASSESSMENT_EVIDENCE_REVIEW');
     assert.equal(r.assessmentGaps[0].sourceAnswerEvidence,'INCOMPLETE');
@@ -71,7 +71,7 @@ test('Mixed destination gaps, unknown keys and incomplete traversal remain unres
     assert.equal(r.assessmentGaps[0].sourceEvidenceOnly,false);
   }
   assert.equal(readiness(q,'').status,'VERSION_UNKNOWN_WITH_GAPS');
-  const meta={buildId:'v6.14.2',activeSpaCrawl:{eligibleTargets:2,targetIds:['a','b'],visitedEditorCount:1,unreachedEditorIds:['b'],allEditorsVisited:false}};
+  const meta={buildId:'v6.14.3',activeSpaCrawl:{eligibleTargets:2,targetIds:['a','b'],visitedEditorCount:1,unreachedEditorIds:['b'],allEditorsVisited:false}};
   assert.equal(c.qaCourseraCaptureReadiness_(meta,[result(q)]).status,'EDITOR_TRAVERSAL_INCOMPLETE');
 });
 

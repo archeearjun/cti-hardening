@@ -238,7 +238,7 @@ function vectorizeCourse(pkg) {
 //   4) append-only, versioned QA run storage for future longitudinal/ML analysis.
 // The extractor itself is intentionally unchanged.
 var CTI_GATEWAY_RELEASE_ = 'v8.0.0';
-var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-assessment-guidance-20260928';
+var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-assignment-identity-20260928';
 var CTI_MACMILLAN_BUILD_ID_ = 'v6.8.2-partner-ready-doc-projection-20260912';
 // Coursera verdict scoring semantics remain unchanged. v6.8.2 changes only Macmillan Content Map delivery presentation after deterministic QA.
 // Structure + type + placement + assets + links + text + publication.

@@ -11,7 +11,7 @@ var CTI_RELEASE_REGISTRY_ = Object.freeze({
   gateway:'v8.0.0',
   qaEngine:'v8.0.0',
   architecture:CTI_ARCHITECTURE_VERSION_,
-  courseraExtractor:{version:'v6.14.2',schema:34,build:'v6.14.2-runtime-stability-20260928',delivery:'CODE_GS_CANONICAL'},
+  courseraExtractor:{version:'v6.14.3',schema:34,build:'v6.14.3-assignment-identity-20260928',delivery:'CODE_GS_CANONICAL'},
   brightspaceExtractor:{version:'v1.0.5',schema:2,build:'v1.0.5-question-coverage-20260922',delivery:'CODE_GS_CANONICAL'},
   evidenceEnvelopeSchema:1,
   qaRunSchema:5,

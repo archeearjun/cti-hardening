@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance",
-  "qaBuild": "v8.0.0-assessment-guidance-20260928",
-  "baselineSha256": "edef1a66b59a31b111bd689824771b60a0c7d11adeb9aa262f92eb7b7b93417f",
+  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins",
+  "qaBuild": "v8.0.0-assignment-identity-20260928",
+  "baselineSha256": "ab65c1a1271268cd26bbed3481d49767ec29469470b1b25854cd43f2b1e8dc53",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -499,7 +499,7 @@
     },
     {
       "file": "src/legacy/server/026-qahiddendependencykind.js",
-      "lines": 350,
+      "lines": 357,
       "symbols": [
         "qaHiddenDependencyKind_",
         "qaLegacyDiscussionText_",
