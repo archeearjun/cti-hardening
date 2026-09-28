@@ -98,6 +98,9 @@ try {
     .getByRole("button", { name: "Run and save full comparison" })
     .click();
   await page.getByText("Full report saved (", { exact: false }).waitFor();
+  await page
+    .getByText("Complete report and technical evidence", { exact: true })
+    .click();
   assert(
     (await page.locator(".owner-report").innerText()).includes(
       "CTI SOURCE → COURSERA QA REPORT",
@@ -130,6 +133,9 @@ try {
   await page
     .getByRole("heading", { name: "Assignment owner report" })
     .waitFor();
+  await page
+    .getByText("Complete report and technical evidence", { exact: true })
+    .click();
   assert((await page.locator(".owner-report").innerText()).includes("Reading"));
   await tab("Macmillan");
   await page.getByLabel("New source master XLSX").setInputFiles({
@@ -184,7 +190,7 @@ try {
     (await page.getByRole("alert").innerText()).includes("setup is incomplete"),
   );
   assert(
-    (await page.locator(".workspace-banner").innerText()).includes(
+    (await page.locator(".connection-state").innerText()).includes(
       "Local workspace",
     ),
   );

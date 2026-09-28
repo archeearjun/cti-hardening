@@ -30,9 +30,11 @@ export default function PackageWorkspace({
   onBusyChange,
   onResult,
   fileInputId = "package-file",
+  catalogueMode = false,
 }: {
   onBusyChange: (busy: boolean) => void;
   fileInputId?: string;
+  catalogueMode?: boolean;
   onResult?: (result: PackageScan) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -140,7 +142,11 @@ export default function PackageWorkspace({
         </p>
         <label className="file-picker" htmlFor={fileInputId}>
           <strong>{file?.name || "Choose an IMSCC package"}</strong>
-          <span>Nothing is saved to your shared CTI catalogue.</span>
+          <span>
+            {catalogueMode
+              ? "Inspect first, then save the scan to the current workspace."
+              : "Nothing is saved to your shared CTI catalogue."}
+          </span>
         </label>
         <input
           id={fileInputId}

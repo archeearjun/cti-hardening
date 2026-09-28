@@ -33,6 +33,7 @@ export default function App() {
     "full",
   );
   const [packageBusy, setPackageBusy] = useState(false);
+  const [fullBusy, setFullBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [options, setOptions] = useState<ReviewOptions>({
     partner: "NAIT",
@@ -165,30 +166,14 @@ export default function App() {
           <span className="brand-icon">CTI</span>
           <span>Evidence workspace</span>
         </a>
-        <span className="badge">Migration preview</span>
+        <span className="badge">Source → ingestion → review</span>
       </header>
       <main id="main">
-        <section className="intro">
-          <p className="eyebrow">SOURCE & CAPTURE INSPECTION</p>
-          <h1>Understand your course evidence.</h1>
-          <p className="lead">
-            Inspect source packages, Coursera and Brightspace captures in your
-            browser.
-          </p>
-        </section>
-        <aside className="scope">
-          <strong>CTI migration workspace.</strong>
-          <p>
-            Run full comparisons and track work here. Connect the shared service
-            and import existing records before retiring the Apps Script app. A
-            completed report does not by itself establish publication readiness.
-          </p>
-        </aside>
         <nav className="workspace-tabs" aria-label="Choose a workspace">
           <button
             className={workspace === "full" ? "primary" : "secondary"}
             aria-pressed={workspace === "full"}
-            disabled={busy || packageBusy}
+            disabled={busy || packageBusy || fullBusy}
             onClick={() => setWorkspace("full")}
           >
             Full CTI workspace
@@ -196,7 +181,7 @@ export default function App() {
           <button
             className={workspace === "capture" ? "primary" : "secondary"}
             aria-pressed={workspace === "capture"}
-            disabled={busy || packageBusy}
+            disabled={busy || packageBusy || fullBusy}
             onClick={() => setWorkspace("capture")}
           >
             Review a capture
@@ -204,14 +189,24 @@ export default function App() {
           <button
             className={workspace === "package" ? "primary" : "secondary"}
             aria-pressed={workspace === "package"}
-            disabled={busy || packageBusy}
+            disabled={busy || packageBusy || fullBusy}
             onClick={() => setWorkspace("package")}
           >
             Inspect a package
           </button>
         </nav>
         <div hidden={workspace !== "full"}>
-          <FullWorkspace />
+          <FullWorkspace
+            onBusyChange={setFullBusy}
+            onOpenExtractors={() => {
+              setWorkspace("capture");
+              requestAnimationFrame(() =>
+                document
+                  .getElementById("extractor-tools")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+              );
+            }}
+          />
         </div>
         <div hidden={workspace !== "package"}>
           <PackageWorkspace onBusyChange={setPackageBusy} />
@@ -307,6 +302,7 @@ export default function App() {
               </button>
             </section>
             <section
+              id="extractor-tools"
               className="card extractor-card"
               aria-labelledby="extractor-title"
             >
@@ -627,7 +623,10 @@ export default function App() {
         </div>
         <footer>
           <span>CTI · Evidence integrity</span>
-          <span>Preview results are temporary until downloaded.</span>
+          <span>
+            Saved workspace reports retain their evidence. Quick inspections
+            must be downloaded.
+          </span>
         </footer>
       </main>
     </>

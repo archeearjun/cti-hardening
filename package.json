@@ -15,7 +15,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "npm run generate && node tools/check.cjs && node tools/hardening-check.cjs && node --test tests/*.test.mjs",
     "test:browser:package": "node tools/browser-package-check.mjs",
-    "test:browser:workspace": "node tools/browser-workspace-check.mjs"
+    "test:browser:workspace": "node tools/browser-workspace-check.mjs",
+    "test:browser:ux": "node tools/browser-ux-check.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
