@@ -249,7 +249,7 @@ function qaBrightspaceDeclaredQuizCount_(quiz) {
   if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
   var desc = qaBrightspaceText_(quiz.description) || qaBrightspaceText_(quiz.raw && quiz.raw.Description);
   var m = desc.match(/\b(?:has|contains)\s+(\d+)\s+questions?\b/i);
-  return m ? Number(m[1]) : ((quiz.questions || []).length || 0);
+  return m ? Number(m[1]) : null;
 }
 
 function qaBrightspaceQuizToAssessment_(quiz) {
@@ -257,15 +257,27 @@ function qaBrightspaceQuizToAssessment_(quiz) {
   var questions = quiz.questions.map(qaBrightspaceQuizQuestion_).filter(function(q){ return !!q.prompt || q.options.length || q.correctAnswers.length; });
   if (!questions.length) return null;
   var declared = qaBrightspaceDeclaredQuizCount_(quiz) || questions.length;
+  var observedDeclared = qaBrightspaceDeclaredQuizCount_(quiz);
+  var pages = quiz.questionPageEvidence || {}, coverage = quiz.questionCoverage || {};
+  // Parsing the returned definitions and establishing the entire source bank
+  // are separate claims. Preserve the source capture's uncertainty through QA.
+  var complete = coverage.completenessVerified === true && pages.complete === true &&
+      quiz.questionsStatus === 'CAPTURED' && observedDeclared === questions.length &&
+      questions.length === quiz.questions.length;
   return qaNormalizeAssessment_({
     schemaVersion:1,
     origin:'brightspace-live-api',
     parser:'brightspace-question-api-v2',
     declaredQuestionCount:declared,
     questionCount:questions.length,
+    definitionCoverage:{scope:'BRIGHTSPACE_QUESTION_DEFINITIONS',completenessVerified:complete,
+      status:complete?'VERIFIED_DECLARED_DEFINITIONS':String(coverage.status || 'TOTAL_UNVERIFIED'),
+      observedDeclaredQuestionCount:observedDeclared,capturedDefinitions:questions.length,
+      apiPagesComplete:pages.complete===true,stopReason:String(pages.stopReason||''),
+      meaning:'API page completion and matching captured subsets do not establish the total source question bank or pool membership.'},
     questions:questions,
     parserConfidence:declared === questions.length ? 0.99 : 0.88,
-    warnings:declared === questions.length ? [] : ['Brightspace declared question count differs from captured question definitions.']
+    warnings:(declared === questions.length ? [] : ['Brightspace declared question count differs from captured question definitions.']).concat(complete?[]:['Brightspace question-definition completeness remains unverified.'])
   }, 'brightspace-live-api');
 }
 

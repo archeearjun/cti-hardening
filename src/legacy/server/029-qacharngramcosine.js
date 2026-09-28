@@ -187,6 +187,9 @@ function qaNormalizeAssessment_(assessment, origin) {
         parser: String(assessment.parser || ''),
         declaredQuestionCount: declared,
         questionCount: qs.length,
+        definitionCoverage: assessment.definitionCoverage && typeof assessment.definitionCoverage === 'object'
+            ? JSON.parse(JSON.stringify(assessment.definitionCoverage))
+            : (/^brightspace-question-api/.test(parserName) ? {scope:'BRIGHTSPACE_QUESTION_DEFINITIONS',completenessVerified:false,status:'LEGACY_TOTAL_UNVERIFIED',observedDeclaredQuestionCount:null,capturedDefinitions:qs.length} : null),
         answerableQuestionCount: answerable.length,
         answerEvidenceQuestionCount: answerEvidence.length,
         selectionPolicy: (assessment.selectionPolicy && typeof assessment.selectionPolicy === 'object') ? {

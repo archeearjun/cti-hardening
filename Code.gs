@@ -4501,7 +4501,7 @@ function vectorizeCourse(pkg) {
 //   4) append-only, versioned QA run storage for future longitudinal/ML analysis.
 // The extractor itself is intentionally unchanged.
 var CTI_GATEWAY_RELEASE_ = 'v8.0.0';
-var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-assignment-identity-20260928';
+var CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-corpus-coverage-20260928';
 var CTI_MACMILLAN_BUILD_ID_ = 'v6.8.2-partner-ready-doc-projection-20260912';
 // Coursera verdict scoring semantics remain unchanged. v6.8.2 changes only Macmillan Content Map delivery presentation after deterministic QA.
 // Structure + type + placement + assets + links + text + publication.
@@ -7126,7 +7126,7 @@ function qaBrightspaceDeclaredQuizCount_(quiz) {
   if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
   var desc = qaBrightspaceText_(quiz.description) || qaBrightspaceText_(quiz.raw && quiz.raw.Description);
   var m = desc.match(/\b(?:has|contains)\s+(\d+)\s+questions?\b/i);
-  return m ? Number(m[1]) : ((quiz.questions || []).length || 0);
+  return m ? Number(m[1]) : null;
 }
 
 function qaBrightspaceQuizToAssessment_(quiz) {
@@ -7134,15 +7134,27 @@ function qaBrightspaceQuizToAssessment_(quiz) {
   var questions = quiz.questions.map(qaBrightspaceQuizQuestion_).filter(function(q){ return !!q.prompt || q.options.length || q.correctAnswers.length; });
   if (!questions.length) return null;
   var declared = qaBrightspaceDeclaredQuizCount_(quiz) || questions.length;
+  var observedDeclared = qaBrightspaceDeclaredQuizCount_(quiz);
+  var pages = quiz.questionPageEvidence || {}, coverage = quiz.questionCoverage || {};
+  // Parsing the returned definitions and establishing the entire source bank
+  // are separate claims. Preserve the source capture's uncertainty through QA.
+  var complete = coverage.completenessVerified === true && pages.complete === true &&
+      quiz.questionsStatus === 'CAPTURED' && observedDeclared === questions.length &&
+      questions.length === quiz.questions.length;
   return qaNormalizeAssessment_({
     schemaVersion:1,
     origin:'brightspace-live-api',
     parser:'brightspace-question-api-v2',
     declaredQuestionCount:declared,
     questionCount:questions.length,
+    definitionCoverage:{scope:'BRIGHTSPACE_QUESTION_DEFINITIONS',completenessVerified:complete,
+      status:complete?'VERIFIED_DECLARED_DEFINITIONS':String(coverage.status || 'TOTAL_UNVERIFIED'),
+      observedDeclaredQuestionCount:observedDeclared,capturedDefinitions:questions.length,
+      apiPagesComplete:pages.complete===true,stopReason:String(pages.stopReason||''),
+      meaning:'API page completion and matching captured subsets do not establish the total source question bank or pool membership.'},
     questions:questions,
     parserConfidence:declared === questions.length ? 0.99 : 0.88,
-    warnings:declared === questions.length ? [] : ['Brightspace declared question count differs from captured question definitions.']
+    warnings:(declared === questions.length ? [] : ['Brightspace declared question count differs from captured question definitions.']).concat(complete?[]:['Brightspace question-definition completeness remains unverified.'])
   }, 'brightspace-live-api');
 }
 
@@ -7203,6 +7215,7 @@ function qaBrightspaceExternalComparableLinks_(links, pageOrigin) {
   });
   return out.filter(function(v,i,a){ return a.indexOf(v) === i; });
 }
+
 
 function qaParseBrightspaceGroundTruthCapture_(base64Value, fileName) {
   if (!base64Value) return null;
@@ -8721,6 +8734,9 @@ function qaNormalizeAssessment_(assessment, origin) {
         parser: String(assessment.parser || ''),
         declaredQuestionCount: declared,
         questionCount: qs.length,
+        definitionCoverage: assessment.definitionCoverage && typeof assessment.definitionCoverage === 'object'
+            ? JSON.parse(JSON.stringify(assessment.definitionCoverage))
+            : (/^brightspace-question-api/.test(parserName) ? {scope:'BRIGHTSPACE_QUESTION_DEFINITIONS',completenessVerified:false,status:'LEGACY_TOTAL_UNVERIFIED',observedDeclaredQuestionCount:null,capturedDefinitions:qs.length} : null),
         answerableQuestionCount: answerable.length,
         answerEvidenceQuestionCount: answerEvidence.length,
         selectionPolicy: (assessment.selectionPolicy && typeof assessment.selectionPolicy === 'object') ? {
@@ -8877,6 +8893,7 @@ function qaQuestionTypesCompatible_(a, b) {
     if ((a === 'regex' && b === 'text-entry') || (a === 'text-entry' && b === 'regex')) return true;
     return false;
 }
+
 
 function qaAssessmentFieldSimilarity_(a, b) {
     a = qaAssessmentText_(a); b = qaAssessmentText_(b);
@@ -9213,6 +9230,9 @@ function qaStructuredAssessmentComparison_(source, coursera) {
         courseraQuestionCount: cAssessment ? cAssessment.questionCount : 0,
         sourceDeclaredQuestionCount:sAssessment?sAssessment.declaredQuestionCount:0,
         courseraDeclaredQuestionCount:cAssessment?cAssessment.declaredQuestionCount:0,
+        sourceDefinitionCoverage:sAssessment?sAssessment.definitionCoverage:null,
+        courseraDefinitionCoverage:cAssessment?cAssessment.definitionCoverage:null,
+        definitionCoverageUnverified:!!((sAssessment && sAssessment.definitionCoverage && sAssessment.definitionCoverage.completenessVerified!==true) || (cAssessment && cAssessment.definitionCoverage && cAssessment.definitionCoverage.completenessVerified!==true)),
         alignedQuestionCount: 0,
         answerMismatchCount: 0,
         answerEvidenceCoverage: 0,
@@ -9351,6 +9371,9 @@ function qaStructuredAssessmentComparison_(source, coursera) {
     } else if(base.captureIssueQuestionNumbers.length) {
         base.status='UNVERIFIED';
         base.reason='Question count and prompts are captured, but answer/feedback boundaries are unresolved for Coursera question(s) '+base.captureIssueQuestionNumbers.join(', ')+'. Refresh the capture with the current extractor or inspect those fields. No answer change is established by contaminated text.';
+    } else if(base.definitionCoverageUnverified) {
+        base.status='UNVERIFIED';
+        base.reason='Captured question fields can be compared, but the source/destination definition total remains unverified. Matching captured subsets do not establish complete assessment coverage. Reuse the original package question definitions where available; another identical Coursera capture cannot establish the source total.';
     } else if(base.declaredCaptureIncomplete || base.selectionPolicyStatus==='UNVERIFIED') {
         base.status='UNVERIFIED';
         base.reason=base.declaredCaptureIncomplete?'Captured questions do not cover the declared assessment size. Matching captured subsets do not verify the unobserved questions.':'Question-pool behavior lacks comparable evidence on both sides. No behavior change is established solely by this gap.';
@@ -9522,6 +9545,7 @@ function qaBestSemanticSourceField_(sourceText, targetText, destinationScopeKind
     base.reason = 'Best bounded source semantic window aligned to the destination learner field; negative verdicts remain conservative because the source field was inferred semantically.';
     return base;
 }
+
 
 function qaTextComparison_(source, coursera) {
     if(source&&source.sourceTextRefreshRequired) return {status:'UNVERIFIED',similarity:null,sourcePreview:'',courseraPreview:qaTextPreview_(coursera.textSample),reason:source.sourceTextNormalization.reason};
@@ -10247,6 +10271,10 @@ function qaOwnerActionForResult_(result) {
         if(severity==='NONE')severity='EVIDENCE';
         var bound=checks.structuredAssessment;
         actions.push('Capture the unobserved assessment questions: source '+bound.sourceQuestionCount+'/'+bound.sourceDeclaredQuestionCount+' declared; destination '+bound.courseraQuestionCount+'/'+bound.courseraDeclaredQuestionCount+' declared. Matching captured subsets do not prove full coverage.');
+    }
+    if (checks.structuredAssessment && checks.structuredAssessment.definitionCoverageUnverified) {
+        if(severity==='NONE')severity='EVIDENCE';
+        actions.push('Question-definition completeness is unverified. Check the retained source/package definitions and the capture coverage receipt; matching observed questions do not establish the full bank. Repeating an unchanged destination capture will not resolve an unknown source total.');
     }
     if (checks.structuredAssessment && checks.structuredAssessment.sourceAnswerRefreshRequired === true) {
         if (severity === 'NONE') severity = 'EVIDENCE';

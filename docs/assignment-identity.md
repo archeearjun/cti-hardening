@@ -47,7 +47,8 @@ integration/full-golden suites are not run in the local runtime.
 
 A check against the supplied capture confirms that its resource plugin target
 can be verified by the updated report while launch remains unobserved. The new
-extractor has not yet been run against the live course. Re-capture the affected
-course once to confirm the changed DOM paths; there is no basis for re-running
-all 15 titles. The separate unmatched Welcome reading still requires source and
+extractor has not yet been run against the live course. Use the
+[saved evidence batch review](evidence-corpus.md) to select a representative live
+check of the changed DOM paths; do not automatically recapture the whole course
+or all 15 titles. The separate unmatched Welcome reading still requires source and
 placement review and is not declared recovered by these changes.

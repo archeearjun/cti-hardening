@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins",
-  "qaBuild": "v8.0.0-assignment-identity-20260928",
-  "baselineSha256": "ab65c1a1271268cd26bbed3481d49767ec29469470b1b25854cd43f2b1e8dc53",
+  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins + saved corpus replay and Brightspace definition coverage",
+  "qaBuild": "v8.0.0-corpus-coverage-20260928",
+  "baselineSha256": "0f98d7122a5727c9bf4526b8305b105355142166f8e85e2acfe04382214a010d",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -467,7 +467,7 @@
     },
     {
       "file": "src/legacy/server/024-qabuildrepackagedmissingresult.js",
-      "lines": 327,
+      "lines": 340,
       "symbols": [
         "qaBuildRepackagedMissingResult_",
         "qaBrightspaceText_",
@@ -549,7 +549,7 @@
     },
     {
       "file": "src/legacy/server/029-qacharngramcosine.js",
-      "lines": 344,
+      "lines": 348,
       "symbols": [
         "qaCharNgramCosine_",
         "qaTextPreview_",
@@ -584,7 +584,7 @@
     },
     {
       "file": "src/legacy/server/031-qastructuredassessmentcomparison.js",
-      "lines": 324,
+      "lines": 331,
       "symbols": [
         "qaStructuredAssessmentComparison_",
         "qaBestSemanticSourceField_"
@@ -619,7 +619,7 @@
     },
     {
       "file": "src/legacy/server/034-qaowneractionforresult.js",
-      "lines": 348,
+      "lines": 352,
       "symbols": [
         "qaOwnerActionForResult_",
         "workApplyPolicyAwareOperatorGuidance_",

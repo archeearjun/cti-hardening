@@ -1187,7 +1187,7 @@ function CTI_TEST_workEvidenceChecklistIsolation_() {
 function CTI_TEST_releaseIdentityContract_() {
   var source = CTI_TEST_indexSource_();
   CTI_TEST_equal_(CTI_GATEWAY_RELEASE_,CTI_TEST_BASELINE_GATEWAY_,'Backend gateway identity');
-  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-assignment-identity-20260928','Backend QA build identity');
+  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-corpus-coverage-20260928','Backend QA build identity');
   CTI_TEST_equal_(CTI_MACMILLAN_BUILD_ID_,'v6.8.2-partner-ready-doc-projection-20260912','Backend Macmillan build identity');
   CTI_TEST_equal_(CTI_WORK_QUEUE_BUILD_ID_,'v1.6-evidence-checklist-20260919','Backend work-queue build identity');
   CTI_TEST_equal_(MACMILLAN_TIME_MODEL_VERSION_,CTI_TEST_BASELINE_TIME_MODEL_,'Backend time-model identity');

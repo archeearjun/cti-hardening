@@ -131,6 +131,10 @@ function qaOwnerActionForResult_(result) {
         var bound=checks.structuredAssessment;
         actions.push('Capture the unobserved assessment questions: source '+bound.sourceQuestionCount+'/'+bound.sourceDeclaredQuestionCount+' declared; destination '+bound.courseraQuestionCount+'/'+bound.courseraDeclaredQuestionCount+' declared. Matching captured subsets do not prove full coverage.');
     }
+    if (checks.structuredAssessment && checks.structuredAssessment.definitionCoverageUnverified) {
+        if(severity==='NONE')severity='EVIDENCE';
+        actions.push('Question-definition completeness is unverified. Check the retained source/package definitions and the capture coverage receipt; matching observed questions do not establish the full bank. Repeating an unchanged destination capture will not resolve an unknown source total.');
+    }
     if (checks.structuredAssessment && checks.structuredAssessment.sourceAnswerRefreshRequired === true) {
         if (severity === 'NONE') severity = 'EVIDENCE';
         actions.push('Use Re-Scan on the existing CTI source package row and select the same original IMSCC to refresh legacy multi-select answer keys. Wait for completion, then repeat QA. This does not require re-ingesting Coursera.');

@@ -14,6 +14,9 @@ function qaStructuredAssessmentComparison_(source, coursera) {
         courseraQuestionCount: cAssessment ? cAssessment.questionCount : 0,
         sourceDeclaredQuestionCount:sAssessment?sAssessment.declaredQuestionCount:0,
         courseraDeclaredQuestionCount:cAssessment?cAssessment.declaredQuestionCount:0,
+        sourceDefinitionCoverage:sAssessment?sAssessment.definitionCoverage:null,
+        courseraDefinitionCoverage:cAssessment?cAssessment.definitionCoverage:null,
+        definitionCoverageUnverified:!!((sAssessment && sAssessment.definitionCoverage && sAssessment.definitionCoverage.completenessVerified!==true) || (cAssessment && cAssessment.definitionCoverage && cAssessment.definitionCoverage.completenessVerified!==true)),
         alignedQuestionCount: 0,
         answerMismatchCount: 0,
         answerEvidenceCoverage: 0,
@@ -152,6 +155,9 @@ function qaStructuredAssessmentComparison_(source, coursera) {
     } else if(base.captureIssueQuestionNumbers.length) {
         base.status='UNVERIFIED';
         base.reason='Question count and prompts are captured, but answer/feedback boundaries are unresolved for Coursera question(s) '+base.captureIssueQuestionNumbers.join(', ')+'. Refresh the capture with the current extractor or inspect those fields. No answer change is established by contaminated text.';
+    } else if(base.definitionCoverageUnverified) {
+        base.status='UNVERIFIED';
+        base.reason='Captured question fields can be compared, but the source/destination definition total remains unverified. Matching captured subsets do not establish complete assessment coverage. Reuse the original package question definitions where available; another identical Coursera capture cannot establish the source total.';
     } else if(base.declaredCaptureIncomplete || base.selectionPolicyStatus==='UNVERIFIED') {
         base.status='UNVERIFIED';
         base.reason=base.declaredCaptureIncomplete?'Captured questions do not cover the declared assessment size. Matching captured subsets do not verify the unobserved questions.':'Question-pool behavior lacks comparable evidence on both sides. No behavior change is established solely by this gap.';
