@@ -240,7 +240,7 @@ test("legacy imports are idempotent and retain all original sheets and explicit 
 });
 test(
   "full engine equals the pre-migration GAS result",
-  { skip: !process.env.CTI_PRE_MIGRATION_GS },
+  {},
   () => {
     const input = comparisonFixture(),
       books = new Map(),
@@ -248,7 +248,7 @@ test(
     const old = { console, URL, ...s, XmlService: workerXml };
     vm.createContext(old);
     vm.runInContext(
-      fs.readFileSync(process.env.CTI_PRE_MIGRATION_GS, "utf8"),
+      fs.readFileSync(process.env.CTI_PRE_MIGRATION_GS || new URL("../archive/apps-script/Code.gs", import.meta.url), "utf8"),
       old,
     );
     old.authorize_ = () => {};

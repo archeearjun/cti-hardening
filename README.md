@@ -1,164 +1,105 @@
-# CTI evidence hardening
+# CTI evidence integrity platform
 
-CTI inspects source packages and compares observed ingestion evidence. It preserves the existing IMSCC, Brightspace, Coursera, Macmillan, Explore, work-queue and lifecycle workflows. Content-map and outline generation remain separate workflows.
+CTI inspects source course packages and compares them with Brightspace, Coursera
+capture JSON and authoritative Coursera XLSX exports. It retains evidence gaps,
+immutable audit history, source navigation, and owner review actions.
 
-## TypeScript workspace migration
+## Maintained application
 
-The `codex/typescript-pages-migration` branch now connects the full comparison
-and workbook engines to a TypeScript/React interface. Keep the existing Apps
-Script app available until shared setup, data import and parity review are done.
+**Start from `main`.** This is the React/TypeScript application deployed on
+Cloudflare Pages. The earlier Apps Script application is frozen under
+[`archive/apps-script`](archive/apps-script/README.md) for regression and migration
+reference. There is no Code.gs export or legacy engine concatenation in the
+normal development/build workflow.
 
-Available workflows:
+The evidence engine now uses native JavaScript feature modules with explicit
+imports. The app, workflow boundaries, shared API and storage use TypeScript.
+This is a modular refactor, not a claim that every rule was rewritten in TypeScript.
 
-- Catalogue-linked IMSCC/ZIP/XML scans, source Explore, file hashes, QTI questions,
-  PDF evidence, dependencies, structural metrics and retained source versions.
-- Full **source + Brightspace + authoritative Coursera XLSX + capture JSON**
-  comparisons, optional reading recovery, complete owner text reports and an
-  ordered Coursera content/action view.
-- Saved immutable QA snapshots, first-raw-baseline protection, same-attempt
-  lifecycle review and separately labelled cross-attempt observations.
-- Course owners, status, deadlines, work queues and manual evidence checklists.
-- Macmillan master XLSX inspection/splitting and the existing Metadata, Merged
-  and ContentMap output-validation rules. CTI does not generate those documents.
-- Portfolio IFS/workload, source diagnostics, structural vectors, pairwise
-  similarity and labor estimates. These are review aids, not quality scores.
-- Browser-local IndexedDB storage and an optional shared D1 service with verified
-  Cloudflare Access identity, admin/editor/viewer roles and concurrent-edit guards.
-- Import of existing Google records and recovery backups; complete report payloads
-  and original migration sheets are preserved.
+Read the [development map](docs/development.md) to find the relevant source and
+focused checks. [AGENTS.md](AGENTS.md) gives concise instructions for coding agents.
 
-The canonical extractors are **Coursera v6.14.7/schema 34** and
-**Brightspace v1.0.8/schema 2**. Processing runs locally; comparisons and Macmillan
-QA use cancellable Web Workers. Saving in team mode uploads the resulting record
-and evidence to the configured team database. Local records are not shared.
-
-Saved captures can be checked together using the [private evidence batch replay](docs/evidence-corpus.md).
-The [source-item and plugin evidence update](docs/source-item-plugin-evidence.md)
-adds exact source actions, retained topic mappings, separate plugin-page checks,
-and described-count/named-warning corrections. Existing captures remain usable.
-The current QA build preserves unknown Brightspace question totals instead of
-verifying matching subsets and uses matching XLSX container IDs to correct false
-editor-coverage gaps. Existing source and destination inputs can be reused.
-The [shared extraction update](docs/corpus-extraction-hardening.md) adds text-match
-answer preservation, stable question/coverage receipts, published YouTube target
-recognition and paginated Brightspace quiz inventories.
-
-### Deploy on the existing free Pages project
-
-| Field | Value |
+| Area | Source |
 | --- | --- |
-| Repository | `archeearjun/cti-hardening` |
-| Production branch | `codex/typescript-pages-migration` |
-| Framework preset | `None` |
-| Build command | `npm run build` |
-| Build output directory | `dist` |
-| Root directory | Leave blank |
-| Node environment | `NODE_VERSION=24` |
+| UI and owner review | `web/`, `src/domain/owner-actions.ts` |
+| Source-item navigation | `src/domain/source-navigation.ts`, `owner-urls.ts` |
+| Coursera and Brightspace extractors | `src/extractors/coursera/`, `brightspace/` |
+| Assessment, matching, provenance and lifecycle rules | `src/engine/` |
+| Package XML/ZIP/QTI/PDF scanning | `src/source/` |
+| Owner report text | `src/reporting/` |
+| Typed workflows and local/shared records | `src/domain/`, `src/adapters/` |
+| Authenticated Cloudflare API and D1 | `server/`, `functions/` |
 
-Cloudflare's Git integration builds the static app and the `/functions/api`
-service. The service refuses access until D1 and signed-in team identity are
-configured. It does not make course records public just because the code is in
-a public repository. No user needs to install software on a work laptop.
+## Develop and verify
 
-**Follow [shared workspace setup](docs/shared-workspace-setup.md)** for dashboard
-steps, free-plan limits, role configuration, the small Apps Script export helper,
-and migration verification. Do not retire the old app based only on a successful
-frontend deployment. See [migration status](docs/migration-status.md).
-
-### Development and verification
-
-On a development machine with Node 24:
+Use Node 24:
 
 ```sh
 npm ci
-npm test
-npm run build
 npm run dev
 ```
 
-The build generates compatibility code from **42 ordered legacy modules** and
-rejects differences from the reviewed `Code.gs`. Rules are retained as JavaScript
-inside the typed application; this is not a claim that every legacy function was
-rewritten in TypeScript. Workbook and shared-storage adapters replace Google I/O.
-
-- `src/domain/`: workflows, source/capture inspection, records and migration.
-- `src/adapters/`: XLSX, byte and XML compatibility.
-- `server/` and `functions/`: authenticated API, optimistic saves, immutable audit
-  history, chunked artifacts and D1 schema.
-- `web/`: React screens, worker clients and local package-processing document.
-- `src/legacy/server/`: preserved engine; `src/legacy/manifest.json` fixes its order.
-- `tools/generate-owner-report.mjs`: canonical report dependency extraction.
-
-Edit the source modules, not generated files. After an intentional legacy edit,
-run `npm run export:gas`, review the diff and update the accepted hash. The Google
-entry points retain authorization; `Index.html`, `Index_COPYABLE.txt` and
-`Tests.gs` are unchanged by this migration. Full-report parity and the original
-regressions are documented in [validation](docs/migration-validation.md).
-
-Browser verification (development only):
+For focused edits:
 
 ```sh
-npx playwright install chromium
-npm run test:browser:package
-npm run test:browser:workspace
+npm run test:navigation
+npm run test:extractors
+npm run test:engine
 ```
 
-`CTI_CHROMIUM_PATH` can select an installed Chromium. `CTI_CITC923_FIXTURE` selects
-an optional private source replay. `CTI_PRE_MIGRATION_GS` enables a full-comparison
-parity test against a pre-refactor engine file. Private course data is never
-checked into this public repository.
-
-The package inspector has a 250 MiB archive limit and 24 MiB content-read budget;
-XLSX inspection is limited to 25 MiB and two million cells. Shared records are
-limited to 32 MiB. Existing extraction/read limits remain explicit evidence gaps;
-a successful comparison does not certify uncaptured content or publication.
-
-## Current review
-
-This branch continues `cti-hardening-v8` at `ed6e4cdce588e778aaa389e0dfd1f23d60d5aa73` (CTI v8.0.0, Coursera v6.14.0/schema 34). It is not publication approval or a claim of complete live extraction.
-
-Confirmed corrections:
-
-- Current UI, health, delivery and test identities agree. `Index_COPYABLE.txt` is byte-identical to `Index.html`.
-- There is one regression suite, `Tests.gs`. Remove the old `CTI_Regression_Tests.gs` from an Apps Script project before installing `Tests.gs`; do not install both definitions.
-- Asset deadlines include response-body reads and hashing. Streamed downloads enforce byte limits. Successful hash reuse preserves rendition query parameters; failed URLs do not poison later retries.
-- Assignment traversal uses declared content-part bounds rather than the mounted subset. Typed Text blocks are tracked separately from question ordinals, including the last question in mixed editors.
-- Missing required dimensions remain unverified. One matching behavior field cannot conceal another unobserved field. Missing submission evidence is not a confirmed mutation. Written-answer applicability and established per-document transformations remain intact.
-- Mixed-number normalization retains the whole-number boundary. Gradebook-link absence alone cannot prove an ungraded quiz.
-- ZIP resolution rejects external references and ambiguous normalized paths.
-
-## Report follow-up
-
-QA build `v8.0.0-asset-claim-scope-20260927` corrects report interpretation without changing the embedded extractors:
-
-- An exact XLSX and JSON hash match can replay the immutable raw baseline after later-stage runs. Missing or different hashes and unidentified supplemental recovery inputs retain the stage guard.
-- Explicit current attachment failures produce one consistent owner action and a manual-remediation recommendation. Historical claims and independently observed attachments cannot demand a new repair on their own.
-- Quoted filenames localize unsupported-attachment diagnostics without duplicating an unmapped task. Original claims remain in the audit trail.
-- Learner-facing readiness tasks remain active even when their matching source image is policy-exempt. Destination IDs prevent identical item titles from collapsing distinct checks.
-- Equivalent URL syntax is described as preserving the source target, not as literal string equality.
-- CML layout adaptations remain informational. Named documents left as local paths because no asset identifier was available become attachment-access checks; a bare filename cannot resolve them. Original classifications remain auditable.
-- Duplicate descriptions of the same asset event do not create duplicate repair counts. Separate item/module events remain distinct, and fresh parsing retains all events before storage limits apply.
-- Observed AI-grader placeholders in native assignment authoring evidence produce targeted setup reviews even when learner-text extraction correctly excludes editor controls. The report requests inspection before changes.
-- Evidence-only readiness keeps its evidence severity. Unmatched source-item guidance checks consolidation and unfinished templates before requesting restoration.
-
-## Repeatable local checks
-
-Use Node.js 22 or later; no packages or credentials are required.
+Before publishing changes across feature boundaries:
 
 ```sh
-node tools/check.cjs
-node tools/hardening-check.cjs
+npm test
+npm run build
 ```
 
-The first command runs 228 FAST and 23 SOURCE_CONTRACT checks, compiles the embedded extractor, and checks the copyable Index. Nine XML-service cases are explicitly skipped. The second runs 20 focused simulations, including 172-question traversal, mixed content parts, duplicate question wording, stalled downloads, cache identity and evidence-gate negatives.
+`npm run generate` builds only the standalone extractor delivery assets. It runs
+automatically in development startup, tests and builds. Run it again after editing
+an extractor during a development session. Generated assets are ignored by Git.
 
-GitHub Actions runs these checks through `npm test`, plus migration tests and the production build, for pushes and pull requests. The local DOM fixture exercises production extraction functions; it does not replace a live Coursera capture.
+Browser checks are available as `test:browser:package`, `test:browser:workspace`,
+and `test:browser:owner`. Install Playwright Chromium or set `CTI_CHROMIUM_PATH`
+to an installed binary. Tests use synthetic course evidence; private course
+captures are never committed to this public repository.
 
-## Remaining release validation
+## Cloudflare deployment
 
-- Run the native Apps Script FAST and SOURCE_CONTRACT suites after copying the three canonical files into a test project.
-- Run the 13 INTEGRATION and 1 FULL_GOLDEN gates with their required Google services and fixtures. These and the nine XML-service cases have not been certified by the Node runner.
-- Replay the existing 15-title evidence corpus with this candidate. The repository currently contains code and generic fixtures, not that corpus. The handoff summary is not a substitute for the actual IMSCC, old/new JSON, XLSX and report evidence.
-- Only then select targeted live captures for behavior that stored JSON cannot exercise (virtualized editors, fresh plugin configuration and network timing). A new version alone does not require 15 fresh crawls.
+| Setting | Value |
+| --- | --- |
+| Maintained development branch | `main` |
+| Existing Pages production branch | `codex/typescript-pages-migration` |
+| Build command | `npm run build` |
+| Output | `dist` |
+| Framework preset / root | None / blank |
+| Node environment | `NODE_VERSION=24` |
 
-Keep deployments and merges separate from validation. The Apps Script production deployment has not been updated by this review.
+After checks pass on `main`, CI fast-forwards the same commit to the existing
+Pages production branch. It refuses to overwrite divergent work. Cloudflare's
+Git integration then builds the app and `/functions/api` service. Check its
+separate deployment result before treating a commit as live.
+
+Follow [shared workspace setup](docs/shared-workspace-setup.md) for Cloudflare
+Access identity, D1, roles and data import. Public source code does not make
+course records public. Local IndexedDB records are not team-shared records.
+
+## Workflows and evidence limits
+
+The app supports source package scanning and Explore, full source/Brightspace/
+Coursera comparisons, ordered owner review, immutable before/after audits,
+work queues, Macmillan workbook validation, and portfolio diagnostics. It does
+not generate partner content maps or specialization outlines.
+
+Coursera extraction remains **v6.14.7/schema 34** and Brightspace remains
+**v1.0.8/schema 2**. The module refactor preserves their capture rules; new captures
+are not required simply because the code layout changed. Extractors run in the
+user's signed-in LMS. Comparisons/workbook checks run in cancellable workers.
+
+Package inspection is bounded to 250 MiB archives and a 24 MiB content-read budget;
+XLSX inspection to 25 MiB and two million cells; shared records to 32 MiB.
+Uncaptured or inaccessible content stays an evidence gap. Navigation is separate
+from fidelity, and plugin diagnostic captures cannot certify a full course.
+
+See [migration status](docs/migration-status.md), [source-item/plugin evidence](docs/source-item-plugin-evidence.md),
+and [private evidence batch replay](docs/evidence-corpus.md). Historical migration
+notes describe earlier checkpoints; the development map describes current source.

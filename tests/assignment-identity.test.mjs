@@ -5,7 +5,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {fixture,El,functionCode}=require('../tools/assessment-fixture.cjs');
 const qa=require('../tools/check.cjs');
-import {buildPostQaText_} from '../src/generated/owner-report.js';
+import {buildPostQaText_} from '../src/reporting/owner-report.js';
 
 const reflection='Answer the following 3 questions: 1. What did you observe? 2. What would you change? 3. Explain your reasoning in one journal entry.';
 function reflectivePart(n=1,{type='Reflective text answer',bounded=true}={}) {

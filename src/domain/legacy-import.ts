@@ -1,6 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { buildPostQaText_ } from "../generated/owner-report.js";
+import { buildPostQaText_ } from "../reporting/owner-report.js";
 import {
   createLegacyChunkReader,
   LegacyChunkError,

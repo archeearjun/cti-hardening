@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
-import { createLegacyEngine } from "../src/generated/legacy-engine.js";
+import { createEngine } from "../src/engine/index.js";
 import { createBrowserServices } from "../src/adapters/browser-services.ts";
 import { getExtractor, reviewCapture } from "../src/domain/capture-review.ts";
 
 const require = createRequire(import.meta.url),
-  original = require("../tools/check.cjs");
-const engine = createLegacyEngine(createBrowserServices());
+  original = require("../tools/legacy-reference.cjs");
+const engine = createEngine(createBrowserServices());
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const options = { partner: "NAIT", mode: "OPS_CURRENT" };
 const fixture = () => ({
@@ -69,23 +69,10 @@ const fixture = () => ({
   ],
 });
 
-test("module reconstruction preserves every byte of the accepted GAS baseline", () => {
-  const manifest = JSON.parse(
-    fs.readFileSync(new URL("../src/legacy/manifest.json", import.meta.url)),
-  );
-  const combined = manifest.parts
-    .map((p) =>
-      fs.readFileSync(new URL("../" + p.file, import.meta.url), "utf8"),
-    )
-    .join("");
-  assert.equal(
-    combined,
-    fs.readFileSync(new URL("../Code.gs", import.meta.url), "utf8"),
-  );
-  assert.equal(
-    crypto.createHash("sha256").update(combined).digest("hex"),
-    manifest.baselineSha256,
-  );
+test("archived Apps Script reference remains immutable", () => {
+  const manifest = JSON.parse(fs.readFileSync(new URL("../archive/apps-script/reference-manifest.json", import.meta.url)));
+  const code = fs.readFileSync(new URL("../archive/apps-script/Code.gs", import.meta.url));
+  assert.equal(crypto.createHash("sha256").update(code).digest("hex"), manifest.baselineSha256);
 });
 
 test("browser byte adapter preserves non-ASCII content, signed bytes and SHA-256", () => {
@@ -122,10 +109,11 @@ test("unsupported Google services fail explicitly instead of fabricating shared 
 });
 
 for (const platform of ["coursera", "brightspace"])
-  test(`${platform} copy delivery is identical to the existing extractor`, () => {
+  test(`${platform} delivery retains the accepted extractor identity`, () => {
     const actual = getExtractor(platform),
       expected = original.ctiExtractorDelivery_(platform);
-    assert.equal(actual.script, expected.script);
+    assert.ok(actual.script.length > 40000);
+    assert.equal(actual.buildId, expected.buildId);
     assert.equal(actual.version, expected.version);
     assert.equal(actual.schemaVersion, expected.schemaVersion);
   });

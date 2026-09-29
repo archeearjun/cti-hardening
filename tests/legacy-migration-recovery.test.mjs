@@ -205,7 +205,7 @@ test("actual GAS writer can leave a history row after payload write failure; mig
   vm.runInContext(
     fs.readFileSync(
       new URL(
-        "../src/legacy/server/010-qabuildlongitudinaldelta.js",
+        "../archive/apps-script/qa-history.js",
         import.meta.url,
       ),
       "utf8",

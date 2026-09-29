@@ -1,8 +1,8 @@
 import JSZip from "jszip";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { createSourceScanner } from "../generated/source-scanner.js";
-import { createLegacyEngine } from "../generated/legacy-engine.js";
+import { createSourceScanner } from "../source/scanner.js";
+import { createEngine } from "../engine/index.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import { browserXml } from "../adapters/browser-xml.ts";
 import type { PackageProgress, PackageScan } from "./package-types.ts";
@@ -12,7 +12,7 @@ const scanner = createSourceScanner({
   pdfWorkerUrl,
   pdfVersion: pdfjsLib.version,
 });
-const engine = createLegacyEngine({
+const engine = createEngine({
   ...createBrowserServices(),
   XmlService: browserXml,
 });
@@ -66,7 +66,7 @@ export async function scanPackage(
           ? "Multiple package manifests found. Provide an archive containing one cartridge, or choose its manifest XML for structure-only inspection."
           : "imsmanifest.xml was not found in this archive.",
       );
-    // The legacy scanner already bounds text, hashes and PDF pages. Guard reads
+    // The scanner bounds text, hashes and PDF pages. Guard reads
     // that historically lacked an entry-size bound (notably orphan QTI rescue).
     for (const entry of Object.values(zip.files)) {
       const size = Number(

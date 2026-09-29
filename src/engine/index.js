@@ -1,0 +1,43 @@
+import * as m0 from "./release.js";
+import * as m1 from "./extractor-delivery.js";
+import * as m2 from "./work/policy.js";
+import * as m3 from "./work/checklist.js";
+import * as m4 from "./lifecycle/generation.js";
+import * as m5 from "./lifecycle/lineage.js";
+import * as m6 from "./lifecycle/history.js";
+import * as m7 from "./source/manifest.js";
+import * as m8 from "./workbook/master.js";
+import * as m9 from "./workbook/split.js";
+import * as m10 from "./workbook/validation.js";
+import * as m11 from "./matching/text.js";
+import * as m12 from "./matching/assets.js";
+import * as m13 from "./matching/recovery.js";
+import * as m14 from "./provenance/claims.js";
+import * as m15 from "./provenance/transformations.js";
+import * as m16 from "./provenance/current-state.js";
+import * as m17 from "./readiness/destination.js";
+import * as m18 from "./lifecycle/comparison.js";
+import * as m19 from "./source/brightspace-assessment.js";
+import * as m20 from "./source/brightspace-matching.js";
+import * as m21 from "./source/content.js";
+import * as m22 from "./assessment/assignment.js";
+import * as m23 from "./capture/normalization.js";
+import * as m24 from "./assessment/questions.js";
+import * as m25 from "./assessment/answers.js";
+import * as m26 from "./assessment/comparison.js";
+import * as m27 from "./matching/payload.js";
+import * as m28 from "./assessment/rubrics.js";
+import * as m29 from "./reporting/actions.js";
+import * as m30 from "./reporting/evidence.js";
+import * as m31 from "./comparison/item.js";
+import * as m32 from "./capture/recovery.js";
+import * as m33 from "./comparison/course.js";
+import * as m34 from "./source/metrics.js";
+import * as m35 from "./hardening.js";
+import { bindServices } from './bind-services.js';
+import * as validation from "./validation.js";
+const definitions = {...validation, ...m0, ...m1, ...m2, ...m3, ...m4, ...m5, ...m6, ...m7, ...m8, ...m9, ...m10, ...m11, ...m12, ...m13, ...m14, ...m15, ...m16, ...m17, ...m18, ...m19, ...m20, ...m21, ...m22, ...m23, ...m24, ...m25, ...m26, ...m27, ...m28, ...m29, ...m30, ...m31, ...m32, ...m33, ...m34, ...m35};
+export function createEngine(services) {
+  return Object.fromEntries(Object.entries(definitions).map(([name, value]) => name.startsWith('create_')
+    ? [name.slice(7), bindServices(value, services)] : [name, value]));
+}

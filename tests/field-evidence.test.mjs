@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
-import {buildPostQaText_} from '../src/generated/owner-report.js';
+import {buildPostQaText_} from '../src/reporting/owner-report.js';
 const require=createRequire(import.meta.url),qa=require('../tools/check.cjs');
 const {fixture,El,functionCode}=require('../tools/assessment-fixture.cjs');
 const plain=x=>JSON.parse(JSON.stringify(x));

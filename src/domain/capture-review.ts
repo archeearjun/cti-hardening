@@ -1,5 +1,5 @@
-import { createLegacyEngine } from "../generated/legacy-engine.js";
-import build from "../generated/build.json" with { type: "json" };
+import { createEngine } from "../engine/index.js";
+import build from "../release.json" with { type: "json" };
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import type {
   ExtractorDelivery,
@@ -10,7 +10,7 @@ import type {
 } from "./types.ts";
 
 type RecordValue = Record<string, unknown>;
-interface LegacyEngine {
+interface CaptureEngine {
   normalizeCourseraItem_(item: RecordValue): ItemEvidence;
   qaParseSmartIngestionIntelligence_(items: ItemEvidence[]): unknown;
   qaAssessDestinationReadiness_(
@@ -34,9 +34,9 @@ interface LegacyEngine {
   qaNormalizeBrightspaceAssignment_(assignment: RecordValue): RecordValue;
   ctiExtractorDelivery_(platform: string): ExtractorDelivery;
 }
-const engine = createLegacyEngine(
+const engine = createEngine(
   createBrowserServices(),
-) as unknown as LegacyEngine;
+) as unknown as CaptureEngine;
 export const MAX_CAPTURE_BYTES = 40 * 1024 * 1024;
 function object(value: unknown): RecordValue {
   return value !== null && typeof value === "object" && !Array.isArray(value)

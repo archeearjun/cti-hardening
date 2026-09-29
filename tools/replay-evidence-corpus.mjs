@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {createRequire} from 'node:module';
+import {createEngine} from '../src/engine/index.js';
+import {createBrowserServices} from '../src/adapters/browser-services.ts';
 import {fileURLToPath} from 'node:url';
 import {createWorkflows} from '../src/domain/workflows.ts';
 import {workerXml} from '../src/adapters/worker-xml.ts';
 import {readWorkbook} from '../src/adapters/workbook.ts';
 import {newRecord} from '../src/domain/workspace-store.ts';
-const qa=createRequire(import.meta.url)('./check.cjs');
+const qa=createEngine({...createBrowserServices(),XmlService:workerXml});
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const safeId=/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
 const limits={coursera:25*1024*1024,brightspace:40*1024*1024,excel:25*1024*1024,sourceScan:64*1024*1024,historicalReport:10*1024*1024};

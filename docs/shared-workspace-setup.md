@@ -79,7 +79,7 @@ You do not need to replace the entire old app just to export its data:
 1. Open your existing Apps Script project. Add a script file named
    **`MigrationExport.gs`**.
 2. Paste the small helper from
-   [042-migration-export.js](../src/legacy/server/042-migration-export.js).
+   [migration-export.js](../archive/apps-script/migration-export.js).
    If that function is already installed, do not add a second definition.
 3. Run **`exportCtiWorkspaceForMigration`**. The existing editor authorization
    still applies. The log shows elapsed minutes and part progress, then a

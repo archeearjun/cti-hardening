@@ -1,11 +1,11 @@
-import { createLegacyEngine } from "../generated/legacy-engine.js";
+import { createEngine } from "../engine/index.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import {
   readWorkbook,
   workbookAdapter,
   type BookData,
 } from "../adapters/workbook.ts";
-import { buildPostQaText_ } from "../generated/owner-report.js";
+import { buildPostQaText_ } from "../reporting/owner-report.js";
 import { buildOwnerContext } from "./owner-actions.ts";
 import type {
   ComparisonInput,
@@ -16,10 +16,10 @@ import type {
 } from "./workspace-types.ts";
 
 export function createWorkflows(xmlService: unknown) {
-  // Full legacy result objects cross this boundary intact, including fields
+  // Full evidence result objects cross this boundary intact, including fields
   // not yet represented by a dedicated TypeScript interface.
   const services = createBrowserServices();
-  const engine: EvidenceObject = createLegacyEngine({
+  const engine: EvidenceObject = createEngine({
     ...services,
     XmlService: xmlService,
   });

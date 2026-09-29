@@ -2,8 +2,8 @@
 // identity merging and coverage logic execute unchanged; time and DOM are local.
 const fs=require('fs'),vm=require('vm'),path=require('path'),assert=require('assert');
 const source=require('./check.cjs').ctiCanonicalCourseraExtractorSource_();
-const starts=[...source.matchAll(/^  (?:async )?function (\w+)\(/gm)];
-function functionCode(name){const i=starts.findIndex(m=>m[1]===name);assert(i>=0,name);return source.slice(starts[i].index,starts[i+1].index);}
+const functions=require('./extractor-functions.cjs').extractorFunctions(source);
+function functionCode(name){assert(functions.has(name),name);return functions.get(name);}
 function matches(el,selector){
  if(el.nodeType!==1)return false;
  return selector.split(/,(?![^\[]*\])/).some(part=>{
@@ -91,7 +91,9 @@ function fixture({count=79,windowSize=27,mode='virtual',delay=0,missing=[],unans
  for(const name of ['scopedWaitBudgetV61321','isAssignmentTextBlockV61321','parseAssignmentTextBlockV61321','collectAssignmentTextBlocksV61321','assignmentTextBlockBodyV61321','assignmentBehaviorTextV61321','mergeCourseraLearnerText','assignmentOutlineLinksV61320', 'choiceControlVisibilityV61320', 'unmarkedChoiceProbeV61320', 'emptyAssessmentProbeV61320'])vm.runInContext(functionCode(name),c);
  for(const name of ['observedAssignmentLayoutV61319', 'choiceControlInVisiblePartV61319', 'choiceAncestryV61319'])vm.runInContext(functionCode(name),c);
  for(const name of ['exactReadingBodyV61318', 'mergeExactReadingEvidenceV61318', 'finalizeCapturedTextV61318', 'observedEmptyLayoutV61318', 'assessmentLayoutDiagnosticV61318', 'choiceDiagnosticsV61318', 'parseUnmarkedChoicesV61318', 'attachQuestionFailureEvidenceV61318', 'retryDecisionV61318'])vm.runInContext(functionCode(name),c);
- const begin=source.indexOf('  function assessmentTypeKey('),end=source.indexOf('  function ctiPlainTextV664(');vm.runInContext(source.slice(begin,end),c);
+ // Load definitions without executing the extractor entry point. Their order
+ // no longer matters now that production code is maintained as feature modules.
+ vm.runInContext([...functions.values()].join('\n'),c);
  for(const name of ['assessmentAnswerEvidenceCountV667','assessmentIsFullyAnswerHydratedV667','assessmentFromCycleMapV667','collectAssessmentSelectionPolicyFromText_','assessmentTextReceiptV6146','genericAssessmentTextHeuristicNotApplicableV6146','retryReasonsForDiagnostic','retrySeverity'])vm.runInContext(functionCode(name),c);
  for(const name of ['ctiPlainTextV664','reactFiberForElementV664','assessmentStateSeedsV664','findNamedValueV664','objectTextV664','parseQuestionStateV664','collectReactAssessmentStateV664','assessmentControlDiagnosticsV664','collectCourseraAssessmentByQuestionCycleV662','collectCourseraStructuredAssessment'])vm.runInContext(functionCode(name),c);
  c.sleepMs=async ms=>{now+=ms;for(const item of scheduled.splice(0)){if(item.at<=now)item.fn();else scheduled.push(item);}};

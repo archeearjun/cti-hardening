@@ -17,3 +17,22 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  publish-pages-branch:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deterministic
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: cti-pages-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Forward verified main to the existing Cloudflare production branch
+        run: |
+          git fetch origin codex/typescript-pages-migration
+          git merge-base --is-ancestor origin/codex/typescript-pages-migration HEAD
+          git push origin HEAD:refs/heads/codex/typescript-pages-migration

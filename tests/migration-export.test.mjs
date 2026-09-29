@@ -9,7 +9,7 @@ import { restoreMigrationBackup } from "../src/domain/migration-backup.ts";
 import { validateImportRecordSizes } from "../src/domain/workspace-validation.ts";
 
 const source = fs.readFileSync(
-  new URL("../src/legacy/server/042-migration-export.js", import.meta.url),
+  new URL("../archive/apps-script/migration-export.js", import.meta.url),
   "utf8",
 );
 const hash = (value) =>

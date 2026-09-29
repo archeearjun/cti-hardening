@@ -1,0 +1,80 @@
+# CTI development map
+
+The maintained app uses React/TypeScript for its interface, workflows and storage,
+with native JavaScript modules for the retained evidence rules. Functions import
+their dependencies explicitly; there is no ordered legacy manifest, engine
+concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
+
+## Where to change a feature
+
+| Change | Maintained source | Focused check |
+| --- | --- | --- |
+| Source item links, captured topic identity, course URLs | `src/domain/source-navigation.ts`, `owner-urls.ts` | `npm run test:navigation` |
+| Owner tasks, manual review | `src/domain/owner-actions.ts`, `web/OwnerActionCard.tsx` | `npm run test:navigation` |
+| Focused item/plugin checks | `src/domain/item-check.ts`, `plugin-check.ts` | `npm run test:navigation` |
+| Coursera capture | `src/extractors/coursera/` | `npm run test:extractors` |
+| Brightspace capture | `src/extractors/brightspace/` | `npm run test:extractors` |
+| Source topic matching and source assessment definitions | `src/engine/source/brightspace-matching.js`, `brightspace-assessment.js` | `npm run test:engine` |
+| Assessment questions, answers, behaviour, rubrics | `src/engine/assessment/` | `npm run test:engine` |
+| Assets, links, text matching and repackaging | `src/engine/matching/` | `npm run test:engine` |
+| Ingestion claims and current-state resolution | `src/engine/provenance/` | `npm run test:engine` |
+| Comparison orchestration and lifecycle | `src/engine/comparison/`, `lifecycle/`, `src/domain/workflows.ts` | `npm run test:engine` |
+| Owner report text | `src/reporting/` | `npm run test:engine` |
+| Source ZIP, XML, QTI and PDF scanning | `src/source/`, `src/domain/package-scan.ts` | `npm run test:browser:package` |
+| Workbook/Macmillan checks | `src/engine/workbook/`, `src/adapters/workbook.ts` | `npm run test:engine` |
+| Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |
+
+For example, a source navigation fix can change `source-navigation.ts` and its
+focused test. It does not change any extractor, engine bundle, or Apps Script file.
+Use `rg -n 'functionName' src/engine src/extractors` to locate specific rules.
+
+## Engine and service boundaries
+
+`src/engine/index.js` composes the existing public API from independently imported
+feature modules. Most functions operate directly on supplied evidence. The ten
+functions needing byte/XML services use explicit factories; `bind-services.js`
+caches bindings separately for each supplied service object. No engine instance
+can replace another instance's XML parser.
+
+The old late overrides have become ordinary base functions and explicit wrapper
+functions in their owning modules. Their call order no longer depends on the
+position of a source file. `npm run check:modules` checks missing imports,
+undeclared names, duplicate bindings and illegal import assignments. It does not
+pretend all retained JavaScript has complete static data types. Strict TypeScript
+checks continue at the app and API boundaries.
+
+## Extractors
+
+Each platform has `entry.js` for its per-run state, orchestration, guards and
+cleanup. Coursera helpers are grouped into assessment, asset, plugin, navigation,
+retry, evidence and text/DOM modules. Brightspace separates reusable helpers from
+its bounded API/page traversal. Configuration literals are normal source code.
+
+The LMS console needs one self-contained script. `npm run generate` follows the
+explicit import graph and links the module declarations into that script. The
+restricted linker preserves function text used by targeted checks; it rejects
+aliases, unresolved exports, side-effectful initializers and imports outside the
+platform directory. This bundling is only for console delivery, not the app engine.
+
+Generated console scripts and delivery strings live under ignored `src/generated/`.
+Do not paste encoded strings or generated scripts back into source control. Run
+`npm run generate` after changing extractor modules, including during `npm run dev`.
+
+## Regression and publishing
+
+Use the focused commands above while implementing. Before publishing changes
+across feature boundaries, run `npm test` and `npm run build`. The full suite runs
+historical assertions against the current engine and independently compares a
+complete source/XLSX/JSON workflow with the frozen reference. DOM simulations
+exercise the current extractor functions by syntax/name, independent of file order.
+
+`main` is the source of truth. Its passing GitHub checks forward the exact commit
+to `codex/typescript-pages-migration`, the existing Cloudflare production branch.
+The forward is non-forced and fails on divergence rather than overwriting work.
+Cloudflare then performs its own build/deployment. Check both GitHub and Pages
+results before claiming an update is live. The old branch name is a deployment
+setting only; future work starts from `main`.
+
+`npm run export:gas` is optional recovery of the frozen Apps Script snapshot to
+ignored `dist-gas/`. It does not export current Cloudflare features back to Google.
+See `archive/apps-script/README.md` for the reference boundary.

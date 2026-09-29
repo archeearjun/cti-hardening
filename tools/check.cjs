@@ -1,7 +1,23 @@
-const fs=require('node:fs'),vm=require('node:vm'),crypto=require('node:crypto'),path=require('node:path');
-const root=path.resolve(__dirname,'..');
-const c={console,URL,Logger:{log(){}},Utilities:{getUuid:()=>crypto.randomUUID(),base64Encode:x=>Buffer.from(x).toString('base64'),base64Decode:x=>[...Buffer.from(x,'base64')],newBlob:x=>({getBytes:()=>[...Buffer.from(x)],getDataAsString:()=>Buffer.from(x).toString()}),computeDigest:(alg,x)=>[...crypto.createHash('sha256').update(Buffer.from(x)).digest()],DigestAlgorithm:{SHA_256:'SHA_256'}}};
-vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(root,'Code.gs'),'utf8'),c);vm.runInContext(fs.readFileSync(path.join(root,'Tests.gs'),'utf8'),c);c.CTI_TEST_INDEX_SOURCE_CACHE_=fs.readFileSync(path.join(root,'Index.html'),'utf8');
+// Run retained regression assertions against the maintained engine. The archived
+// shell supplies Google-only fixtures; every active engine function is replaced.
+const fs=require('node:fs'), vm=require('node:vm'), path=require('node:path');
+const root=path.resolve(__dirname,'../archive/apps-script');
+const c=require('./legacy-reference.cjs');
+const {createEngine}=require('../src/engine/index.js');
+const xml=new Proxy({}, {get(_target,key){return c.XmlService?.[key];}});
+const engine=createEngine({Utilities:c.Utilities, XmlService:xml});
+// The archived stale-delivery test deliberately replaces its global source
+// getter. Its delivery adapter exercises that seam; production delivery has its
+// own ESM tests. All evidence decisions below use the current module functions.
+const {ctiExtractorDelivery_, ...decisions}=engine;
+Object.assign(c,decisions);
+const originalRecoveryFixture=c.CTI_TEST_editorRecoveryFixture_;
+c.CTI_TEST_editorRecoveryFixture_=function(sourceOverride){
+ const fixture=originalRecoveryFixture(sourceOverride);
+ const functions=require('./extractor-functions.cjs').extractorFunctions(sourceOverride || c.ctiCanonicalCourseraExtractorSource_());
+ fixture.code=name=>{if(!functions.has(name))throw Error('Missing extractor function: '+name);return functions.get(name);};
+ return fixture;
+};
 module.exports=c;
 if(require.main===module){
  if(!fs.readFileSync(path.join(root,'Index.html')).equals(fs.readFileSync(path.join(root,'Index_COPYABLE.txt'))))throw Error('Copyable Index is stale');

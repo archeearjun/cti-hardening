@@ -30,7 +30,6 @@
     "functions/**/*.ts"
   ],
   "exclude": [
-    "src/legacy",
     "src/generated"
   ]
 }

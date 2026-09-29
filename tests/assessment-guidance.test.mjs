@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {buildPostQaText_} from '../src/generated/owner-report.js';
+import {buildPostQaText_} from '../src/reporting/owner-report.js';
 const c=createRequire(import.meta.url)('../tools/check.cjs');
 
 function comparison({media=false,sourceGap=false}={}) {

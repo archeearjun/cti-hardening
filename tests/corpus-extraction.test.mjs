@@ -97,8 +97,8 @@ function brightspacePages(pages){
   const calls=[],context={URL,location:{origin:'https://lms.example.test'},REQUEST_DELAY_MS:0,sleep:async()=>{},
     fetchJson:async(url)=>{calls.push(url);const p=pages[calls.length-1];if(p instanceof Error)throw p;return p;}};
   vm.createContext(context);
-  const start=bs.indexOf('  async function fetchDefinitionPagesV106('),end=bs.indexOf('  async function getLeVersion(',start);
-  assert.ok(start>=0&&end>start);vm.runInContext(bs.slice(start,end),context);
+  const functions=createRequire(import.meta.url)('../tools/extractor-functions.cjs').extractorFunctions(bs);
+  for(const name of ['fetchDefinitionPagesV106','fetchQuestionPagesV105','getId','listObjects'])vm.runInContext(functions.get(name),context);
   return {c:context,calls};
 }
 const endpoint='/d2l/api/le/1.82/123/quizzes/';

@@ -1,5 +1,11 @@
 # CTI migration status
 
+As of 30 September 2026, the Cloudflare app uses native feature modules rather
+than a concatenated legacy engine. Extractor helpers, report text, source
+scanning and navigation are maintained independently. See the
+[development map](development.md). The original app is now a frozen reference
+in `archive/apps-script`; the data-reconciliation limits below still apply.
+
 The migrated code supports the requested core workflow areas. On 28 September
 2026, the owner reported **430 prepared records imported** (308 saved earlier
 plus 122 on retry), with **six historical QA reports still unavailable** because

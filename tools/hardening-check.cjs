@@ -47,9 +47,7 @@ function hashFixture(options={}){
  await test('Signed URL identity preserves rendition query and ignores credentials only on recognized hosts',()=>{const f=hashFixture(),key=url=>f.h.canonicalRemoteAssetKeyV614({url,assetId:'shared'});assert.equal(key('https://a.cloudfront.net/x?width=10&Signature=a'),key('https://a.cloudfront.net/x?width=10&Signature=b'));assert.notEqual(key('https://a.cloudfront.net/x?width=10'),key('https://a.cloudfront.net/x?width=20'));assert.notEqual(key('https://untrusted.example/x?Signature=a'),key('https://untrusted.example/x?Signature=b'));});
  await test('Cache reuses successful byte proof but retries a failed signed URL',async()=>{const f=hashFixture(),budget=f.budget();const a={url:'https://a.cloudfront.net/x?Signature=a'},b={url:'https://a.cloudfront.net/x?Signature=b'};await f.h.hashRemoteAsset(a,budget);await f.h.hashRemoteAsset(b,budget);assert.equal(f.calls(),1);assert.equal(a.sha256,b.sha256);assert.equal(b.hashStatus,'SHA256_CACHE');const failed=hashFixture({response:{ok:false,status:403,headers:{get:()=>''}}}),fb=failed.budget();await failed.h.hashRemoteAsset({...a,sha256:''},fb);await failed.h.hashRemoteAsset({...b,sha256:''},fb);assert.equal(failed.calls(),2);assert.equal(fb.cache.size,0);});
  await test('ZIP resolution rejects external URLs and ambiguous normalized paths',()=>{
-  const fs=require('node:fs'),html=fs.readFileSync(require('node:path').join(__dirname,'../Index.html'),'utf8');
-  const starts=[...html.matchAll(/^ (?:async )?function (\w+)\(/gm)];const context={};vm.createContext(context);
-  for(const name of ['normalizeZipPath_','resolveZipHref_','resolveZipEntryV8_']){const i=starts.findIndex(x=>x[1]===name);assert(i>=0);vm.runInContext(html.slice(starts[i].index,starts[i+1].index),context);}
+  const context=require('../src/source/zip.js');
   const resolve=(files,href)=>context.resolveZipEntryV8_({},files,'imsmanifest.xml',href);
   assert.equal(resolve(['docs/File.pdf'],'https://external.example/File.pdf').method,'EXTERNAL_REFERENCE');
   assert.equal(resolve(['a/File.pdf','b/File.pdf'],'unknown/File.pdf').method,'AMBIGUOUS_BASENAME');
@@ -58,7 +56,7 @@ function hashFixture(options={}){
   assert.equal(resolve(['docs;folder/File.pdf'],'docs;/folder/File.pdf').method,'SEMICOLON_SLASH_NORMALIZED');
  });
  await test('Reading check delivery compiles and advertises the canonical release',()=>{
-  const fs=require('node:fs'),html=fs.readFileSync(require('node:path').join(__dirname,'../Index.html'),'utf8');
+  const fs=require('node:fs'),html=fs.readFileSync(require('node:path').join(__dirname,'../archive/apps-script/Index.html'),'utf8');
   const start=html.indexOf(' function ctiBuildReadingAttachmentCheck_(');
   // Find the actual builder by its observed unique rejection text if renamed.
   const functions=[...html.matchAll(/^ function (\w+)\(/gm)];const hit=functions.findIndex((x,i)=>html.slice(x.index,functions[i+1]?.index).includes('The reading check and deployed extractor do not match'));
