@@ -11,7 +11,7 @@ var CTI_RELEASE_REGISTRY_ = Object.freeze({
   gateway:'v8.0.0',
   qaEngine:'v8.0.0',
   architecture:CTI_ARCHITECTURE_VERSION_,
-  courseraExtractor:{version:'v6.14.6',schema:34,build:'v6.14.6-evidence-gated-retry-20260929',delivery:'CODE_GS_CANONICAL'},
+  courseraExtractor:{version:'v6.14.7',schema:34,build:'v6.14.7-plugin-readiness-20260929',delivery:'CODE_GS_CANONICAL'},
   brightspaceExtractor:{version:'v1.0.7',schema:2,build:'v1.0.7-content-context-20260929',delivery:'CODE_GS_CANONICAL'},
   evidenceEnvelopeSchema:1,
   qaRunSchema:5,

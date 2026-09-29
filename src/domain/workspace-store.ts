@@ -20,6 +20,30 @@ export interface WorkspaceStore {
   ): Promise<WorkspaceRecord>;
   versions(id: string): Promise<EvidenceObject[]>;
 }
+// The listing/prepare envelope contains counters, not the report's nested
+// per-item findings. Full evidence is independently checksummed and chunked.
+function scalarSummary(value: EvidenceObject | undefined): EvidenceObject {
+  let remaining = 16 * 1024;
+  return Object.fromEntries(
+    Object.entries(value || {})
+      .filter(
+        ([key, v]) =>
+          key.length <= 120 &&
+          (v === null ||
+            typeof v === "boolean" ||
+            (typeof v === "number" && Number.isFinite(v)) ||
+            typeof v === "string"),
+      )
+      .slice(0, 128)
+      .map(([key, v]) => [key, typeof v === "string" ? v.slice(0, 1024) : v])
+      .filter((entry) => {
+        const bytes = new TextEncoder().encode(JSON.stringify(entry)).length;
+        if (bytes > remaining) return false;
+        remaining -= bytes;
+        return true;
+      }),
+  );
+}
 export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
   const d = record.data;
   const data =
@@ -33,7 +57,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
           driveLink: d.driveLink,
           scan: {
             fileName: d.scan?.fileName,
-            stats: d.scan?.stats,
+            stats: scalarSummary(d.scan?.stats),
             moduleCount: d.scan?.moduleCount,
             fileSha256: d.scan?.fileSha256,
           },
@@ -43,7 +67,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             generation: d.generation,
             hashes: d.hashes,
             sourceScanSha256: d.sourceScanSha256,
-            summary: d.result?.summary,
+            summary: scalarSummary(d.result?.summary),
             stage: d.result?.snapshotContext?.mode,
           }
         : record.kind === "item-review"

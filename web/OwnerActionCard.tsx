@@ -379,6 +379,34 @@ export default function OwnerActionCard({
                     · {capture.evaluation?.questionCount ?? 0} question records
                     · {capture.evaluation?.assetReferences ?? 0} references
                   </p>
+                  {capture.evaluation?.pluginReadiness && (
+                    <p className="hint">
+                      Plugin checked for{" "}
+                      {Math.round(
+                        Number(
+                          capture.evaluation.pluginReadiness.elapsedMs || 0,
+                        ) / 1000,
+                      )}{" "}
+                      seconds.{" "}
+                      {(
+                        {
+                          FRAME_CONTENT_UNREADABLE:
+                            "The embedded page is not readable from this browser context. Open the plugin to confirm its content and operation.",
+                          FRAME_STILL_LOADING:
+                            "The frame was still loading when the wait limit was reached. This is partial evidence; check this item again after it loads.",
+                          TARGET_NOT_OBSERVED:
+                            "No plugin target was observed. Inspect this item's configuration.",
+                          FRAME_ACCESS_OR_ERROR_PAGE:
+                            "The frame displayed an access or error page. Open it and check access.",
+                          CONFIGURATION_ONLY:
+                            "Configuration was observed. The plugin's operation still needs checking.",
+                          READABLE_FRAME_OBSERVED:
+                            "The visible frame content was captured. Hidden screens and interactions still need checking.",
+                        } as Record<string, string>
+                      )[capture.evaluation.pluginReadiness.status] ||
+                        "Review the captured plugin evidence."}
+                    </p>
+                  )}
                   {(capture.evaluation?.findings || []).map(
                     (f: EvidenceObject, i: number) => (
                       <p key={i}>

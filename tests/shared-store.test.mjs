@@ -395,3 +395,52 @@ test("item review records round-trip separately, retain versions and reject view
   );
   assert.equal(denied.status, 403);
 });
+
+test("large nested QA findings stay in chunks and never overflow the preparation envelope", async (t) => {
+  const db = database(),
+    call = client(db),
+    originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    db.sql.close();
+  });
+  let manifestBytes = 0;
+  globalThis.fetch = async (path, init = {}) => {
+    if (path === "/api/uploads")
+      manifestBytes = new TextEncoder().encode(init.body).length;
+    return call(path.replace(/^\/api\//, ""), init.method || "GET", init.body);
+  };
+  const r = newRecord(
+    "audit",
+    "synthetic course · generation 2 · raw",
+    {
+      generation: 2,
+      result: {
+        summary: {
+          totalSourceItems: 161,
+          evidenceCoverage: 55,
+          headlineStatus: "REVIEW",
+          operationalPolicy: {
+            items: Array.from({ length: 1800 }, (_, i) => ({
+              id: i,
+              evidence: "é".repeat(90),
+            })),
+          },
+          destinationReadiness: { details: "x".repeat(150000) },
+        },
+      },
+    },
+    "package-fixture",
+  );
+  const old = await call("uploads", "POST", JSON.stringify({ record: r }));
+  assert.equal(old.status, 413); // reproduces the original prepare-stage failure
+  const store = await teamStore();
+  await store.save(r);
+  assert(manifestBytes < 4096);
+  const listed = (await store.list())[0];
+  assert.equal(listed.data.summary.totalSourceItems, 161);
+  assert.equal(listed.data.summary.headlineStatus, "REVIEW");
+  assert.equal(listed.data.summary.operationalPolicy, undefined);
+  assert.deepEqual((await store.get(r.id)).data, r.data); // full evidence survives byte-for-byte JSON round trip
+  assert.equal(r.data.result.summary.operationalPolicy.items.length, 1800);
+});

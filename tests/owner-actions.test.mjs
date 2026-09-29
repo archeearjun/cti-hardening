@@ -4,6 +4,7 @@ import vm from "node:vm";
 import {
   buildOwnerTasks,
   buildOwnerContext,
+  normalizeOwnerContext,
   safeWebUrl,
   courseraItemUrl,
   validateOwnerReview,
@@ -294,4 +295,107 @@ test("source navigation preserves observed URLs and handles missing source captu
     "https://lms.example.test/source/file.html",
   );
   assert.equal(context.sourceTopics[0].path, "Module");
+});
+
+test("Brightspace internal app URL becomes course-context navigation with the original file preserved", () => {
+  const context = buildOwnerContext(
+    new TextEncoder().encode(
+      JSON.stringify({
+        page: {
+          url: "https://lms.example.test/d2l/ui/apps/smart-curriculum/3.33.43/index.html",
+          origin: "https://lms.example.test",
+        },
+        course: { orgUnitId: "1234" },
+        contentTree: [
+          {
+            title: "Module",
+            children: [
+              {
+                kind: "TOPIC",
+                id: "5678",
+                title: "Reading",
+                url: "/content/enforced/1234-DEV/reading.html",
+              },
+              { kind: "TOPIC", id: "5679", title: "Activity" },
+            ],
+          },
+        ],
+      }),
+    ),
+  );
+  assert.equal(
+    context.sourceCourseUrl,
+    "https://lms.example.test/d2l/home/1234",
+  );
+  assert.equal(
+    context.sourceTopics[0].url,
+    "https://lms.example.test/d2l/le/content/1234/viewContent/5678/View",
+  );
+  assert.equal(
+    context.sourceTopics[0].documentUrl,
+    "https://lms.example.test/content/enforced/1234-DEV/reading.html",
+  );
+  assert.equal(context.sourceTopics[1].documentUrl, "");
+  assert.equal(
+    context.sourceTopics[1].url,
+    "https://lms.example.test/d2l/le/content/1234/viewContent/5679/View",
+  );
+});
+test("old report navigation can be repaired without mutating the saved evidence", () => {
+  const old = {
+    schemaVersion: 1,
+    sourceCourseUrl:
+      "https://lms.example.test/d2l/ui/apps/smart-curriculum/v/index.html",
+    sourceTopics: [
+      {
+        id: "42",
+        url: "https://lms.example.test/d2l/common/dialogs/quickLink/quickLink.d2l?ou=1234&type=quiz",
+      },
+    ],
+  };
+  const normalized = normalizeOwnerContext(old);
+  assert.equal(
+    normalized.sourceCourseUrl,
+    "https://lms.example.test/d2l/home/1234",
+  );
+  assert.equal(
+    normalized.sourceTopics[0].url,
+    "https://lms.example.test/d2l/le/content/1234/viewContent/42/View",
+  );
+  assert.equal(old.schemaVersion, 1);
+  assert(old.sourceTopics[0].url.includes("quickLink"));
+  assert.deepEqual(normalizeOwnerContext(normalized), normalized);
+});
+test("ambiguous org units and unsafe URLs do not produce guessed course links", () => {
+  const base = {
+    sourceCourseUrl:
+      "https://lms.example.test/d2l/ui/apps/smart-curriculum/v/index.html",
+    sourceTopics: [
+      {
+        id: "1",
+        url: "https://lms.example.test/content/enforced/100-DEV/file.html",
+      },
+      {
+        id: "2",
+        url: "https://lms.example.test/content/enforced/200-DEV/file.html",
+      },
+    ],
+  };
+  assert.equal(normalizeOwnerContext(base).sourceCourseUrl, "");
+  assert.equal(
+    normalizeOwnerContext({ ...base, sourceTopics: [] }).sourceCourseUrl,
+    "",
+  );
+  assert.equal(
+    normalizeOwnerContext({
+      ...base,
+      sourceTopics: [
+        {
+          id: "3",
+          url: "https://elsewhere.test/content/enforced/100-DEV/file.html",
+        },
+      ],
+    }).sourceCourseUrl,
+    "",
+  );
 });

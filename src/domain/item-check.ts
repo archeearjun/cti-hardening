@@ -81,6 +81,7 @@ export function evaluateItemEvidence(
     assetReferences: new Set(urls).size,
     textLength: String(p.textSample || "").length,
     editorObserved: capture.editorObserved === true,
+    pluginReadiness: p.pluginEvidence?.readiness || null,
     automatedResolution: false,
   };
 }
@@ -153,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.14.6" ||
-    delivery.buildId !== "v6.14.6-evidence-gated-retry-20260929"
+    delivery.version !== "v6.14.7" ||
+    delivery.buildId !== "v6.14.7-plugin-readiness-20260929"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",

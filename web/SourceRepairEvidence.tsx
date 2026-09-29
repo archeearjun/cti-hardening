@@ -113,6 +113,7 @@ export default function SourceRepairEvidence({
               ? candidates[0]
               : null;
         const sourceUrl = safeWebUrl(match?.url);
+        const documentUrl = safeWebUrl(match?.documentUrl);
         return (
           <div className="source-repair" key={i}>
             <h4>{source.title}</h4>
@@ -121,6 +122,17 @@ export default function SourceRepairEvidence({
               <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
                 Open source material ↗
               </a>
+            )}
+            {documentUrl && documentUrl !== sourceUrl && (
+              <a href={documentUrl} target="_blank" rel="noopener noreferrer">
+                Open captured file or external target ↗
+              </a>
+            )}
+            {!sourceUrl && (
+              <p className="hint">
+                No unique source link was captured for this item. Use its source
+                title and path in the source course.
+              </p>
             )}
             {text && (
               <>

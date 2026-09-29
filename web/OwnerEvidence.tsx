@@ -3,6 +3,7 @@ import OwnerActionCard from "./OwnerActionCard";
 import {
   buildOwnerTasks,
   needsOwnerAction,
+  normalizeOwnerContext,
   ownerCourseLocation,
   safeWebUrl,
 } from "../src/domain/owner-actions";
@@ -54,6 +55,10 @@ export default function OwnerEvidence({
     [result, course, sourceMatches, courseUrl],
   );
   const location = ownerCourseLocation(result, courseUrl);
+  const sourceContext = useMemo(
+    () => normalizeOwnerContext(report.ownerContext),
+    [report.ownerContext],
+  );
   const reviews = records.filter(
     (r) =>
       r.kind === "item-review" &&
@@ -237,7 +242,7 @@ export default function OwnerEvidence({
             store={store}
             saved={reviewFor(item.key)}
             onSaved={onSaved}
-            context={report.ownerContext || {}}
+            context={sourceContext}
             courseLocation={location}
           />
         </div>
@@ -271,9 +276,9 @@ export default function OwnerEvidence({
               </p>
             ),
           )}
-          {safeWebUrl(report.ownerContext?.sourceCourseUrl) && (
+          {safeWebUrl(sourceContext.sourceCourseUrl) && (
             <a
-              href={safeWebUrl(report.ownerContext.sourceCourseUrl)}
+              href={safeWebUrl(sourceContext.sourceCourseUrl)}
               target="_blank"
               rel="noopener noreferrer"
             >

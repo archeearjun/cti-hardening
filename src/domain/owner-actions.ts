@@ -309,6 +309,72 @@ export function validateOwnerReview(review: OwnerReview) {
     );
 }
 
+/** Navigation URLs are separate from the captured document/launch evidence. */
+export function normalizeOwnerContext(context: EvidenceObject = {}) {
+  const captured = safeWebUrl(context.sourcePageUrl || context.sourceCourseUrl);
+  const origin = safeWebUrl(context.sourceOrigin) || captured;
+  if (!origin) return context;
+  const host = new URL(origin).origin;
+  const topics: EvidenceObject[] = context.sourceTopics || [];
+  const ids = new Set<string>();
+  const explicit = String(context.sourceOrgUnitId || "");
+  if (/^\d+$/.test(explicit)) ids.add(explicit);
+  // Older saved reports retained topic URLs but not the org-unit ID. Recover
+  // only an unambiguous same-origin ID; never guess from course titles.
+  for (const value of [
+    captured,
+    ...topics.map((t) => t.documentUrl || t.url),
+  ]) {
+    try {
+      const u = new URL(value);
+      if (u.origin !== host) continue;
+      const id =
+        u.searchParams.get("ou") ||
+        u.pathname.match(
+          /^\/d2l\/(?:home|le\/(?:content|lessons))\/(\d+)(?:\/|$)/,
+        )?.[1] ||
+        u.pathname.match(/^\/content\/enforced\/(\d+)[-/]/)?.[1];
+      if (id && /^\d+$/.test(id)) ids.add(id);
+    } catch {
+      /* This field is not a navigable URL. */
+    }
+  }
+  const org = ids.size === 1 ? [...ids][0] : "";
+  const genericApp = /\/d2l\/ui\/apps\//.test(captured);
+  const courseUrl = org
+    ? `${host}/d2l/home/${org}`
+    : genericApp
+      ? ""
+      : captured;
+  return {
+    ...context,
+    schemaVersion: 2,
+    sourcePageUrl: captured,
+    sourceOrigin: host,
+    sourceOrgUnitId: org,
+    sourceCourseUrl: courseUrl,
+    sourceTopics: topics.map((t) => {
+      const documentUrl = safeWebUrl(t.documentUrl || t.url);
+      const id = String(t.id || "");
+      // A content topic opens with its LMS context, including Quicklinks and
+      // relative dependencies. Keep the original file/target available too.
+      const url =
+        org && /^\d+$/.test(id)
+          ? `${host}/d2l/le/content/${org}/viewContent/${id}/View`
+          : documentUrl;
+      return {
+        ...t,
+        url,
+        documentUrl,
+        navigationEvidence:
+          org && /^\d+$/.test(id)
+            ? "CAPTURED_ORG_AND_TOPIC_IDS"
+            : "CAPTURED_DOCUMENT_URL",
+      };
+    }),
+  };
+}
+
 /** Small navigation context only; the full source capture remains independent. */
 export function buildOwnerContext(brightspace?: Uint8Array) {
   if (!brightspace) return undefined;
@@ -317,23 +383,23 @@ export function buildOwnerContext(brightspace?: Uint8Array) {
   const topics: EvidenceObject[] = [];
   const walk = (nodes: EvidenceObject[], path: string) => {
     for (const node of nodes || []) {
-      let url = "";
-      try {
-        url = safeWebUrl(
-          new URL(
-            node.contentEvidence?.documentUrl || node.url || "",
-            base || undefined,
-          ).href,
-        );
-      } catch {
-        /* No observed source URL. */
-      }
-      if (node.url || node.contentEvidence?.documentUrl)
+      let documentUrl = "";
+      const raw = node.contentEvidence?.documentUrl || node.url;
+      if (raw)
+        try {
+          // Resolve from the document URL when present, never an empty string
+          // which would silently turn a missing link into the generic app URL.
+          documentUrl = safeWebUrl(new URL(raw, base || undefined).href);
+        } catch {
+          /* No observed source URL. */
+        }
+      if (node.kind === "TOPIC" || raw)
         topics.push({
           id: String(node.id || ""),
           name: node.title || node.name || "",
           path,
-          url,
+          url: documentUrl,
+          documentUrl,
         });
       walk(
         node.children || node.topics || [],
@@ -342,5 +408,12 @@ export function buildOwnerContext(brightspace?: Uint8Array) {
     }
   };
   walk(data.contentTree || [], "");
-  return { schemaVersion: 1, sourceCourseUrl: base, sourceTopics: topics };
+  return normalizeOwnerContext({
+    schemaVersion: 2,
+    sourcePageUrl: base,
+    sourceCourseUrl: base,
+    sourceOrigin: data.page?.origin,
+    sourceOrgUnitId: String(data.course?.orgUnitId || ""),
+    sourceTopics: topics,
+  });
 }
