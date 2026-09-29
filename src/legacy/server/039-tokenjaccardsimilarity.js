@@ -201,7 +201,7 @@ function qaAttachReadinessActions_(results, items, readiness) {
         r.checks = r.checks || {}; r.checks.destinationReadiness = active;
         var owner = r.ownerAction && typeof r.ownerAction === 'object' ? r.ownerAction : qaOwnerActionForResult_(r);
         var handlesAsset=!!(r.checks.ingestionProvenance && (r.checks.ingestionProvenance.unresolvedAssetClaims||[]).length && (r.issues||[]).indexOf('SI_UNRESOLVED_SOURCE_ASSET')>=0);
-        var detail = active.filter(function(f){return !(handlesAsset && f.code==='SI_UNRESOLVED_SOURCE_ASSET');}).map(function(f) {return f.action;}).filter(Boolean).join(' ');
+        var detail = active.filter(function(f){return !(handlesAsset && f.code==='SI_UNRESOLVED_SOURCE_ASSET');}).map(function(f) {return f.action;}).filter(Boolean).filter(function(action,i,all){return all.indexOf(action)===i;}).join(' ');
         var severity=owner.severity === 'CRITICAL' || active.some(function(f){return f.severity==='CRITICAL';}) ? 'CRITICAL' : owner.severity === 'REVIEW' || active.some(function(f){return f.severity==='REVIEW';}) ? 'REVIEW' : 'EVIDENCE';
         r.ownerAction = {severity:severity, label:'Destination readiness action', action:(owner.severity==='NONE'?'Source fidelity and destination readiness are separate checks. ':owner.action+' ') + detail};
     });

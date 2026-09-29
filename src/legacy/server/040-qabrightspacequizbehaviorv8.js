@@ -60,6 +60,9 @@ qaAssessmentFieldSimilarity_=function(a,b){
   // the TeX/visual/speech boundaries needed to prove exact math equivalence.
   var am=qaAssessmentMathKey_(a),bm=qaAssessmentMathKey_(b);
   if(am && bm)return am===bm?1:0;
+  // Conflicting spoken fractions cannot pass a generic prefix/fuzzy match.
+  if((am && !bm && /\\frac.*start fraction/i.test(String(b))) ||
+     (bm && !am && /\\frac.*start fraction/i.test(String(a))))return 0;
   return CTI_V7931_qaAssessmentFieldSimilarity_(qaCanonicalMathTextV8_(a),qaCanonicalMathTextV8_(b));
 };
 var CTI_V7931_qaNormalizeQuestion_=qaNormalizeQuestion_;

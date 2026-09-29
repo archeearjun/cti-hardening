@@ -1,7 +1,7 @@
 {
-  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins + saved corpus replay and Brightspace definition coverage + XLSX container traversal inventory + corpus extraction type and coverage preservation + paged Brightspace quiz inventory + field-scoped discussion and math + content-relative URLs + final capture reporting + quoted-question claim scope",
-  "qaBuild": "v8.0.0-field-evidence-20260929",
-  "baselineSha256": "59b8f95511e0a831e077d90c48c3bea119e0d35e4e85ab4587f5fb6ff0eac208",
+  "baseline": "5280adf + workflow IO separation + v6.14.2 runtime stability + assessment evidence guidance + v6.14.3 assignment identity and published plugins + saved corpus replay and Brightspace definition coverage + XLSX container traversal inventory + corpus extraction type and coverage preservation + paged Brightspace quiz inventory + field-scoped discussion and math + content-relative URLs + final capture reporting + quoted-question claim scope + evidence-gated assessment retries and precise owner actions",
+  "qaBuild": "v8.0.0-evidence-gated-retry-20260929",
+  "baselineSha256": "9cc68a38a74181fb33f6c68094f8d42799e72c8d07f705658f1cea5080d7968d",
   "browserExports": [
     "normalizeCourseraItem_",
     "qaParseSmartIngestionIntelligence_",
@@ -36,7 +36,7 @@
   "parts": [
     {
       "file": "src/legacy/server/001-cti-architecture-version.js",
-      "lines": 29,
+      "lines": 28,
       "symbols": [
         "CTI_ARCHITECTURE_VERSION_",
         "CTI_RELEASE_REGISTRY_",
@@ -45,14 +45,14 @@
     },
     {
       "file": "src/legacy/server/002-cti-coursera-extractor-base64-chunks.js",
-      "lines": 16,
+      "lines": 15,
       "symbols": [
         "CTI_COURSERA_EXTRACTOR_BASE64_CHUNKS_"
       ]
     },
     {
       "file": "src/legacy/server/003-cti-brightspace-extractor-base64-chunks.js",
-      "lines": 359,
+      "lines": 358,
       "symbols": [
         "CTI_BRIGHTSPACE_EXTRACTOR_BASE64_CHUNKS_",
         "ctiCanonicalCourseraExtractorSource_",
@@ -92,7 +92,7 @@
     },
     {
       "file": "src/legacy/server/004-workdateonly.js",
-      "lines": 345,
+      "lines": 344,
       "symbols": [
         "workDateOnly_",
         "workValidateDateOnly_",
@@ -113,7 +113,7 @@
     },
     {
       "file": "src/legacy/server/005-appendpackagescanhistory.js",
-      "lines": 346,
+      "lines": 345,
       "symbols": [
         "appendPackageScanHistory_",
         "loadLatestPackageScanHistoryMap_",
@@ -128,7 +128,7 @@
     },
     {
       "file": "src/legacy/server/006-workrawqarecommendation.js",
-      "lines": 331,
+      "lines": 330,
       "symbols": [
         "workRawQaRecommendation_",
         "workIsImportOnlyAssignment_",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/legacy/server/007-getredoworkqueuedb.js",
-      "lines": 333,
+      "lines": 332,
       "symbols": [
         "getRedoWorkQueueDb",
         "DB_SPREADSHEET_NAME",
@@ -187,7 +187,7 @@
     },
     {
       "file": "src/legacy/server/008-getqarunssheet.js",
-      "lines": 316,
+      "lines": 315,
       "symbols": [
         "getQaRunsSheet_",
         "getQaRunChunksSheet_",
@@ -211,7 +211,7 @@
     },
     {
       "file": "src/legacy/server/009-qaapplysnapshotstageguard.js",
-      "lines": 360,
+      "lines": 359,
       "symbols": [
         "qaApplySnapshotStageGuard_",
         "qaLoadGenerationEvidenceContext_",
@@ -225,7 +225,7 @@
     },
     {
       "file": "src/legacy/server/010-qabuildlongitudinaldelta.js",
-      "lines": 333,
+      "lines": 332,
       "symbols": [
         "qaBuildLongitudinalDelta_",
         "qaLoadRunPayloadById_",
@@ -250,7 +250,7 @@
     },
     {
       "file": "src/legacy/server/011-buildduplicateplan.js",
-      "lines": 358,
+      "lines": 357,
       "symbols": [
         "buildDuplicatePlan_",
         "duplicateGroupForClient_",
@@ -268,7 +268,7 @@
     },
     {
       "file": "src/legacy/server/012-fetchpackagestructuredb.js",
-      "lines": 364,
+      "lines": 363,
       "symbols": [
         "fetchPackageStructureDb",
         "countEmptyFolders_",
@@ -277,44 +277,44 @@
         "basicSourceFileEvidence_",
         "sourcePayloadForResource_",
         "analyzeImsccFromXmlString",
+        "analyzeImsccCore_",
         "validateManifestItems_",
         "resolveHiddenPlugins_",
         "buildCourseTree_",
         "processNode_",
         "sanitizeAndFlattenTree_",
         "exportMasterManifestAsGoogleSheet",
-        "ctiDriveConversionRetryable_",
-        "analyzeImsccCore_"
+        "ctiDriveConversionRetryable_"
       ]
     },
     {
       "file": "src/legacy/server/013-ctidriveimportmatches.js",
-      "lines": 223,
+      "lines": 222,
       "symbols": [
         "ctiDriveImportMatches_",
         "ctiImportXlsxAsSheet_",
         "uploadAndScanMaster",
+        "uploadAndScanMasterCore_",
         "MACMILLAN_TIME_MODEL_VERSION_",
         "macmillanTimePolicyRows_",
         "macmillanEstimateItemTime_",
         "macmillanSafeMatrix_",
         "macmillanPersistValidatedTab_",
-        "createTab",
-        "uploadAndScanMasterCore_"
+        "createTab"
       ]
     },
     {
       "file": "src/legacy/server/014-executedynamicnsplitandscan.js",
-      "lines": 192,
+      "lines": 191,
       "symbols": [
         "executeDynamicNSplitAndScan",
-        "exportSpecAsXlsxBlob",
-        "executeDynamicNSplitAndScanCore_"
+        "executeDynamicNSplitAndScanCore_",
+        "exportSpecAsXlsxBlob"
       ]
     },
     {
       "file": "src/legacy/server/015-qacomparegptoutput.js",
-      "lines": 373,
+      "lines": 372,
       "symbols": [
         "qaCompareGptOutput",
         "qaCompareGptOutputCore_"
@@ -322,7 +322,7 @@
     },
     {
       "file": "src/legacy/server/016-isadministrativetitle.js",
-      "lines": 353,
+      "lines": 352,
       "symbols": [
         "isAdministrativeTitle_",
         "countCoreEmptyFolders_",
@@ -352,7 +352,7 @@
     },
     {
       "file": "src/legacy/server/017-qatypescompatible.js",
-      "lines": 340,
+      "lines": 339,
       "symbols": [
         "qaTypesCompatible_",
         "qaFileName_",
@@ -381,7 +381,7 @@
     },
     {
       "file": "src/legacy/server/018-qacrossitemsemanticassetevidence.js",
-      "lines": 360,
+      "lines": 359,
       "symbols": [
         "qaCrossItemSemanticAssetEvidence_",
         "qaCrossItemAssetMatchIsStrong_",
@@ -397,7 +397,6 @@
       "file": "src/legacy/server/019-qafindcrossitemstructuralrepackagingevidence.js",
       "lines": 382,
       "symbols": [
-        "qaClaimQuestionScope_",
         "qaFindCrossItemStructuralRepackagingEvidence_",
         "qaAugmentCrossItemRecoveryWithSemanticEvidence_",
         "qaSmartIngestionReportLooksValid_",
@@ -405,13 +404,14 @@
         "qaParseSmartIngestionIntelligence_",
         "qaIngestionAssetEventKind_",
         "qaNormalizeIngestionClaimScope_",
+        "qaClaimQuestionScope_",
         "qaSmartIngestionClaimsForSource_",
         "qaExplicitExclusionClaimForSource_"
       ]
     },
     {
       "file": "src/legacy/server/020-qaonetomanyaggregateforsource.js",
-      "lines": 336,
+      "lines": 335,
       "symbols": [
         "qaOneToManyAggregateForSource_",
         "qaDecorateOneToManyResult_",
@@ -442,7 +442,7 @@
     },
     {
       "file": "src/legacy/server/022-qaassessdestinationreadiness.js",
-      "lines": 318,
+      "lines": 317,
       "symbols": [
         "qaAssessDestinationReadiness_",
         "qaApplyDestinationReadinessPolicy_",
@@ -460,7 +460,7 @@
     },
     {
       "file": "src/legacy/server/023-qacomparelifecyclesnapshots.js",
-      "lines": 247,
+      "lines": 246,
       "symbols": [
         "qaCompareLifecycleSnapshots_",
         "qaLifecycleSnapshotView_",
@@ -472,7 +472,6 @@
       "file": "src/legacy/server/024-qabuildrepackagedmissingresult.js",
       "lines": 351,
       "symbols": [
-        "ctiDeclaredQuizCountFromText_",
         "qaBuildRepackagedMissingResult_",
         "qaBrightspaceText_",
         "qaBrightspacePath_",
@@ -480,6 +479,7 @@
         "qaBrightspaceFlattenTopics_",
         "qaBrightspaceQuestionType_",
         "qaBrightspaceQuizQuestion_",
+        "ctiDeclaredQuizCountFromText_",
         "qaBrightspaceDeclaredQuizCount_",
         "qaBrightspaceQuizToAssessment_",
         "qaBrightspaceQuizCaptureSummary_",
@@ -489,7 +489,7 @@
     },
     {
       "file": "src/legacy/server/025-qaparsebrightspacegroundtruthcapture.js",
-      "lines": 343,
+      "lines": 342,
       "symbols": [
         "qaParseBrightspaceGroundTruthCapture_",
         "qaBrightspaceIdentityGuard_",
@@ -503,7 +503,7 @@
     },
     {
       "file": "src/legacy/server/026-qahiddendependencykind.js",
-      "lines": 362,
+      "lines": 361,
       "symbols": [
         "qaHiddenDependencyKind_",
         "qaLegacyDiscussionText_",
@@ -521,7 +521,7 @@
     },
     {
       "file": "src/legacy/server/027-normalizeassignmentmetadatav61325.js",
-      "lines": 295,
+      "lines": 294,
       "symbols": [
         "normalizeAssignmentMetadataV61325",
         "qaNormalizeNativeAssignment_",
@@ -538,7 +538,7 @@
     },
     {
       "file": "src/legacy/server/028-normalizecourseraitem.js",
-      "lines": 340,
+      "lines": 339,
       "symbols": [
         "normalizeCourseraItem_",
         "qaMatchScore_",
@@ -569,7 +569,7 @@
     },
     {
       "file": "src/legacy/server/030-qaassessmentfieldsimilarity.js",
-      "lines": 344,
+      "lines": 350,
       "symbols": [
         "qaAssessmentMathKey_",
         "qaAssessmentFieldSimilarity_",
@@ -597,7 +597,7 @@
     },
     {
       "file": "src/legacy/server/032-qatextcomparison.js",
-      "lines": 323,
+      "lines": 322,
       "symbols": [
         "qaTextComparison_",
         "qaSemanticTokenList_",
@@ -624,8 +624,9 @@
     },
     {
       "file": "src/legacy/server/034-qaowneractionforresult.js",
-      "lines": 356,
+      "lines": 367,
       "symbols": [
+        "qaMathRendererFormula_",
         "qaOwnerActionForResult_",
         "workApplyPolicyAwareOperatorGuidance_",
         "qaClassifyExtraItem_"
@@ -633,14 +634,14 @@
     },
     {
       "file": "src/legacy/server/035-qaevidencestrength.js",
-      "lines": 97,
+      "lines": 96,
       "symbols": [
         "qaEvidenceStrength_"
       ]
     },
     {
       "file": "src/legacy/server/036-compareitemfidelity.js",
-      "lines": 350,
+      "lines": 349,
       "symbols": [
         "compareItemFidelity_",
         "qaBuildSummary_"
@@ -665,7 +666,7 @@
     },
     {
       "file": "src/legacy/server/039-tokenjaccardsimilarity.js",
-      "lines": 346,
+      "lines": 345,
       "symbols": [
         "tokenJaccardSimilarity_",
         "synthesizeQaRemediationPlanDb",
@@ -684,7 +685,7 @@
     },
     {
       "file": "src/legacy/server/040-qabrightspacequizbehaviorv8.js",
-      "lines": 284,
+      "lines": 287,
       "symbols": [
         "qaBrightspaceQuizBehaviorV8_",
         "qaCanonicalMathTextV8_",

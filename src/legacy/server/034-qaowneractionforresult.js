@@ -1,3 +1,11 @@
+function qaMathRendererFormula_(url) {
+    var text=String(url || '');
+    if(!/^https?:\/\/[^/]+\/filter\/tex\/displaytex\.php\?/i.test(text))return null;
+    var m=text.match(/[?&]texexp=([^&#]*)/i);
+    if(!m)return null;
+    try {var formula=decodeURIComponent(m[1].replace(/\+/g,' ')).trim();return formula && formula.length<=1000 ? formula : null;} catch(e){return null;}
+}
+
 
 
 function qaOwnerActionForResult_(result) {
@@ -124,7 +132,10 @@ function qaOwnerActionForResult_(result) {
     }
     if (issues.indexOf('LINK_NOT_OBSERVED') > -1 && checks.links && (checks.links.missing || []).length) {
         if (severity === 'NONE') severity = 'REVIEW';
-        actions.push('Verify unobserved link target(s) and restore them if still required: ' + checks.links.missing.join(', ') + '.');
+        var navigationLinks=checks.links.missing.filter(function(url){return qaMathRendererFormula_(url)===null;});
+        var formulaLinks=checks.links.missing.filter(function(url){return qaMathRendererFormula_(url)!==null;});
+        if(navigationLinks.length)actions.push('Verify unobserved link target(s) and restore them if still required: ' + navigationLinks.join(', ') + '.');
+        if(formulaLinks.length)actions.push('Compare the source formula(s) '+formulaLinks.map(function(url){return qaMathRendererFormula_(url);}).join('; ')+' with the corresponding destination text or math. These source URLs render formulas. An equivalent text or math replacement can preserve the content; restore only a formula confirmed missing or changed. The missing renderer URL alone does not prove formula loss.');
     }
     if(checks.structuredAssessment && checks.structuredAssessment.declaredCaptureIncomplete){
         if(severity==='NONE')severity='EVIDENCE';

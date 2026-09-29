@@ -11,6 +11,12 @@ function qaAssessmentMathKey_(value) {
         if (duplicate[1]!==whole+numerator+denominator || duplicate[6]!==whole+denominator+numerator || duplicate[7]!==spoken) return null;
         text=duplicate[2];
     }
+    var spokenCopy=text.match(/^((\d*)\\frac\{(\d+)\}\{(\d+)\}'')\s+(.+)$/);
+    if(spokenCopy) {
+        var expected=(spokenCopy[2]?spokenCopy[2]+', ':'')+'start fraction, '+spokenCopy[3]+', divided by, '+spokenCopy[4]+', end fraction, start superscript, prime, prime, end superscript';
+        if(spokenCopy[5]!==expected)return null;
+        text=spokenCopy[1];
+    }
     text=text.replace(/^\\\(\s*([\s\S]*?)\s*\\\)$/, '$1').trim();
     text=text.replace(/′′|″/g, "''").replace(/′/g, "'");
     var fraction=text.match(/^(\d*)\s*\\frac\{(\d+)\}\{(\d+)\}\s*(''|'|in|ft)?$/);
