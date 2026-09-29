@@ -198,7 +198,9 @@ function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, packageMeta, b
     if(families.length){source.interactiveSignals=qaMergeInteractiveSignals_(source.interactiveSignals,{detected:true,runtimeFamilies:families,confidence:'HIGH',liveSourceObserved:true,note:'Positive interactive/runtime evidence observed in live Brightspace.'}); enriched.push('RUNTIME');}
     source.liveSource=liveMeta;
     source.liveSource.enrichedFields=enriched;
-    matches.push({sourceName:source.name,sourcePath:source.path,topicId:best.id,topicTitle:best.title,score:liveMeta.matchScore,enrichedFields:enriched});
+    var competitors=topics.filter(function(t){return String(t.id)!==String(best.id) && qaBrightspaceMatchScore_(source,t)>=bestScore-0.03;});
+    var navigationArea=function(path){return /(?:^|>)\s*Archive\s*(?:>|$)/i.test(path)?'archive':/(?:^|>)\s*Instructor Resources\s*(?:>|$)/i.test(path)?'instructor':'learner';};
+    matches.push({sourceId:source.id||'',sourceName:source.name,sourcePath:source.path,topicId:best.id,topicTitle:best.title,score:liveMeta.matchScore,enrichedFields:enriched,navigationEligible:bestScore>=0.90 && competitors.length===0 && qaCleanName_(source.name)===qaCleanName_(best.title) && navigationArea(source.path)===navigationArea(best.path)});
   });
   // Binary documents are intentionally outside the core learner-item denominator.
   // They still exist in the package and must not be labelled live-only drift.
@@ -237,6 +239,7 @@ function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, packageMeta, b
     course:liveCapture.course,
     identity:guard,
     matchedSourceItems:matches.length,
+    sourceTopicMappings:matches,
     matchedBundledAssetCount:bundledMatches.length,
     matchedBundledAssets:bundledMatches,
     evidenceReviews:evidenceReviews,

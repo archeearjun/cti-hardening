@@ -353,6 +353,11 @@ function qaSmartIngestionClaimsForSource_(source, intelligence) {
     }
 
     return intelligence.claims.map(qaNormalizeIngestionClaimScope_).filter(function(claim) {
+        if(claim.sourceIdentity) {
+            var identity=claim.sourceIdentity;
+            return qaCleanName_(identity.name)===name && qaCleanName_(identity.path)===path &&
+                (!identity.id || !source.id || String(identity.id)===String(source.id));
+        }
         if (!pathCompatible(claim)) return false;
         var questionScope=qaClaimQuestionScope_(source,claim);
         if(questionScope) {
@@ -369,6 +374,35 @@ function qaSmartIngestionClaimsForSource_(source, intelligence) {
         // unless the claim explicitly matches this source item's name/asset.
         return false;
     }).slice(0, 14);
+}
+
+// Use an explicit name in the event only when it identifies exactly one source
+// in the stated module. Retain the original claim; never use a semantic guess.
+function qaLocalizeNamedIngestionClaims_(intelligence, sourceItems) {
+    if(!intelligence || !Array.isArray(intelligence.claims))return intelligence;
+    var out=Object.assign({},intelligence);
+    out.claims=intelligence.claims.map(function(original){
+        var claim=qaNormalizeIngestionClaimScope_(original);
+        if(qaCleanText_(claim.subject) || !/^(UNSUPPORTED_CONTENT_FALLBACK|UNRESOLVED_SOURCE_ASSET|GENERATED_CONTENT_FALLBACK|GENERATED_BEHAVIOR|SI_PROCESSING_FAILURE)$/.test(claim.type))return claim;
+        var hint=qaCleanName_(claim.pathHint), text=' '+qaCleanName_(claim.excerpt||claim.detail||'')+' ';
+        if(!hint)return claim;
+        var candidates=(sourceItems||[]).filter(function(source){
+            var name=qaCleanName_(source.name),path=qaCleanName_(source.path);
+            if(/^(?:practice|final|weekly) (?:test|quiz|assessment)$/.test(name))return false;
+            if(name.length<10 || name.split(' ').length<2 || !path || !(path===hint || path.indexOf(hint+' ')===0))return false;
+            return text.indexOf(' '+name+' ')>=0;
+        });
+        if(candidates.length!==1)return claim;
+        var source=candidates[0];
+        claim.originalClaimSubject=claim.subject||'';
+        claim.subject=source.name;
+        claim.sourceIdentity={id:source.id||'',name:source.name,path:source.path};
+        claim.localizationMethod='UNIQUE_EXPLICIT_SOURCE_NAME_IN_MODULE';
+        return claim;
+    });
+    out.criticalClaims=out.claims.filter(function(c){return c.severity==='CRITICAL';}).slice(0,60);
+    out.reviewClaims=out.claims.filter(function(c){return c.severity==='REVIEW';}).slice(0,80);
+    return out;
 }
 
 function qaExplicitExclusionClaimForSource_(source, intelligence) {

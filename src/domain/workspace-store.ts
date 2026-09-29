@@ -80,6 +80,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                 updatedAt: d.review?.updatedAt,
                 updatedBy: d.review?.updatedBy,
                 hasCapture: !!d.review?.capture,
+                pluginCaptureCount: d.review?.pluginCaptures?.length || 0,
               },
             }
           : record.kind === "checklist"

@@ -12,6 +12,7 @@ export interface OwnerReview {
   updatedAt: string;
   updatedBy: string;
   capture?: EvidenceObject;
+  pluginCaptures?: EvidenceObject[];
 }
 export interface OwnerTask {
   key: string;
@@ -28,6 +29,7 @@ export interface OwnerTask {
   questionSummary: string[];
   checks: ItemExpectation[];
   sourceOnly: boolean;
+  pluginTargets: string[];
 }
 export interface ItemExpectation {
   kind: "url" | "file" | "prompt";
@@ -274,6 +276,20 @@ export function buildOwnerTasks(
       questionSummary,
       checks,
       sourceOnly,
+      pluginTargets: [
+        ...new Set(
+          [
+            ...(item.pluginTargets || []),
+            ...findings.flatMap((r) =>
+              r.checks?.externalWebpageEvidence?.configurationMarkerObserved
+                ? r.checks.externalWebpageEvidence.capturedUrls || []
+                : [],
+            ),
+          ]
+            .map((x) => safeWebUrl(typeof x === "string" ? x : x?.url))
+            .filter(Boolean),
+        ),
+      ] as string[],
     };
   };
   return [
@@ -292,6 +308,19 @@ export function needsOwnerAction(task: OwnerTask) {
   );
 }
 export function validateOwnerReview(review: OwnerReview) {
+  if (
+    review.pluginCaptures != null &&
+    (!Array.isArray(review.pluginCaptures) ||
+      review.pluginCaptures.length > 12 ||
+      review.pluginCaptures.some(
+        (p) =>
+          p?.kind !== "CTI_PLUGIN_PAGE_CHECK" ||
+          p.notForCourseAudit !== true ||
+          typeof p.text !== "string" ||
+          p.text.length > 48000,
+      ))
+  )
+    throw new Error("Invalid plugin-page evidence.");
   if (
     !["open", "in_progress", "changed", "checked", "blocked"].includes(
       review.status,
@@ -376,7 +405,10 @@ export function normalizeOwnerContext(context: EvidenceObject = {}) {
 }
 
 /** Small navigation context only; the full source capture remains independent. */
-export function buildOwnerContext(brightspace?: Uint8Array) {
+export function buildOwnerContext(
+  brightspace?: Uint8Array,
+  mappings: EvidenceObject[] = [],
+) {
   if (!brightspace) return undefined;
   const data = JSON.parse(new TextDecoder().decode(brightspace));
   const base = safeWebUrl(data.page?.url);
@@ -415,5 +447,57 @@ export function buildOwnerContext(brightspace?: Uint8Array) {
     sourceOrigin: data.page?.origin,
     sourceOrgUnitId: String(data.course?.orgUnitId || ""),
     sourceTopics: topics,
+    sourceTopicMappings: mappings,
   });
+}
+
+/** Navigation identity is separate from fidelity. Never pick the first same-title
+ * item, or turn an unresolved item link into a course-home link. */
+export function resolveSourceTopic(
+  source: EvidenceObject,
+  context: EvidenceObject,
+) {
+  const topics: EvidenceObject[] = context.sourceTopics || [];
+  const key = (value: unknown) => clean(value).toLowerCase();
+  const path = (value: unknown) =>
+    String(value || "")
+      .split(">")
+      .map(key)
+      .filter(Boolean);
+  const sourcePath = path(source.path);
+  const area = (value: unknown) =>
+    path(value).find((p) => p === "archive" || p === "instructor resources") ||
+    "learner";
+  const sourceId = String(source.idref || source.id || "");
+  const mappings = (context.sourceTopicMappings || []).filter(
+    (m: EvidenceObject) =>
+      m.navigationEligible === true &&
+      key(m.sourceName) === key(source.title) &&
+      key(m.sourcePath) === key(source.path) &&
+      (!sourceId || !m.sourceId || String(m.sourceId) === sourceId),
+  );
+  if (mappings.length) {
+    const ids = new Set(mappings.map((m: EvidenceObject) => String(m.topicId)));
+    const matches = topics.filter((t) => ids.has(String(t.id)));
+    return ids.size === 1 && matches.length === 1 ? matches[0] : null;
+  }
+  const candidates = topics.filter(
+    (t) =>
+      key(t.name) === key(source.title) && area(t.path) === area(source.path),
+  );
+  const exact = candidates.filter((t) => key(t.path) === key(source.path));
+  if (exact.length) return exact.length === 1 ? exact[0] : null;
+  // Older reports: accept one matching title beneath the exact module ancestry.
+  // This covers an inserted Assess folder without mixing in Archive copies.
+  const descendants = candidates.filter((t) => {
+    const parts = path(t.path);
+    return (
+      sourcePath.length > 0 &&
+      parts.length > sourcePath.length &&
+      sourcePath.every((p, i) => parts[i] === p)
+    );
+  });
+  if (descendants.length)
+    return descendants.length === 1 ? descendants[0] : null;
+  return candidates.length === 1 ? candidates[0] : null;
 }

@@ -232,7 +232,10 @@ export function createWorkflows(xmlService: unknown) {
     result.workspaceWarnings = warnings;
     return {
       result,
-      ownerContext: buildOwnerContext(input.brightspace?.bytes),
+      ownerContext: buildOwnerContext(
+        input.brightspace?.bytes,
+        result.liveSourceGroundTruth?.sourceTopicMappings || [],
+      ),
       report:
         (warnings.length
           ? "WORKSPACE EVIDENCE NOTE\n" + warnings.join("\n") + "\n\n"

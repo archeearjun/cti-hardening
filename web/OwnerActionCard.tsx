@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   safeWebUrl,
+  resolveSourceTopic,
   validateOwnerReview,
   type OwnerTask,
   type OwnerProgress,
@@ -22,6 +23,7 @@ import type {
 } from "../src/domain/workspace-types";
 import EvidenceDetails from "./EvidenceDetails";
 import SourceRepairEvidence from "./SourceRepairEvidence";
+import PluginEvidencePanel from "./PluginEvidencePanel";
 import { download } from "./workspace-ui";
 
 const progressLabels: Record<OwnerProgress, string> = {
@@ -65,6 +67,7 @@ export default function OwnerActionCard({
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [script, setScript] = useState("");
+  const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
   useEffect(() => {
     if (!open || !saved || !store) return;
@@ -78,6 +81,7 @@ export default function OwnerActionCard({
         setStatus(r.data.review.status);
         setNote(r.data.review.note);
         setCapture(r.data.review.capture);
+        setPluginCaptures(r.data.review.pluginCaptures || []);
         setLoaded(true);
       })
       .catch((e) => {
@@ -128,7 +132,11 @@ export default function OwnerActionCard({
       }
     });
   }
-  async function persist(nextCapture = capture, nextStatus = status) {
+  async function persist(
+    nextCapture = capture,
+    nextStatus = status,
+    nextPlugins = pluginCaptures,
+  ) {
     if (!editable || !store || !course || !loaded) return;
     const review: OwnerReview = {
       status: nextStatus,
@@ -136,6 +144,7 @@ export default function OwnerActionCard({
       updatedAt: new Date().toISOString(),
       updatedBy: store.email,
       ...(nextCapture ? { capture: nextCapture } : {}),
+      pluginCaptures: nextPlugins,
     };
     validateOwnerReview(review);
     const id = `item-review-${await digest(new TextEncoder().encode(JSON.stringify([auditId, task.key])))}`;
@@ -149,6 +158,7 @@ export default function OwnerActionCard({
     });
     setRecord(next);
     setCapture(nextCapture);
+    setPluginCaptures(nextPlugins);
     setStatus(nextStatus);
     await onSaved?.();
     setMessage("Item work saved. The original report is unchanged.");
@@ -170,6 +180,15 @@ export default function OwnerActionCard({
     );
   }
   const sourceUrl = safeWebUrl(context.sourceCourseUrl);
+  const sourceLinks = task.sources
+    .map((source) => ({
+      name: source.title,
+      url: safeWebUrl(resolveSourceTopic(source, context)?.url),
+    }))
+    .filter(
+      (link, i, all) =>
+        link.url && all.findIndex((x) => x.url === link.url) === i,
+    );
   const actionable = task.actions.filter((a) => a.severity !== "NONE");
   return (
     <details
@@ -238,6 +257,24 @@ export default function OwnerActionCard({
               ) : (
                 <p className="hint">
                   Add the course URL above to open this shell.
+                </p>
+              )}
+              {sourceLinks.map((link) => (
+                <a
+                  className="button-link secondary"
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  key={link.url}
+                >
+                  Open source item
+                  {sourceLinks.length > 1 ? `: ${link.name}` : ""} ↗
+                </a>
+              ))}
+              {!sourceLinks.length && (
+                <p className="hint">
+                  An exact source-item link is unavailable. Check the source
+                  title and location below.
                 </p>
               )}
               {sourceUrl && (
@@ -446,6 +483,32 @@ export default function OwnerActionCard({
                   </button>
                 </div>
               )}
+              <PluginEvidencePanel
+                spec={spec}
+                targets={
+                  capture?.editorObserved &&
+                  capture.payload?.pluginEvidence?.itemId === spec.itemId
+                    ? (capture.payload.pluginEvidence.targets || []).map(
+                        (t: EvidenceObject) => t.url,
+                      )
+                    : task.pluginTargets
+                }
+                captures={pluginCaptures}
+                editable={editable && loaded && !busy}
+                onCapture={async (value) => {
+                  const next = [
+                    ...pluginCaptures.filter(
+                      (p) => p.targetUrl !== value.targetUrl,
+                    ),
+                    value,
+                  ].slice(-12);
+                  await persist(
+                    capture,
+                    status === "checked" ? "in_progress" : status,
+                    next,
+                  );
+                }}
+              />
             </section>
           )}
           <section className="review-outcome">

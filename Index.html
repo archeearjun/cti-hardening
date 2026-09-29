@@ -465,7 +465,7 @@
 </details>
 <details class="qa-dropdown" style="margin-top:0; margin-bottom:20px; border-color:#93C5FD; box-shadow:0 1px 3px rgba(37,99,235,0.08);">
 <summary style="background:#EFF6FF; color:#1E40AF;">
-<div style="display:flex;align-items:center;gap:8px;"><b>🌐 CTI Source LMS Ground-Truth Extractor — Brightspace v1.0.7</b></div>
+<div style="display:flex;align-items:center;gap:8px;"><b>🌐 CTI Source LMS Ground-Truth Extractor — Brightspace v1.0.8</b></div>
 </summary>
 <div class="qa-content" style="background:#FFFFFF; border-top:1px solid #BFDBFE;">
 <p style="margin-top:0;font-size:13px;color:#374151;"><b>This is the live-source bridge.</b> The IMSCC/package fingerprint remains the immutable record of what was supplied for ingestion. This optional Brightspace capture adds what the authorized source LMS currently exposes: hierarchy, definitions, quiz questions, file-page text, explicit SCORM/LTI carriers, and embedded Brightspace Practice/runtime evidence. CTI uses it to enrich matching evidence and surfaces live-only source drift separately; it does not silently turn unmatched live topics into automatic re-ingestion findings.</p>
@@ -478,8 +478,8 @@
 </ol>
 <div style="border:1px solid #DBEAFE;border-radius:8px;background:#F8FBFF;padding:12px;">
 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-<div><div style="font-size:12px;color:#1E40AF;font-weight:700;">Brightspace source extractor <code>v1.0.7</code> · schema 2</div><div style="font-size:11px;color:#6B7280;margin-top:3px;">Build: <code style="font-size:10px;">v1.0.7-content-context-20260929</code></div><div style="font-size:11px;color:#475569;margin-top:4px;">Downloads use the same searchable convention: platform + course name + Brightspace OrgUnit + local timestamp/timezone + version/schema.</div></div>
-<button class="btn-secondary btn-sm" data-build="v1.0.7-content-context-20260929" data-version="v1.0.7" onclick="copyBrightspaceGroundTruthScript(this)" style="background:#FFFFFF;white-space:nowrap;">📋 Copy Brightspace Script</button>
+<div><div style="font-size:12px;color:#1E40AF;font-weight:700;">Brightspace source extractor <code>v1.0.8</code> · schema 2</div><div style="font-size:11px;color:#6B7280;margin-top:3px;">Build: <code style="font-size:10px;">v1.0.8-content-context-20260929</code></div><div style="font-size:11px;color:#475569;margin-top:4px;">Downloads use the same searchable convention: platform + course name + Brightspace OrgUnit + local timestamp/timezone + version/schema.</div></div>
+<button class="btn-secondary btn-sm" data-build="v1.0.8-content-context-20260929" data-version="v1.0.8" onclick="copyBrightspaceGroundTruthScript(this)" style="background:#FFFFFF;white-space:nowrap;">📋 Copy Brightspace Script</button>
 </div>
 <details id="brightspaceGroundTruthScriptDetails" ontoggle="if(this.open) ctiLoadCanonicalExtractor_('brightspace','brightspaceGroundTruthScriptCode')" style="margin-top:10px;">
 <summary style="cursor:pointer;color:#4B5563;font-size:12px;user-select:none;">Show script source <span style="color:#9CA3AF;">(advanced / version verification)</span></summary>
@@ -528,7 +528,7 @@
 <div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:8px; padding:12px; margin-bottom:14px;">
 <span class="form-label" style="margin-top:0; color:#1E3A8A;">Live source LMS ground truth — Brightspace JSON <i>(Optional but recommended when available)</i></span>
 <input accept=".json" id="qaBrightspaceSourceInput" style="margin-bottom:6px; background:#FFFFFF;" type="file"/>
-<div style="font-size:11px; color:#475569;">Use the <b>v1.0.7 / schema 2</b> capture from the same Brightspace title. CTI keeps the stored IMSCC/package fingerprint as historical ingestion evidence and uses this file as live-source corroboration/enrichment. Live-only LMS topics are reported as source drift rather than silently added to the re-ingestion denominator.</div>
+<div style="font-size:11px; color:#475569;">Use the <b>v1.0.8 / schema 2</b> capture from the same Brightspace title. CTI keeps the stored IMSCC/package fingerprint as historical ingestion evidence and uses this file as live-source corroboration/enrichment. Live-only LMS topics are reported as source drift rather than silently added to the re-ingestion denominator.</div>
 </div>
 <div id="qaSingleSnapshotPanel">
 <span class="form-label" style="margin-top:0;">What state is the Coursera course in right now?</span>
@@ -603,7 +603,7 @@
 <div aria-label="Current release versions" class="release-stack">
 <span class="release-chip">Gateway <b>v8.0.0</b></span>
 <span class="release-chip">QA engine <b>v8.0.0</b></span>
-<span class="release-chip">Coursera <b>v6.14.7</b></span><span class="release-chip">Brightspace source <b>v1.0.7</b></span><span class="release-chip" id="ctiArchitectureChip">Architecture <b>checking…</b></span>
+<span class="release-chip">Coursera <b>v6.14.7</b></span><span class="release-chip">Brightspace source <b>v1.0.8</b></span><span class="release-chip" id="ctiArchitectureChip">Architecture <b>checking…</b></span>
 </div>
 </header>
 <div aria-labelledby="workflowSelectorTitle" class="workflow-selector">
@@ -936,7 +936,7 @@
    var sourceLive = validateChosenFile('qaBrightspaceSourceInput','.json','Brightspace source ground truth',40);
    if (singleTarget) {
      singleTarget.innerHTML = qaReadinessCard('Saved source fingerprint', !!currentPostQaUuid, currentPostQaUuid ? 'Immutable package fingerprint loaded' : 'Open QA from a saved course') +
-       qaReadinessCard('Live source ground truth', sourceLive.ok, sourceLive.ok ? sourceLive.file.name : 'Optional Brightspace v1.0.7 JSON') +
+       qaReadinessCard('Live source ground truth', sourceLive.ok, sourceLive.ok ? sourceLive.file.name : 'Optional Brightspace v1.0.8 JSON') +
        qaReadinessCard('Coursera structure', singleExcel.ok, singleExcel.ok ? singleExcel.file.name : 'Upload matching .xlsx') +
        qaReadinessCard('Payload evidence', singleJson.ok, singleJson.ok ? singleJson.file.name : 'Upload v6.14.7 JSON (recommended)');
    }

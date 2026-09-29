@@ -245,8 +245,15 @@ function qaBrightspaceQuizQuestion_(q, index) {
 
 function ctiDeclaredQuizCountFromText_(value) {
   var text=String(value || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+  var words=['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen','twenty'];
+  var contradictory=false;
+  text=text.replace(new RegExp('\\b('+words.join('|')+')\\s*\\((\\d+)\\)','gi'),function(all,word,digits){
+    if(words.indexOf(word.toLowerCase())!==Number(digits)){contradictory=true;return all;}
+    return digits;
+  });
+  if(contradictory)return null;
   // Exam length is metadata, not a proof of question-bank or pool completeness.
-  var pattern=/\b(\d+)[ -]+(?:(?:short[ -]answer|true\s*\/\s*false|multiple[ -]choice|multiple[ -]select|matching|essay|numeric|written[ -]response)(?:\s*,?\s*(?:and\s+)?))*questions?\b/gi;
+  var pattern=/\b(\d+)[ -]+(?:(?:short[ -]answer|long[ -]answer(?:\s*\(calculation\))?|true\s*\/\s*false|multiple[ -]choice|multiple[ -]select|matching|essay|numeric|written[ -]response)(?:\s*,?\s*(?:and\s+)?))*questions?\b/gi;
   var counts=[],m;
   while((m=pattern.exec(text))) {
     var before=text.slice(Math.max(0,m.index-70),m.index);

@@ -1187,7 +1187,7 @@ function CTI_TEST_workEvidenceChecklistIsolation_() {
 function CTI_TEST_releaseIdentityContract_() {
   var source = CTI_TEST_indexSource_();
   CTI_TEST_equal_(CTI_GATEWAY_RELEASE_,CTI_TEST_BASELINE_GATEWAY_,'Backend gateway identity');
-  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-evidence-gated-retry-20260929','Backend QA build identity');
+  CTI_TEST_equal_(CTI_QA_ENGINE_BUILD_ID_,'v8.0.0-source-item-evidence-20260930','Backend QA build identity');
   CTI_TEST_equal_(CTI_MACMILLAN_BUILD_ID_,'v6.8.2-partner-ready-doc-projection-20260912','Backend Macmillan build identity');
   CTI_TEST_equal_(CTI_WORK_QUEUE_BUILD_ID_,'v1.6-evidence-checklist-20260919','Backend work-queue build identity');
   CTI_TEST_equal_(MACMILLAN_TIME_MODEL_VERSION_,CTI_TEST_BASELINE_TIME_MODEL_,'Backend time-model identity');
@@ -2680,7 +2680,7 @@ function CTI_TEST_courseraCanonicalExtractor_() {
 
 function CTI_TEST_brightspaceCanonicalExtractor_() {
   var source=ctiCanonicalBrightspaceExtractorSource_();
-  CTI_TEST_contains_(source,'Brightspace v1.0.7','Canonical extractor version');
+  CTI_TEST_contains_(source,'Brightspace v1.0.8','Canonical extractor version');
   CTI_TEST_contains_(source,"const SCHEMA_VERSION = 2",'Canonical extractor schema');
   CTI_TEST_contains_(source,"methodsUsed:['GET']",'GET-only safety evidence');
   CTI_TEST_contains_(source,'401/403 means unavailable','Permission-boundary safety evidence');
@@ -3212,7 +3212,7 @@ function CTI_TEST_brightspaceSearchableFilename_() {
   CTI_TEST_contains_(script,'CTI__BRIGHTSPACE__','Brightspace filename begins with a searchable platform prefix');
   CTI_TEST_contains_(script,'__ORG_${slug(orgUnitId)}__','Brightspace filename includes the unique OrgUnit identifier');
   CTI_TEST_contains_(script,'fileTimestamp(new Date())','Brightspace filename includes local date/time and timezone');
-  CTI_TEST_contains_(script,'__v1.0.7_s2__SOURCE_GROUND_TRUTH.json','Brightspace filename exposes extractor version/schema and evidence kind');
+  CTI_TEST_contains_(script,'__v1.0.8_s2__SOURCE_GROUND_TRUTH.json','Brightspace filename exposes extractor version/schema and evidence kind');
   CTI_TEST_contains_(script,'capture.exportFileName = exportFileName','Brightspace JSON records its own exported filename');
 }
 

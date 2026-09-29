@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import JSZip from "jszip";
 import { digest } from "../src/domain/workspace-store.ts";
-import { buildOwnerTasks } from "../src/domain/owner-actions.ts";
+import {
+  buildOwnerTasks,
+  buildOwnerContext,
+} from "../src/domain/owner-actions.ts";
 import { chromium } from "playwright";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
@@ -67,7 +70,42 @@ input.course.data.scan.courseTree[0].children[0].sourcePayload.files = [
   },
 ];
 const output = createWorkflows(workerXml).compare(input);
+output.ownerContext = buildOwnerContext(
+  new TextEncoder().encode(
+    JSON.stringify({
+      page: {
+        url: "https://lms.example.test/d2l/ui/apps/smart-curriculum/v/index.html",
+      },
+      course: { orgUnitId: "123" },
+      contentTree: [
+        {
+          title: "Module 1",
+          children: [
+            {
+              title: "Assess",
+              children: [
+                {
+                  kind: "TOPIC",
+                  id: "10",
+                  title: "Reading",
+                  url: "/reading.html",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          title: "Archive",
+          children: [
+            { kind: "TOPIC", id: "11", title: "Reading", url: "/archive.html" },
+          ],
+        },
+      ],
+    }),
+  ),
+);
 const item = output.result.ownerView.items[0];
+item.pluginTargets = ["https://external.example/course/#/"];
 item.status = "EVIDENCE_NEEDED";
 item.actions = [
   {
@@ -147,16 +185,59 @@ try {
     /itemId=reading/,
   );
   await page.locator(".action-card > summary").click();
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open source item", exact: false })
+      .getAttribute("href"),
+    "https://lms.example.test/d2l/le/content/123/viewContent/10/View",
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open source course", exact: false })
+      .getAttribute("href"),
+    "https://lms.example.test/d2l/home/123",
+  );
+  await page
+    .getByRole("button", { name: "Copy page capture script", exact: true })
+    .click();
+  const pluginScript = await page.evaluate(() =>
+    navigator.clipboard.readText(),
+  );
+  new Function(pluginScript);
+  const pluginSpec = JSON.parse(
+    pluginScript.match(/const spec=(.*?);console\.info/)[1],
+  );
+  const pluginCheck = {
+    ...pluginSpec,
+    kind: "CTI_PLUGIN_PAGE_CHECK",
+    schemaVersion: 1,
+    notForCourseAudit: true,
+    openedUrl: pluginSpec.targetUrl,
+    finishedAt: new Date().toISOString(),
+    text: "A captured visible screen.",
+    references: [],
+    frames: [],
+    captureContext: "DIRECT_PAGE",
+    status: "VISIBLE_SCREEN_OBSERVED",
+  };
+  await page
+    .getByLabel("Upload plugin-page check JSON")
+    .setInputFiles({
+      name: "plugin.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(pluginCheck)),
+    });
+  await page
+    .getByText("Page evidence saved with this item.", { exact: false })
+    .waitFor();
   await page
     .getByText("Retrieve files from the original IMSCC", { exact: true })
     .click();
-  await page
-    .getByLabel("Original IMSCC for source files")
-    .setInputFiles({
-      name: "wrong.imscc",
-      mimeType: "application/zip",
-      buffer: Buffer.from("wrong package"),
-    });
+  await page.getByLabel("Original IMSCC for source files").setInputFiles({
+    name: "wrong.imscc",
+    mimeType: "application/zip",
+    buffer: Buffer.from("wrong package"),
+  });
   await page.getByText("Source file locations (1)", { exact: true }).click();
   await page
     .getByRole("button", { name: "Get source file", exact: true })
@@ -166,13 +247,11 @@ try {
       exact: false,
     })
     .waitFor();
-  await page
-    .getByLabel("Original IMSCC for source files")
-    .setInputFiles({
-      name: "original.imscc",
-      mimeType: "application/zip",
-      buffer: Buffer.from(archiveBytes),
-    });
+  await page.getByLabel("Original IMSCC for source files").setInputFiles({
+    name: "original.imscc",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archiveBytes),
+  });
   const sourceDownload = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "Get source file", exact: true })
@@ -240,6 +319,7 @@ try {
     .click();
   await page.locator(".action-card > summary").click();
   await page.getByText("Fresh item check ·", { exact: false }).waitFor();
+  await page.getByText("Captured page ·", { exact: false }).waitFor();
   assert.match(
     await page.getByLabel("What did you check or change?").inputValue(),
     /Confirmed source guide/,

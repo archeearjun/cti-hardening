@@ -252,12 +252,13 @@ function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, t
         // evidence. This keeps Auto-detect correct for both XLSX+JSON and JSON-only
         // runs while preserving Excel-only structural authority.
         var generationContext = io.loadGeneration(targetUuid,lineageMeta);
-        var currentSnapshotIngestionIntelligence = qaParseSmartIngestionIntelligence_(courseraEvidenceItems);
+        var currentSnapshotIngestionIntelligence = qaLocalizeNamedIngestionClaims_(qaParseSmartIngestionIntelligence_(courseraEvidenceItems), coreItems);
         var ingestionIntelligence = qaMergeGenerationIngestionIntelligence_(
             currentSnapshotIngestionIntelligence,
             generationContext.provenanceIntelligence,
             generationContext.provenanceSourceRunId
         );
+        ingestionIntelligence = qaLocalizeNamedIngestionClaims_(ingestionIntelligence, coreItems);
         // Auto snapshot detection must use what exists NOW, not a historical
         // Author Alignment Report remembered from an earlier snapshot.
         var snapshotContext = qaResolveSnapshotContext_(snapshotMode, courseraItems, currentSnapshotIngestionIntelligence);

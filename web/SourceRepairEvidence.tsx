@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { EvidenceObject } from "../src/domain/workspace-types";
-import { safeWebUrl } from "../src/domain/owner-actions";
+import { safeWebUrl, resolveSourceTopic } from "../src/domain/owner-actions";
 import { digest } from "../src/domain/workspace-store";
 import { download } from "./workspace-ui";
 import EvidenceDetails from "./EvidenceDetails";
@@ -100,18 +100,7 @@ export default function SourceRepairEvidence({
       {sources.map((source, i) => {
         const payload = source.sourcePayload || {},
           text = String(payload.textSample || "");
-        const candidates = (context.sourceTopics || []).filter(
-          (t: EvidenceObject) => t.name === source.title,
-        );
-        const exact = candidates.filter(
-          (t: EvidenceObject) => t.path === source.path,
-        );
-        const match =
-          exact.length === 1
-            ? exact[0]
-            : candidates.length === 1
-              ? candidates[0]
-              : null;
+        const match = resolveSourceTopic(source, context);
         const sourceUrl = safeWebUrl(match?.url);
         const documentUrl = safeWebUrl(match?.documentUrl);
         return (

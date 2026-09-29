@@ -28,11 +28,14 @@ Available workflows:
   and original migration sheets are preserved.
 
 The canonical extractors are **Coursera v6.14.7/schema 34** and
-**Brightspace v1.0.7/schema 2**. Processing runs locally; comparisons and Macmillan
+**Brightspace v1.0.8/schema 2**. Processing runs locally; comparisons and Macmillan
 QA use cancellable Web Workers. Saving in team mode uploads the resulting record
 and evidence to the configured team database. Local records are not shared.
 
 Saved captures can be checked together using the [private evidence batch replay](docs/evidence-corpus.md).
+The [source-item and plugin evidence update](docs/source-item-plugin-evidence.md)
+adds exact source actions, retained topic mappings, separate plugin-page checks,
+and described-count/named-warning corrections. Existing captures remain usable.
 The current QA build preserves unknown Brightspace question totals instead of
 verifying matching subsets and uses matching XLSX container IDs to correct false
 editor-coverage gaps. Existing source and destination inputs can be reused.
