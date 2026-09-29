@@ -384,6 +384,8 @@ function qaLocalizeNamedIngestionClaims_(intelligence, sourceItems) {
     out.claims=intelligence.claims.map(function(original){
         var claim=qaNormalizeIngestionClaimScope_(original);
         if(qaCleanText_(claim.subject) || !/^(UNSUPPORTED_CONTENT_FALLBACK|UNRESOLVED_SOURCE_ASSET|GENERATED_CONTENT_FALLBACK|GENERATED_BEHAVIOR|SI_PROCESSING_FAILURE)$/.test(claim.type))return claim;
+        // Quoted question stems have their own stricter identity resolver.
+        if(qaClaimQuestionScope_(null,claim))return claim;
         var hint=qaCleanName_(claim.pathHint), text=' '+qaCleanName_(claim.excerpt||claim.detail||'')+' ';
         if(!hint)return claim;
         var candidates=(sourceItems||[]).filter(function(source){

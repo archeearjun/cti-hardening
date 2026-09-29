@@ -91,6 +91,11 @@ test('ambiguous names, other modules and multi-item warnings remain unlocalized'
     assert.equal(qa.qaLocalizeNamedIngestionClaims_({claims:[c]},items).claims[0].subject,'');
   }
 });
+test('an explicit question quote retains question-level scope over a mentioned item title',()=>{
+  const event={...claim,excerpt:'Fractions Practice Assessment: Question "What is the area of the following rectangle?" could not attach its image.'};
+  const out=qa.qaLocalizeNamedIngestionClaims_({claims:[event]},sources);
+  assert.equal(out.claims[0].subject,'');assert.equal(out.claims[0].sourceIdentity,undefined);
+});
 
 const spec=()=>({auditId:'audit',courseId:'course',itemId:'plugin',url:'https://www.coursera.org/teach/a/course/content/item/plugin/plugin',name:'Plugin',checks:[],targetUrl:'https://external.example/course/#/',requestId:'request',requestedAt:new Date().toISOString()});
 async function execute({text='Visible course content',loading=false,routeChange=false,framed=false,url}={}) {
