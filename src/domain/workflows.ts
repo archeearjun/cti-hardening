@@ -278,6 +278,19 @@ export function createWorkflows(xmlService: unknown) {
         job.before.data.result.currentSnapshot || job.before.data.result;
       const after =
         job.after.data.result.currentSnapshot || job.after.data.result;
+      // These checks lived in the Apps Script entry point, outside the pure
+      // lifecycle engine. Saved reports need the same evidence boundary.
+      for (const [label, snapshot] of [
+        ["Before", before],
+        ["After", after],
+      ] as const) {
+        if (!Array.isArray(snapshot.itemResults))
+          throw new Error(`${label} report is missing its full item evidence.`);
+        if (snapshot.inputCoherence?.status === "FAIL")
+          throw new Error(
+            `${label} snapshot files are incoherent: ${snapshot.inputCoherence.reason || "the saved XLSX and JSON do not describe a coherent snapshot"}.`,
+          );
+      }
       const sameAttempt =
         job.before.data.generation >= 0 &&
         job.before.data.generation === job.after.data.generation;
@@ -285,6 +298,13 @@ export function createWorkflows(xmlService: unknown) {
         sameAttempt &&
         before.snapshotContext?.mode === "RAW_INGESTION" &&
         after.snapshotContext?.mode !== "RAW_INGESTION";
+      if (
+        rawToCurrent &&
+        (!job.before.data.hashes?.json || !job.after.data.hashes?.json)
+      )
+        throw new Error(
+          "Raw-to-current lifecycle attribution requires the full capture JSON for both snapshots, alongside their authoritative XLSX exports. Re-run the incomplete comparison with both files.",
+        );
       const scope = rawToCurrent
         ? "SAME_ATTEMPT_RAW_TO_CURRENT"
         : sameAttempt

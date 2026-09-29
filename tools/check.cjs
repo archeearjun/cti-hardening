@@ -1,5 +1,8 @@
 // Run retained regression assertions against the maintained engine. The archived
 // shell supplies Google-only fixtures; every active engine function is replaced.
+// Archive-only functions and old UI contracts still run here. Passing this
+// hybrid suite does not prove application feature parity; audit:parity accounts
+// for those omissions independently.
 const fs=require('node:fs'), vm=require('node:vm'), path=require('node:path');
 const root=path.resolve(__dirname,'../archive/apps-script');
 const c=require('./legacy-reference.cjs');

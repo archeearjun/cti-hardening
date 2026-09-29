@@ -68,6 +68,15 @@ historical assertions against the current engine and independently compares a
 complete source/XLSX/JSON workflow with the frozen reference. DOM simulations
 exercise the current extractor functions by syntax/name, independent of file order.
 
+The historical harness also retains archive-only functions and old UI contract
+tests. Its passing count is not a claim that those workflows exist in Cloudflare.
+Read [the full Code.gs audit](audits/code-gs-audit.md) before claiming parity.
+`npm run audit:parity` accounts for every original function/constant/override and
+declared capability, compares active rule bodies independently of that harness,
+and checks both extractor programs including their execution code. The ledger
+deliberately records unresolved gaps. Intentional future rule changes require an
+explicit reviewed disposition; do not edit the frozen archive to pass parity.
+
 `main` is the source of truth. Its passing GitHub checks forward the exact commit
 to `codex/typescript-pages-migration`, the existing Cloudflare production branch.
 The forward is non-forced and fails on divergence rather than overwriting work.

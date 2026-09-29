@@ -14,6 +14,10 @@ export const CTI_RELEASE_REGISTRY_ = Object.freeze({
   macmillanTimeModel:'m2-leaf-evidence-20260911'
 });
 
+// Historical engine contract retained for old result/fixture compatibility.
+// These flags are NOT a Cloudflare product-availability manifest. Several old
+// operational workflows are missing; see docs/audits/code-gs-audit.md and its
+// exhaustive parity ledger before reporting feature availability.
 export const CTI_FEATURE_MANIFEST_ = Object.freeze({
   sourcePackage:{imscc:true,zip:true,xml:true,fingerprint:true,qti:true,pdfEvidence:true,preflight:true,ifs:true,advancedMetrics:true,googleSheetExport:true},
   operations:{workQueue:true,campaignFilters:true,catalogSync:true,ownerResolution:true,auditExistingShellFirst:true,stateMachine:true},

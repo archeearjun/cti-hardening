@@ -1,0 +1,4074 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "01d7d0d8f663509e2b290c99e396ec098003b77a",
+  "archiveSha256": "90b8abdda8ed160331734ec6924d1937e83ee55458255c78761c3ffb2beffa03",
+  "verdict": "NOT_FEATURE_COMPLETE",
+  "scope": "All top-level Code.gs functions, late overrides, constants, declared capability flags and both embedded extractor programs. Available means implemented/source-traced, not certified against every live course or production account.",
+  "groups": {
+    "bootstrap": {
+      "status": "partial",
+      "paths": [
+        "web/App.tsx",
+        "server/api.ts",
+        "src/engine/release.js"
+      ],
+      "note": "React and /api/session replace HtmlService and bootstrap. Build timestamps and a truthful application-wide capability/health view are not implemented; the copied engine manifest describes the old product, not current availability."
+    },
+    "extractor-endpoint": {
+      "status": "replaced",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "src/engine/extractor-delivery.js"
+      ],
+      "note": "Local generated extractor delivery replaces google.script.run. Full helper, literal-constant and execution-code parity checked independently."
+    },
+    "unused-helpers": {
+      "status": "archive-only-unused",
+      "paths": [],
+      "note": "No call sites in the archived production Code.gs/Index.html. Retained only as reference helpers; not counted as working application features."
+    },
+    "auth": {
+      "status": "replaced",
+      "paths": [
+        "server/api.ts",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Cloudflare Access identity and editor/admin authorization replace Apps Script session/properties. Local mode is explicitly per-browser."
+    },
+    "workbook-registration": {
+      "status": "replaced",
+      "paths": [
+        "src/domain/workflows.ts",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "In-memory registered workbook IDs and selected saved workbooks replace Drive IDs and user properties."
+    },
+    "metadata-validation": {
+      "status": "partial",
+      "paths": [
+        "src/domain/workspace-validation.ts",
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Record shape and UI status choices are validated, but the old server-side status/date/Drive-link restrictions and date/link editing are not equivalent."
+    },
+    "versions": {
+      "status": "replaced",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "server/api.ts"
+      ],
+      "note": "Versioned saves use IndexedDB transactions or atomic D1 conditional commits with immutable audit snapshots."
+    },
+    "semantic-package-identity": {
+      "status": "gap",
+      "paths": [],
+      "note": "The new-record path uses a random UUID without the old partner+semantic-filename duplicate guard, download-suffix normalization, or DEV/B0RL normalization."
+    },
+    "analytics-cache": {
+      "status": "replaced",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "src/domain/workflows.ts"
+      ],
+      "note": "Portfolio metrics are recalculated from refreshed records; no Apps Script cache needs invalidation."
+    },
+    "catalog-sync": {
+      "status": "gap",
+      "paths": [],
+      "note": "No current NAIT/Marshall catalog input, matching or catalog-driven owner/title refresh. Exported Catalog_Map tables remain in migration backups only."
+    },
+    "planner-queue": {
+      "status": "gap",
+      "paths": [],
+      "note": "The current Work queue is a course list and evidence checklist. It does not implement planner date campaigns, title-slot reconciliation, owner disambiguation, audit-first next actions, or the original workflow state machine."
+    },
+    "work-state": {
+      "status": "partial",
+      "paths": [
+        "src/domain/legacy-import.ts",
+        "web/FullWorkspace.tsx",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Checklist booleans and notes can be imported/edited/versioned. Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map states remain in legacyRow without a current state-machine UI."
+    },
+    "scan-history": {
+      "status": "partial",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "src/domain/legacy-import.ts",
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Full source record revisions are retained and shared revisions can be reopened; legacy scan history remains in the backup. Queue freshness checks and source-scan IDs in automatic longitudinal metadata are not ported."
+    },
+    "storage": {
+      "status": "replaced",
+      "paths": [
+        "server/api.ts",
+        "server/schema.sql",
+        "src/domain/workspace-store.ts",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Checksummed chunked D1 records/local IndexedDB and the loss-aware migration importer replace spreadsheet discovery, tree cells/chunks and schema migration. No Google runtime service is required."
+    },
+    "generation-memory": {
+      "status": "partial",
+      "paths": [
+        "src/domain/workflows.ts",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "First valid raw baseline, generation isolation, provenance memory, exact replay and stage guards are implemented. The old explicit import-event provenance, destination-ID-change warnings, parent/source-scan links and automatic stage/reimport summary deltas are not fully implemented."
+    },
+    "lineage-repair": {
+      "status": "gap",
+      "paths": [],
+      "note": "No operator-confirmed, conservative repair path for the old v6.12.0 repeated-export misclassification. Imported original metadata is retained, not repaired."
+    },
+    "saved-history": {
+      "status": "replaced",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "src/domain/workspace-store.ts",
+        "server/api.ts",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Full immutable reports can be saved, reopened, downloaded and compared. Original lineage/review metadata is retained in imports; specialized repair/longitudinal features are separately marked partial/gap."
+    },
+    "duplicate-cleanup": {
+      "status": "gap",
+      "paths": [],
+      "note": "No preview/token-checked conflict-aware merge/archive workflow. Original code chose a stable survivor UUID, kept newest scan evidence, preserved metadata and archived pre-merge rows; keeping this code in archive does not provide the feature."
+    },
+    "telemetry": {
+      "status": "gap",
+      "paths": [],
+      "note": "No equivalent persisted total-visit/last-visit counter. It is not evidence logic, but was an available feature."
+    },
+    "package-writes": {
+      "status": "partial",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "src/domain/workspace-store.ts",
+        "server/api.ts"
+      ],
+      "note": "Save, rescan and edit owner/partner/status work with version checks and preserved revisions. Semantic duplicate prevention and the complete old metadata editing/validation contract are missing."
+    },
+    "package-delete": {
+      "status": "gap",
+      "paths": [],
+      "note": "No delete/archive method in WorkspaceStore, corresponding API route, or current catalogue action."
+    },
+    "portfolio": {
+      "status": "partial",
+      "paths": [
+        "src/domain/workflows.ts",
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Core IFS, workload estimate and profile/cosine functions are retained. Partner aggregate totals, catalog owner refresh and duplicate summary are not ported."
+    },
+    "source-analysis": {
+      "status": "replaced",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Browser package scanner invokes the retained analyzeImsccCore_ with explicit byte/XML services."
+    },
+    "manifest-export": {
+      "status": "gap",
+      "paths": [],
+      "note": "Source scan JSON is downloadable, but no equivalent Level/Name/Assignment_Tool/System Format/Ingestion Status manifest table export exists. A Google dependency is not necessary to restore an XLSX equivalent."
+    },
+    "workbook-io": {
+      "status": "replaced",
+      "paths": [
+        "src/adapters/workbook.ts",
+        "src/domain/workflows.ts",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Local XLSX adapters replace Drive conversion/temp files. Scan/split/validation rules are unchanged; Spec downloads retain export, Module Context, Time Policy and Excluded Modules sheets."
+    },
+    "preflight": {
+      "status": "gap",
+      "paths": [],
+      "note": "The deterministic no-valid-items / core-empty-folders / >50-LTI preflight verdict and explanation are not exposed. Source statistics alone are not an equivalent."
+    },
+    "advisory": {
+      "status": "gap",
+      "paths": [],
+      "note": "No replacement for Gemini advisory triage or the bounded deterministic deep-architecture summary/advisory endpoint. Advisory text must remain separate from evidence verdicts."
+    },
+    "health": {
+      "status": "gap",
+      "paths": [],
+      "note": "No current operator-facing aggregated registry/extractor/storage/runtime health check. CI and /api/session cover only parts of the old feature."
+    },
+    "lifecycle": {
+      "status": "replaced",
+      "paths": [
+        "src/domain/workflows.ts",
+        "src/engine/lifecycle/comparison.js",
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Saved report pairs replace four-file entry. Same-generation raw/current uses the identical delta engine; other comparisons are explicitly observational. This audit restores entry-point incoherence and full-capture checks. Automatic lineage deltas remain a separate partial feature."
+    },
+    "runtime-inventory": {
+      "status": "partial",
+      "paths": [
+        "src/domain/legacy-import.ts",
+        "src/domain/workflows.ts",
+        "src/engine/capture/normalization.js"
+      ],
+      "note": "Saved external SCORM/Rise evidence is imported and consumed; source-package/live-source runtime policies remain. No fresh inventory refresh/import workflow; missing inventory is explicitly warned."
+    },
+    "comparison-entry": {
+      "status": "replaced",
+      "paths": [
+        "src/domain/workflows.ts",
+        "src/engine/comparison/course.js"
+      ],
+      "note": "Explicit per-comparison workbook/source/history/runtime services call the preserved full QA core. Full result JSON and owner report are saved."
+    },
+    "remediation": {
+      "status": "replaced",
+      "paths": [
+        "src/reporting/owner-report.js",
+        "src/reporting/owner-tasks.js",
+        "web/OwnerEvidence.tsx",
+        "web/OwnerActionCard.tsx"
+      ],
+      "note": "The old deterministic HTML category list is replaced by complete owner reports and per-item actions, including missing, exclusions, repackaging, manual removal, mutations, partial/moved/unverified and extras. Core owner-action decisions are preserved."
+    },
+    "migration-export": {
+      "status": "archive-migration-only",
+      "paths": [
+        "archive/apps-script/migration-export.js",
+        "src/domain/legacy-import.ts",
+        "src/domain/migration-backup.ts"
+      ],
+      "note": "The old exporter is needed once in the old Google deployment. Current Cloudflare supports workspace backups and imports complete original tables/chunks; exported but unused data is not counted as a working feature."
+    }
+  },
+  "functions": [
+    {
+      "name": "ctiCanonicalCourseraExtractorSource_",
+      "line": 55,
+      "status": "adapted",
+      "path": "src/engine/extractor-delivery.js",
+      "effectiveOverride": false,
+      "note": "Generated native ESM console source replaces base64 literals.",
+      "reviewedCurrentHash": "d7438f25e81ed26f5f109a7298e443e4b03ce1fa826fe0bf12bc330fb3ac7311"
+    },
+    {
+      "name": "ctiCanonicalBrightspaceExtractorSource_",
+      "line": 59,
+      "status": "adapted",
+      "path": "src/engine/extractor-delivery.js",
+      "effectiveOverride": false,
+      "note": "Generated native ESM console source replaces base64 literals.",
+      "reviewedCurrentHash": "74184f3ce52c13a94462b2462991553268c2e72cc6c7d3a98c4b001ef108bbfd"
+    },
+    {
+      "name": "getCtiBootstrap",
+      "line": 63,
+      "group": "bootstrap",
+      "status": "partial"
+    },
+    {
+      "name": "getCtiFeatureManifest",
+      "line": 74,
+      "group": "bootstrap",
+      "status": "partial"
+    },
+    {
+      "name": "getCtiExtractor",
+      "line": 79,
+      "group": "extractor-endpoint",
+      "status": "replaced"
+    },
+    {
+      "name": "ctiExtractorDelivery_",
+      "line": 84,
+      "status": "adapted",
+      "path": "src/engine/extractor-delivery.js",
+      "effectiveOverride": false,
+      "note": "Only the stale-delivery error text changes to describe rebuilding the Cloudflare app.",
+      "reviewedCurrentHash": "9a238a5943a4af7ee053a812ad08e027b10d40be96512b637c475bd47ffdaa4d"
+    },
+    {
+      "name": "ctiEvidenceEnvelope_",
+      "line": 94,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "setBuildTimestamp",
+      "line": 108,
+      "group": "bootstrap",
+      "status": "partial"
+    },
+    {
+      "name": "getDeploymentTimestamp",
+      "line": 115,
+      "group": "bootstrap",
+      "status": "partial"
+    },
+    {
+      "name": "doGet",
+      "line": 120,
+      "group": "bootstrap",
+      "status": "partial"
+    },
+    {
+      "name": "authorize_",
+      "line": 127,
+      "group": "auth",
+      "status": "replaced"
+    },
+    {
+      "name": "registerWorkflowFileId_",
+      "line": 155,
+      "group": "workbook-registration",
+      "status": "replaced"
+    },
+    {
+      "name": "validateWorkflowFileId_",
+      "line": 164,
+      "group": "workbook-registration",
+      "status": "replaced"
+    },
+    {
+      "name": "validateDateOnly_",
+      "line": 173,
+      "group": "metadata-validation",
+      "status": "partial"
+    },
+    {
+      "name": "validateStatus_",
+      "line": 181,
+      "group": "metadata-validation",
+      "status": "partial"
+    },
+    {
+      "name": "validateDriveLink_",
+      "line": 187,
+      "group": "metadata-validation",
+      "status": "partial"
+    },
+    {
+      "name": "validateUuid_",
+      "line": 196,
+      "status": "preserved",
+      "path": "src/engine/validation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "nonNegativeInteger_",
+      "line": 204,
+      "status": "preserved",
+      "path": "src/engine/validation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "versionToken_",
+      "line": 209,
+      "group": "versions",
+      "status": "replaced"
+    },
+    {
+      "name": "assertCurrentVersion_",
+      "line": 215,
+      "group": "versions",
+      "status": "replaced"
+    },
+    {
+      "name": "sheetSafeText_",
+      "line": 221,
+      "status": "preserved",
+      "path": "src/engine/validation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "normalizeFileName_",
+      "line": 226,
+      "group": "semantic-package-identity",
+      "status": "gap"
+    },
+    {
+      "name": "canonicalDisplayFileName_",
+      "line": 246,
+      "group": "semantic-package-identity",
+      "status": "gap"
+    },
+    {
+      "name": "invalidateAnalyticsCache_",
+      "line": 259,
+      "group": "analytics-cache",
+      "status": "replaced"
+    },
+    {
+      "name": "getMatchKey_",
+      "line": 271,
+      "group": "semantic-package-identity",
+      "status": "gap"
+    },
+    {
+      "name": "packageSemanticKey_",
+      "line": 289,
+      "group": "semantic-package-identity",
+      "status": "gap"
+    },
+    {
+      "name": "updateCatalogMapSheet_",
+      "line": 295,
+      "group": "catalog-sync",
+      "status": "gap"
+    },
+    {
+      "name": "loadCatalogMap_",
+      "line": 311,
+      "group": "catalog-sync",
+      "status": "gap"
+    },
+    {
+      "name": "syncCatalogsFromDrive",
+      "line": 325,
+      "group": "catalog-sync",
+      "status": "gap"
+    },
+    {
+      "name": "workNormalizeHeader_",
+      "line": 390,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workHeaderIndex_",
+      "line": 394,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workOwnerKey_",
+      "line": 404,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workDateOnly_",
+      "line": 408,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workValidateDateOnly_",
+      "line": 419,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workCampaignId_",
+      "line": 425,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workDisplayCode_",
+      "line": 430,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workNumberOrZero_",
+      "line": 436,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "workScormCount_",
+      "line": 441,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workBuildNaitCatalog_",
+      "line": 449,
+      "group": "catalog-sync",
+      "status": "gap"
+    },
+    {
+      "name": "workBuildMarshallCatalog_",
+      "line": 494,
+      "group": "catalog-sync",
+      "status": "gap"
+    },
+    {
+      "name": "workBuildScormIndex_",
+      "line": 535,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workResolveCatalogCandidate_",
+      "line": 569,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workExtractCatalogKeysFromText_",
+      "line": 586,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workReadPlannerGroups_",
+      "line": 600,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workPackageMetricsFromRow_",
+      "line": 674,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workPackageMetricsFromPayload_",
+      "line": 713,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "getPackageScanHistorySheet_",
+      "line": 739,
+      "group": "scan-history",
+      "status": "partial"
+    },
+    {
+      "name": "appendPackageScanHistory_",
+      "line": 752,
+      "group": "scan-history",
+      "status": "partial"
+    },
+    {
+      "name": "loadLatestPackageScanHistoryMap_",
+      "line": 772,
+      "group": "scan-history",
+      "status": "partial"
+    },
+    {
+      "name": "loadLatestRawQaMap_",
+      "line": 796,
+      "group": "scan-history",
+      "status": "partial"
+    },
+    {
+      "name": "workRedoPolicyDefinition_",
+      "line": 827,
+      "status": "preserved",
+      "path": "src/engine/work/policy.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workPathRoot_",
+      "line": 844,
+      "status": "preserved",
+      "path": "src/engine/work/policy.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workSourceItemPolicy_",
+      "line": 851,
+      "status": "preserved",
+      "path": "src/engine/work/policy.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workExtraItemPolicy_",
+      "line": 869,
+      "status": "preserved",
+      "path": "src/engine/work/policy.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workBuildRawQaOperationalPolicy_",
+      "line": 903,
+      "status": "preserved",
+      "path": "src/engine/work/policy.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyIngestionActionabilityPolicy_",
+      "line": 1059,
+      "status": "preserved",
+      "path": "src/engine/work/policy.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/work/policy.js"
+    },
+    {
+      "name": "workRawQaRecommendation_",
+      "line": 1097,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workIsImportOnlyAssignment_",
+      "line": 1142,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workHasScormFlag_",
+      "line": 1148,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workHasSourceRuntimeFlag_",
+      "line": 1152,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workHasExistingCourseraShell_",
+      "line": 1159,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workEvidenceChecklistSteps_",
+      "line": 1169,
+      "status": "preserved",
+      "path": "src/engine/work/checklist.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workValidateEvidenceChecklistPatch_",
+      "line": 1184,
+      "status": "preserved",
+      "path": "src/engine/work/checklist.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workNormalizeEvidenceChecklist_",
+      "line": 1196,
+      "status": "preserved",
+      "path": "src/engine/work/checklist.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "getWorkStateSheet_",
+      "line": 1209,
+      "group": "work-state",
+      "status": "partial"
+    },
+    {
+      "name": "loadWorkStateMap_",
+      "line": 1227,
+      "group": "work-state",
+      "status": "partial"
+    },
+    {
+      "name": "workDefaultState_",
+      "line": 1256,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workValidateStatePatch_",
+      "line": 1265,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "updateRedoWorkItemState",
+      "line": 1292,
+      "group": "work-state",
+      "status": "partial"
+    },
+    {
+      "name": "workBuildPackageIndex_",
+      "line": 1346,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workPlannerEvidenceForItem_",
+      "line": 1359,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "workNextAction_",
+      "line": 1376,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "getRedoWorkQueueDb",
+      "line": 1427,
+      "group": "planner-queue",
+      "status": "gap"
+    },
+    {
+      "name": "getDatabaseSheet_",
+      "line": 1594,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "findPackageSheet_",
+      "line": 1648,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "hasPackageHeaders_",
+      "line": 1658,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "findBestLegacyDatabase_",
+      "line": 1664,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "initializePackageSheet_",
+      "line": 1683,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "getTreeStoreSheet_",
+      "line": 1689,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "removeStoredCourseTree_",
+      "line": 1700,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "prepareCourseTreeCell_",
+      "line": 1717,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "loadTreeStoreMap_",
+      "line": 1732,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "resolveCourseTreeJson_",
+      "line": 1752,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "getQaRunsSheet_",
+      "line": 1765,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "getQaRunChunksSheet_",
+      "line": 1806,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "qaHexDigest_",
+      "line": 1817,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSha256Base64_",
+      "line": 1824,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaExtractorIdentityFromResult_",
+      "line": 1832,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaCourseIdFromSnapshot_",
+      "line": 1844,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaRunHeaderMap_",
+      "line": 1851,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "qaLatestSourceScanForUuid_",
+      "line": 1859,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaNormalizeRequestedGeneration_",
+      "line": 1878,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaSnapshotStageFromResult_",
+      "line": 1886,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaLineageRows_",
+      "line": 1902,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaRequestedGenerationFromMemory_",
+      "line": 1928,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaCompactIngestionIntelligence_",
+      "line": 1942,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMergeGenerationIngestionIntelligence_",
+      "line": 1975,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSelectCanonicalRawBaselineRow_",
+      "line": 2021,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "qaPhysicalDestinationIds_",
+      "line": 2033,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaObsoleteAggregateStageGuard_",
+      "line": 2044,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaIsExactRawEvidenceReplay_",
+      "line": 2065,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/generation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplySnapshotStageGuard_",
+      "line": 2074,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/lineage.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLoadGenerationEvidenceContext_",
+      "line": 2128,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaLineageItemKey_",
+      "line": 2204,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/lineage.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplySameGenerationManualAttribution_",
+      "line": 2209,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/lineage.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaResolveLineage_",
+      "line": 2284,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaRepeatedExportRepairCandidates_",
+      "line": 2353,
+      "group": "lineage-repair",
+      "status": "gap"
+    },
+    {
+      "name": "qaRepairRepeatedExportLineage_",
+      "line": 2385,
+      "group": "lineage-repair",
+      "status": "gap"
+    },
+    {
+      "name": "repairQaRepeatedExportLineage",
+      "line": 2417,
+      "group": "lineage-repair",
+      "status": "gap"
+    },
+    {
+      "name": "qaBuildLongitudinalDelta_",
+      "line": 2433,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaLoadRunPayloadById_",
+      "line": 2462,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "qaItemEvolutionDelta_",
+      "line": 2476,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "qaBuildStageDelta_",
+      "line": 2505,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "persistQaRun_",
+      "line": 2514,
+      "group": "generation-memory",
+      "status": "partial"
+    },
+    {
+      "name": "getQaRunHistory",
+      "line": 2593,
+      "group": "saved-history",
+      "status": "replaced"
+    },
+    {
+      "name": "getQaStoredRun",
+      "line": 2638,
+      "group": "saved-history",
+      "status": "replaced"
+    },
+    {
+      "name": "removeTreeCellStorage_",
+      "line": 2687,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "migratePackageSheetToUuid_",
+      "line": 2692,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "normalizePartnerName_",
+      "line": 2731,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/history.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "duplicateDigest_",
+      "line": 2732,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateTimestampNumber_",
+      "line": 2733,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateDisplayTimestamp_",
+      "line": 2734,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateCellIsBlank_",
+      "line": 2735,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateComparableValue_",
+      "line": 2736,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateScanFingerprint_",
+      "line": 2738,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "chooseOldestDuplicateRecord_",
+      "line": 2745,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "chooseLatestDuplicateRecord_",
+      "line": 2746,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "mergeDuplicateMetadata_",
+      "line": 2748,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "buildDuplicatePlan_",
+      "line": 2765,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateGroupForClient_",
+      "line": 2798,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "getDuplicateEntryPreview",
+      "line": 2802,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "getDuplicateArchiveSheet_",
+      "line": 2812,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "duplicateArchiveRow_",
+      "line": 2829,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "archiveDuplicateEntries",
+      "line": 2834,
+      "group": "duplicate-cleanup",
+      "status": "gap"
+    },
+    {
+      "name": "recordSiteVisit",
+      "line": 2890,
+      "group": "telemetry",
+      "status": "gap"
+    },
+    {
+      "name": "savePackageAuditToDb",
+      "line": 2911,
+      "group": "package-writes",
+      "status": "partial"
+    },
+    {
+      "name": "updatePackageInDb",
+      "line": 2966,
+      "group": "package-writes",
+      "status": "partial"
+    },
+    {
+      "name": "updatePackageMetadataInDb",
+      "line": 2999,
+      "group": "package-writes",
+      "status": "partial"
+    },
+    {
+      "name": "deletePackageFromDb",
+      "line": 3027,
+      "group": "package-delete",
+      "status": "gap"
+    },
+    {
+      "name": "getPartnerAnalyticsDb",
+      "line": 3048,
+      "group": "portfolio",
+      "status": "partial"
+    },
+    {
+      "name": "fetchPackageStructureDb",
+      "line": 3122,
+      "group": "storage",
+      "status": "replaced"
+    },
+    {
+      "name": "countEmptyFolders_",
+      "line": 3145,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "computeRiskMetrics_",
+      "line": 3155,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "parseSourceEvidence_",
+      "line": 3173,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "basicSourceFileEvidence_",
+      "line": 3192,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "sourcePayloadForResource_",
+      "line": 3208,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "analyzeImsccFromXmlString",
+      "line": 3236,
+      "group": "source-analysis",
+      "status": "replaced"
+    },
+    {
+      "name": "analyzeImsccCore_",
+      "line": 3242,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "validateManifestItems_",
+      "line": 3378,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "resolveHiddenPlugins_",
+      "line": 3385,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "buildCourseTree_",
+      "line": 3401,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "processNode_",
+      "line": 3425,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "sanitizeAndFlattenTree_",
+      "line": 3435,
+      "status": "preserved",
+      "path": "src/engine/source/manifest.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "exportMasterManifestAsGoogleSheet",
+      "line": 3450,
+      "group": "manifest-export",
+      "status": "gap"
+    },
+    {
+      "name": "ctiDriveConversionRetryable_",
+      "line": 3476,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "ctiDriveImportMatches_",
+      "line": 3485,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "ctiImportXlsxAsSheet_",
+      "line": 3503,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "uploadAndScanMaster",
+      "line": 3557,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "uploadAndScanMasterCore_",
+      "line": 3563,
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "macmillanTimePolicyRows_",
+      "line": 3621,
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "macmillanEstimateItemTime_",
+      "line": 3641,
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "macmillanSafeMatrix_",
+      "line": 3678,
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "macmillanPersistValidatedTab_",
+      "line": 3686,
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "createTab",
+      "line": 3693,
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "executeDynamicNSplitAndScan",
+      "line": 3707,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "executeDynamicNSplitAndScanCore_",
+      "line": 3713,
+      "status": "preserved",
+      "path": "src/engine/workbook/split.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "exportSpecAsXlsxBlob",
+      "line": 3859,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "qaCompareGptOutput",
+      "line": 3907,
+      "group": "workbook-io",
+      "status": "replaced"
+    },
+    {
+      "name": "qaCompareGptOutputCore_",
+      "line": 3913,
+      "status": "preserved",
+      "path": "src/engine/workbook/validation.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "isAdministrativeTitle_",
+      "line": 4274,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "countCoreEmptyFolders_",
+      "line": 4282,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "deterministicPreflightMessage_",
+      "line": 4294,
+      "group": "preflight",
+      "status": "gap"
+    },
+    {
+      "name": "callGeminiText_",
+      "line": 4305,
+      "group": "advisory",
+      "status": "gap"
+    },
+    {
+      "name": "runPreFlightInspector",
+      "line": 4339,
+      "group": "preflight",
+      "status": "gap"
+    },
+    {
+      "name": "generateAiRiskReportDb",
+      "line": 4354,
+      "group": "advisory",
+      "status": "gap"
+    },
+    {
+      "name": "executeDeepArchitectureAudit",
+      "line": 4364,
+      "group": "advisory",
+      "status": "gap"
+    },
+    {
+      "name": "runCTISystemHealthCheck",
+      "line": 4413,
+      "group": "health",
+      "status": "gap"
+    },
+    {
+      "name": "predictLaborHours",
+      "line": 4462,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "calculateCosineSimilarity",
+      "line": 4474,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "vectorizeCourse",
+      "line": 4483,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCleanText_",
+      "line": 4515,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCleanName_",
+      "line": 4519,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMatchTitleKey_",
+      "line": 4527,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaPathParts_",
+      "line": 4536,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaTokenSet_",
+      "line": 4543,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaJaccard_",
+      "line": 4551,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "levenshtein_",
+      "line": 4562,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "fuzzyMatchScore_",
+      "line": 4588,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaPathSimilarity_",
+      "line": 4600,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "normalizeCourseraType_",
+      "line": 4610,
+      "status": "preserved",
+      "path": "src/engine/matching/text.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaTypesCompatible_",
+      "line": 4622,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFileName_",
+      "line": 4632,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssetKey_",
+      "line": 4639,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLooksLikeAsset_",
+      "line": 4643,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssetDescriptor_",
+      "line": 4647,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaUniqueAssetDescriptors_",
+      "line": 4698,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaUniqueAssets_",
+      "line": 4713,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "qaPerceptualHashSimilarity_",
+      "line": 4717,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssetSimilarity_",
+      "line": 4725,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeUrl_",
+      "line": 4766,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaIsTechnicalSchemaUrl_",
+      "line": 4778,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaExternalLinks_",
+      "line": 4784,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssetEvidenceCandidates_",
+      "line": 4797,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindAssetEvidence_",
+      "line": 4806,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindAsset_",
+      "line": 4823,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindLink_",
+      "line": 4827,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemCanonicalAssetName_",
+      "line": 4845,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemInformativeTokens_",
+      "line": 4861,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemRoleSignature_",
+      "line": 4884,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemCandidateIsConcrete_",
+      "line": 4894,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemGenericExpectedAsset_",
+      "line": 4917,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemGenericMethodIsSufficient_",
+      "line": 4932,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemDirectionalCoverage_",
+      "line": 4940,
+      "status": "preserved",
+      "path": "src/engine/matching/assets.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemSemanticAssetEvidence_",
+      "line": 4961,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCrossItemAssetMatchIsStrong_",
+      "line": 5008,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCrossItemAssetEvidence_",
+      "line": 5015,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCrossItemTitleAssetEvidence_",
+      "line": 5058,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCrossItemLinkEvidence_",
+      "line": 5110,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCrossItemPayloadEvidence_",
+      "line": 5137,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCrossItemSemanticRepackagingEvidence_",
+      "line": 5244,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/matching/recovery.js"
+    },
+    {
+      "name": "qaInteractionIdentityKey_",
+      "line": 5314,
+      "status": "preserved",
+      "path": "src/engine/matching/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCrossItemStructuralRepackagingEvidence_",
+      "line": 5320,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAugmentCrossItemRecoveryWithSemanticEvidence_",
+      "line": 5381,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSmartIngestionReportLooksValid_",
+      "line": 5431,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSmartIngestionClaimExcerpt_",
+      "line": 5438,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaParseSmartIngestionIntelligence_",
+      "line": 5443,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/provenance/claims.js"
+    },
+    {
+      "name": "qaIngestionAssetEventKind_",
+      "line": 5587,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeIngestionClaimScope_",
+      "line": 5601,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaClaimQuestionScope_",
+      "line": 5630,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSmartIngestionClaimsForSource_",
+      "line": 5646,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLocalizeNamedIngestionClaims_",
+      "line": 5698,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaExplicitExclusionClaimForSource_",
+      "line": 5727,
+      "status": "preserved",
+      "path": "src/engine/provenance/claims.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaOneToManyAggregateForSource_",
+      "line": 5739,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaDecorateOneToManyResult_",
+      "line": 5849,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplySmartIngestionProvenanceToResult_",
+      "line": 5931,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/provenance/transformations.js"
+    },
+    {
+      "name": "qaClaimResolutionKey_",
+      "line": 5970,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCurrentItemDeepObserved_",
+      "line": 5975,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCurrentAttachmentCandidates_",
+      "line": 5985,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCurrentAttachmentIsObserved_",
+      "line": 5998,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCurrentAttachmentEvidence_",
+      "line": 6003,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCurrentGeneratedBehaviorMatches_",
+      "line": 6024,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaFindCurrentItemBySubject_",
+      "line": 6060,
+      "status": "preserved",
+      "path": "src/engine/provenance/transformations.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaResolveHistoricalClaimCurrentState_",
+      "line": 6073,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaResolveHistoricalCurrentState_",
+      "line": 6262,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyCurrentStateResolutionsToResults_",
+      "line": 6309,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCourseraExcelItemTypes_",
+      "line": 6334,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaXlsxTraversalInventory_",
+      "line": 6338,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCaptureTraversalSummary_",
+      "line": 6356,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaQuestionImageFailures_",
+      "line": 6384,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaObservedEmptyAssessmentBody_",
+      "line": 6391,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaHasAiGraderPlaceholder_",
+      "line": 6404,
+      "status": "preserved",
+      "path": "src/engine/provenance/current-state.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessDestinationReadiness_",
+      "line": 6418,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyDestinationReadinessPolicy_",
+      "line": 6502,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaIsProvenHardPayloadLoss_",
+      "line": 6526,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaResolveSnapshotContext_",
+      "line": 6566,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessSnapshotCoherence_",
+      "line": 6634,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleSourceKey_",
+      "line": 6700,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecyclePublication_",
+      "line": 6706,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleContentStatus_",
+      "line": 6711,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleRubricCount_",
+      "line": 6715,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleRubricMismatch_",
+      "line": 6720,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleGoodVerdict_",
+      "line": 6725,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleBadRank_",
+      "line": 6729,
+      "status": "preserved",
+      "path": "src/engine/readiness/destination.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCompareLifecycleSnapshots_",
+      "line": 6735,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/comparison.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLifecycleSnapshotView_",
+      "line": 6900,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/comparison.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "runPostIngestionLifecycleQa",
+      "line": 6918,
+      "group": "lifecycle",
+      "status": "replaced"
+    },
+    {
+      "name": "qaBuildIntentionalExclusionResult_",
+      "line": 6962,
+      "status": "preserved",
+      "path": "src/engine/lifecycle/comparison.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBuildRepackagedMissingResult_",
+      "line": 6981,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceText_",
+      "line": 7116,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspacePath_",
+      "line": 7126,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceCourseCode_",
+      "line": 7131,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceFlattenTopics_",
+      "line": 7136,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceQuestionType_",
+      "line": 7164,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceQuizQuestion_",
+      "line": 7176,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "ctiDeclaredQuizCountFromText_",
+      "line": 7224,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceDeclaredQuizCount_",
+      "line": 7246,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceQuizToAssessment_",
+      "line": 7254,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceQuizCaptureSummary_",
+      "line": 7283,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceAssignmentBehavior_",
+      "line": 7296,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-assessment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceExternalComparableLinks_",
+      "line": 7321,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "qaParseBrightspaceGroundTruthCapture_",
+      "line": 7339,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceIdentityGuard_",
+      "line": 7412,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceTopicType_",
+      "line": 7424,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceMatchScore_",
+      "line": 7435,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMergeInteractiveSignals_",
+      "line": 7449,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyBrightspaceGroundTruth_",
+      "line": 7463,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyLiveSourceReviewPolicy_",
+      "line": 7600,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "flattenTreeForQa_",
+      "line": 7614,
+      "status": "preserved",
+      "path": "src/engine/source/brightspace-matching.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaHiddenDependencyKind_",
+      "line": 7685,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLegacyDiscussionText_",
+      "line": 7722,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyUnreachedCarrierGap_",
+      "line": 7747,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplySourceTextGap_",
+      "line": 7767,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLegacyAssignmentText_",
+      "line": 7784,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeBrightspaceAssignment_",
+      "line": 7802,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLegacyWebLinkEvidence_",
+      "line": 7812,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLaunchUrlComparisonKey_",
+      "line": 7830,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaExternalWebpageEvidence_",
+      "line": 7836,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaExternalWebpageTransformation_",
+      "line": 7881,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "normalizeSourceItem_",
+      "line": 7886,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMergeCourseraStructuredEvidence_",
+      "line": 7953,
+      "status": "preserved",
+      "path": "src/engine/source/content.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "normalizeAssignmentMetadataV61325",
+      "line": 8046,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeNativeAssignment_",
+      "line": 8080,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeIngestionFailure_",
+      "line": 8156,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaPayloadField_",
+      "line": 8190,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyReadingRecovery_",
+      "line": 8197,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaReadingCaptureReceipt_",
+      "line": 8259,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaObservedEmptyAssessmentReceipt_",
+      "line": 8271,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaReadingAttachmentLabels_",
+      "line": 8286,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaReadingAttachmentCoverage_",
+      "line": 8304,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaReadingAttachmentEvidence_",
+      "line": 8319,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaReadingEvidenceGap_",
+      "line": 8328,
+      "status": "preserved",
+      "path": "src/engine/assessment/assignment.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "normalizeCourseraItem_",
+      "line": 8341,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMatchScore_",
+      "line": 8450,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBuildGlobalMatchPlan_",
+      "line": 8467,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBehaviorComparison_",
+      "line": 8502,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": true,
+      "basePath": null,
+      "note": "Original declaration is wholly superseded by the archived final override, which does not call its base."
+    },
+    {
+      "name": "qaRuntimeReview_",
+      "line": 8545,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaExternalRuntimeEvidenceForPackage_",
+      "line": 8568,
+      "group": "runtime-inventory",
+      "status": "partial"
+    },
+    {
+      "name": "qaApplyExternalRuntimePolicy_",
+      "line": 8595,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBuildHiddenDependencyResult_",
+      "line": 8614,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCourseLevelFailure_",
+      "line": 8656,
+      "status": "preserved",
+      "path": "src/engine/capture/normalization.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCharNgramCosine_",
+      "line": 8679,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaTextPreview_",
+      "line": 8705,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaLearnerMarkupText_",
+      "line": 8718,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessmentText_",
+      "line": 8735,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaQuestionTypeKey_",
+      "line": 8739,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeQuestion_",
+      "line": 8753,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/assessment/questions.js"
+    },
+    {
+      "name": "qaNormalizeAssessment_",
+      "line": 8815,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaParseCourseraAssignmentText_",
+      "line": 8893,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaQuestionPromptSimilarity_",
+      "line": 9018,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/assessment/questions.js"
+    },
+    {
+      "name": "qaQuestionTypesCompatible_",
+      "line": 9027,
+      "status": "preserved",
+      "path": "src/engine/assessment/questions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessmentMathKey_",
+      "line": 9038,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessmentFieldSimilarity_",
+      "line": 9063,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/assessment/answers.js"
+    },
+    {
+      "name": "qaAnswerSetSimilarity_",
+      "line": 9084,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "qaAssessmentLabelKey_",
+      "line": 9104,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNormalizeOptionSemantic_",
+      "line": 9113,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaOptionSemanticSimilarity_",
+      "line": 9125,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaOptionSetSimilarity_",
+      "line": 9156,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCorrectOptionModels_",
+      "line": 9178,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "ctiSeparateJoinedOptionFeedback_",
+      "line": 9184,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSeparateCourseraOptionFeedback_",
+      "line": 9232,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "ctiOptionLabelLooksLikeFeedback_",
+      "line": 9247,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "ctiOptionFeedbackRisk_",
+      "line": 9251,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "ctiGuardOptionEvidence_",
+      "line": 9274,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCompareAssessmentQuestion_",
+      "line": 9282,
+      "status": "preserved",
+      "path": "src/engine/assessment/answers.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaStructuredAssessmentComparison_",
+      "line": 9386,
+      "status": "preserved",
+      "path": "src/engine/assessment/comparison.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBestSemanticSourceField_",
+      "line": 9591,
+      "status": "preserved",
+      "path": "src/engine/assessment/comparison.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaTextComparison_",
+      "line": 9722,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSemanticTokenList_",
+      "line": 9936,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaDirectionalSemanticSimilarity_",
+      "line": 9942,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNativeRubricSemanticText_",
+      "line": 9972,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNativePromptSemanticText_",
+      "line": 9986,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNativeAssignmentSemanticText_",
+      "line": 9995,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSourcePdfComparisonSet_",
+      "line": 10006,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBestDocumentSemanticMatch_",
+      "line": 10023,
+      "status": "preserved",
+      "path": "src/engine/matching/payload.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNativeRubricAnchorEvidence_",
+      "line": 10044,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaNativeTransformationComparison_",
+      "line": 10090,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaQuestionMediaAction_",
+      "line": 10253,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaConfirmedEmptyComparison_",
+      "line": 10266,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessmentAnswerOnlyGap_",
+      "line": 10274,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessmentMediaOnlyGap_",
+      "line": 10292,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssessmentAnswerEvidenceSide_",
+      "line": 10308,
+      "status": "preserved",
+      "path": "src/engine/assessment/rubrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMathRendererFormula_",
+      "line": 10314,
+      "status": "preserved",
+      "path": "src/engine/reporting/actions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaOwnerActionForResult_",
+      "line": 10324,
+      "status": "preserved",
+      "path": "src/engine/reporting/actions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "workApplyPolicyAwareOperatorGuidance_",
+      "line": 10600,
+      "status": "preserved",
+      "path": "src/engine/reporting/actions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaClassifyExtraItem_",
+      "line": 10627,
+      "status": "preserved",
+      "path": "src/engine/reporting/actions.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaEvidenceStrength_",
+      "line": 10684,
+      "status": "preserved",
+      "path": "src/engine/reporting/evidence.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "compareItemFidelity_",
+      "line": 10779,
+      "status": "preserved",
+      "path": "src/engine/comparison/item.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/comparison/item.js"
+    },
+    {
+      "name": "qaBuildSummary_",
+      "line": 11080,
+      "status": "preserved",
+      "path": "src/engine/comparison/item.js",
+      "effectiveOverride": true,
+      "basePath": "src/engine/comparison/item.js"
+    },
+    {
+      "name": "qaCourseraCaptureReadiness_",
+      "line": 11128,
+      "status": "preserved",
+      "path": "src/engine/capture/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMergeCourseraPayload_",
+      "line": 11168,
+      "status": "preserved",
+      "path": "src/engine/capture/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAssertNotDiagnosticCapture_",
+      "line": 11224,
+      "status": "preserved",
+      "path": "src/engine/capture/recovery.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "runPostIngestionQa",
+      "line": 11231,
+      "group": "comparison-entry",
+      "status": "replaced"
+    },
+    {
+      "name": "runPostIngestionQaCore_",
+      "line": 11237,
+      "status": "preserved",
+      "path": "src/engine/comparison/course.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "tokenJaccardSimilarity_",
+      "line": 11868,
+      "group": "unused-helpers",
+      "status": "archive-only-unused"
+    },
+    {
+      "name": "synthesizeQaRemediationPlanDb",
+      "line": 11889,
+      "group": "remediation",
+      "status": "replaced"
+    },
+    {
+      "name": "qaReadinessForDestination_",
+      "line": 12045,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAttachReadinessActions_",
+      "line": 12053,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaReadinessActionRepresented_",
+      "line": 12067,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyReadinessToSummary_",
+      "line": 12076,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaMissingReconciliationDiagnostic_",
+      "line": 12090,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBuildDestinationOwnerView_",
+      "line": 12103,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaAttachSourceAssetProvenance_",
+      "line": 12127,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaSourceAssetCarrierAction_",
+      "line": 12157,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaDocumentScopeComparison_",
+      "line": 12168,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaYoutubeVideoId_",
+      "line": 12188,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaPluginRuntimeSummary_",
+      "line": 12198,
+      "status": "preserved",
+      "path": "src/engine/source/metrics.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaBrightspaceQuizBehaviorV8_",
+      "line": 12211,
+      "status": "preserved",
+      "path": "src/engine/hardening.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaCanonicalMathTextV8_",
+      "line": 12240,
+      "status": "preserved",
+      "path": "src/engine/hardening.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaEvidenceDimensionsV8_",
+      "line": 12307,
+      "status": "preserved",
+      "path": "src/engine/hardening.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "qaApplyDimensionalVerdictGateV8_",
+      "line": 12337,
+      "status": "preserved",
+      "path": "src/engine/hardening.js",
+      "effectiveOverride": false
+    },
+    {
+      "name": "ctiWorkflowIo_",
+      "line": 12493,
+      "group": "comparison-entry",
+      "status": "replaced"
+    },
+    {
+      "name": "exportCtiWorkspaceForMigration",
+      "line": 12508,
+      "group": "migration-export",
+      "status": "archive-migration-only"
+    }
+  ],
+  "constants": [
+    {
+      "name": "CTI_ARCHITECTURE_VERSION_",
+      "status": "preserved",
+      "path": "src/engine/release.js"
+    },
+    {
+      "name": "CTI_RELEASE_REGISTRY_",
+      "status": "reference-metadata",
+      "path": "src/engine/release.js",
+      "note": "Accepted engine/extractor versions preserved; CODE_GS_CANONICAL delivery/architecture labels are stale host metadata."
+    },
+    {
+      "name": "CTI_FEATURE_MANIFEST_",
+      "status": "reference-metadata",
+      "path": "src/engine/release.js",
+      "note": "Historical all-true flags do not establish current app parity. See features below."
+    },
+    {
+      "name": "CTI_COURSERA_EXTRACTOR_BASE64_CHUNKS_",
+      "status": "replaced",
+      "path": "tools/generate-assets.mjs",
+      "note": "Generated native ESM extractor strings; whole-script logic parity checked."
+    },
+    {
+      "name": "CTI_BRIGHTSPACE_EXTRACTOR_BASE64_CHUNKS_",
+      "status": "replaced",
+      "path": "tools/generate-assets.mjs",
+      "note": "Generated native ESM extractor strings; whole-script logic parity checked."
+    },
+    {
+      "name": "VALID_STATUSES_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "DB_SPREADSHEET_NAME",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "PACKAGES_SHEET_NAME",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "TREE_STORE_SHEET_NAME",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "DUPLICATE_ARCHIVE_SHEET_NAME",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "QA_RUNS_SHEET_NAME",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "QA_RUN_CHUNKS_SHEET_NAME",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "QA_RUN_SCHEMA_VERSION_",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "QA_RUN_CHUNK_SIZE_",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "WORK_STATE_SHEET_NAME",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "PACKAGE_SCAN_HISTORY_SHEET_NAME",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "WORK_STATE_SCHEMA_VERSION_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "PACKAGE_SCAN_HISTORY_SCHEMA_VERSION_",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "CTI_WORK_QUEUE_BUILD_ID_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "CTI_WORK_DEFAULT_FROM_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "CTI_WORK_DEFAULT_TO_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "CTI_WORK_DEFAULT_SCAN_AFTER_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "CTI_WORK_SOURCE_CONFIG_",
+      "status": "partial",
+      "note": "Configuration belongs to the missing/partial workflow, validation or duplicate features above; not silently treated as retired."
+    },
+    {
+      "name": "DB_SCHEMA_VERSION",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "TREE_CELL_LIMIT_",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "TREE_CHUNK_SIZE_",
+      "status": "replaced",
+      "path": "src/domain/workspace-store.ts",
+      "note": "Google sheet names, row/chunk limits and schema versions are replaced by versioned workspace record storage and legacy import. Scan-history/queue semantics are separately partial."
+    },
+    {
+      "name": "MACMILLAN_TIME_MODEL_VERSION_",
+      "status": "preserved",
+      "path": "src/engine/workbook/master.js"
+    },
+    {
+      "name": "CTI_GATEWAY_RELEASE_",
+      "status": "preserved",
+      "path": "src/engine/matching/text.js"
+    },
+    {
+      "name": "CTI_QA_ENGINE_BUILD_ID_",
+      "status": "preserved",
+      "path": "src/engine/matching/text.js"
+    },
+    {
+      "name": "CTI_MACMILLAN_BUILD_ID_",
+      "status": "archive-only-unused",
+      "note": "No references in archived production source beyond its declaration."
+    },
+    {
+      "name": "CTI_V7931_qaQuestionPromptSimilarity_",
+      "status": "replaced",
+      "path": "src/engine/assessment/questions.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaAssessmentFieldSimilarity_",
+      "status": "replaced",
+      "path": "src/engine/assessment/answers.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaNormalizeQuestion_",
+      "status": "replaced",
+      "path": "src/engine/assessment/questions.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaBehaviorComparison_",
+      "status": "replaced",
+      "path": "src/engine/capture/normalization.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_compareItemFidelity_",
+      "status": "replaced",
+      "path": "src/engine/comparison/item.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaFindCrossItemSemanticRepackagingEvidence_",
+      "status": "replaced",
+      "path": "src/engine/matching/recovery.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaParseSmartIngestionIntelligence_",
+      "status": "replaced",
+      "path": "src/engine/provenance/claims.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaApplySmartIngestionProvenanceToResult_",
+      "status": "replaced",
+      "path": "src/engine/provenance/transformations.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaApplyIngestionActionabilityPolicy_",
+      "status": "replaced",
+      "path": "src/engine/work/policy.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    },
+    {
+      "name": "CTI_V7931_qaBuildSummary_",
+      "status": "replaced",
+      "path": "src/engine/comparison/item.js",
+      "note": "Explicit base function/wrapper replaces source-order reassignment. The unused behavior base was wholly superseded."
+    }
+  ],
+  "features": [
+    {
+      "name": "sourcePackage.imscc",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.zip",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.xml",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.fingerprint",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.qti",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.pdfEvidence",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.ifs",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.advancedMetrics",
+      "status": "available",
+      "paths": [
+        "src/domain/package-scan.ts",
+        "src/source/scanner.js",
+        "src/engine/source/manifest.js"
+      ],
+      "note": "Retained scan/risk algorithms and maintained ZIP/XML/QTI/PDF adapters."
+    },
+    {
+      "name": "sourcePackage.preflight",
+      "status": "gap",
+      "paths": [],
+      "note": "No current preflight verdict or tabular master-manifest export."
+    },
+    {
+      "name": "sourcePackage.googleSheetExport",
+      "status": "gap",
+      "paths": [],
+      "note": "No current preflight verdict or tabular master-manifest export."
+    },
+    {
+      "name": "operations.workQueue",
+      "status": "partial",
+      "paths": [
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Course/evidence-checklist queue exists; planner-driven orchestration does not."
+    },
+    {
+      "name": "operations.campaignFilters",
+      "status": "gap",
+      "paths": [],
+      "note": "Old planner/catalog workflow and state transitions are not implemented."
+    },
+    {
+      "name": "operations.catalogSync",
+      "status": "gap",
+      "paths": [],
+      "note": "Old planner/catalog workflow and state transitions are not implemented."
+    },
+    {
+      "name": "operations.ownerResolution",
+      "status": "gap",
+      "paths": [],
+      "note": "Old planner/catalog workflow and state transitions are not implemented."
+    },
+    {
+      "name": "operations.auditExistingShellFirst",
+      "status": "gap",
+      "paths": [],
+      "note": "Old planner/catalog workflow and state transitions are not implemented."
+    },
+    {
+      "name": "operations.stateMachine",
+      "status": "gap",
+      "paths": [],
+      "note": "Old planner/catalog workflow and state transitions are not implemented."
+    },
+    {
+      "name": "directory.courseLibrary",
+      "status": "available",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "web/SourceExplorer.tsx"
+      ],
+      "note": "Current catalogue, search, source explorer and one-package rescan."
+    },
+    {
+      "name": "directory.search",
+      "status": "available",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "web/SourceExplorer.tsx"
+      ],
+      "note": "Current catalogue, search, source explorer and one-package rescan."
+    },
+    {
+      "name": "directory.explore",
+      "status": "available",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "web/SourceExplorer.tsx"
+      ],
+      "note": "Current catalogue, search, source explorer and one-package rescan."
+    },
+    {
+      "name": "directory.rescan",
+      "status": "available",
+      "paths": [
+        "web/FullWorkspace.tsx",
+        "web/SourceExplorer.tsx"
+      ],
+      "note": "Current catalogue, search, source explorer and one-package rescan."
+    },
+    {
+      "name": "directory.editDetails",
+      "status": "partial",
+      "paths": [
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Owner/partner/status editable; complete dates/Drive-link and old validation semantics are missing."
+    },
+    {
+      "name": "directory.deepAudit",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "directory.aiTriage",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "directory.bulkRescan",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "directory.delete",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "directory.duplicateReview",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "directory.duplicateArchive",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "directory.systemHealth",
+      "status": "gap",
+      "paths": [],
+      "note": "No corresponding current action/API workflow."
+    },
+    {
+      "name": "qa.singleSnapshot",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.excelStructuralAuthority",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.courseraExtractor",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.brightspaceLiveSource",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.assessmentFidelity",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.assignmentBehavior",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.hiddenDependencies",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.extraItems",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.keepReviewReingest",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.smartIngestionProvenance",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.oneToManyTransformations",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.destinationReadiness",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.generationProvenanceMemory",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.manualChangeAttribution",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.currentStateResolution",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.historicalFindingResolution",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.fieldScopedSemanticComparison",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.policyAwareOperatorGuidance",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.ingestionActionability",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.assignmentOwnerPlainLanguage",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.repackagedSemanticReconciliation",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.discussionIdentityReconciliation",
+      "status": "available",
+      "paths": [
+        "src/engine/index.js",
+        "src/domain/workflows.ts",
+        "web/OwnerEvidence.tsx"
+      ],
+      "note": "Effective active rule bodies match the final archived rules, including all late overrides."
+    },
+    {
+      "name": "qa.lifecycle",
+      "status": "available",
+      "paths": [
+        "src/domain/workflows.ts",
+        "src/engine/lifecycle/comparison.js"
+      ],
+      "note": "Same-attempt raw/current rules retained; lost boundary guards restored in this audit."
+    },
+    {
+      "name": "qa.runtimeEvidence",
+      "status": "partial",
+      "paths": [
+        "src/domain/workflows.ts",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Package/live evidence and imported inventory work; fresh external SCORM inventory refresh is missing."
+    },
+    {
+      "name": "qa.qaGlossary",
+      "status": "unverified-legacy-claim",
+      "paths": [],
+      "note": "The archived manifest claims this feature, but no separately named glossary panel/endpoint was found in the archived UI. Plain-language inline guidance exists in both versions. Not counted as a proven lost feature or full replacement."
+    },
+    {
+      "name": "evidenceMemory.savedReports",
+      "status": "available",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "src/domain/workflows.ts"
+      ],
+      "note": "Full immutable results retained and reopened; current-state/provenance logic retained."
+    },
+    {
+      "name": "evidenceMemory.snapshotStages",
+      "status": "available",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "src/domain/workflows.ts"
+      ],
+      "note": "Full immutable results retained and reopened; current-state/provenance logic retained."
+    },
+    {
+      "name": "evidenceMemory.generationSmartIngestionProvenance",
+      "status": "available",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "src/domain/workflows.ts"
+      ],
+      "note": "Full immutable results retained and reopened; current-state/provenance logic retained."
+    },
+    {
+      "name": "evidenceMemory.manualChangeAttribution",
+      "status": "available",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "src/domain/workflows.ts"
+      ],
+      "note": "Full immutable results retained and reopened; current-state/provenance logic retained."
+    },
+    {
+      "name": "evidenceMemory.currentStateResolutionLedger",
+      "status": "available",
+      "paths": [
+        "src/domain/workspace-store.ts",
+        "src/domain/workflows.ts"
+      ],
+      "note": "Full immutable results retained and reopened; current-state/provenance logic retained."
+    },
+    {
+      "name": "evidenceMemory.generationLineage",
+      "status": "partial",
+      "paths": [
+        "src/domain/workflows.ts",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Generation grouping/raw baseline work. Import-event provenance, linked automatic deltas and conservative old-lineage repair are incomplete."
+    },
+    {
+      "name": "evidenceMemory.humanLabels",
+      "status": "partial",
+      "paths": [
+        "src/domain/owner-actions.ts",
+        "web/OwnerActionCard.tsx",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Current item-level review status/notes and old metadata are retained. They are not equivalent to a complete run-level human-label/dataset workflow. No model training is claimed. The archive exposes these as run metadata fields; it does not contain a model-training service or a dedicated label-write endpoint."
+    },
+    {
+      "name": "evidenceMemory.reviewerNotes",
+      "status": "partial",
+      "paths": [
+        "src/domain/owner-actions.ts",
+        "web/OwnerActionCard.tsx",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Current item-level review status/notes and old metadata are retained. They are not equivalent to a complete run-level human-label/dataset workflow. No model training is claimed. The archive exposes these as run metadata fields; it does not contain a model-training service or a dedicated label-write endpoint."
+    },
+    {
+      "name": "evidenceMemory.futureMlDataset",
+      "status": "partial",
+      "paths": [
+        "src/domain/owner-actions.ts",
+        "web/OwnerActionCard.tsx",
+        "src/domain/legacy-import.ts"
+      ],
+      "note": "Current item-level review status/notes and old metadata are retained. They are not equivalent to a complete run-level human-label/dataset workflow. No model training is claimed. The archive exposes these as run metadata fields; it does not contain a model-training service or a dedicated label-write endpoint."
+    },
+    {
+      "name": "macmillan.stage1",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.stage2",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.stage3",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.stage4",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.stage5",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.timePolicy",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.exclusionTriage",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.gptContracts",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.contractQa",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.timeConservation",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "macmillan.partnerArtifact",
+      "status": "available",
+      "paths": [
+        "src/engine/workbook/master.js",
+        "src/engine/workbook/split.js",
+        "src/engine/workbook/validation.js",
+        "web/MacmillanWorkspace.tsx"
+      ],
+      "note": "Retained deterministic workbook rules, source context and specialization export sheets; external outputs remain operator supplied."
+    },
+    {
+      "name": "platform.authorization",
+      "status": "replaced",
+      "paths": [
+        "server/api.ts",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Cloudflare Access, role checks and atomic conditional version commits replace Google session/script locks."
+    },
+    {
+      "name": "platform.editorRole",
+      "status": "replaced",
+      "paths": [
+        "server/api.ts",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Cloudflare Access, role checks and atomic conditional version commits replace Google session/script locks."
+    },
+    {
+      "name": "platform.optimisticVersioning",
+      "status": "replaced",
+      "paths": [
+        "server/api.ts",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Cloudflare Access, role checks and atomic conditional version commits replace Google session/script locks."
+    },
+    {
+      "name": "platform.scriptLocks",
+      "status": "replaced",
+      "paths": [
+        "server/api.ts",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Cloudflare Access, role checks and atomic conditional version commits replace Google session/script locks."
+    },
+    {
+      "name": "platform.caching",
+      "status": "replaced",
+      "paths": [
+        "src/domain/workflows.ts",
+        "web/FullWorkspace.tsx"
+      ],
+      "note": "Metrics recomputed from current records, not an Apps Script cache."
+    },
+    {
+      "name": "platform.telemetry",
+      "status": "gap",
+      "paths": [],
+      "note": "No visit counter or truthful product-capability view. The retained engine feature manifest is historical."
+    },
+    {
+      "name": "platform.featureManifest",
+      "status": "gap",
+      "paths": [],
+      "note": "No visit counter or truthful product-capability view. The retained engine feature manifest is historical."
+    },
+    {
+      "name": "platform.releaseRegistry",
+      "status": "partial",
+      "paths": [
+        "src/engine/release.js"
+      ],
+      "note": "Extractor/engine identity preserved; host architecture and delivery labels need modernizing."
+    }
+  ],
+  "indexSha256": "ee3d9d441fdb5c2239196f75d19b36b33ac2916e0bf5959b3fb8a55306189bcd",
+  "indexFunctions": [
+    {
+      "name": "isTechnicalSourceUrl_",
+      "path": "src/source/content.js",
+      "status": "preserved"
+    },
+    {
+      "name": "extractTextEvidence_",
+      "path": "src/source/content.js",
+      "status": "preserved"
+    },
+    {
+      "name": "sourceBehaviorEvidence_",
+      "path": "src/source/content.js",
+      "status": "preserved"
+    },
+    {
+      "name": "sourceInteractiveSignals_",
+      "path": "src/source/content.js",
+      "status": "preserved"
+    },
+    {
+      "name": "sha256Text_",
+      "path": "src/source/hashes.js",
+      "status": "adapted",
+      "note": "window.crypto becomes globalThis.crypto for worker support.",
+      "reviewedCurrentHash": "7e2a24642cd44e5436a409dd660c38cdeab5f0004928c92b95bd1d5adbb6ba9a"
+    },
+    {
+      "name": "sha256Bytes_",
+      "path": "src/source/hashes.js",
+      "status": "adapted",
+      "note": "window.crypto becomes globalThis.crypto for worker support.",
+      "reviewedCurrentHash": "46981910351b8cbe6f473e149b51945d87abd3dddfe13b0a69b02293a962d4e0"
+    },
+    {
+      "name": "perceptualHashBlob_",
+      "path": "src/source/hashes.js",
+      "status": "preserved"
+    },
+    {
+      "name": "extractPdfTextEvidence_",
+      "path": "src/source/pdf.js",
+      "status": "adapted",
+      "note": "Explicit PDF services, bundled current PDF worker/version and finally cleanup replace window/CDN service access. Sampling rules unchanged.",
+      "reviewedCurrentHash": "52d6987ca24aa71b04ba3af6b1d833863b85c412756301853ab0aa5c110c6839"
+    },
+    {
+      "name": "qtiClean_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "sourceLearnerMarkupText_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiLearnerNodeText_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiLocalName_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiDesc_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiHasAncestor_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiOptionText_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiOptionParts_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiMediaPresence_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiQuestionMediaRefs_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qtiQuestionType_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "parseQtiAssessmentStructure_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "mergeStructuredAssessment_",
+      "path": "src/source/qti.js",
+      "status": "preserved"
+    },
+    {
+      "name": "notifyPackageProgress_",
+      "path": "src/source/scan.js",
+      "status": "preserved"
+    },
+    {
+      "name": "buildSourceEvidenceFromZip_",
+      "path": "src/source/scan.js",
+      "status": "adapted",
+      "note": "Explicit PDF service argument is forwarded to PDF extraction; scan logic unchanged.",
+      "reviewedCurrentHash": "853047fe8289ba5c0f7ab4ad3f2775f91694ff51b42c7b89c4604a8d3e027606"
+    },
+    {
+      "name": "xmlParserErrorText_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "repairXmlForBrowser_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "parseXmlCompat_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "xmlElementsByLocalName_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "decodeXmlAttribute_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "attrFromMarkup_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "manifestResourceRecords_",
+      "path": "src/source/xml.js",
+      "status": "preserved"
+    },
+    {
+      "name": "normalizeZipPath_",
+      "path": "src/source/zip.js",
+      "status": "preserved"
+    },
+    {
+      "name": "resolveZipHref_",
+      "path": "src/source/zip.js",
+      "status": "preserved"
+    },
+    {
+      "name": "resolveZipEntryV8_",
+      "path": "src/source/zip.js",
+      "status": "preserved"
+    },
+    {
+      "name": "uniqueStrings_",
+      "path": "src/source/zip.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaAssessmentScoreLabel_",
+      "path": "src/reporting/assessment-evidence.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaAssessmentAnswerEvidenceText_",
+      "path": "src/reporting/assessment-evidence.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaAssessmentEvidenceText_",
+      "path": "src/reporting/assessment-evidence.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaQuestionDifferenceText_",
+      "path": "src/reporting/assessment-evidence.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaCaptureInputsText_",
+      "path": "src/reporting/capture-summary.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaCapturedExtractorLabel_",
+      "path": "src/reporting/capture-summary.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaMissingScopeText_",
+      "path": "src/reporting/capture-summary.js",
+      "status": "preserved"
+    },
+    {
+      "name": "buildPostQaText_",
+      "path": "src/reporting/owner-report.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaOwnerTasksText",
+      "path": "src/reporting/owner-tasks.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaReadinessActionRepresented_",
+      "path": "src/reporting/owner-tasks.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaExternalWebpageDiagnosticText_",
+      "path": "src/reporting/source-evidence.js",
+      "status": "preserved"
+    },
+    {
+      "name": "qaSourceAssetProvenanceText_",
+      "path": "src/reporting/source-evidence.js",
+      "status": "preserved"
+    }
+  ]
+}

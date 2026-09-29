@@ -133,6 +133,40 @@ test("lifecycle rejects different sources and identifies cross-attempt compariso
     /hashes differ/,
   );
 });
+test("lifecycle retains the entry-point guards for incoherent and incomplete evidence", () => {
+  const input = comparisonFixture();
+  const raw = workflows.compare(input);
+  const current = workflows.compare({ ...input, mode: "ops" });
+  const before = newRecord("audit", "Raw", raw, input.course.id);
+  const after = newRecord("audit", "Current", current, input.course.id);
+  assert.equal(
+    workflows.execute({ kind: "lifecycle", before, after }).comparisonScope,
+    "SAME_ATTEMPT_RAW_TO_CURRENT",
+  );
+  for (const field of ["before", "after"]) {
+    const pair = structuredClone({ before, after });
+    pair[field].data.result.inputCoherence = {
+      status: "FAIL",
+      reason: "Wrong destination course",
+    };
+    assert.throws(
+      () => workflows.execute({ kind: "lifecycle", ...pair }),
+      /incoherent.*Wrong destination course/,
+    );
+    const incomplete = structuredClone({ before, after });
+    incomplete[field].data.hashes.json = "";
+    assert.throws(
+      () => workflows.execute({ kind: "lifecycle", ...incomplete }),
+      /capture JSON for both snapshots/,
+    );
+    const summaryOnly = structuredClone({ before, after });
+    delete summaryOnly[field].data.result.itemResults;
+    assert.throws(
+      () => workflows.execute({ kind: "lifecycle", ...summaryOnly }),
+      /full item evidence/,
+    );
+  }
+});
 test("Macmillan real XLSX source scan and split preserve source context and exclusion policy", () => {
   const bytes = writeWorkbook({
     name: "master",

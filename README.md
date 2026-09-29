@@ -19,6 +19,12 @@ This is a modular refactor, not a claim that every rule was rewritten in TypeScr
 Read the [development map](docs/development.md) to find the relevant source and
 focused checks. [AGENTS.md](AGENTS.md) gives concise instructions for coding agents.
 
+**Migration status:** the active QA rules and extractor programs are preserved,
+but the Cloudflare application is **not yet feature-complete** against Apps Script.
+The [Code.gs audit](docs/audits/code-gs-audit.md) lists missing and partial workflows,
+maps every original function, and separates code preservation from usable features.
+Run `npm run audit:parity` to check that ledger and the retained rule bodies.
+
 | Area | Source |
 | --- | --- |
 | UI and owner review | `web/`, `src/domain/owner-actions.ts` |

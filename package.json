@@ -19,6 +19,7 @@
     "test:browser:ux": "node tools/browser-ux-check.mjs",
     "test:browser:owner": "node tools/browser-owner-actions-check.mjs",
     "check:modules": "node tools/check-modules.mjs",
+    "audit:parity": "npm run generate && node --test tests/code-gs-parity.test.mjs",
     "test:engine": "npm run generate && node --test tests/modular-engine.test.mjs tests/workflows.test.mjs tests/assessment-guidance.test.mjs tests/brightspace-definition-coverage.test.mjs tests/field-evidence.test.mjs",
     "test:extractors": "npm run generate && node --test tests/extractor-runtime.test.mjs tests/assignment-identity.test.mjs tests/corpus-extraction.test.mjs tests/retry-evidence.test.mjs",
     "test:navigation": "npm run generate && node --test tests/owner-actions.test.mjs tests/source-plugin-followup.test.mjs"
