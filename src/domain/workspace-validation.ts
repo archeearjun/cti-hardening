@@ -1,5 +1,13 @@
 import type { WorkspaceRecord } from "./workspace-types.ts";
-const kinds = ["package", "audit", "workbook", "checklist", "legacy-backup"];
+import { validateOwnerReview } from "./owner-actions.ts";
+const kinds = [
+  "package",
+  "audit",
+  "workbook",
+  "checklist",
+  "legacy-backup",
+  "item-review",
+];
 export function validateRecord(record: WorkspaceRecord, full = true): void {
   if (
     !record ||
@@ -17,6 +25,19 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
   )
     throw new Error("Invalid workspace record.");
   if (!full) return;
+  if (record.kind === "item-review") {
+    if (
+      !record.packageId ||
+      typeof record.data.auditId !== "string" ||
+      !record.data.auditId ||
+      typeof record.data.itemKey !== "string" ||
+      !record.data.itemKey ||
+      !record.data.review ||
+      typeof record.data.review.note !== "string"
+    )
+      throw new Error("Invalid item review.");
+    validateOwnerReview(record.data.review);
+  }
   if (
     record.kind === "package" &&
     (!Array.isArray(record.data.scan?.courseTree) || !record.data.scan?.stats)

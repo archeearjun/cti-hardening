@@ -8,6 +8,7 @@ export type RecordKind =
   | "audit"
   | "workbook"
   | "checklist"
+  | "item-review"
   | "legacy-backup";
 export interface WorkspaceRecord {
   id: string;
@@ -43,6 +44,7 @@ export interface ComparisonInput {
     | "LEGACY_OR_OUTDATED";
 }
 export interface ComparisonOutput {
+  ownerContext?: EvidenceObject;
   ingestionCapabilityStatus: string;
   result: EvidenceObject;
   report: string;

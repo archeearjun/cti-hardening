@@ -255,14 +255,16 @@ try {
       .evaluate((e) => document.activeElement === e),
   );
   await page.getByLabel("Finding status").selectOption("EVIDENCE_NEEDED");
-  assert.equal(await page.locator(".outline-item").count(), 1);
+  assert.equal(await page.locator(".outline-item").count(), 2);
   assert(
-    (await page.locator(".outline-item").innerText()).includes("Discussion"),
+    (await page.locator(".outline-item").first().innerText()).includes(
+      "Discussion",
+    ),
   );
   await page
     .getByText("External interaction (synthetic)", { exact: true })
     .waitFor();
-  await page.locator(".outline-item > summary").click();
+  await page.locator(".outline-item > summary").first().click();
   await page
     .getByText("Confirm the captured prompt (synthetic).", { exact: false })
     .waitFor();
@@ -273,7 +275,7 @@ try {
   await page.getByLabel("Find an item or action").fill("nonexistent");
   assert.equal(await page.locator(".outline-item").count(), 0);
   await page
-    .getByText("External interaction (synthetic)", { exact: true })
+    .getByText("No items match these filters.", { exact: true })
     .waitFor();
   const evidence = page.waitForEvent("download");
   await page
@@ -381,7 +383,7 @@ try {
           "source explorer with lazy evidence",
           "all comparison inputs reset across courses",
           "report focus and evidence-status filtering",
-          "unmapped source remains visible and downloads remain complete",
+          "source-only actions participate in filters and downloads remain complete",
           "queue navigation and checklist isolation",
           "before/after owner actions and separate portfolio results",
           "workbook choices and output files reset across masters",

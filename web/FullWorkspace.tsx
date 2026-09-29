@@ -86,6 +86,7 @@ export default function FullWorkspace({
     [importProgress, setImportProgress] = useState("");
   const [portfolio, setPortfolio] = useState<EvidenceObject | null>(null);
   useEffect(() => setPortfolio(null), [records]);
+  const [reportId, setReportId] = useState("");
   const [report, setReport] = useState<EvidenceObject | null>(null),
     [analysis, setAnalysis] = useState<EvidenceObject | null>(null),
     [versions, setVersions] = useState<EvidenceObject[]>([]);
@@ -213,6 +214,7 @@ export default function FullWorkspace({
     setScan(null);
     setGeneration(0);
     setReport(null);
+    setReportId("");
     setAnalysis(null);
     setVersions([]);
     setBefore("");
@@ -278,6 +280,7 @@ export default function FullWorkspace({
     resetCourseInputs();
     setCourseId(id);
     setReport(null);
+    setReportId("");
     setAnalysis(null);
     setVersions([]);
     setBefore("");
@@ -393,8 +396,11 @@ export default function FullWorkspace({
           course.id,
         ),
       );
+      setReportId(saved.id);
       await refresh();
-      setNotice(`Full report saved (${saved.id}).`);
+      setNotice(
+        `Full report saved (${saved.id}). Open an item below to start its review.`,
+      );
     });
   }
   return (
@@ -1063,9 +1069,10 @@ export default function FullWorkspace({
                     className="text-button"
                     disabled={!!busy}
                     onClick={() =>
-                      void act("Opening full saved report", async () =>
-                        setReport((await store!.get(r.id)).data),
-                      )
+                      void act("Opening full saved report", async () => {
+                        setReport((await store!.get(r.id)).data);
+                        setReportId(r.id);
+                      })
                     }
                   >
                     {r.title}
@@ -1245,11 +1252,20 @@ export default function FullWorkspace({
                 Copy report
               </button>
             </div>
-            <ReportOverview result={report.result || {}} />
             <OwnerEvidence
-              key={json(report.hashes || report.result?.summary || {})}
+              key={reportId || json(report.hashes || {})}
               result={report.result || {}}
+              report={report}
+              auditId={reportId}
+              course={course}
+              records={records}
+              store={store}
+              onSaved={() => refresh()}
             />
+            <details className="recorded-audit-overview">
+              <summary>Recorded QA scores and publication blockers</summary>
+              <ReportOverview result={report.result || {}} />
+            </details>
             <details>
               <summary>Complete report and technical evidence</summary>
               <pre className="owner-report">

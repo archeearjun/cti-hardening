@@ -46,12 +46,24 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             summary: d.result?.summary,
             stage: d.result?.snapshotContext?.mode,
           }
-        : record.kind === "checklist"
-          ? d
-          : record.kind === "legacy-backup" &&
-              d.kind === "CTI_MIGRATION_RECOVERY_CASE"
-            ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
-            : {};
+        : record.kind === "item-review"
+          ? {
+              auditId: d.auditId,
+              itemKey: d.itemKey,
+              review: {
+                status: d.review?.status,
+                note: d.review?.note,
+                updatedAt: d.review?.updatedAt,
+                updatedBy: d.review?.updatedBy,
+                hasCapture: !!d.review?.capture,
+              },
+            }
+          : record.kind === "checklist"
+            ? d
+            : record.kind === "legacy-backup" &&
+                d.kind === "CTI_MIGRATION_RECOVERY_CASE"
+              ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
+              : {};
   return { ...record, data };
 }
 export function newRecord(

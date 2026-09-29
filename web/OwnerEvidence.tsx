@@ -1,43 +1,192 @@
-import { useState } from "react";
-import type { EvidenceObject } from "../src/domain/workspace-types";
+import { useMemo, useState } from "react";
+import OwnerActionCard from "./OwnerActionCard";
+import {
+  buildOwnerTasks,
+  needsOwnerAction,
+  ownerCourseLocation,
+  safeWebUrl,
+} from "../src/domain/owner-actions";
+import type {
+  EvidenceObject,
+  WorkspaceRecord,
+} from "../src/domain/workspace-types";
+import type { WorkspaceStore } from "../src/domain/workspace-store";
 
 const labels: Record<string, string> = {
-  REPAIR_OR_CONFIRM: "Repair / confirm finding",
-  REVIEW: "Review required",
+  REPAIR_OR_CONFIRM: "Confirm / fix",
+  REVIEW: "Check in Coursera",
   EVIDENCE_NEEDED: "Evidence needed",
-  VERIFIED_EVIDENCE: "Verified evidence",
-  NOT_SOURCE_VERIFIED: "Not source-verified",
+  VERIFIED_EVIDENCE: "Evidence aligned",
+  NOT_SOURCE_VERIFIED: "Check source match",
 };
-export default function OwnerEvidence({ result }: { result: EvidenceObject }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [limit, setLimit] = useState(40);
-  const view = result.ownerView;
-  if (!view) return null;
-  const all: EvidenceObject[] = view.items || [];
-  const items = all.filter(
-    (i) =>
+export default function OwnerEvidence({
+  result,
+  report = {},
+  auditId = "",
+  course,
+  records = [],
+  store,
+  onSaved,
+}: {
+  result: EvidenceObject;
+  report?: EvidenceObject;
+  auditId?: string;
+  course?: WorkspaceRecord | null;
+  records?: WorkspaceRecord[];
+  store?: WorkspaceStore | null;
+  onSaved?: () => Promise<void>;
+}) {
+  const [query, setQuery] = useState(""),
+    [status, setStatus] = useState(""),
+    [show, setShow] = useState("attention"),
+    [limit, setLimit] = useState(40);
+  const [courseUrl, setCourseUrl] = useState("");
+  const sourceMatches =
+    !report.sourceScanSha256 ||
+    report.sourceScanSha256 === course?.data.scan?.fileSha256;
+  const tasks = useMemo(
+    () =>
+      buildOwnerTasks(
+        result,
+        sourceMatches ? course?.data.scan?.courseTree || [] : [],
+        courseUrl,
+      ),
+    [result, course, sourceMatches, courseUrl],
+  );
+  const location = ownerCourseLocation(result, courseUrl);
+  const reviews = records.filter(
+    (r) =>
+      r.kind === "item-review" &&
+      r.data.auditId === auditId &&
+      r.packageId === course?.id,
+  );
+  const reviewFor = (key: string) =>
+    reviews.find((r) => r.data.itemKey === key);
+  const attention = tasks.filter(needsOwnerAction);
+  const checked = attention.filter(
+    (t) => reviewFor(t.key)?.data.review?.status === "checked",
+  );
+  const remaining = attention.length - checked.length;
+  const items = tasks.filter((i) => {
+    const progress = reviewFor(i.key)?.data.review?.status || "open";
+    return (
+      (show !== "attention" ||
+        (needsOwnerAction(i) && progress !== "checked")) &&
+      (show !== "checked" || progress === "checked") &&
       (!status || i.status === status) &&
       [
         i.name,
         i.path,
         i.type,
-        i.status,
         labels[i.status],
-        ...(i.sourceNames || []),
-        ...(i.actions || []).map((a: EvidenceObject) => a.action),
+        ...i.actions.map((a) => a.action),
       ]
         .join(" ")
         .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
+        .includes(query.toLowerCase())
+    );
+  });
+  if (!result.ownerView) return null;
   return (
-    <section className="owner-evidence">
-      <div className="section-heading">
-        <h3>Coursera content view</h3>
-        <span className="badge">{all.length} captured outline items</span>
+    <section className="owner-evidence" aria-label="Course action workspace">
+      <div className="action-intro">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">YOUR NEXT STEPS</p>
+            <h3>Coursera content view</h3>
+          </div>
+          {location && (
+            <a
+              className="button-link secondary"
+              href={`${location.base}/edit`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open course ↗
+            </a>
+          )}
+        </div>
+        <p className="action-lead">
+          {remaining
+            ? `${remaining} items to work through. Start with a finding, open its Coursera item, and record what you checked or changed.`
+            : attention.length
+              ? "Your manual checks are recorded. Review remaining evidence gaps before publication."
+              : "No item actions were raised by this comparison. Review evidence coverage before publication."}
+        </p>
+        <div className="action-counts">
+          <span>
+            <strong>
+              {tasks.filter((t) => t.status === "REPAIR_OR_CONFIRM").length}
+            </strong>{" "}
+            flagged to confirm / fix
+          </span>
+          <span>
+            <strong>
+              {attention.length -
+                tasks.filter((t) => t.status === "REPAIR_OR_CONFIRM").length}
+            </strong>{" "}
+            flagged for other checks
+          </span>
+          <span>
+            <strong>{checked.length}</strong> checked by you
+          </span>
+          <span>
+            <strong>{tasks.length - attention.length}</strong> no action raised
+          </span>
+        </div>
+        {!!attention.length && (
+          <progress
+            max={attention.length}
+            value={checked.length}
+            aria-label="Items manually checked"
+          />
+        )}
+        <p className="hint">
+          Your work is saved against this report. Manual checks and fresh item
+          captures stay separate from the original QA verdict. Marking work done
+          does not change the course or certify publication.
+        </p>
       </div>
-      <p className="hint">{view.authority}</p>
+      {!location && (
+        <label className="course-link-entry">
+          Coursera course or item URL
+          <input
+            value={courseUrl}
+            onChange={(e) => setCourseUrl(e.target.value)}
+            placeholder="Paste this course’s /teach/…/content/edit URL"
+          />
+          <small>
+            This older report has no usable course URL. Use the matching shell
+            to enable item links and targeted checks.
+          </small>
+        </label>
+      )}
+      {!sourceMatches && (
+        <p className="scope">
+          The saved source scan has changed since this report. Its newer content
+          is not being presented as this report’s repair evidence. The original
+          findings remain available.
+        </p>
+      )}
+      <div className="action-switch" role="group" aria-label="Show owner work">
+        {[
+          ["attention", `Needs attention (${remaining})`],
+          ["all", `All items (${tasks.length})`],
+          ["checked", `Checked by you (${checked.length})`],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            className={show === value ? "primary" : "secondary"}
+            aria-pressed={show === value}
+            onClick={() => {
+              setShow(value);
+              setLimit(40);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="filter-bar">
         <label>
           Find an item or action
@@ -47,7 +196,7 @@ export default function OwnerEvidence({ result }: { result: EvidenceObject }) {
               setQuery(e.target.value);
               setLimit(40);
             }}
-            placeholder="Title, module, source name or action"
+            placeholder="Title, module, question or file"
           />
         </label>
         <label>
@@ -59,10 +208,10 @@ export default function OwnerEvidence({ result }: { result: EvidenceObject }) {
               setLimit(40);
             }}
           >
-            <option value="">All findings ({all.length})</option>
+            <option value="">All findings</option>
             {Object.entries(labels).map(([value, label]) => (
               <option value={value} key={value}>
-                {label} ({all.filter((i) => i.status === value).length})
+                {label} ({tasks.filter((i) => i.status === value).length})
               </option>
             ))}
           </select>
@@ -70,73 +219,34 @@ export default function OwnerEvidence({ result }: { result: EvidenceObject }) {
       </div>
       <p className="hint" role="status">
         Showing {Math.min(items.length, limit)} of {items.length} matching items
-        · Coursera order preserved
+        · Coursera order preserved · source-only findings follow the outline
       </p>
       {items.slice(0, limit).map((item, index) => (
-        <div key={`${item.id}-${index}`}>
+        <div key={item.key}>
           {(index === 0 || items[index - 1].path !== item.path) && (
             <h4 className="outline-path">
-              {item.path || "Placement unavailable"}
+              {item.sourceOnly ? "Source evidence · " : ""}
+              {item.path}
             </h4>
           )}
-          <details className="outline-item">
-            <summary>
-              <span>
-                <strong>{item.name}</strong>
-                <small>{item.type || "Type not recorded"}</small>
-              </span>
-              <span className={`finding-label finding-${item.status}`}>
-                {labels[item.status] || item.status || "Status not recorded"}
-              </span>
-            </summary>
-            <div className="item-evidence">
-              <p>
-                Publication:{" "}
-                {item.published === true
-                  ? "Published"
-                  : item.published === false
-                    ? "Unpublished"
-                    : "Not captured"}
-                <small>Item ID: {item.id || "Not recorded"}</small>
-              </p>
-              {!!item.sourceNames?.length && (
-                <p>
-                  <strong>Matched source:</strong> {item.sourceNames.join("; ")}
-                </p>
-              )}
-              {(item.actions || []).map((action: EvidenceObject, n: number) => (
-                <div className="owner-action" key={n}>
-                  <strong>
-                    {action.verdict}
-                    {action.severity && action.severity !== "NONE"
-                      ? ` · ${action.severity}`
-                      : ""}
-                  </strong>
-                  <p>
-                    {action.sourceName && `${action.sourceName}: `}
-                    {action.action}
-                  </p>
-                </div>
-              ))}
-              {item.excerpt && (
-                <details>
-                  <summary>Captured content excerpt</summary>
-                  <blockquote>{item.excerpt}</blockquote>
-                  <p className="hint">
-                    {item.excerptComplete
-                      ? "Captured excerpt"
-                      : "Partial captured excerpt; full content is not implied."}
-                  </p>
-                </details>
-              )}
-            </div>
-          </details>
+          <OwnerActionCard
+            task={item}
+            label={labels[item.status] || item.status}
+            auditId={auditId}
+            course={course}
+            store={store}
+            saved={reviewFor(item.key)}
+            onSaved={onSaved}
+            context={report.ownerContext || {}}
+            courseLocation={location}
+          />
         </div>
       ))}
       {!items.length && (
         <p className="empty-state">
-          No destination items match these filters. Source items without a
-          confirmed destination are listed separately below.
+          {show === "attention" && !query && !status
+            ? "No open items in this view. Use All items to revisit evidence and your recorded checks."
+            : "No items match these filters."}
         </p>
       )}
       {items.length > limit && (
@@ -144,38 +254,35 @@ export default function OwnerEvidence({ result }: { result: EvidenceObject }) {
           Show next 40 items
         </button>
       )}
-      {!!view.unmappedSource?.length && (
-        <section className="unmapped-source">
-          <h3>Source items outside the matched Coursera view</h3>
+      {!!result.liveSourceGroundTruth?.liveOnlyItems?.length && (
+        <details className="scope">
+          <summary>
+            Additional Brightspace items to reconcile (
+            {result.liveSourceGroundTruth.liveOnlyItems.length})
+          </summary>
           <p>
-            These {view.unmappedSource.length} source findings remain visible
-            regardless of the destination filters. Check each verdict and policy
-            before making a course edit.
+            These source items are outside the package match. Confirm their
+            intended destination before creating duplicates.
           </p>
-          {view.unmappedSource.map((item: EvidenceObject, i: number) => (
-            <details key={i}>
-              <summary>
-                <span>
-                  <strong>{item.name || "Unnamed source item"}</strong>
-                  <small>{item.path || "Placement not recorded"}</small>
-                </span>
-                <span className="finding-label">{item.verdict}</span>
-              </summary>
-              <div className="item-evidence">
-                <p>{item.action || "No owner action recorded."}</p>
-                {item.diagnostic && (
-                  <details>
-                    <summary>Finding evidence</summary>
-                    <pre className="evidence-json">
-                      {JSON.stringify(item.diagnostic, null, 2)}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            </details>
-          ))}
-        </section>
+          {result.liveSourceGroundTruth.liveOnlyItems.map(
+            (i: EvidenceObject, n: number) => (
+              <p key={n}>
+                <strong>{i.title}</strong> · {i.path}
+              </p>
+            ),
+          )}
+          {safeWebUrl(report.ownerContext?.sourceCourseUrl) && (
+            <a
+              href={safeWebUrl(report.ownerContext.sourceCourseUrl)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Brightspace course ↗
+            </a>
+          )}
+        </details>
       )}
+      <p className="hint">{result.ownerView.authority}</p>
     </section>
   );
 }

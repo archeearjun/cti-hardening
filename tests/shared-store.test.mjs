@@ -339,3 +339,59 @@ test("failed evidence upload leaves earlier records committed; retry skips them 
   assert.equal((await store.versions(first.id)).length, 1);
   assert.deepEqual((await store.get(second.id)).data, second.data);
 });
+
+test("item review records round-trip separately, retain versions and reject viewer writes", async () => {
+  const db = database(),
+    call = client(db);
+  const record = newRecord(
+    "item-review",
+    "Synthetic item",
+    {
+      auditId: "audit-a",
+      itemKey: "item:reading",
+      review: {
+        status: "checked",
+        note: "Checked the exact source and learner preview.",
+        updatedAt: new Date().toISOString(),
+        updatedBy: actor.email,
+        capture: {
+          kind: "CTI_COURSERA_ITEM_CHECK",
+          payload: { textSample: "Fresh evidence" },
+        },
+      },
+    },
+    "package-a",
+  );
+  const u = await upload(call, record);
+  await u.chunks();
+  const committed = await u.commit();
+  assert.equal(committed.status, 200, await committed.clone().text());
+  const saved = (await committed.json()).record;
+  assert.equal(saved.kind, "item-review");
+  assert.equal(saved.version, 1);
+  const changed = {
+    ...record,
+    version: 1,
+    data: {
+      ...record.data,
+      review: { ...record.data.review, status: "in_progress" },
+    },
+  };
+  const next = await upload(call, changed);
+  await next.chunks();
+  assert.equal((await next.commit()).status, 200);
+  const versions = await (await call(`records/${record.id}/versions`)).json();
+  assert.equal(versions.versions.length, 2);
+  const data = new TextEncoder().encode(JSON.stringify(record.data));
+  const denied = await client(db, { ...actor, role: "viewer" })(
+    "uploads",
+    "POST",
+    JSON.stringify({
+      record: recordSummary(record),
+      bytes: data.length,
+      parts: 1,
+      sha256: await digest(data),
+    }),
+  );
+  assert.equal(denied.status, 403);
+});

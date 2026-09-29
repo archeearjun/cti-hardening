@@ -6,6 +6,7 @@ import {
   type BookData,
 } from "../adapters/workbook.ts";
 import { buildPostQaText_ } from "../generated/owner-report.js";
+import { buildOwnerContext } from "./owner-actions.ts";
 import type {
   ComparisonInput,
   ComparisonOutput,
@@ -231,6 +232,7 @@ export function createWorkflows(xmlService: unknown) {
     result.workspaceWarnings = warnings;
     return {
       result,
+      ownerContext: buildOwnerContext(input.brightspace?.bytes),
       report:
         (warnings.length
           ? "WORKSPACE EVIDENCE NOTE\n" + warnings.join("\n") + "\n\n"
@@ -389,16 +391,11 @@ export function createWorkflows(xmlService: unknown) {
         profiles,
         similarities: profiles
           .flatMap((a, i) =>
-            profiles
-              .slice(i + 1)
-              .map((b) => ({
-                left: a.title,
-                right: b.title,
-                similarity: engine.calculateCosineSimilarity(
-                  a.vector,
-                  b.vector,
-                ),
-              })),
+            profiles.slice(i + 1).map((b) => ({
+              left: a.title,
+              right: b.title,
+              similarity: engine.calculateCosineSimilarity(a.vector, b.vector),
+            })),
           )
           .sort((a, b) => b.similarity - a.similarity)
           .slice(0, 100),
