@@ -111,8 +111,15 @@ You do not need to replace the entire old app just to export its data:
    click **Import prepared records**. Existing single-file migrations and
    browser workspace backups still work. Missing or corrupt parts stop the
    import before any records are saved.
-5. Check catalogue counts, course UUIDs, owners, source trees, several old
-   reports, and before/after history before relying on the new workspace.
+5. Historical exports can contain duplicate package rows that were legitimate
+   evidence in the old database. Admin migration import preserves those rows
+   instead of dropping them. After import, open **Operations → Duplicate
+   reconciliation**: CTI previews semantic duplicate groups, blocks metadata
+   conflicts, preserves the stable survivor/newest scan and soft-archives
+   duplicates without deleting evidence.
+6. Check catalogue counts, course UUIDs, owners, source trees, several old
+   reports, duplicate groups, and before/after history before relying on the
+   new workspace.
 
 If preparation reports **Some saved reports need recovery**, the export files
 passed their checks but one or more historical QA payloads are incomplete or
@@ -175,8 +182,11 @@ D1. Use D1's database export for a complete revision-level backup.
 
 Each saved artifact has a **32 MiB** limit; chunks are 128 KiB. Audits are
 immutable. Other edits create retained versions with optimistic concurrency.
-Incomplete uploads never appear as saved records. Monitor D1 storage and Pages
-Functions usage in Cloudflare. Stay on Free: reaching limits can make shared
+Incomplete uploads never appear as saved records. Normal package writes use an
+atomic semantic-identity claim so simultaneous creates/restores/renames cannot
+silently create the same active partner+course identity. The admin-only migration
+path is the explicit exception because it must preserve historical duplicates
+for later lossless reconciliation. Monitor D1 storage and Pages Functions usage in Cloudflare. Stay on Free: reaching limits can make shared
 operations unavailable; it does not make a comparison more complete.
 
 To reclaim abandoned uploads older than seven days without touching saved
