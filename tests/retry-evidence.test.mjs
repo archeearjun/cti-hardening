@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
+import {captureContractV6150,captureContractSummaryV6150} from '../src/extractors/coursera/completion.js';
 const require=createRequire(import.meta.url),qa=require('../tools/check.cjs');
 const {functionCode}=require('../tools/assessment-fixture.cjs');
 const clone=x=>JSON.parse(JSON.stringify(x));
 function runtime(){
-  const c={};vm.createContext(c);
+  const c={captureContractV6150,captureContractSummaryV6150,CTI_MAX_ITEM_ATTEMPTS:2};vm.createContext(c);
   for(const name of ['assessmentTextReceiptV6146','genericAssessmentTextHeuristicNotApplicableV6146','retryReasonsForDiagnostic','retrySeverity','retryDecisionV61318','buildRetryPlan'])vm.runInContext(functionCode(name),c);
   return c;
 }
