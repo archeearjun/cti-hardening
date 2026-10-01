@@ -230,7 +230,13 @@ export function buildDuplicatePlan(records: WorkspaceRecord[]): DuplicatePlan {
         return values.size > 1;
       })
       .map(([, label]) => label);
-    const id = groupKey.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 100);
+    // Keep the exact semantic identity in the in-memory group key. Truncating
+    // a display-friendly key can collide for long, similar filenames and could
+    // reconcile the wrong duplicate group.
+    const id = JSON.stringify([
+      normalizePartnerName(survivor.data.partner),
+      packageSemanticKey(survivor.data.scan?.fileName || survivor.title),
+    ]);
     groups.push({
       id,
       partner: String(survivor.data.partner || ""),
