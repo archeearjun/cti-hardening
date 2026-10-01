@@ -7,7 +7,7 @@ import {
   prepareWorkspaceBackup,
   validateImportRecordSizes,
 } from "../src/domain/workspace-validation";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import { runWorkflow } from "./workflow-client";
 import {
@@ -20,7 +20,7 @@ import { importLegacyWorkspace } from "../src/domain/legacy-import";
 import { download, json, inputFile, Evidence, FileField } from "./workspace-ui";
 import MacmillanWorkspace from "./MacmillanWorkspace";
 import CourseraExtractionWorkspace from "./CourseraExtractionWorkspace";
-import OperationsWorkspace from "./OperationsWorkspace";
+const OperationsWorkspace = lazy(() => import("./OperationsWorkspace"));
 import {
   applyLineageRepairs,
   normalizePartnerName,
@@ -1672,28 +1672,36 @@ export default function FullWorkspace({
           </section>
         )}
         {tab === "Operations" && (
-          <OperationsWorkspace
-            store={store}
-            records={records}
-            course={course}
-            editable={editable}
-            disabled={!!busy}
-            onRefresh={() => refresh()}
-            onCourseUpdate={(next) => {
-              setCourse(next);
-              setCourseId(next?.id || "");
-              if (next) {
-                setPartner(next.data.partner || "");
-                setOwner(next.data.owner || "");
-                setStatus(next.data.status || "In Queue");
-                setAssignedDate(next.data.assignedDate || "");
-                setDeadline(next.data.deadline || "");
-                setDriveLink(next.data.driveLink || "");
-              }
-            }}
-            onNotice={setNotice}
-            onError={setError}
-          />
+          <Suspense
+            fallback={
+              <section className="card" role="status" aria-live="polite">
+                Loading operations…
+              </section>
+            }
+          >
+            <OperationsWorkspace
+              store={store}
+              records={records}
+              course={course}
+              editable={editable}
+              disabled={!!busy}
+              onRefresh={() => refresh()}
+              onCourseUpdate={(next) => {
+                setCourse(next);
+                setCourseId(next?.id || "");
+                if (next) {
+                  setPartner(next.data.partner || "");
+                  setOwner(next.data.owner || "");
+                  setStatus(next.data.status || "In Queue");
+                  setAssignedDate(next.data.assignedDate || "");
+                  setDeadline(next.data.deadline || "");
+                  setDriveLink(next.data.driveLink || "");
+                }
+              }}
+              onNotice={setNotice}
+              onError={setError}
+            />
+          </Suspense>
         )}
         {tab === "Setup" && (
           <section className="card">
