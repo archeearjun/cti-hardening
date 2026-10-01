@@ -18,8 +18,10 @@ import {
 } from "../src/domain/workspace-store";
 import { importLegacyWorkspace } from "../src/domain/legacy-import";
 import { download, json, inputFile, Evidence, FileField } from "./workspace-ui";
-import MacmillanWorkspace from "./MacmillanWorkspace";
-import CourseraExtractionWorkspace from "./CourseraExtractionWorkspace";
+const MacmillanWorkspace = lazy(() => import("./MacmillanWorkspace"));
+const CourseraExtractionWorkspace = lazy(
+  () => import("./CourseraExtractionWorkspace"),
+);
 const OperationsWorkspace = lazy(() => import("./OperationsWorkspace"));
 import {
   applyLineageRepairs,
@@ -999,19 +1001,27 @@ export default function FullWorkspace({
           )}
         </div>
         {tab === "Extract" && (
-          <CourseraExtractionWorkspace
-            enabled={store?.mode === "team"}
-            editable={editable}
-            disabled={!!busy}
-            initialUrl={extractionPrefill}
-            onUseCapture={(file) => {
-              setCapture(file);
-              setTab("Compare");
-              setNotice(
-                "Local Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
-              );
-            }}
-          />
+          <Suspense
+            fallback={
+              <section className="card" role="status" aria-live="polite">
+                Loading extraction workspace…
+              </section>
+            }
+          >
+            <CourseraExtractionWorkspace
+              enabled={store?.mode === "team"}
+              editable={editable}
+              disabled={!!busy}
+              initialUrl={extractionPrefill}
+              onUseCapture={(file) => {
+                setCapture(file);
+                setTab("Compare");
+                setNotice(
+                  "Local Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
+                );
+              }}
+            />
+          </Suspense>
         )}
         {tab === "Compare" && (
           <section className="card">
@@ -1545,18 +1555,26 @@ export default function FullWorkspace({
             )}
           </section>
         )}
-        <div hidden={tab !== "Macmillan"}>
-          <MacmillanWorkspace
-            store={store}
-            records={records}
-            editable={editable}
-            busy={busy}
-            act={act}
-            job={job}
-            refresh={refresh}
-            setNotice={setNotice}
-          />
-        </div>
+        {tab === "Macmillan" && (
+          <Suspense
+            fallback={
+              <section className="card" role="status" aria-live="polite">
+                Loading Macmillan workspace…
+              </section>
+            }
+          >
+            <MacmillanWorkspace
+              store={store}
+              records={records}
+              editable={editable}
+              busy={busy}
+              act={act}
+              job={job}
+              refresh={refresh}
+              setNotice={setNotice}
+            />
+          </Suspense>
+        )}
         {tab === "Analytics" && (
           <section className="card">
             <h2>Portfolio analytics</h2>
