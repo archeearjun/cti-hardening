@@ -222,9 +222,22 @@ export default function FullWorkspace({
         rescan && course ? course.id : "",
       )
     : [];
-  const workState = validateCourseWorkState(
-    checklist?.data.workState || defaultCourseWorkState(),
-  );
+  const workStateResult = (() => {
+    try {
+      return {
+        value: validateCourseWorkState(
+          checklist?.data.workState || defaultCourseWorkState(),
+        ),
+        error: "",
+      };
+    } catch (error) {
+      return {
+        value: defaultCourseWorkState(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  })();
+  const workState = workStateResult.value;
   const latestRawAudit = audits.find(
     (audit) =>
       audit.data?.result?.snapshotContext?.mode === "RAW_INGESTION" ||
@@ -1470,6 +1483,93 @@ export default function FullWorkspace({
             {course && checklist && (
               <>
                 <h3 className="section-divider">{course.title}</h3>
+                <div
+                  className={
+                    workAction.tone === "success"
+                      ? "success-notice"
+                      : workAction.tone === "danger"
+                        ? "migration-issues"
+                        : "scope"
+                  }
+                  role="status"
+                >
+                  <strong>Next action · {workAction.code}</strong>
+                  <p>{workAction.label}</p>
+                  <small>
+                    This is a workflow recommendation from saved state and
+                    evidence. It does not change the QA verdict.
+                  </small>
+                </div>
+                {workStateResult.error && (
+                  <div className="migration-issues" role="alert">
+                    <strong>Saved work state needs repair</strong>
+                    <p>{workStateResult.error}</p>
+                    <p>
+                      CTI is showing safe defaults until you save a valid state.
+                    </p>
+                  </div>
+                )}
+                <details className="section-divider" open>
+                  <summary>Redo workflow state</summary>
+                  <div className="settings">
+                    {(
+                      [
+                        ["scope", "Campaign scope"],
+                        ["courseraRedo", "Coursera redo"],
+                        ["courseOutline", "Course outline"],
+                        ["sourceAudit", "Source audit"],
+                        ["specializationOutline", "Specialization outline"],
+                        ["contentMap", "Content map"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <label key={field}>
+                        {label}
+                        <select
+                          disabled={!editable || !!busy}
+                          value={workState[field]}
+                          onChange={(e) =>
+                            setChecklist({
+                              ...checklist,
+                              data: {
+                                ...checklist.data,
+                                workState: {
+                                  ...workState,
+                                  [field]: e.target.value,
+                                },
+                              },
+                            })
+                          }
+                        >
+                          {WORK_STATE_OPTIONS[field].map((value) => (
+                            <option key={value} value={value}>
+                              {value.replaceAll("_", " ")}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <label>
+                    Workflow notes
+                    <textarea
+                      disabled={!editable || !!busy}
+                      maxLength={4000}
+                      value={workState.notes}
+                      onChange={(e) =>
+                        setChecklist({
+                          ...checklist,
+                          data: {
+                            ...checklist.data,
+                            workState: {
+                              ...workState,
+                              notes: e.target.value,
+                            },
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                </details>
                 <div className="checklist-progress">
                   <strong>
                     {checklistCount} of {steps.length} workflow steps checked
@@ -1524,7 +1624,16 @@ export default function FullWorkspace({
                   disabled={!editable || !!busy}
                   onClick={() =>
                     void act("Saving checklist", async () => {
-                      setChecklist(await store!.save(checklist));
+                      const nextChecklist = {
+                        ...checklist,
+                        data: {
+                          ...checklist.data,
+                          workState: validateCourseWorkState(
+                            checklist.data.workState || workState,
+                          ),
+                        },
+                      };
+                      setChecklist(await store!.save(nextChecklist));
                       await refresh();
                       setNotice("Checklist saved.");
                     })
