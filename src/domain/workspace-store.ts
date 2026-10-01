@@ -1,5 +1,9 @@
 import { validateRecord } from "./workspace-validation.ts";
 import {
+  normalizePartnerName,
+  packageSemanticKey,
+} from "./operations.ts";
+import {
   workspaceRequest as request,
   type TransferOptions,
 } from "./workspace-http.ts";
@@ -8,6 +12,14 @@ import type {
   WorkspaceRecord,
   RecordKind,
 } from "./workspace-types.ts";
+export interface SaveOptions extends TransferOptions {
+  /**
+   * Import-only escape hatch for preserving historical duplicate package rows
+   * so Operations can reconcile them losslessly. Normal course writes must
+   * never set this flag.
+   */
+  allowSemanticDuplicate?: boolean;
+}
 export interface WorkspaceStore {
   mode: "local" | "team";
   role: "admin" | "editor" | "viewer";
@@ -16,7 +28,7 @@ export interface WorkspaceStore {
   get(id: string): Promise<WorkspaceRecord>;
   save(
     record: WorkspaceRecord,
-    options?: TransferOptions,
+    options?: SaveOptions,
   ): Promise<WorkspaceRecord>;
   versions(id: string): Promise<EvidenceObject[]>;
 }
@@ -170,52 +182,106 @@ export function localStore(): WorkspaceStore {
           updatedBy: r.updatedBy,
         }));
     },
-    async save(record) {
+    async save(record, options = {}) {
       validateRecord(record);
       const d = await db;
       return new Promise((resolve, reject) => {
         const tx = d.transaction(["records", "versions"], "readwrite");
         const table = tx.objectStore("records");
-        const req = table.get(record.id);
         let saved: WorkspaceRecord;
-        req.onsuccess = () => {
-          const prior = req.result as WorkspaceRecord | undefined;
-          if ((prior?.version || 0) !== record.version) {
-            tx.abort();
-            reject(
-              new Error("Another change was saved. Refresh before retrying."),
-            );
-            return;
-          }
-          if (prior?.kind === "audit") {
-            tx.abort();
-            reject(
-              new Error(
-                "Saved audit snapshots are immutable. Create a new report.",
-              ),
-            );
-            return;
-          }
-          if (prior && prior.kind !== record.kind) {
-            tx.abort();
-            reject(new Error("Record type cannot change."));
-            return;
-          }
-          saved = {
-            ...record,
-            version: record.version + 1,
-            updatedAt: new Date().toISOString(),
-            updatedBy: "This browser",
-          };
-          table.put(saved);
-          tx.objectStore("versions").put({
-            ...saved,
-            key: `${record.id}:${saved.version}`,
-          });
+        let settled = false;
+        const stop = (message: string) => {
+          if (settled) return;
+          settled = true;
+          reject(new Error(message));
+          tx.abort();
         };
-        tx.oncomplete = () => resolve(saved!);
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(new Error("Save was not committed."));
+        const continueSave = () => {
+          const req = table.get(record.id);
+          req.onerror = () => stop("Saved record could not be checked.");
+          req.onsuccess = () => {
+            const prior = req.result as WorkspaceRecord | undefined;
+            if ((prior?.version || 0) !== record.version) {
+              stop("Another change was saved. Refresh before retrying.");
+              return;
+            }
+            if (prior?.kind === "audit") {
+              stop("Saved audit snapshots are immutable. Create a new report.");
+              return;
+            }
+            if (prior && prior.kind !== record.kind) {
+              stop("Record type cannot change.");
+              return;
+            }
+            saved = {
+              ...record,
+              version: record.version + 1,
+              updatedAt: new Date().toISOString(),
+              updatedBy: "This browser",
+            };
+            table.put(saved);
+            tx.objectStore("versions").put({
+              ...saved,
+              key: `${record.id}:${saved.version}`,
+            });
+          };
+        };
+
+        if (
+          record.kind === "package" &&
+          record.data.archived !== true &&
+          options.allowSemanticDuplicate !== true
+        ) {
+          // IndexedDB read/write transactions on this object store are
+          // serialized, so the duplicate check and put are one atomic local
+          // decision even across two tabs.
+          const all = table.getAll();
+          all.onerror = () => stop("Course identity could not be checked.");
+          all.onsuccess = () => {
+            const partner = normalizePartnerName(record.data.partner);
+            const semantic = packageSemanticKey(
+              record.data.scan?.fileName || record.title,
+            );
+            const duplicate = (all.result as WorkspaceRecord[]).find(
+              (candidate) =>
+                candidate.id !== record.id &&
+                candidate.kind === "package" &&
+                candidate.data.archived !== true &&
+                normalizePartnerName(candidate.data.partner) === partner &&
+                packageSemanticKey(
+                  candidate.data.scan?.fileName || candidate.title,
+                ) === semantic,
+            );
+            if (partner && semantic && duplicate) {
+              stop(
+                "An active course with the same partner and semantic package identity already exists. Rescan that course or reconcile duplicates in Operations.",
+              );
+              return;
+            }
+            continueSave();
+          };
+        } else {
+          continueSave();
+        }
+
+        tx.oncomplete = () => {
+          if (!settled) {
+            settled = true;
+            resolve(saved!);
+          }
+        };
+        tx.onerror = () => {
+          if (!settled) {
+            settled = true;
+            reject(tx.error || new Error("Save failed."));
+          }
+        };
+        tx.onabort = () => {
+          if (!settled) {
+            settled = true;
+            reject(new Error("Save was not committed."));
+          }
+        };
       });
     },
   };
@@ -310,7 +376,10 @@ export async function teamStore(): Promise<WorkspaceStore> {
         `uploads/${init.id}/commit`,
         {
           method: "POST",
-          body: "{}",
+          body: JSON.stringify({
+            allowSemanticDuplicate:
+              options.allowSemanticDuplicate === true,
+          }),
         },
         { ...options, context: `Finalizing ${label}` },
       );
