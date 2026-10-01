@@ -88,7 +88,8 @@ export default function LocalCourseraExtraction({
         <input
           type="url"
           value={shellUrl}
-          disabled={disabled || !!busy || !shellTarget}
+          disabled={disabled || !!busy}
+          aria-invalid={!!shellUrl.trim() && !shellTarget}
           onChange={(event) => {
             const value = event.target.value;
             setShellUrl(value);
@@ -229,10 +230,12 @@ export default function LocalCourseraExtraction({
               ? capture.name
               : "Choose the Coursera JSON downloaded by the extractor"}
           </strong>
-          <span>
+          <span id="local-coursera-capture-help">
             {capture
               ? (capture.size / 1024 / 1024).toFixed(2) + " MiB"
-              : "Inspection happens in this browser before the file enters Compare."}
+              : shellTarget
+                ? "Inspection happens in this browser before the file enters Compare."
+                : "Enter the matching Coursera authoring-shell URL first so CTI can verify course identity."}
           </span>
         </label>
         <input
@@ -240,7 +243,8 @@ export default function LocalCourseraExtraction({
           className="visually-hidden-file"
           type="file"
           accept=".json,application/json"
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
+          aria-describedby="local-coursera-capture-help"
           onChange={(event) => {
             const file = event.target.files?.[0] || null;
             setCapture(file);
