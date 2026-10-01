@@ -196,17 +196,7 @@ export default function App() {
           </button>
         </nav>
         <div hidden={workspace !== "full"}>
-          <FullWorkspace
-            onBusyChange={setFullBusy}
-            onOpenExtractors={() => {
-              setWorkspace("capture");
-              requestAnimationFrame(() =>
-                document
-                  .getElementById("extractor-tools")
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-              );
-            }}
-          />
+          <FullWorkspace onBusyChange={setFullBusy} />
         </div>
         <div hidden={workspace !== "package"}>
           <PackageWorkspace onBusyChange={setPackageBusy} />
@@ -301,46 +291,6 @@ export default function App() {
                 Review capture <span aria-hidden="true">→</span>
               </button>
             </section>
-            <section
-              id="extractor-tools"
-              className="card extractor-card"
-              aria-labelledby="extractor-title"
-            >
-              <div className="section-top">
-                <span className="step">02</span>
-                <h2 id="extractor-title">Get an extractor</h2>
-              </div>
-              <p>
-                Copy the current scripts from the existing CTI release. Run them
-                yourself in your signed-in LMS.
-              </p>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() =>
-                  launch({ kind: "extractor", platform: "coursera" })
-                }
-              >
-                Coursera extractor <span aria-hidden="true">↗</span>
-              </button>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() =>
-                  launch({ kind: "extractor", platform: "brightspace" })
-                }
-              >
-                Brightspace extractor <span aria-hidden="true">↗</span>
-              </button>
-              <div className="local-note">
-                <strong>No upload or account needed</strong>
-                <p>
-                  Capture processing runs on this computer. This preview does
-                  not save results to a shared team record. Download a review to
-                  keep it.
-                </p>
-              </div>
-            </section>
           </div>
           {(busy || phase) && (
             <section className="status" role="status">
@@ -370,56 +320,6 @@ export default function App() {
               <strong>Could not complete this review</strong>
               <p>{error}</p>
             </div>
-          )}
-          {extractor && (
-            <section className="card script-panel">
-              <div className="section-top">
-                <div>
-                  <h2>
-                    {extractor.platform === "COURSERA"
-                      ? "Coursera"
-                      : "Brightspace"}{" "}
-                    extractor
-                  </h2>
-                  <p>
-                    {extractor.version} · Schema {extractor.schemaVersion}
-                  </p>
-                </div>
-                <button
-                  className="text-button"
-                  onClick={() => setExtractor(null)}
-                >
-                  Close
-                </button>
-              </div>
-              <div className="button-row">
-                <button className="primary" onClick={copyScript}>
-                  Copy script
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    saveFile(
-                      `CTI-${extractor.platform.toLowerCase()}-${extractor.version}.js`,
-                      extractor.script,
-                      "text/javascript",
-                    )
-                  }
-                >
-                  Download script
-                </button>
-              </div>
-              <p role="status">{copyStatus}</p>
-              <details>
-                <summary>Show copyable script</summary>
-                <textarea
-                  aria-label="Extractor script"
-                  readOnly
-                  value={extractor.script}
-                  onFocus={(e) => e.target.select()}
-                />
-              </details>
-            </section>
           )}
           {result && (
             <section className="results" aria-labelledby="result-title">
