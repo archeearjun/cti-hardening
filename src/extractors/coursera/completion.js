@@ -163,6 +163,27 @@ export function captureContractV6150(fp) {
       (Number((readiness && readiness.unreadableFrames) || 0) > 0 ||
         readiness.status === "CONFIGURATION_ONLY");
     if (targetObserved && terminalReadiness) {
+      const backgroundBodyObserved=Boolean(
+        plugin.backgroundCapture &&
+        plugin.externalBodyVerified === true &&
+        Number(plugin.backgroundCapture.verifiedFrames || 0) > 0
+      );
+      const backgroundScopeComplete=Boolean(
+        plugin.backgroundCapture &&
+        plugin.backgroundCapture.scopeComplete === true &&
+        plugin.backgroundCapture.interactionVerified === true
+      );
+      if (backgroundBodyObserved && !backgroundScopeComplete) {
+        reasons.push("EXTERNAL_PLUGIN_SCOPE_NOT_VERIFIED");
+        return Object.assign(result, {
+          complete: false,
+          accounted: true,
+          status: "ACCOUNTED_EXTERNAL_BODY_OBSERVED",
+          needsEditor: false,
+          retryable: false,
+          externalBodyVerified: true,
+        });
+      }
       if (externalOnly) {
         const crossOrigin = frames.some((f) =>
           /CROSS_ORIGIN|INACCESSIBLE/.test(String((f && f.access) || "")),
