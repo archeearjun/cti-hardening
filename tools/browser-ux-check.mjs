@@ -455,15 +455,182 @@ try {
     0,
   );
   assert(await page.getByRole("button", { name: "Run stage QA" }).isDisabled());
+
+  await page.getByLabel("Selected source course").selectOption(courses[0].id);
+  await waitIdle();
+  await tab("Operations");
+  await page
+    .getByRole("heading", { name: "Operational readiness", exact: true })
+    .waitFor();
+  await page.getByText("PASS · Course metadata contract", { exact: true }).waitFor();
+  await page.getByText("Current product capability manifest", { exact: true }).click();
+  await page
+    .getByText("AVAILABLE · Coursera extraction · local Chrome", { exact: true })
+    .waitFor();
+
+  const catalogWorkbook = Buffer.from(
+    writeWorkbook({
+      name: "catalog.xlsx",
+      sheets: {
+        Catalog: {
+          values: [
+            [
+              "Title Code",
+              "Title",
+              "Coursera Product Type",
+              "Assignment Owner",
+              "Brightspace Access",
+              "CC Package Access",
+              "Import Status",
+            ],
+            [
+              "COURSE001",
+              "Synthetic Course 001",
+              "Course",
+              "Assignment owner",
+              "Complete",
+              "Complete",
+              "Complete",
+            ],
+          ],
+        },
+      },
+    }),
+  );
+  const plannerWorkbook = Buffer.from(
+    writeWorkbook({
+      name: "planner.xlsx",
+      sheets: {
+        Planner: {
+          values: [
+            [
+              "Assignment Date",
+              "Partner",
+              "Content Ingestion Method",
+              "Assignment Category",
+              "Assignment Owner",
+              "Total Title Count",
+              "Status",
+              "Assignment Owner Remarks",
+            ],
+            [
+              "2026-09-20",
+              "Partner A",
+              "Smart Ingestion",
+              "Import Only",
+              "Assignment owner",
+              1,
+              "Assigned",
+              "COURSE001",
+            ],
+          ],
+        },
+      },
+    }),
+  );
+  const runtimeWorkbook = Buffer.from(
+    writeWorkbook({
+      name: "runtime.xlsx",
+      sheets: {
+        Runtime: {
+          values: [
+            ["Coursecode", "Course Title", "RISE", "Storyline", "Link"],
+            ["COURSE001", "Synthetic Course 001", 1, 0, "source inventory"],
+          ],
+        },
+      },
+    }),
+  );
+
+  await page.getByLabel("Catalog partner", { exact: true }).fill("Partner A");
+  await page.getByLabel("Partner catalog XLSX", { exact: true }).setInputFiles({
+    name: "catalog.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: catalogWorkbook,
+  });
+  await page.getByText("Catalog imported: 1 normalized row(s)", { exact: false }).waitFor();
+  await page.getByLabel("Master Planner XLSX", { exact: true }).setInputFiles({
+    name: "planner.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: plannerWorkbook,
+  });
+  await page.getByText("Planner imported: 1 normalized row(s)", { exact: false }).waitFor();
+  await page
+    .getByLabel("Runtime / RISE / Storyline inventory XLSX", { exact: true })
+    .setInputFiles({
+      name: "runtime.xlsx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: runtimeWorkbook,
+    });
+  await page
+    .getByText("Runtime inventory imported: 1 normalized row(s)", {
+      exact: false,
+    })
+    .waitFor();
+
+  await page.getByLabel("Partner", { exact: true }).fill("Partner A");
+  await page.getByLabel("From", { exact: true }).fill("2026-09-01");
+  await page.getByLabel("To", { exact: true }).fill("2026-09-30");
+  await page.getByLabel("Rescan cutoff", { exact: true }).fill("2026-09-01");
+  await page.getByLabel("Owner filter", { exact: true }).fill("Assignment owner");
+  await page
+    .getByRole("button", { name: "Build queue from saved inputs", exact: true })
+    .click();
+  await page
+    .getByText("Planner queue rebuilt from saved inputs:", { exact: false })
+    .waitFor();
+  await page.getByText("COURSE001", { exact: true }).waitFor();
+
+  await page
+    .getByRole("button", {
+      name: "Apply latest runtime evidence to matching courses",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByText("Applied explicit runtime inventory evidence to 1 matching active course(s).", {
+      exact: true,
+    })
+    .waitFor();
+
+  await page.getByText("CLEARED TO INGEST", { exact: true }).waitFor();
+  const manifestDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download Master Manifest XLSX", exact: true })
+    .click();
+  const manifestPath = await (await manifestDownload).path();
+  assert(fs.statSync(manifestPath).size > 100, "manifest export should not be empty");
+
+  await page.getByLabel("Coursera redo", { exact: true }).selectOption("DONE");
+  await page
+    .getByLabel("Operational notes", { exact: true })
+    .fill("Synthetic browser verification of migrated work-state persistence.");
+  await page
+    .getByRole("button", { name: "Save workflow state", exact: true })
+    .click();
+  await page
+    .getByText("Operational workflow state saved with the course record.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot("operations-desktop");
+
   await page.setViewportSize({ width: 390, height: 844 });
   for (const name of [
     "Catalogue",
     "Explore",
+    "Scan",
+    "Extract",
     "Compare",
     "History",
     "Work queue",
     "Macmillan",
     "Analytics",
+    "Operations",
     "Setup",
   ]) {
     await tab(name);
@@ -486,13 +653,16 @@ try {
         checks: [
           "62-course pagination and combined filters",
           "source explorer with lazy evidence",
+          "zero-cost local Coursera extractor download and strict capture verification",
           "all comparison inputs reset across courses",
           "report focus and evidence-status filtering",
           "source-only actions participate in filters and downloads remain complete",
           "queue navigation and checklist isolation",
           "before/after owner actions and separate portfolio results",
           "workbook choices and output files reset across masters",
-          "390px layouts",
+          "portable planner/catalog/runtime operations and workflow state",
+          "Master Manifest XLSX export",
+          "390px layouts across Scan, Extract and Operations",
         ],
         screenshots: capturePath,
         pageErrors: errors,
