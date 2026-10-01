@@ -175,6 +175,85 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       validateCourseWorkState(record.data.workState);
   }
 }
+export function validateRecordSummary(record: WorkspaceRecord): void {
+  validateRecord(record, false);
+  const data = record.data || {};
+  if (record.kind === "package") {
+    if (
+      typeof data.partner !== "string" ||
+      data.partner.length > 200 ||
+      typeof data.owner !== "string" ||
+      data.owner.length > 300
+    )
+      throw new Error("Invalid source-course partner or owner metadata.");
+    validateCourseStatus(data.status);
+    validateDateOnly(data.assignedDate, "Assigned date");
+    validateDateOnly(data.deadline, "Deadline");
+    validateDriveLink(data.driveLink);
+    if (
+      data.assignedDate &&
+      data.deadline &&
+      data.deadline < data.assignedDate
+    )
+      throw new Error("Deadline must be on or after the assigned date.");
+    if (
+      !data.scan ||
+      typeof data.scan !== "object" ||
+      Array.isArray(data.scan) ||
+      typeof data.scan.fileName !== "string" ||
+      data.scan.fileName.length > 500
+    )
+      throw new Error("Invalid source-course scan summary.");
+  }
+  if (record.kind === "audit") {
+    if (
+      !record.packageId ||
+      !Number.isInteger(data.generation) ||
+      data.generation < 0
+    )
+      throw new Error("Invalid audit summary.");
+  }
+  if (record.kind === "checklist") {
+    if (
+      !data.evidence ||
+      typeof data.evidence !== "object" ||
+      Array.isArray(data.evidence) ||
+      !Object.values(data.evidence).every((value) => typeof value === "boolean")
+    )
+      throw new Error("Invalid saved checklist summary.");
+    if (data.workState != null) validateCourseWorkState(data.workState);
+  }
+  if (record.kind === "reference-data") {
+    if (!["CATALOG", "PLANNER", "RUNTIME"].includes(String(data.subtype || "")))
+      throw new Error("Invalid reference-data summary.");
+    if (
+      typeof data.sourceName !== "string" ||
+      data.sourceName.length > 500 ||
+      typeof data.importedAt !== "string" ||
+      !Number.isFinite(Date.parse(data.importedAt)) ||
+      !Number.isInteger(Number(data.rowCount)) ||
+      Number(data.rowCount) < 0 ||
+      Number(data.rowCount) > 50_000
+    )
+      throw new Error("Invalid reference-data summary.");
+    if (
+      data.partner != null &&
+      (typeof data.partner !== "string" || data.partner.length > 200)
+    )
+      throw new Error("Invalid reference-data partner.");
+  }
+  if (record.kind === "item-review") {
+    if (
+      !record.packageId ||
+      typeof data.auditId !== "string" ||
+      !data.auditId ||
+      typeof data.itemKey !== "string" ||
+      !data.itemKey
+    )
+      throw new Error("Invalid item-review summary.");
+  }
+}
+
 export function prepareWorkspaceBackup(value: any): WorkspaceRecord[] {
   if (
     value?.kind !== "CTI_BROWSER_WORKSPACE" ||
