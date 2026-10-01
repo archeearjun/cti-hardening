@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { createEngine } from "../src/engine/index.js";
 import { createBrowserServices } from "../src/adapters/browser-services.ts";
-import { getExtractor, reviewCapture } from "../src/domain/capture-review.ts";
+import { reviewCapture } from "../src/domain/capture-review.ts";
 import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 
 const require = createRequire(import.meta.url),
@@ -111,7 +111,7 @@ test("unsupported Google services fail explicitly instead of fabricating shared 
 
 for (const platform of ["coursera", "brightspace"])
   test(`${platform} delivery retains the accepted extractor identity`, () => {
-    const actual = getExtractor(platform);
+    const actual = engine.ctiExtractorDelivery_(platform);
     assert.ok(actual.script.length > 40000);
     if (platform === "coursera") {
       const expected = CTI_RELEASE_REGISTRY_.courseraExtractor;
