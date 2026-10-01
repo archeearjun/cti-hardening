@@ -666,24 +666,23 @@ javascript:(async function () {
       await returnToOutlineV6142(startUrl);
       await sleepMs(500);
     }
+    const preflightContracts=(fingerprints || []).map(fp=>captureContractSummaryV6150(fp));
     let eligibleTargets = (fingerprints || []).filter(fp => {
-      const p = fp.payload || {};
-      const name = normalizeName(fp.name);
-      if (fp.type === "Unknown" && /^(overview content|archive content|overview|archive|content)$/.test(name)) return false;
       if (!fp.id) return false;
-      if (onlyIds) return onlyIds.has(String(fp.id));
-      return !(p.assetDetails || []).length || !p.textSample || p.published == null || Number(p.assetEvidenceConfidence || 0) < 0.90 || Number(p.textEvidenceCompleteness || 0) < 0.75;
+      if (onlyIds && !onlyIds.has(String(fp.id))) return false;
+      const contract=captureContractV6150(fp);
+      return contract.needsEditor===true && contract.attempts<CTI_MAX_ITEM_ATTEMPTS;
     }).sort((a,b) => onlyIds ? options.onlyIds.indexOf(String(a.id)) - options.onlyIds.indexOf(String(b.id)) : crawlTargetPriority(b,startingItemId) - crawlTargetPriority(a,startingItemId));
     if (!onlyIds) eligibleTargets=interleaveCrawlTargetsV61313(eligibleTargets);
     const explicitMaxItems = Number(options.maxItems || 0);
     const targetCap = explicitMaxItems > 0 ? explicitMaxItems : eligibleTargets.length;
     const targets = eligibleTargets.slice(0, targetCap);
-    const crawlBudgetMs = Math.min(retryPass?recoveryCrawlBudgetV61326(targets):activeCrawlBudgetMs(targets.length, false),Number(options.budgetMs || Infinity));
-    const crawlStartedAt = Date.now();
+    const crawlBudgetMs = Math.min(retryPass?recoveryCrawlBudgetV61326(targets):activeCrawlBudgetMs(targets, false),Number(options.budgetMs || Infinity));
+    let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.14.7",
-      buildId: "v6.14.7-plugin-readiness-20260929",
+      version: "v6.15.4",
+      buildId: "v6.15.4-empty-reading-visibility-20261001",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -692,6 +691,9 @@ javascript:(async function () {
       targets: targets.length,
       targetIds: targets.map(fp => String(fp.id)),
       eligibleTargets: eligibleTargets.length,
+      preflightComplete:preflightContracts.filter(x=>x.complete).length,
+      preflightTerminalUnresolved:preflightContracts.filter(x=>!x.complete && x.accounted && !x.retryable).length,
+      preflightNeedsEditor:preflightContracts.filter(x=>x.needsEditor).length,
       targetCap: targetCap,
       coverageLimitedByCap: eligibleTargets.length > targets.length,
       budgetStrategy: retryPass ? "ADAPTIVE_RETRY" : "INTERLEAVED_TYPES_WITH_RESERVED_VISITS",
@@ -701,6 +703,8 @@ javascript:(async function () {
       maxBudgetMs: retryPass ? 20 * 60 * 1000 : ACTIVE_CRAWL_MAX_TOTAL_MS,
       timeBudgetExhausted: false,
       unvisitedDueToBudget: 0,
+      visibilityPauseCount:0,
+      visibilityPausedMs:0,
       discoveredTargets: 0,
       routeAttempts: 0,
       navigated: 0,
@@ -747,16 +751,36 @@ javascript:(async function () {
       assessmentOutlineDomQuestions: 0,
       targetDiagnostics: []
     };
+    const checkpointItem=async (fp,diag)=>{
+      compactDiagnosticV6150(diag,fp);
+      if(typeof options.checkpoint==='function'){
+        try{await options.checkpoint(fp,diag,retryPass?'retry':'primary');meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;}catch(e){meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;}
+      }
+    };
 
     try {
       for (let index = 0; index < targets.length; index++) {
-        if (Date.now() - crawlStartedAt > crawlBudgetMs) {
+        if (Date.now() - crawlStartedAt >= crawlBudgetMs) {
           meta.timeBudgetExhausted = true;
           meta.unvisitedDueToBudget = targets.length - index;
           break;
         }
+        const visibilityPausedMs=await waitForVisibleV6154(()=>{
+          if(typeof ctiProgressUpdateV1==='function')ctiProgressUpdateV1({detail:'Paused — return to the Coursera tab to continue extraction'});
+        });
+        if(visibilityPausedMs>0){
+          crawlStartedAt+=visibilityPausedMs;
+          CTI_WHOLE_RUN_DEADLINE+=visibilityPausedMs;
+          meta.visibilityPauseCount++;
+          meta.visibilityPausedMs+=visibilityPausedMs;
+        }
         const itemStartedAt=Date.now();
-        const fp = targets[index];  // CTI_PROGRESS_BEGIN
+        const fp = targets[index];
+        const courseAttemptDeadline=crawlStartedAt+crawlBudgetMs;
+        let itemAttemptDeadline=Math.min(courseAttemptDeadline,itemStartedAt+itemAttemptBudgetV6153(fp,retryPass));
+        fp.payload=fp.payload || {};
+        fp.payload.captureAttempts=Math.min(CTI_MAX_ITEM_ATTEMPTS,Math.max(0,Number(fp.payload.captureAttempts || 0))+1);
+        fp.payload.lastCaptureAttemptAt=new Date(itemStartedAt).toISOString();  // CTI_PROGRESS_BEGIN
         if (typeof ctiProgressUpdateV1 === "function") ctiProgressUpdateV1({phase:retryPass ? "Recovery editors" : "Primary editors",
           detail:String(fp.name || fp.id) + " · Opening editor", completed:index, total:targets.length,
           count:index + "/" + targets.length + " visits processed · " + meta.targetDiagnostics.filter(d => d.domCaptured || d.editorSurfaceCaptured).length + " editors observed"});
@@ -767,25 +791,26 @@ javascript:(async function () {
         await returnToOutlineV6142(startUrl);
         await sleepMs(220);
 
-        const scanTrace = {deadline:Math.min(crawlStartedAt+crawlBudgetMs,Date.now()+20000)};
+        const scanTrace = {deadline:Math.min(itemAttemptDeadline,Date.now()+30000)};
         const readingInitialRecords=recorder.takeFor(fp).length;
         recorder.setActive(fp);
         const readingRecovery = fp.typeName === 'supplement' && readingRouteTemplate ?
-          await recoverReadingRouteV61311(fp,courseOrBranchId,readingRouteTemplate,{deadline:crawlStartedAt+crawlBudgetMs,recorder,initialCount:readingInitialRecords}) : null;
+          await recoverReadingRouteV61311(fp,courseOrBranchId,readingRouteTemplate,{deadline:itemAttemptDeadline,recorder,initialCount:readingInitialRecords}) : null;
         const typedRecovery=typedEditorRouteTypeV61316(fp) && readingRouteTemplate ?
-          await recoverTypedEditorV61317(fp,courseOrBranchId,readingRouteTemplate,{deadline:crawlStartedAt+crawlBudgetMs,previousNameFields:typedPreviousNameFields}) : null;
+          await recoverTypedEditorV61317(fp,courseOrBranchId,readingRouteTemplate,{deadline:itemAttemptDeadline,previousNameFields:typedPreviousNameFields,retryMode:retryPass}) : null;
         recorder.setActive(null);
         if (typedRecovery && !typedRecovery.captured) {await returnToOutlineV6142(startUrl);await sleepMs(600);}
         if (readingRecovery && !readingRecovery.captured) {await returnToOutlineV6142(startUrl);await sleepMs(600);}
-        scanTrace.deadline=Math.min(crawlStartedAt+crawlBudgetMs,Date.now()+20000);
+        scanTrace.deadline=Math.min(itemAttemptDeadline,Date.now()+30000);
         const found = (readingRecovery && readingRecovery.captured) || (typedRecovery && typedRecovery.captured) ? null : await findNavigationTargetForFingerprint(fp, courseOrBranchId, scanTrace);
         const diag = {
           id: String(fp.id || ""),
           name: String(fp.name || ""),
-          attempt: retryPass ? 2 : 1,
+          attempt: Number(fp.payload.captureAttempts || (retryPass ? 2 : 1)),
           startedAt:new Date(itemStartedAt).toISOString(),
           documentVisibility:String(document.visibilityState || "unknown"),
           navigationMs:0,stabilityPhaseMs:0,assessmentMs:0,harvestMs:0,elapsedMs:0,
+          itemAttemptBudgetMs:Math.max(0,itemAttemptDeadline-itemStartedAt),itemAttemptDeadlineReached:false,harvestFastPath:false,
           found: Boolean(found),
           score: found ? Number(found.score || 0) : 0,
           reason: found ? found.reason : "no-target",
