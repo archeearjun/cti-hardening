@@ -51,6 +51,13 @@ const artifactKey = (id: string) => `jobs/${id}/capture.json`;
 const runtimeStateKey = (id: string) => `jobs/${id}/runtime-state.json`;
 const sessionKey = (ownerHash: string) => `sessions/${ownerHash}/state.json`;
 const sessionMetaKey = (ownerHash: string) => `sessions/${ownerHash}/meta.json`;
+const ownerJobPrefix = (ownerHash: string) => `owners/${ownerHash}/jobs/`;
+const ownerJobKey = (ownerHash: string, createdAt: string, id: string) =>
+  ownerJobPrefix(ownerHash) +
+  createdAt.replace(/[^0-9]/g, "") +
+  "-" +
+  id +
+  ".json";
 
 function fail(message: string, status = 400): never {
   throw Object.assign(new Error(message), { status });
@@ -836,6 +843,13 @@ async function createWorkflow(
       artifactAvailable: false,
     };
   await putJson(env, statusKey(id), status);
+  if (kind === "extract")
+    await putJson(env, ownerJobKey(hash, createdAt, id), {
+      id,
+      createdAt,
+      courseId,
+      shellUrl,
+    });
   await env.EXTRACTION_WORKFLOW.create({
     id,
     params: {
@@ -909,6 +923,32 @@ export default {
         return json({
           status: cleanStatus(await ownedStatus(env, path[1], hash)),
         });
+
+      if (path[0] === "jobs" && path.length === 1 && method === "GET") {
+        const listed = await env.ARTIFACTS.list({
+          prefix: ownerJobPrefix(hash),
+          limit: 100,
+        });
+        const refs: Array<{ id: string; createdAt: string }> = [];
+        for (const object of listed.objects || []) {
+          const marker = await getJson<any>(env, object.key);
+          if (marker?.id)
+            refs.push({
+              id: String(marker.id),
+              createdAt: String(marker.createdAt || ""),
+            });
+        }
+        refs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const statuses: CourseraExtractionStatus[] = [];
+        for (const ref of refs.slice(0, 20)) {
+          const job = await getJson<CourseraExtractionStatus>(
+            env,
+            statusKey(ref.id),
+          );
+          if (job && job.ownerHash === hash) statuses.push(job);
+        }
+        return json({ statuses: statuses.map(cleanStatus) });
+      }
 
       if (path[0] === "jobs" && path.length === 1 && method === "POST") {
         if (!["admin", "editor"].includes(caller.role))
