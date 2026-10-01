@@ -106,7 +106,7 @@ async function upload(call, record) {
           200,
         );
     },
-    commit: () => call(`uploads/${id}/commit`, "POST", "{}"),
+    commit: (body = "{}") => call(`uploads/${id}/commit`, "POST", body),
   };
 }
 test("deployed API fails closed without team configuration or verified identity", async () => {
@@ -561,6 +561,60 @@ test("server validates the reconstructed full payload before commit", async () =
   );
 });
 
+
+
+test("admin migration import may preserve historical duplicates but editors cannot bypass the guard", async () => {
+  const db = database(),
+    editorCall = client(db),
+    adminCall = client(db, { ...actor, role: "admin" });
+  const first = comparisonFixture().course;
+  first.data.partner = "NAIT";
+  first.data.scan.fileName = "BORL113.imscc";
+  first.title = first.data.scan.fileName;
+  const u = await upload(editorCall, first);
+  await u.chunks();
+  assert.equal((await u.commit()).status, 200);
+
+  const historicalDuplicate = structuredClone(first);
+  historicalDuplicate.id = crypto.randomUUID();
+  historicalDuplicate.version = 0;
+  historicalDuplicate.updatedAt = "";
+  historicalDuplicate.updatedBy = "";
+  historicalDuplicate.title = "BORL113 (2).imscc";
+  historicalDuplicate.data.scan.fileName = historicalDuplicate.title;
+  const imported = await upload(adminCall, historicalDuplicate);
+  await imported.chunks();
+  assert.equal(
+    (
+      await imported.commit(
+        JSON.stringify({ allowSemanticDuplicate: true }),
+      )
+    ).status,
+    200,
+  );
+  const listed = await (await adminCall("records")).json();
+  assert.equal(
+    listed.records.filter((record) => record.kind === "package").length,
+    2,
+    "migration must retain historical duplicate evidence for later reconciliation",
+  );
+
+  const forbidden = structuredClone(historicalDuplicate);
+  forbidden.id = crypto.randomUUID();
+  forbidden.title = "BORL113 (3).imscc";
+  forbidden.data.scan.fileName = forbidden.title;
+  const blocked = await upload(editorCall, forbidden);
+  await blocked.chunks();
+  assert.equal(
+    (
+      await blocked.commit(
+        JSON.stringify({ allowSemanticDuplicate: true }),
+      )
+    ).status,
+    403,
+  );
+  db.sql.close();
+});
 
 test("shared API rejects a second active semantic package identity", async () => {
   const db = database(),
