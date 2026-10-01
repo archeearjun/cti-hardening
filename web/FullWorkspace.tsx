@@ -72,10 +72,8 @@ const dateLabel = (value: string) =>
     : "Date not recorded";
 export default function FullWorkspace({
   onBusyChange,
-  onOpenExtractors,
 }: {
   onBusyChange?: (busy: boolean) => void;
-  onOpenExtractors?: () => void;
 }) {
   const [store, setStore] = useState<WorkspaceStore | null>(null),
     [records, setRecords] = useState<WorkspaceRecord[]>([]);
@@ -938,15 +936,13 @@ export default function FullWorkspace({
             )}
             <div className="section-heading">
               <h3>1. Add destination evidence</h3>
-              {onOpenExtractors && (
-                <button
-                  className="text-button"
-                  disabled={!!busy}
-                  onClick={onOpenExtractors}
-                >
-                  Get extractor scripts →
-                </button>
-              )}
+              <button
+                className="text-button"
+                disabled={!!busy}
+                onClick={() => setTab("Extract")}
+              >
+                Extract Coursera shell →
+              </button>
             </div>
             <fieldset key={courseId} disabled={!course || !!busy || !editable}>
               <legend className="sr-only">Comparison inputs</legend>
