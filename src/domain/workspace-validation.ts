@@ -45,14 +45,29 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       throw new Error(
         "A source record must contain a complete source tree and scan statistics.",
       );
-    validateCourseMetadata({
-      partner: record.data.partner,
-      owner: record.data.owner,
-      status: record.data.status,
-      assignedDate: record.data.assignedDate,
-      deadline: record.data.deadline,
-      driveLink: record.data.driveLink,
-    });
+    const hasMetadata = [
+      "partner",
+      "owner",
+      "status",
+      "assignedDate",
+      "deadline",
+      "driveLink",
+    ].some((key) => Object.prototype.hasOwnProperty.call(record.data, key));
+    if (hasMetadata) {
+      // Historical workspace exports may legitimately have a blank partner.
+      // Preserve them on import, but validate every other supplied field. New
+      // CTI course creation still requires a partner in the active UI.
+      validateCourseMetadata({
+        partner:
+          record.data.partner ||
+          (record.data.legacyTimestamp ? "Legacy unassigned" : ""),
+        owner: record.data.owner,
+        status: record.data.status,
+        assignedDate: record.data.assignedDate,
+        deadline: record.data.deadline,
+        driveLink: record.data.driveLink,
+      });
+    }
     if (
       record.data.archived !== undefined &&
       typeof record.data.archived !== "boolean"
