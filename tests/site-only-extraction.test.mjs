@@ -80,3 +80,38 @@ test("site can rediscover recent extraction jobs server-side", () => {
   assert.match(workspace, /Recent background extractions/);
   assert.match(workspace, /recentCourseraExtractions/);
 });
+
+
+test("Coursera extraction is single-click and organization SSO is on-demand", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  const workspace = read("web/CourseraExtractionWorkspace.tsx");
+
+  assert.doesNotMatch(
+    background,
+    /Connect Coursera before starting a background extraction/,
+  );
+  assert.match(background, /completeInteractiveOrganizationSso/);
+  assert.match(background, /advanceToOrganizationSso/);
+  assert.match(
+    background,
+    /organization.*sign|single\\s\\*sign|\\bsso\\b|work\\s\\*account/i,
+  );
+  assert.match(background, /Complete Okta SSO\/MFA/);
+  assert.match(
+    background,
+    /context\.storageState\(\{ indexedDB: true \}\)/,
+  );
+
+  assert.match(workspace, />\s*\{extractionActive \? "Extraction running…" : "Extract course"\}\s*</);
+  assert.doesNotMatch(workspace, />Connect Coursera</);
+  assert.match(workspace, /Continue with Okta SSO/);
+  assert.match(workspace, /Okta only if needed/);
+});
+
+test("SSO automation never types credentials or submits forms", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  assert.doesNotMatch(background, /\.fill\s*\(/);
+  assert.doesNotMatch(background, /\.type\s*\(/);
+  assert.doesNotMatch(background, /keyboard\.type/);
+  assert.doesNotMatch(background, /input\[type=["']password/);
+});
