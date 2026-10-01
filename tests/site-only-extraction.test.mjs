@@ -68,3 +68,15 @@ test("background plugin evidence is passive and item-scoped", () => {
   assert.doesNotMatch(background, /\.play\s*\(/);
   assert.doesNotMatch(background, /frame\.click\s*\(/);
 });
+
+
+test("site can rediscover recent extraction jobs server-side", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  const client = read("src/domain/coursera-extraction-http.ts");
+  const workspace = read("web/CourseraExtractionWorkspace.tsx");
+  assert.match(background, /ownerJobPrefix/);
+  assert.match(background, /path\[0\] === "jobs".*method === "GET"/s);
+  assert.match(client, /recentCourseraExtractions/);
+  assert.match(workspace, /Recent background extractions/);
+  assert.match(workspace, /recentCourseraExtractions/);
+});
