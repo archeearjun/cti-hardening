@@ -237,10 +237,26 @@ test("Browser Run acquisition backpressure converts temporary 429s into waits", 
     background,
     /const browser = await launch\(env\.BROWSER, \{ keep_alive: 600_000 \}\);/,
   );
-  assert.equal(
-    (background.match(/return await launch\(env\.BROWSER, \{ keep_alive: 600_000 \}\)/g) || [])
-      .length,
-    1,
-    "all Browser Run launches should go through the rate-limit recovery helper",
+  assert.doesNotMatch(
+    background,
+    /return await launch\(env\.BROWSER, \{ keep_alive: 600_000 \}\)/,
+  );
+  assert.match(
+    background,
+    /return await launch\(env\.BROWSER, \{[\s\S]*keep_alive:\s*600_000,[\s\S]*outboundByHost:\s*\{\},[\s\S]*\}\)/,
+  );
+  assert.match(
+    background,
+    /newer Browser Binding RPC launch\(\) path/,
+  );
+});
+
+test("Browser Run launch is forced onto the RPC binding path", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  assert.match(background, /outboundByHost:\s*\{\}/);
+  assert.match(background, /RPC-backed launch/);
+  assert.doesNotMatch(
+    background,
+    /launch\(env\.BROWSER, \{\s*keep_alive:\s*600_000\s*\}\)/,
   );
 });
