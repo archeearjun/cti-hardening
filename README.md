@@ -34,7 +34,8 @@ Run `npm run audit:parity` to check that ledger and the retained rule bodies.
 | Package XML/ZIP/QTI/PDF scanning | `src/source/` |
 | Owner report text | `src/reporting/` |
 | Typed workflows and local/shared records | `src/domain/`, `src/adapters/` |
-| Authenticated Cloudflare API and D1 | `server/`, `functions/` |\n| Background Coursera extraction | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` |
+| Authenticated Cloudflare API and D1 | `server/`, `functions/` |
+| Background Coursera extraction | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` |
 
 ## Develop and verify
 
@@ -96,10 +97,15 @@ Coursera comparisons, ordered owner review, immutable before/after audits,
 work queues, Macmillan workbook validation, and portfolio diagnostics. It does
 not generate partner content maps or specialization outlines.
 
-Coursera extraction remains **v6.14.7/schema 34** and Brightspace remains
-**v1.0.8/schema 2**. The module refactor preserves their capture rules; new captures
-are not required simply because the code layout changed. Extractors run in the
-user's signed-in LMS. Comparisons/workbook checks run in cancellable workers.
+Coursera extraction is **v6.15.4/schema 35** and Brightspace remains
+**v1.0.8/schema 2**. Coursera v6.15.4 adds explicit no-silent-miss accounting,
+bounded slow-item waits, two-attempt recovery, strict assessment/plugin/empty-reading
+contracts and checkpointable browser traversal. In the normal CTI workflow,
+Coursera capture is started from **Full CTI workspace → Extract** and runs in the
+authenticated background browser service; operators are not expected to copy a
+console script. The generated standalone bundle remains an internal delivery/test
+artifact and supports maintained targeted-check code. Comparisons/workbook checks
+run in cancellable workers.
 
 Package inspection is bounded to 250 MiB archives and a 24 MiB content-read budget;
 XLSX inspection to 25 MiB and two million cells; shared records to 32 MiB.
