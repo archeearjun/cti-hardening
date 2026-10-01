@@ -184,6 +184,24 @@ test("duplicate planning preserves oldest unsuffixed survivor and blocks metadat
   assert.throws(() => mergeDuplicateGroup(conflict.groups[0]), /conflicts/);
 });
 
+
+
+test("duplicate group identity cannot collide after a long shared filename prefix", () => {
+  const shared = "A".repeat(140);
+  const first = [
+    pkg("a1", shared + "101.imscc"),
+    pkg("a2", shared + "101 (2).imscc"),
+  ];
+  const second = [
+    pkg("b1", shared + "202.imscc"),
+    pkg("b2", shared + "202 (2).imscc"),
+  ];
+  const plan = buildDuplicatePlan([...first, ...second]);
+  assert.equal(plan.groups.length, 2);
+  assert.notEqual(plan.groups[0].id, plan.groups[1].id);
+  assert.equal(new Set(plan.groups.map((group) => group.id)).size, 2);
+});
+
 test("work-state transitions retain audit-first and runtime review decisions", () => {
   const state = normalizeWorkState({});
   assert.equal(state.scope, "ACTIVE");
