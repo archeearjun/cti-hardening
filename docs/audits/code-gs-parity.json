@@ -3344,11 +3344,12 @@
     },
     {
       "name": "operations.workQueue",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
-        "web/FullWorkspace.tsx"
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
       ],
-      "note": "Course/evidence-checklist queue exists; planner-driven orchestration does not."
+      "note": "Planner-driven orchestration and audit-first next actions are restored from portable catalog/planner inputs; the per-course evidence checklist remains available separately."
     },
     {
       "name": "operations.campaignFilters",
@@ -3433,11 +3434,13 @@
     },
     {
       "name": "directory.editDetails",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
-        "web/FullWorkspace.tsx"
+        "web/FullWorkspace.tsx",
+        "src/domain/operations.ts",
+        "src/domain/workspace-validation.ts"
       ],
-      "note": "Owner/partner/status editable; complete dates/Drive-link and old validation semantics are missing."
+      "note": "Partner, owner, status, assigned date, deadline and Drive/Docs link editing now use the restored validation contract."
     },
     {
       "name": "directory.deepAudit",
@@ -3732,12 +3735,13 @@
     },
     {
       "name": "qa.runtimeEvidence",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/workflows.ts",
-        "src/domain/legacy-import.ts"
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
       ],
-      "note": "Package/live evidence and imported inventory work; fresh external SCORM inventory refresh is missing."
+      "note": "Package/live runtime evidence remains active and a fresh portable RISE/Storyline inventory can be imported and applied with source provenance."
     },
     {
       "name": "qa.qaGlossary",
@@ -3792,42 +3796,44 @@
     },
     {
       "name": "evidenceMemory.generationLineage",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/workflows.ts",
-        "src/domain/legacy-import.ts"
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx",
+        "src/engine/lifecycle/generation.js",
+        "src/engine/lifecycle/lineage.js"
       ],
-      "note": "Generation grouping/raw baseline work. Import-event provenance, linked automatic deltas and conservative old-lineage repair are incomplete."
+      "note": "Generation grouping/raw baselines remain active; repeated-export repairs are conservative operator-confirmed metadata and lifecycle comparisons retain source/coherence guards."
     },
     {
       "name": "evidenceMemory.humanLabels",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/owner-actions.ts",
         "web/OwnerActionCard.tsx",
         "src/domain/legacy-import.ts"
       ],
-      "note": "Current item-level review status/notes and old metadata are retained. They are not equivalent to a complete run-level human-label/dataset workflow. No model training is claimed. The archive exposes these as run metadata fields; it does not contain a model-training service or a dedicated label-write endpoint."
+      "note": "Item-level review status and meaningful notes are persisted as separate review records; imported legacy labels remain available without fabricating a model-training workflow."
     },
     {
       "name": "evidenceMemory.reviewerNotes",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/owner-actions.ts",
         "web/OwnerActionCard.tsx",
         "src/domain/legacy-import.ts"
       ],
-      "note": "Current item-level review status/notes and old metadata are retained. They are not equivalent to a complete run-level human-label/dataset workflow. No model training is claimed. The archive exposes these as run metadata fields; it does not contain a model-training service or a dedicated label-write endpoint."
+      "note": "Reviewer notes remain versioned item-review evidence and historical metadata is retained."
     },
     {
       "name": "evidenceMemory.futureMlDataset",
-      "status": "partial",
+      "status": "retired-unverified-claim",
       "paths": [
-        "src/domain/owner-actions.ts",
-        "web/OwnerActionCard.tsx",
+        "src/domain/product-capabilities.ts",
         "src/domain/legacy-import.ts"
       ],
-      "note": "Current item-level review status/notes and old metadata are retained. They are not equivalent to a complete run-level human-label/dataset workflow. No model training is claimed. The archive exposes these as run metadata fields; it does not contain a model-training service or a dedicated label-write endpoint."
+      "note": "The archive exposed metadata flags but no model-training service or dedicated dataset workflow. Historical fields are preserved; CTI does not claim or recreate a nonexistent training pipeline."
     },
     {
       "name": "macmillan.stage1",
@@ -4014,11 +4020,12 @@
     },
     {
       "name": "platform.releaseRegistry",
-      "status": "partial",
+      "status": "replaced",
       "paths": [
-        "src/engine/release.js"
+        "src/engine/release.js",
+        "src/domain/product-capabilities.ts"
       ],
-      "note": "Extractor/engine identity preserved; host architecture and delivery labels need modernizing."
+      "note": "Engine/extractor identities remain registered and extractor delivery now truthfully reports GENERATED_BROWSER_BUNDLE instead of the stale Apps Script delivery label."
     }
   ],
   "indexSha256": "ee3d9d441fdb5c2239196f75d19b36b33ac2916e0bf5959b3fb8a55306189bcd",
