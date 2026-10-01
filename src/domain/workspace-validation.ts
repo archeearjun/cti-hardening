@@ -1,5 +1,56 @@
 import type { WorkspaceRecord } from "./workspace-types.ts";
 import { validateOwnerReview } from "./owner-actions.ts";
+import { validateCourseWorkState } from "./work-state.ts";
+export const VALID_COURSE_STATUSES = [
+  "In Queue",
+  "In Progress",
+  "QA Review",
+  "Blocked",
+  "Completed",
+] as const;
+
+export function validateDateOnly(value: unknown, fieldName: string): string {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text))
+    throw new Error(fieldName + " must use YYYY-MM-DD format.");
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    throw new Error(fieldName + " is not a valid calendar date.");
+  return text;
+}
+
+export function validateCourseStatus(value: unknown): string {
+  const status = String(value || "In Queue").trim();
+  if (!(VALID_COURSE_STATUSES as readonly string[]).includes(status))
+    throw new Error("Invalid course status.");
+  return status;
+}
+
+export function validateDriveLink(value: unknown): string {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error("Drive link must be a valid HTTPS Google Drive or Docs URL.");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    !["drive.google.com", "docs.google.com"].includes(url.hostname.toLowerCase())
+  )
+    throw new Error("Drive link must be an HTTPS Google Drive or Docs URL.");
+  return url.toString();
+}
+
 const kinds = [
   "package",
   "audit",
@@ -38,13 +89,30 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       throw new Error("Invalid item review.");
     validateOwnerReview(record.data.review);
   }
-  if (
-    record.kind === "package" &&
-    (!Array.isArray(record.data.scan?.courseTree) || !record.data.scan?.stats)
-  )
-    throw new Error(
-      "A source record must contain a complete source tree and scan statistics.",
-    );
+  if (record.kind === "package") {
+    if (!Array.isArray(record.data.scan?.courseTree) || !record.data.scan?.stats)
+      throw new Error(
+        "A source record must contain a complete source tree and scan statistics.",
+      );
+    if (
+      typeof record.data.partner !== "string" ||
+      !record.data.partner.trim() ||
+      record.data.partner.length > 200 ||
+      typeof record.data.owner !== "string" ||
+      record.data.owner.length > 300
+    )
+      throw new Error("Invalid source-course partner or owner metadata.");
+    validateCourseStatus(record.data.status);
+    validateDateOnly(record.data.assignedDate, "Assigned date");
+    validateDateOnly(record.data.deadline, "Deadline");
+    validateDriveLink(record.data.driveLink);
+    if (
+      record.data.assignedDate &&
+      record.data.deadline &&
+      record.data.deadline < record.data.assignedDate
+    )
+      throw new Error("Deadline must be on or after the assigned date.");
+  }
   if (
     record.kind === "audit" &&
     (!record.packageId ||
@@ -63,14 +131,22 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       ))
   )
     throw new Error("Invalid saved workbook.");
-  if (
-    record.kind === "checklist" &&
-    (!record.data.evidence ||
+  if (record.kind === "checklist") {
+    if (
+      !record.data.evidence ||
       typeof record.data.evidence !== "object" ||
       Array.isArray(record.data.evidence) ||
-      !Object.values(record.data.evidence).every((v) => typeof v === "boolean"))
-  )
-    throw new Error("Invalid saved checklist.");
+      !Object.values(record.data.evidence).every((v) => typeof v === "boolean")
+    )
+      throw new Error("Invalid saved checklist.");
+    if (
+      record.data.notes != null &&
+      (typeof record.data.notes !== "string" || record.data.notes.length > 4000)
+    )
+      throw new Error("Checklist notes exceed the 4,000-character limit.");
+    if (record.data.workState != null)
+      validateCourseWorkState(record.data.workState);
+  }
 }
 export function prepareWorkspaceBackup(value: any): WorkspaceRecord[] {
   if (
