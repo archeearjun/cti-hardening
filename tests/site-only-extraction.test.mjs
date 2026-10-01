@@ -42,3 +42,16 @@ test("site background worker owns internal extractor injection", () => {
   assert.match(background, /page\.addScriptTag\(\{\s*content:\s*courseraSource\s*\}\)/);
   assert.match(background, /evaluateCourseraCapture\(/);
 });
+
+
+test("background extraction persists browser checkpoints for workflow restart", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  const completion = read("src/extractors/coursera/completion.js");
+  assert.match(background, /runtimeStateKey/);
+  assert.match(background, /context\.storageState\(\{ indexedDB: true \}\)/);
+  assert.match(background, /saveRuntimeState\(/);
+  assert.match(background, /loadRuntimeState\(/);
+  assert.match(background, /await env\.ARTIFACTS\.delete\(runtimeStateKey\(payload\.id\)\)/);
+  assert.match(completion, /localStorage\.getItem\(key\)/);
+  assert.match(completion, /CTI_CHECKPOINT_TTL_MS/);
+});
