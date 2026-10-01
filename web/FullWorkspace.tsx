@@ -839,7 +839,12 @@ export default function FullWorkspace({
                         const metadata = validateCourseMetadata({
                           partner,
                           owner,
-                          status,
+                          status: status as
+                            | "In Queue"
+                            | "In Progress"
+                            | "QA Review"
+                            | "Blocked"
+                            | "Completed",
                           assignedDate,
                           deadline,
                           driveLink,
