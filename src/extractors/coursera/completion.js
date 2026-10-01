@@ -197,7 +197,8 @@ export function captureContractV6150(fp) {
   } else if (
     normalized === "Assignment" ||
     normalized === "Assessment" ||
-    isAssessmentLikeFingerprintV662(fp)
+    isAssessmentLikeFingerprintV662(fp) ||
+    !!p.structuredAssessment
   ) {
     const a = p.structuredAssessment || {};
     const c = a.captureCompleteness || {};
