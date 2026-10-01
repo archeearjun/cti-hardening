@@ -777,6 +777,10 @@ javascript:(async function () {
         }
         const itemStartedAt=Date.now();
         const fp = targets[index];
+        try {
+          window.__CTI_ACTIVE_ITEM_ID=String(fp.id || "");
+          window.__CTI_ACTIVE_ITEM_TYPE=String(fp.typeName || fp.type || "");
+        } catch (_) {}
         const courseAttemptDeadline=crawlStartedAt+crawlBudgetMs;
         let itemAttemptDeadline=Math.min(courseAttemptDeadline,itemStartedAt+itemAttemptBudgetV6153(fp,retryPass));
         fp.payload=fp.payload || {};
@@ -1372,6 +1376,10 @@ javascript:(async function () {
         await sleepMs(220);
       }
     } finally {
+      try {
+        window.__CTI_ACTIVE_ITEM_ID="";
+        window.__CTI_ACTIVE_ITEM_TYPE="";
+      } catch (_) {}
       recorder.setActive(null);
       const recorderStats = recorder.stats ? recorder.stats() : {};
       meta.networkRecorderMemory=recorderStats;
