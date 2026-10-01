@@ -351,6 +351,30 @@ export async function handleAuthorized(
       return response({ success: true });
     }
     if (p[2] === "commit" && method === "POST") {
+      let commitOptions: { allowSemanticDuplicate?: boolean } = {};
+      const commitBody = await boundedBody(request, 2048);
+      if (commitBody.length) {
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(commitBody));
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+            fail("Invalid commit options.");
+          commitOptions = parsed;
+        } catch (error) {
+          if ((error as { status?: number }).status) throw error;
+          fail("Invalid commit options.");
+        }
+      }
+      const allowSemanticDuplicate =
+        commitOptions.allowSemanticDuplicate === true;
+      if (
+        allowSemanticDuplicate &&
+        (user.role !== "admin" || Number(u.expected_version) !== 0)
+      )
+        fail(
+          "Only an administrator may preserve historical duplicate package rows during a new-record migration import.",
+          403,
+        );
+
       const counts = await db
         .prepare(
           "SELECT COUNT(*) AS count,COALESCE(SUM(bytes),0) AS bytes FROM chunks WHERE upload_id=?",
@@ -416,7 +440,7 @@ export async function handleAuthorized(
           400,
         );
       }
-      if (r.kind === "package") {
+      if (r.kind === "package" && !allowSemanticDuplicate) {
         const data = fullData as Record<string, any>;
         if (data.archived !== true) {
           const partnerKey = normalizePartnerName(data.partner);
