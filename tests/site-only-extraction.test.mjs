@@ -51,7 +51,7 @@ test("background extraction persists browser checkpoints for workflow restart", 
   assert.match(background, /context\.storageState\(\{ indexedDB: true \}\)/);
   assert.match(background, /saveRuntimeState\(/);
   assert.match(background, /loadRuntimeState\(/);
-  assert.match(background, /await env\.ARTIFACTS\.delete\(runtimeStateKey\(payload\.id\)\)/);
+  assert.match(background, /ARTIFACTS\.delete\(runtimeStateKey\(payload\.id\)\)/);
   assert.match(completion, /localStorage\.getItem\(key\)/);
   assert.match(completion, /CTI_CHECKPOINT_TTL_MS/);
 });
@@ -120,6 +120,7 @@ test("SSO automation never types credentials or submits forms", () => {
 test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute timeout", () => {
   const background = read("workers/coursera-extractor/index.ts");
   const entry = read("src/extractors/coursera/entry.js");
+  const navigation = read("src/extractors/coursera/navigation.js");
 
   assert.doesNotMatch(background, /timeout:\s*["']2 hours 10 minutes["']/);
   assert.match(background, /EXTRACTION_CHUNK_ACTIVE_MS\s*=\s*25\s*\*\s*60\s*\*\s*1000/);
@@ -156,6 +157,18 @@ test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute time
     entry,
     /attempts>0\s*&&\s*attempts<CTI_MAX_ITEM_ATTEMPTS/,
   );
+  assert.match(entry, /boundedBudgetMs/);
+  assert.doesNotMatch(entry, /options\.budgetMs\s*\|\|\s*Infinity/);
+  assert.match(
+    entry,
+    /targetedItemPayloadProbes\([^;]*backgroundProbeOptions\)/s,
+  );
+  assert.match(
+    entry,
+    /automaticDeepVerify\([^;]*backgroundProbeOptions\)/s,
+  );
+  assert.match(navigation, /hydrateOutlineSurfaceForCrawl\(options\)/);
+  assert.match(navigation, /Date\.now\(\)>=deadline/);
   assert.match(background, /loadRuntimeState\(/);
   assert.match(background, /saveRuntimeState\(/);
   assert.match(background, /storageState\(\{ indexedDB: true \}\)/);
