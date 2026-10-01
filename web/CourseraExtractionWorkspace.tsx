@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import LocalCourseraExtraction from "./LocalCourseraExtraction";
 import type { CourseraExtractionStatus } from "../src/domain/coursera-background-extraction.ts";
 import {
   courseraCaptureDownloadUrl,
@@ -192,31 +193,47 @@ export default function CourseraExtractionWorkspace({
 
   if (!enabled)
     return (
-      <section className="card">
-        <h2>Background Coursera extraction</h2>
-        <p className="empty-state">
-          Background extraction uses the authenticated shared CTI service. Connect
-          the shared workspace in Setup before using it.
-        </p>
-      </section>
+      <>
+        <LocalCourseraExtraction
+          disabled={disabled}
+          onUseCapture={onUseCapture}
+          initialUrl={shellUrl}
+          onUrlChange={setShellUrl}
+        />
+        <details className="card remote-extraction-advanced">
+          <summary>Optional remote background extraction</summary>
+          <p className="empty-state">
+            The shared remote Browser Run service is not configured in this
+            workspace. Local Chrome extraction above remains available and does
+            not require a paid browser service.
+          </p>
+        </details>
+      </>
     );
 
   const locked = disabled || !!busy || !editable,
     extractionActive = running(extractionJob);
 
   return (
-    <section className="card">
+    <>
+      <LocalCourseraExtraction
+        disabled={disabled}
+        onUseCapture={onUseCapture}
+        initialUrl={shellUrl}
+        onUrlChange={setShellUrl}
+      />
+      <section className="card remote-extraction-advanced">
       <div className="section-heading">
         <div>
-          <h2>Background Coursera extraction</h2>
+          <h2>Optional remote background extraction</h2>
           <p>
-            Paste an authoring-shell URL and start extraction. CTI reuses your
-            saved Coursera/Okta session automatically. If SSO has expired, the
-            same extraction pauses at Okta/MFA and resumes after you finish it.
+            This preserves the existing Cloudflare Browser Run workflow for
+            deployments that intentionally provision enough remote-browser
+            capacity. The zero-cost local Chrome workflow above is the default.
           </p>
         </div>
         <span className="badge">
-          {session?.connected ? "SSO session saved" : "Okta only if needed"}
+          {session?.connected ? "Remote SSO session saved" : "Optional remote"}
         </span>
       </div>
 
@@ -233,10 +250,8 @@ export default function CourseraExtractionWorkspace({
         />
       </label>
       <p className="hint">
-        CTI accepts only www.coursera.org/teach/... authoring URLs. There is no
-        separate Coursera login setup: click Extract course. If authentication
-        is required, CTI routes the remote browser into your organization SSO
-        flow and asks you only for the Okta/MFA step.
+        Remote mode accepts only www.coursera.org/teach/... authoring URLs. It
+        may require organization SSO and consumes Cloudflare Browser Run quota.
       </p>
 
       {error && (
@@ -282,7 +297,7 @@ export default function CourseraExtractionWorkspace({
             });
           }}
         >
-          {extractionActive ? "Extraction running…" : "Extract course"}
+          {extractionActive ? "Remote extraction running…" : "Start remote extraction"}
         </button>
         {session?.connected && (
           <button
@@ -482,10 +497,12 @@ export default function CourseraExtractionWorkspace({
 
       {!editable && (
         <p className="hint">
-          Your CTI account is read-only. An editor or administrator can start
-          background extraction jobs.
+          Your shared CTI account is read-only. An editor or administrator can
+          start remote extraction jobs; local Chrome extraction above does not
+          mutate the team service.
         </p>
       )}
-    </section>
+      </section>
+    </>
   );
 }
