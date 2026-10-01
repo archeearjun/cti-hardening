@@ -4,6 +4,7 @@ import {
   CTI_CHECKPOINT_DB,
   CTI_CHECKPOINT_SESSION_PREFIX,
   CTI_CHECKPOINT_STORE,
+  CTI_CHECKPOINT_TTL_MS,
   CTI_MAX_ITEM_ATTEMPTS,
 } from "./config.js";
 import { pluginReadinessV6147 } from "./plugins.js";
@@ -441,10 +442,19 @@ export function compactDiagnosticV6150(diag, fp) {
 export function checkpointSessionIdV6150(courseId) {
   const key = CTI_CHECKPOINT_SESSION_PREFIX + String(courseId || "unknown");
   try {
-    let id = sessionStorage.getItem(key);
+    const now = Date.now();
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) {}
+    let id =
+      saved &&
+      typeof saved.id === "string" &&
+      Number.isFinite(Number(saved.createdAt)) &&
+      now - Number(saved.createdAt) <= CTI_CHECKPOINT_TTL_MS
+        ? saved.id
+        : "";
     if (!id) {
-      id = "run-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-      sessionStorage.setItem(key, id);
+      id = "run-" + now + "-" + Math.random().toString(36).slice(2);
+      localStorage.setItem(key, JSON.stringify({ id, createdAt: now }));
     }
     return { id, key };
   } catch (_) {
@@ -631,7 +641,7 @@ export async function createCheckpointManagerV6150(courseId) {
       } catch (_) {}
     }
     try {
-      if (session.key) sessionStorage.removeItem(session.key);
+      if (session.key) localStorage.removeItem(session.key);
     } catch (_) {}
   };
   return manager;
