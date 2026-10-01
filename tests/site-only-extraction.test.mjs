@@ -115,3 +115,17 @@ test("SSO automation never types credentials or submits forms", () => {
   assert.doesNotMatch(background, /keyboard\.type/);
   assert.doesNotMatch(background, /input\[type=["']password/);
 });
+
+
+test("Workflow extraction step never exceeds Cloudflare's 30 minute timeout limit", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  assert.doesNotMatch(background, /timeout:\s*["']2 hours 10 minutes["']/);
+  assert.match(background, /timeout:\s*["']30 minutes["']/);
+  assert.match(
+    background,
+    /limit:\s*4[\s\S]*delay:\s*["']10 seconds["'][\s\S]*backoff:\s*["']constant["']/,
+  );
+  assert.match(background, /loadRuntimeState\(/);
+  assert.match(background, /saveRuntimeState\(/);
+  assert.match(background, /storageState\(\{ indexedDB: true \}\)/);
+});
