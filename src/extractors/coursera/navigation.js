@@ -346,11 +346,14 @@ export async function expandSafeOutlineDisclosures(fp) {
     return expanded;
   }
 
-export async function expandAllSafeOutlineDisclosures() {
+export async function expandAllSafeOutlineDisclosures(options) {
+    options=options || {};
+    const deadline=Number.isFinite(Number(options.deadline))?Number(options.deadline):Infinity;
     const root = document.querySelector("main,[role='main']") || document.body;
     const buttons = [...root.querySelectorAll("button[aria-expanded='false'],[role='button'][aria-expanded='false']")].slice(0, 700);
     let expanded = 0;
     for (const el of buttons) {
+      if(Date.now()>=deadline)break;
       if (!isVisibleElement(el) || isGlobalChromeElement(el) || isDangerousEditorControl(el)) continue;
       const label = normalizeName(elementTextKey(el) + " " + elementAttributeBlob(el));
       if (/\b(more|options|actions|menu|navigation|filter|sort|account|profile|publish|grading|settings)\b/.test(label)) continue;
@@ -363,18 +366,22 @@ export async function expandAllSafeOutlineDisclosures() {
         await sleepMs(70);
       } catch (e) {}
     }
-    if (expanded) await sleepMs(300);
+    if (expanded && Date.now()<deadline) await sleepMs(300);
     return expanded;
   }
 
-export async function hydrateOutlineSurfaceForCrawl() {
-    const stats = {roots:0, positions:0, disclosuresExpanded:0, maxRange:0};
+export async function hydrateOutlineSurfaceForCrawl(options) {
+    options=options || {};
+    const deadline=Number.isFinite(Number(options.deadline))?Number(options.deadline):Infinity;
+    const stats = {roots:0, positions:0, disclosuresExpanded:0, maxRange:0,timeBudgetExhausted:false};
     const roots = outlineScrollRoots();
     stats.roots = roots.length;
     const originals = roots.map(root => ({root, pos:scrollRootPosition(root)}));
     try {
-      stats.disclosuresExpanded += await expandAllSafeOutlineDisclosures();
+      if(Date.now()<deadline)stats.disclosuresExpanded += await expandAllSafeOutlineDisclosures({deadline});
+      else stats.timeBudgetExhausted=true;
       for (const root of roots.slice(0, 6)) {
+        if(Date.now()>=deadline){stats.timeBudgetExhausted=true;break;}
         let maxY = scrollRootMax(root);
         stats.maxRange = Math.max(stats.maxRange, maxY);
         const viewport = isDocumentScrollRoot(root) ? Number(window.innerHeight || 800) : Number(root.clientHeight || 800);
@@ -383,9 +390,10 @@ export async function hydrateOutlineSurfaceForCrawl() {
         for (let y=0; y<=maxY && positions.length<34; y+=step) positions.push(y);
         if (!positions.length || positions[positions.length-1] !== maxY) positions.push(maxY);
         for (const y of positions) {
+          if(Date.now()>=deadline){stats.timeBudgetExhausted=true;break;}
           await setScrollRootPosition(root, y);
           stats.positions++;
-          stats.disclosuresExpanded += await expandAllSafeOutlineDisclosures();
+          stats.disclosuresExpanded += await expandAllSafeOutlineDisclosures({deadline});
           maxY = Math.max(maxY, scrollRootMax(root));
         }
       }

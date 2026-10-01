@@ -4087,7 +4087,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "908d6dbbfe7bf7cceafe4ecbd00103a71d4ae189531309539b4169c4d3b2ffe4"
+          "reviewedCurrentHash": "99ffcde47902911fc0b026691cad2f679b4ca7a355175b6f5ae654ffc3f63a57"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4125,6 +4125,11 @@
           "reviewedCurrentHash": "3dd47d30aae4bdcf8effaa12ac9c483d0cf3df9b2baea0faf4ac42d3d2357bbe"
         },
         {
+          "name": "expandAllSafeOutlineDisclosures",
+          "archivedHash": "0e4b562aec47450bd3ca53f9153678d33a3f3ff7c0597deba8e37d303f6aedc5",
+          "reviewedCurrentHash": "e2956c91e083473b783470a8acd0de89312f2681dd00d5c6e583fb09ecf8b2fe"
+        },
+        {
           "name": "fetchHtmlEvidence",
           "archivedHash": "19188c663bd4424797bbbb448fa20f41acf3dca7bdff69a5bd5e274b86aaf656",
           "reviewedCurrentHash": "346836dc516b51ca2c36ffc810ceade9f2bc9991ec79346f3e428ea37eab96a3"
@@ -4133,6 +4138,11 @@
           "name": "getJson",
           "archivedHash": "b47f8218eef6d95d49b57d71fb9c1221d85311f603191185df4f24ec49106413",
           "reviewedCurrentHash": "45dcd1c83c7c2c3d55e900cf4fc44c0bdfad5e702184274c9b1b7e2f3541d6e2"
+        },
+        {
+          "name": "hydrateOutlineSurfaceForCrawl",
+          "archivedHash": "a28f0e8f840cb72915010e9b9c27f382505eedb1586914827c55f34bf8f16cfc",
+          "reviewedCurrentHash": "863eada47869d80c6352f28200c847ad383b312ba2b36843d51cfe95ed3a420e"
         },
         {
           "name": "parseAssignmentTextBlockV61321",
@@ -4367,7 +4377,7 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "560ac608a04c2b33434f0639325c1e896b4f86460f1417801f110615d2840b53"
+        "reviewedCurrentHash": "fe4fab04fb2806da288d3a124946e1a3debce0147cd7a6586ba4d79657e7d801"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
