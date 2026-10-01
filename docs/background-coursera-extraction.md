@@ -168,12 +168,12 @@ the retained evidence corpus, and only then update the release registry.
 Cloudflare references:
 
 - Browser Run Playwright:
-  https://developers.cloudflare.com/browser-rendering/playwright/
+  https://developers.cloudflare.com/browser-run/
 - Human in the Loop / Live View:
-  https://developers.cloudflare.com/browser-rendering/playwright/human-in-the-loop/
+  https://developers.cloudflare.com/browser-run/features/human-in-the-loop/
 - Browser Run limits and pricing:
-  https://developers.cloudflare.com/browser-rendering/limits/
-  https://developers.cloudflare.com/browser-rendering/pricing/
+  https://developers.cloudflare.com/browser-run/limits/
+  https://developers.cloudflare.com/browser-run/pricing/
 - Workflows:
   https://developers.cloudflare.com/workflows/
 - Pages Service bindings:
