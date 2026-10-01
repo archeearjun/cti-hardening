@@ -201,7 +201,7 @@ test("Playwright-observed external plugin body improves evidence but stays fail-
         backgroundCapture: {
           method: "PLAYWRIGHT_CROSS_ORIGIN_FRAME",
           observedFrames: 1,
-          verifiedFrames: 1,
+          bodyObservedFrames: 1,
           interactionVerified: false,
           scopeComplete: false,
         },
@@ -221,4 +221,7 @@ test("Playwright-observed external plugin body improves evidence but stays fail-
   assert.equal(contract.status, "ACCOUNTED_EXTERNAL_BODY_OBSERVED");
   assert.equal(contract.externalBodyVerified, true);
   assert(contract.reasons.includes("EXTERNAL_PLUGIN_SCOPE_NOT_VERIFIED"));
+  const accounting = finalCaptureAccountingV6150([fp], { unvisitedTargetIds: [] });
+  assert.equal(accounting.complete, false);
+  assert.equal(accounting.externalContentUnverifiedCount, 1);
 });
