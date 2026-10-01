@@ -23,6 +23,7 @@ export const CTI_WHOLE_RUN_MAX_MS = 120 * 60 * 1000;
 export const CTI_CHECKPOINT_DB = "cti-item-fidelity-v6150";
 export const CTI_CHECKPOINT_STORE = "item-checkpoints";
 export const CTI_CHECKPOINT_SESSION_PREFIX = "__CTI_CHECKPOINT_RUN_V6150__";
+export const CTI_CHECKPOINT_TTL_MS = 12 * 60 * 60 * 1000;
 export const CTI_READING_PRIMARY_ATTEMPT_MS = 90 * 1000;
 export const CTI_READING_RETRY_ATTEMPT_MS = 120 * 1000;
 export const CTI_PLUGIN_PRIMARY_ATTEMPT_MS = 90 * 1000;
