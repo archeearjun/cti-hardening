@@ -32,6 +32,7 @@ import { importLegacyWorkspace } from "../src/domain/legacy-import";
 import { download, json, inputFile, Evidence, FileField } from "./workspace-ui";
 import MacmillanWorkspace from "./MacmillanWorkspace";
 import CourseraExtractionWorkspace from "./CourseraExtractionWorkspace";
+import PortableWorkQueue from "./PortableWorkQueue";
 import type {
   EvidenceObject,
   WorkspaceRecord,
@@ -1583,6 +1584,16 @@ export default function FullWorkspace({
               Checklist ticks record work completed. They never alter evidence
               or QA verdicts.
             </p>
+            <PortableWorkQueue
+              store={store}
+              records={records}
+              editable={editable}
+              busy={busy}
+              act={act}
+              refresh={() => refresh()}
+              openCourse={openCourse}
+              setNotice={setNotice}
+            />
             {course && checklist && (
               <>
                 <h3 className="section-divider">{course.title}</h3>
