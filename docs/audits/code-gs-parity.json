@@ -3022,9 +3022,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Reviewed release metadata update: Coursera extractor intentionally advanced from v6.14.7/schema 34 to v6.15.4/schema 35; other registry fields remain unchanged.",
+      "note": "Reviewed release metadata update: Coursera remains v6.15.4/schema 35 and Brightspace v1.0.8/schema 2; delivery now truthfully identifies the generated browser bundle instead of the stale Apps Script canonical host label.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "a2e4bd7e741429fd788edc979008ecea68dc480b6fc9b05167f078952a2c84e6"
+      "reviewedCurrentHash": "552f65e6c59d2bfd97b9fba597f9a827ea67c8e57da945c180da575b08e54b6f"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
