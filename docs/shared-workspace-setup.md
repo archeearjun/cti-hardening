@@ -72,6 +72,19 @@ mode is remembered for this browser.
 If setup is incomplete, CTI displays an error and does not pretend that local
 records are shared. Do not remove authentication to make the error disappear.
 
+## Optional: background Coursera extraction
+
+The shared catalogue, D1 and Access setup above can remain on the current free
+configuration. Background Coursera extraction is an optional additional service
+with Browser Run/Workflows/R2 requirements and different usage limits. Do not
+enable it by weakening Access or making the extractor Worker public.
+
+If your organisation approves that capability, follow
+[background Coursera extraction](background-coursera-extraction.md). Long
+Coursera shell runs exceed Browser Run's Free-plan 10 browser minutes/day, so
+treat the Browser Run plan/cost as a separate deployment decision from the
+shared workspace.
+
 ## 4. Bring over existing Apps Script records
 
 You do not need to replace the entire old app just to export its data:

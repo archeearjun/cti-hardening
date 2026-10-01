@@ -7,7 +7,7 @@ permissions:
 jobs:
   deterministic:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,6 +17,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run worker:check
 
   publish-pages-branch:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

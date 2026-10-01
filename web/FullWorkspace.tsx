@@ -19,6 +19,7 @@ import {
 import { importLegacyWorkspace } from "../src/domain/legacy-import";
 import { download, json, inputFile, Evidence, FileField } from "./workspace-ui";
 import MacmillanWorkspace from "./MacmillanWorkspace";
+import CourseraExtractionWorkspace from "./CourseraExtractionWorkspace";
 import type {
   EvidenceObject,
   WorkspaceRecord,
@@ -52,6 +53,8 @@ const descriptions: Record<string, string> = {
   Catalogue: "Find a course, see its ownership, and pick up your review.",
   Explore: "Understand the source package before making an ingestion decision.",
   Scan: "Inspect a new package or save a fresh baseline for an existing course.",
+  Extract:
+    "Paste a Coursera authoring-shell link and run strict evidence extraction in the background.",
   Compare: "Compare source evidence with what was captured in Coursera.",
   History:
     "Review saved reports and compare ingestion attempts or manual corrections.",
@@ -906,6 +909,20 @@ export default function FullWorkspace({
             </section>
           )}
         </div>
+        {tab === "Extract" && (
+          <CourseraExtractionWorkspace
+            enabled={store?.mode === "team"}
+            editable={editable}
+            disabled={!!busy}
+            onUseCapture={(file) => {
+              setCapture(file);
+              setTab("Compare");
+              setNotice(
+                "Background Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
+              );
+            }}
+          />
+        )}
         {tab === "Compare" && (
           <section className="card">
             <h2>Full source → Coursera comparison</h2>

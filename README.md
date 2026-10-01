@@ -34,7 +34,7 @@ Run `npm run audit:parity` to check that ledger and the retained rule bodies.
 | Package XML/ZIP/QTI/PDF scanning | `src/source/` |
 | Owner report text | `src/reporting/` |
 | Typed workflows and local/shared records | `src/domain/`, `src/adapters/` |
-| Authenticated Cloudflare API and D1 | `server/`, `functions/` |
+| Authenticated Cloudflare API and D1 | `server/`, `functions/` |\n| Background Coursera extraction | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` |
 
 ## Develop and verify
 

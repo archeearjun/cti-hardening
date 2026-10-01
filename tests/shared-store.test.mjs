@@ -444,3 +444,77 @@ test("large nested QA findings stay in chunks and never overflow the preparation
   assert.deepEqual((await store.get(r.id)).data, r.data); // full evidence survives byte-for-byte JSON round trip
   assert.equal(r.data.result.summary.operationalPolicy.items.length, 1800);
 });
+
+
+test("authenticated extraction proxy forwards only trusted CTI identity to the service binding", async () => {
+  const db = database(),
+    seen = [];
+  const extractor = {
+    async fetch(request) {
+      seen.push({
+        url: request.url,
+        method: request.method,
+        user: request.headers.get("x-cti-user"),
+        role: request.headers.get("x-cti-role"),
+        access: request.headers.get("cf-access-jwt-assertion"),
+        body: request.method === "POST" ? await request.text() : "",
+      });
+      return new Response(
+        JSON.stringify({ status: { id: "extract-test", state: "QUEUED" } }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  };
+  const request = new Request(url + "/api/extraction/jobs?view=compact", {
+    method: "POST",
+    headers: {
+      Origin: url,
+      "Content-Type": "application/json",
+      "Cf-Access-Jwt-Assertion": "must-not-be-forwarded",
+    },
+    body: JSON.stringify({
+      url: "https://www.coursera.org/teach/course/Course_id_123/content/edit",
+    }),
+  });
+  const response = await handleAuthorized(request, db, actor, extractor);
+  assert.equal(response.status, 202);
+  assert.equal(seen.length, 1);
+  assert.equal(
+    seen[0].url,
+    "https://cti-coursera-extractor.internal/jobs?view=compact",
+  );
+  assert.equal(seen[0].method, "POST");
+  assert.equal(seen[0].user, actor.email);
+  assert.equal(seen[0].role, actor.role);
+  assert.equal(seen[0].access, null);
+  assert.match(seen[0].body, /coursera\.org/);
+  db.sql.close();
+});
+
+test("extraction proxy fails closed when the service binding is absent and still enforces write roles", async () => {
+  const db = database(),
+    editorRequest = new Request(url + "/api/extraction/jobs", {
+      method: "POST",
+      headers: { Origin: url, "Content-Type": "application/json" },
+      body: "{}",
+    });
+  assert.equal(
+    (await handleAuthorized(editorRequest, db, actor)).status,
+    503,
+  );
+  const viewerRequest = new Request(url + "/api/extraction/jobs", {
+    method: "POST",
+    headers: { Origin: url, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  await assert.rejects(
+    handleAuthorized(
+      viewerRequest,
+      db,
+      { ...actor, role: "viewer" },
+      { fetch: async () => new Response("{}") },
+    ),
+    (error) => error.status === 403,
+  );
+  db.sql.close();
+});

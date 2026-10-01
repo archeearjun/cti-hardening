@@ -1,0 +1,24 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cti-coursera-extractor",
+  "main": "index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "cti-extraction-artifacts"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "cti-coursera-extraction",
+      "binding": "EXTRACTION_WORKFLOW",
+      "class_name": "CourseraExtractionWorkflow"
+    }
+  ]
+}
