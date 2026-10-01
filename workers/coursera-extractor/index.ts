@@ -514,6 +514,7 @@ function applyBackgroundPluginEvidence(
       observedFrames: publicFrames.length,
       verifiedFrames: verified.length,
       interactionVerified: false,
+      scopeComplete: false,
       meaning:
         "Background browser observed the external frame DOM passively. No playback, form submission or protected interaction was performed.",
     };
