@@ -573,7 +573,9 @@ test("admin migration import may preserve historical duplicates but editors cann
   first.title = first.data.scan.fileName;
   const u = await upload(editorCall, first);
   await u.chunks();
-  assert.equal((await u.commit()).status, 200);
+  const firstCommit = await u.commit();
+  assert.equal(firstCommit.status, 200);
+  const firstSaved = (await firstCommit.json()).record;
 
   const historicalDuplicate = structuredClone(first);
   historicalDuplicate.id = crypto.randomUUID();
@@ -598,6 +600,48 @@ test("admin migration import may preserve historical duplicates but editors cann
     2,
     "migration must retain historical duplicate evidence for later reconciliation",
   );
+
+  // Editing an already-active historical duplicate identity is allowed: the
+  // edit does not create the duplicate and is necessary for lossless
+  // reconciliation. Activating a new/restored duplicate remains blocked.
+  const sameIdentityEdit = {
+    ...structuredClone(first),
+    version: firstSaved.version,
+    data: { ...structuredClone(first.data), owner: "Reconciliation owner" },
+  };
+  const editUpload = await upload(editorCall, sameIdentityEdit);
+  await editUpload.chunks();
+  assert.equal((await editUpload.commit()).status, 200);
+
+  const archived = {
+    ...structuredClone(historicalDuplicate),
+    version: 1,
+    data: {
+      ...structuredClone(historicalDuplicate.data),
+      archived: true,
+      archivedAt: "2026-10-01T00:00:00.000Z",
+      archivedReason: "TEST",
+    },
+  };
+  const archiveUpload = await upload(editorCall, archived);
+  await archiveUpload.chunks();
+  const archiveCommit = await archiveUpload.commit();
+  assert.equal(archiveCommit.status, 200);
+  const archiveSaved = (await archiveCommit.json()).record;
+
+  const restored = {
+    ...structuredClone(historicalDuplicate),
+    version: archiveSaved.version,
+    data: {
+      ...structuredClone(historicalDuplicate.data),
+      archived: false,
+      archivedAt: "",
+      archivedReason: "",
+    },
+  };
+  const restoreUpload = await upload(editorCall, restored);
+  await restoreUpload.chunks();
+  assert.equal((await restoreUpload.commit()).status, 409);
 
   const forbidden = structuredClone(historicalDuplicate);
   forbidden.id = crypto.randomUUID();
