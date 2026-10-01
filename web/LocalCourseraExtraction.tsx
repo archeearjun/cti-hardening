@@ -88,7 +88,7 @@ export default function LocalCourseraExtraction({
         <input
           type="url"
           value={shellUrl}
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
           onChange={(event) => {
             const value = event.target.value;
             setShellUrl(value);
@@ -105,6 +105,13 @@ export default function LocalCourseraExtraction({
         Use the exact shell you intend to capture. CTI checks the downloaded
         JSON against this course ID before moving it into Compare.
       </p>
+      {!shellTarget && shellUrl.trim() && (
+        <p className="hint" role="alert">
+          Enter a valid Coursera authoring URL containing
+          <code> /teach/&lt;course&gt;/&lt;course-id&gt;/content </code>
+          before copying the extractor or selecting a capture.
+        </p>
+      )}
 
       <ol className="local-extraction-steps">
         <li>
@@ -149,7 +156,7 @@ export default function LocalCourseraExtraction({
         )}
         <button
           className="primary"
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
           onClick={() =>
             void act("Preparing local extractor", async () => {
               const current = await currentExtractor();
@@ -171,7 +178,7 @@ export default function LocalCourseraExtraction({
         </button>
         <button
           className="secondary"
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
           onClick={() =>
             void act("Preparing local extractor", async () => {
               const current = await currentExtractor();
@@ -312,6 +319,13 @@ export default function LocalCourseraExtraction({
                 This is an older compatible schema. Existing evidence remains
                 usable, but only the current extractor can satisfy the newest
                 capture contract.
+              </p>
+            )}
+            {!inspection.currentVersion && (
+              <p className="hint" role="alert">
+                This capture was not produced by the current Coursera extractor
+                release. Keep the evidence, but rerun the current extractor when
+                you need a fresh certification attempt.
               </p>
             )}
             {!!reasons.length && (
