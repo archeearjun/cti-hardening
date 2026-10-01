@@ -112,7 +112,7 @@ export function buildRetryPlan(primaryMeta, fingerprints) {
       reasons:decision.deferredReasons,status:decision.status,action:decision.action});
     for(const reason of contract.reasons || [])if(!reasons.includes(reason))reasons.push(reason);
     if(!reasons.length)reasons.push('CAPTURE_CONTRACT_INCOMPLETE');
-    candidates.push({id,name:String(fp.name || ''),reasons,severity:Math.max(65,retrySeverity(reasons)),contract:contractSummaryFn(fp)});
+    candidates.push({id,name:String(fp.name || ''),reasons,severity:d?Math.max(65,retrySeverity(reasons)):110,contract:contractSummaryFn(fp)});
   }
   candidates.sort((a,b)=>b.severity-a.severity);
   primaryMeta.retryCandidateIds=candidates.map(x=>x.id);
