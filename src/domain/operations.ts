@@ -1030,3 +1030,403 @@ export function applyLineageRepairs(
       : record,
   );
 }
+
+
+export interface PortableWorkQueueItem {
+  titleKey: string;
+  displayCode: string;
+  title: string;
+  productType: string;
+  owner: string;
+  catalogOwner: string;
+  catalogStatus: "MATCH" | "MISSING" | "AMBIGUOUS";
+  catalogCandidateCount: number;
+  plannerLatestDate: string;
+  plannerCategories: string[];
+  expectedFileName: string;
+  ctiMatchStatus: "MATCH" | "MISSING" | "AMBIGUOUS";
+  ctiCandidateCount: number;
+  ctiUuid: string;
+  sourceRescanned: boolean;
+  rawQaFresh: boolean;
+  rawQaRecommendation: { code: string; label: string; tone: string };
+  existingCourseraShell: boolean;
+  runtime: RuntimeInventoryRow | null;
+  state: WorkState;
+  nextAction: WorkNextAction;
+}
+
+export interface PortableWorkQueue {
+  items: PortableWorkQueueItem[];
+  unresolvedGroups: Array<{
+    assignmentDate: string;
+    owner: string;
+    expectedTitleAssignments: number;
+    parsedTitleCount: number;
+    unresolvedTitleCount: number;
+  }>;
+  summary: Record<string, number>;
+}
+
+function ownerKey(value: unknown): string {
+  return String(value || "").toLowerCase().replace(/[.\s]+/g, " ").trim();
+}
+
+function extractCatalogKeys(text: unknown, byKey: Map<string, CatalogRow[]>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const source = String(text || "");
+  const regex = /\b[A-Za-z]{2,8}\d{2,4}\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(source)) !== null) {
+    const key = packageMatchKey(match[0]);
+    if (!key || !byKey.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
+function resolveCatalogCandidate(
+  candidates: CatalogRow[],
+  plannerOwner: string,
+): { status: "MATCH" | "MISSING" | "AMBIGUOUS"; row: CatalogRow | null } {
+  if (!candidates.length) return { status: "MISSING", row: null };
+  if (candidates.length === 1) return { status: "MATCH", row: candidates[0] };
+  const key = ownerKey(plannerOwner);
+  const ownerMatches = candidates.filter(
+    (row) => key && ownerKey(row.owner) === key,
+  );
+  if (ownerMatches.length === 1)
+    return { status: "MATCH", row: ownerMatches[0] };
+  const completeMatches = candidates.filter(
+    (row) =>
+      String(row.ccPackageAccess || "").toLowerCase() === "complete" &&
+      String(row.importStatus || "").toLowerCase() !== "pending",
+  );
+  if (!key && completeMatches.length === 1)
+    return { status: "MATCH", row: completeMatches[0] };
+  return { status: "AMBIGUOUS", row: null };
+}
+
+function rawQaRecommendation(audit: WorkspaceRecord | null) {
+  if (!audit)
+    return {
+      code: "NONE",
+      label: "No raw-ingestion audit has been run",
+      tone: "muted",
+    };
+  const result = audit.data.result || {};
+  const summary = result.summary || {};
+  const policy = result.operationalPolicy || summary.operationalPolicy || null;
+  if (policy?.recommendationCode) {
+    const code = String(policy.recommendationCode);
+    return {
+      code,
+      label:
+        String(policy.recommendationLabel || "") ||
+        (code === "KEEP"
+          ? "Keep existing raw shell"
+          : code === "REINGEST"
+            ? "Re-ingest recommended"
+            : "Review existing raw shell"),
+      tone: code === "KEEP" ? "success" : code === "REINGEST" ? "danger" : "warning",
+    };
+  }
+  const critical = Number(summary.ownerCritical || 0);
+  const missing = Number(summary.missing || 0);
+  const mutations = Number(summary.mutations || 0);
+  const partial = Number(summary.partial || 0);
+  const unverified = Number(summary.unverified || 0);
+  const review = Number(summary.ownerReview || 0);
+  const evidenceOnly = Number(summary.ownerEvidence || 0);
+  const extras = Number(summary.extraCourseraItems || 0);
+  const moved = Number(summary.moved || 0);
+  const stateMutations = Number(summary.stateMutations || 0);
+  const exclusions = Number(summary.intentionalExclusions || 0);
+  const fidelity =
+    result.sourceFidelity == null
+      ? Number(summary.observedFidelity || 0)
+      : Number(result.sourceFidelity || 0);
+  const coverage = Number(summary.evidenceCoverage || 0);
+  if (critical > 0 || missing > 0)
+    return {
+      code: "REINGEST",
+      label: "Material source-fidelity issues found — re-ingest recommended",
+      tone: "danger",
+    };
+  if (
+    mutations > 0 ||
+    partial > 0 ||
+    unverified > 0 ||
+    review > 0 ||
+    evidenceOnly > 0 ||
+    extras > 0 ||
+    moved > 0 ||
+    stateMutations > 0 ||
+    exclusions > 0 ||
+    coverage < 80 ||
+    fidelity < 95
+  )
+    return {
+      code: "REVIEW",
+      label: "Existing raw shell needs review before deciding whether to re-ingest",
+      tone: "warning",
+    };
+  return {
+    code: "KEEP",
+    label: "Existing raw shell is strongly supported by CTI evidence",
+    tone: "success",
+  };
+}
+
+export function buildPortableWorkQueue(args: {
+  records: WorkspaceRecord[];
+  catalog: CatalogRow[];
+  planner: PlannerRow[];
+  runtime: RuntimeInventoryRow[];
+  partner: string;
+  fromDate: string;
+  toDate: string;
+  scanAfter: string;
+  ownerFilter?: string;
+}): PortableWorkQueue {
+  const partnerKey = normalizePartnerName(args.partner);
+  const fromDate = validateDateOnly(args.fromDate, "From date");
+  const toDate = validateDateOnly(args.toDate, "To date");
+  const scanAfter = validateDateOnly(args.scanAfter, "Redo scan cutoff");
+  if (!fromDate || !toDate || toDate < fromDate)
+    throw new Error("To date must be on or after From date.");
+  if (!scanAfter) throw new Error("Redo scan cutoff is required.");
+
+  const catalog = args.catalog.filter(
+    (row) => normalizePartnerName(row.partner) === partnerKey,
+  );
+  const byKey = new Map<string, CatalogRow[]>();
+  for (const row of catalog) {
+    const rows = byKey.get(row.titleKey) || [];
+    rows.push(row);
+    byKey.set(row.titleKey, rows);
+  }
+
+  const groups = new Map<
+    string,
+    {
+      assignmentDate: string;
+      owner: string;
+      expectedTitleAssignments: number;
+      codes: Set<string>;
+      categories: Set<string>;
+    }
+  >();
+  for (const row of args.planner) {
+    if (
+      normalizePartnerName(row.partner) !== partnerKey ||
+      row.assignmentDate < fromDate ||
+      row.assignmentDate > toDate ||
+      (row.method &&
+        !row.method.toLowerCase().includes("smart ingestion"))
+    )
+      continue;
+    const key = row.assignmentDate + "|" + ownerKey(row.owner);
+    const group =
+      groups.get(key) ||
+      {
+        assignmentDate: row.assignmentDate,
+        owner: row.owner || "Unassigned",
+        expectedTitleAssignments: 0,
+        codes: new Set<string>(),
+        categories: new Set<string>(),
+      };
+    group.expectedTitleAssignments += Math.max(0, row.totalTitleCount || 0);
+    if (row.category) group.categories.add(row.category);
+    for (const code of extractCatalogKeys(row.remarks, byKey))
+      group.codes.add(code);
+    groups.set(key, group);
+  }
+
+  const titleEvidence = new Map<
+    string,
+    { owner: string; latestDate: string; categories: Set<string> }
+  >();
+  for (const group of groups.values()) {
+    for (const key of group.codes) {
+      const prior = titleEvidence.get(key);
+      if (!prior || group.assignmentDate >= prior.latestDate)
+        titleEvidence.set(key, {
+          owner: group.owner,
+          latestDate: group.assignmentDate,
+          categories: new Set(group.categories),
+        });
+      else
+        for (const category of group.categories) prior.categories.add(category);
+    }
+  }
+
+  const packages = args.records.filter(
+    (record) =>
+      record.kind === "package" &&
+      record.data.archived !== true &&
+      normalizePartnerName(record.data.partner) === partnerKey,
+  );
+  const packagesByKey = new Map<string, WorkspaceRecord[]>();
+  for (const record of packages) {
+    const key = packageSemanticKey(record.data.scan?.fileName || record.title);
+    const rows = packagesByKey.get(key) || [];
+    rows.push(record);
+    packagesByKey.set(key, rows);
+  }
+  const runtimeByKey = new Map(args.runtime.map((row) => [row.titleKey, row]));
+  const audits = args.records.filter((record) => record.kind === "audit");
+  const scanCutoff = Date.parse(scanAfter + "T00:00:00Z");
+  const items: PortableWorkQueueItem[] = [];
+
+  for (const [titleKey, evidence] of titleEvidence) {
+    if (
+      args.ownerFilter &&
+      ownerKey(evidence.owner) !== ownerKey(args.ownerFilter)
+    )
+      continue;
+    const candidates = byKey.get(titleKey) || [];
+    const resolved = resolveCatalogCandidate(candidates, evidence.owner);
+    const catalogRow =
+      resolved.row ||
+      ({
+        displayCode: titleKey.toUpperCase(),
+        title: "Catalog title unresolved",
+        productType: "",
+        owner: "",
+        expectedFileName: titleKey.toUpperCase() + ".imscc",
+        importStatus: "",
+      } as CatalogRow);
+    const matches = packagesByKey.get(titleKey) || [];
+    const ctiMatchStatus: PortableWorkQueueItem["ctiMatchStatus"] =
+      matches.length === 0
+        ? "MISSING"
+        : matches.length === 1
+          ? "MATCH"
+          : "AMBIGUOUS";
+    const course = matches.length === 1 ? matches[0] : null;
+    const scanTime = course
+      ? Date.parse(String(course.data.scan?.scannedAt || course.updatedAt || ""))
+      : NaN;
+    const sourceRescanned = Number.isFinite(scanTime) && scanTime >= scanCutoff;
+    const rawAudits = course
+      ? audits
+          .filter(
+            (record) =>
+              record.packageId === course.id &&
+              record.data.result?.snapshotContext?.mode === "RAW_INGESTION",
+          )
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      : [];
+    const latestRaw = rawAudits[0] || null;
+    const rawTime = latestRaw ? Date.parse(latestRaw.updatedAt) : NaN;
+    const rawQaFresh =
+      sourceRescanned &&
+      Number.isFinite(rawTime) &&
+      (!Number.isFinite(scanTime) || rawTime >= scanTime);
+    const recommendation = rawQaFresh
+      ? rawQaRecommendation(latestRaw)
+      : {
+          code: "NONE",
+          label: "No fresh raw-ingestion audit after the current source scan",
+          tone: "muted",
+        };
+    const categories = [...evidence.categories];
+    const importOnly = categories.some(
+      (category) => category.trim().toLowerCase() === "import only",
+    );
+    const importStatus = String(catalogRow.importStatus || "").trim().toLowerCase();
+    const existingCourseraShell =
+      importOnly &&
+      ["complete", "completed", "imported"].includes(importStatus);
+    const runtime = runtimeByKey.get(titleKey) || null;
+    const stats = course?.data.scan?.stats || {};
+    const hasRuntimeFlag =
+      Number(runtime?.riseCount || 0) + Number(runtime?.storylineCount || 0) > 0 ||
+      Number(stats.interactiveRuntimeCandidates || 0) > 0 ||
+      Number(stats.scormLikeCandidates || 0) > 0 ||
+      Number(stats.practiceJsonDependencies || 0) > 0;
+    const state = course
+      ? normalizeWorkState(course.data.workState || {})
+      : defaultWorkState();
+    const itemContext: WorkItemContext = {
+      catalogStatus: resolved.status,
+      ctiMatchStatus,
+      hasSource: !!course,
+      sourceRescanned,
+      existingCourseraShell,
+      rawQaFresh,
+      rawQaRecommendation: recommendation,
+      hasRuntimeFlag,
+      productType: catalogRow.productType,
+      plannerCategories: categories,
+    };
+    items.push({
+      titleKey,
+      displayCode: catalogRow.displayCode || displayCode(catalogRow.titleCode || titleKey),
+      title: catalogRow.title || "",
+      productType: catalogRow.productType || "",
+      owner: evidence.owner || "Unassigned",
+      catalogOwner: catalogRow.owner || "",
+      catalogStatus: resolved.status,
+      catalogCandidateCount: candidates.length,
+      plannerLatestDate: evidence.latestDate,
+      plannerCategories: categories,
+      expectedFileName: catalogRow.expectedFileName || titleKey.toUpperCase() + ".imscc",
+      ctiMatchStatus,
+      ctiCandidateCount: matches.length,
+      ctiUuid: course?.id || "",
+      sourceRescanned,
+      rawQaFresh,
+      rawQaRecommendation: recommendation,
+      existingCourseraShell,
+      runtime,
+      state,
+      nextAction: nextWorkAction(itemContext, state),
+    });
+  }
+
+  items.sort(
+    (a, b) =>
+      a.owner.localeCompare(b.owner) ||
+      a.plannerLatestDate.localeCompare(b.plannerLatestDate) ||
+      a.displayCode.localeCompare(b.displayCode),
+  );
+  const unresolvedGroups = [...groups.values()]
+    .filter((group) => group.expectedTitleAssignments > group.codes.size)
+    .map((group) => ({
+      assignmentDate: group.assignmentDate,
+      owner: group.owner,
+      expectedTitleAssignments: group.expectedTitleAssignments,
+      parsedTitleCount: group.codes.size,
+      unresolvedTitleCount: Math.max(
+        0,
+        group.expectedTitleAssignments - group.codes.size,
+      ),
+    }));
+  return {
+    items,
+    unresolvedGroups,
+    summary: {
+      confirmedTitles: items.length,
+      needsUpload: items.filter((item) => item.nextAction.code === "UPLOAD_SOURCE").length,
+      needsRescan: items.filter((item) => item.nextAction.code === "RESCAN_SOURCE").length,
+      needsRawAudit: items.filter((item) => item.nextAction.code === "AUDIT_EXISTING_RAW").length,
+      reingestRecommended: items.filter(
+        (item) => item.rawQaFresh && item.rawQaRecommendation.code === "REINGEST",
+      ).length,
+      complete: items.filter((item) => item.nextAction.code === "COMPLETE").length,
+      excluded: items.filter((item) => item.state.scope === "EXCLUDED").length,
+      unresolvedPlannerSlots: unresolvedGroups.reduce(
+        (sum, group) => sum + group.unresolvedTitleCount,
+        0,
+      ),
+      plannerExpectedAssignments: [...groups.values()].reduce(
+        (sum, group) => sum + group.expectedTitleAssignments,
+        0,
+      ),
+    },
+  };
+}
