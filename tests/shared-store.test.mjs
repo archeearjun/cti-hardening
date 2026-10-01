@@ -555,3 +555,34 @@ test("server validates the reconstructed full payload before commit", async () =
     "invalid payload must not become a committed document",
   );
 });
+
+
+test("shared API rejects a second active semantic package identity", async () => {
+  const db = database(),
+    call = client(db);
+  const first = comparisonFixture().course;
+  first.data.partner = "NAIT";
+  first.data.scan.fileName = "B0RL113 - Development (NCE) - CLXT.imscc";
+  first.title = first.data.scan.fileName;
+  const u = await upload(call, first);
+  await u.chunks();
+  assert.equal((await u.commit()).status, 200);
+
+  const second = structuredClone(first);
+  second.id = crypto.randomUUID();
+  second.version = 0;
+  second.updatedAt = "";
+  second.updatedBy = "";
+  second.title = "BORL113 (2).imscc";
+  second.data.scan.fileName = second.title;
+  const v = await upload(call, second);
+  await v.chunks();
+  const response = await v.commit();
+  assert.equal(response.status, 409);
+  assert.match(await response.text(), /semantic package identity/i);
+  const list = await (await call("records")).json();
+  assert.equal(
+    list.records.filter((record) => record.kind === "package").length,
+    1,
+  );
+});
