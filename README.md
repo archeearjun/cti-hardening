@@ -69,7 +69,7 @@ automatically in development startup, tests and builds. Run it again after editi
 an extractor during a development session. Generated assets are ignored by Git.
 
 Browser checks are available as `test:browser:package`, `test:browser:workspace`,
-and `test:browser:owner`. Install Playwright Chromium or set `CTI_CHROMIUM_PATH`
+`test:browser:ux`, and `test:browser:owner`. Install Playwright Chromium or set `CTI_CHROMIUM_PATH`
 to an installed binary. Tests use synthetic course evidence; private course
 captures are never committed to this public repository.
 
@@ -84,8 +84,8 @@ captures are never committed to this public repository.
 | Framework preset / root | None / blank |
 | Node environment | `NODE_VERSION=24` |
 
-After checks pass on `main`, CI fast-forwards the same commit to the existing
-Pages production branch. It refuses to overwrite divergent work. Cloudflare's
+After both deterministic and built-browser checks pass on `main`, CI
+fast-forwards the same commit to the existing Pages production branch. It refuses to overwrite divergent work. Cloudflare's
 Git integration then builds the app and `/functions/api` service. Check its
 separate deployment result before treating a commit as live.
 
