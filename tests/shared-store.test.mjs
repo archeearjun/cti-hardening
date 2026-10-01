@@ -191,11 +191,21 @@ test("chunk uploads are invisible until complete and checksummed data round-trip
 test("concurrent edits use compare-and-swap and retain saved versions", async () => {
   const db = database(),
     call = client(db);
-  const u = await upload(call, comparisonFixture().course);
+  const original = comparisonFixture().course;
+  const u = await upload(call, original);
   await u.chunks();
   const saved = (await (await u.commit()).json()).record;
-  const a = await upload(call, { ...saved, title: "Winner" }),
-    b = await upload(call, { ...saved, title: "Conflict" });
+  // Commit responses intentionally contain only a bounded summary. A real
+  // editor retains/loads the complete evidence payload before writing another
+  // version; never promote a list summary into the next full record.
+  const current = {
+    ...structuredClone(original),
+    version: saved.version,
+    updatedAt: saved.updatedAt,
+    updatedBy: saved.updatedBy,
+  };
+  const a = await upload(call, { ...current, title: "Winner" }),
+    b = await upload(call, { ...current, title: "Conflict" });
   await a.chunks();
   await b.chunks();
   assert.equal((await a.commit()).status, 200);
@@ -517,4 +527,31 @@ test("extraction proxy fails closed when the service binding is absent and still
     (error) => error.status === 403,
   );
   db.sql.close();
+});
+
+
+test("server validates the reconstructed full payload before commit", async () => {
+  const db = database(),
+    call = client(db),
+    valid = comparisonFixture().course;
+  const malformed = {
+    ...valid,
+    data: {
+      ...valid.data,
+      scan: {
+        ...valid.data.scan,
+        courseTree: "not-an-array",
+      },
+    },
+  };
+  const u = await upload(call, malformed);
+  await u.chunks();
+  const response = await u.commit();
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /complete source tree/i);
+  assert.equal(
+    (await (await call("records")).json()).records.some((r) => r.id === malformed.id),
+    false,
+    "invalid payload must not become a committed document",
+  );
 });
