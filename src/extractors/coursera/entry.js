@@ -29,10 +29,15 @@ javascript:(async function () {
   const nowForLock = Date.now();
   const backgroundChunkDeadline=Number(window.__CTI_BACKGROUND_CHUNK_DEADLINE_MS || 0);
   const backgroundChunkMode=Number.isFinite(backgroundChunkDeadline) && backgroundChunkDeadline>nowForLock;
-  const CTI_BACKGROUND_FINALIZE_RESERVE_MS=backgroundChunkMode?90*1000:0;
+  // The final chunk may spend up to 120 s hashing assets. Keep another minute
+  // for normalization/JSON/checkpoint handoff so acquisition never consumes it.
+  const CTI_BACKGROUND_FINALIZE_RESERVE_MS=backgroundChunkMode?3*60*1000:0;
   let CTI_WHOLE_RUN_DEADLINE=backgroundChunkMode
     ? Math.min(nowForLock+CTI_WHOLE_RUN_MAX_MS,backgroundChunkDeadline)
     : nowForLock+CTI_WHOLE_RUN_MAX_MS;
+  const evidenceWorkDeadline=()=>backgroundChunkMode
+    ? Math.max(nowForLock,CTI_WHOLE_RUN_DEADLINE-CTI_BACKGROUND_FINALIZE_RESERVE_MS)
+    : CTI_WHOLE_RUN_DEADLINE;
   if (existingRunLock && existingRunLock.running &&
       (nowForLock - Number(existingRunLock.lastHeartbeatAt || existingRunLock.startedAt || 0)) < CTI_RUN_LOCK_STALE_MS) {
     console.warn("CTI Item Fidelity Extractor is already running. Second invocation blocked.", existingRunLock);
@@ -1560,7 +1565,7 @@ javascript:(async function () {
   ctiProgressUpdateV1({phase:"Read item data",detail:"Checking already-observed course responses."});
   // CTI_PROGRESS_END
   for (const url of observedUrls) {
-    if (Date.now()>=CTI_WHOLE_RUN_DEADLINE) { result.meta.wholeRunDeadlineReachedDuring='observed-api'; break; }
+    if (Date.now()>=evidenceWorkDeadline()) { result.meta.wholeRunDeadlineReachedDuring='observed-api'; break; }
     if (knownAbsolute.has(url)) continue;
     const response = await getJson(url);
     result.meta.observedApiResponsesFetched++;
@@ -1576,7 +1581,7 @@ javascript:(async function () {
   result.meta.checkpointResume=ctiCheckpointManager ? await ctiCheckpointManager.restore(result.fingerprints) : {available:false,restored:0};
 
   const preCrawlDeadline=backgroundChunkMode
-    ? Math.max(Date.now(),CTI_WHOLE_RUN_DEADLINE-CTI_BACKGROUND_FINALIZE_RESERVE_MS)
+    ? Math.max(Date.now(),evidenceWorkDeadline())
     : Infinity;
   const backgroundProbeOptions=backgroundChunkMode ? {
     deadline:preCrawlDeadline,
@@ -1603,7 +1608,7 @@ javascript:(async function () {
   console.log("CTI exhaustive crawl: adaptive primary budget up to " + (ACTIVE_CRAWL_MAX_TOTAL_MS / 60000) + " minutes; bounded recovery visits untouched items first.");
   const primaryStartedAt=Date.now();
   const checkpointWriter=ctiCheckpointManager ? ((fp,diag,pass)=>ctiCheckpointManager.save(fp,diag,pass)) : null;
-  const crawlBudgetRemaining=()=>Math.max(0,CTI_WHOLE_RUN_DEADLINE-Date.now()-CTI_BACKGROUND_FINALIZE_RESERVE_MS);
+  const crawlBudgetRemaining=()=>Math.max(0,evidenceWorkDeadline()-Date.now());
   // A resumed background chunk must not turn an already-used first attempt into
   // another "primary" attempt with shorter budgets. Finish all untouched items
   // first, then let attempt-1 unresolved items enter the normal recovery pass.
@@ -1696,7 +1701,9 @@ javascript:(async function () {
   // an asset comparison into cryptographic proof instead of filename guessing.
   const assetPhaseStartedAt=Date.now();
   console.log('CTI: checking asset hashes and preparing the JSON export');
-  const hashBudget = { remaining: MAX_TOTAL_REMOTE_ASSET_BYTES, cache:new Map(), deadline:Math.min(Date.now()+ASSET_STAGE_MAX_MS,CTI_WHOLE_RUN_DEADLINE) };  // CTI_PROGRESS_BEGIN
+  const cooperativePartialCapture=backgroundChunkMode && Boolean((result.meta.backgroundChunk || {}).yielded);
+  const hashBudget = { remaining: MAX_TOTAL_REMOTE_ASSET_BYTES, cache:new Map(),
+    deadline:cooperativePartialCapture?Date.now():Math.min(Date.now()+ASSET_STAGE_MAX_MS,CTI_WHOLE_RUN_DEADLINE) };  // CTI_PROGRESS_BEGIN
   let progressAssetsProcessed = 0;
   ctiProgressUpdateV1({phase:"Check assets",detail:"Checking accessible file hashes and preparing evidence."});
   // CTI_PROGRESS_END
