@@ -7,6 +7,7 @@ import {
   disconnectCoursera,
   readCourseraConnectionJob,
   readCourseraExtractionJob,
+  recentCourseraExtractions,
   startCourseraConnection,
   startCourseraExtraction,
   type CourseraConnectionSummary,
@@ -43,6 +44,7 @@ export default function CourseraExtractionWorkspace({
     useState<CourseraExtractionStatus | null>(null);
   const [extractionJob, setExtractionJob] =
     useState<CourseraExtractionStatus | null>(null);
+  const [recentJobs, setRecentJobs] = useState<CourseraExtractionStatus[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -73,6 +75,12 @@ export default function CourseraExtractionWorkspace({
     void (async () => {
       try {
         await refreshSession(controller.signal);
+        const recent = await recentCourseraExtractions(controller.signal);
+        if (mounted.current) {
+          setRecentJobs(recent);
+          if (!localStorage.getItem(extractionKey) && recent[0])
+            setExtractionJob(recent[0]);
+        }
         const connectionId = localStorage.getItem(connectionKey);
         if (connectionId) {
           const status = await readCourseraConnectionJob(
@@ -150,6 +158,10 @@ export default function CourseraExtractionWorkspace({
         setExtractionJob(status);
         if (terminal(status)) {
           localStorage.removeItem(extractionKey);
+          try {
+            const recent = await recentCourseraExtractions(controller.signal);
+            if (mounted.current) setRecentJobs(recent);
+          } catch (_) {}
           if (status.state === "COMPLETE")
             setNotice(
               "Background Coursera capture passed the strict no-miss completion gate.",
@@ -282,6 +294,10 @@ export default function CourseraExtractionWorkspace({
                   const status = await startCourseraExtraction(shellUrl);
                   localStorage.setItem(extractionKey, status.id);
                   setExtractionJob(status);
+                  setRecentJobs((current) => [
+                    status,
+                    ...current.filter((job) => job.id !== status.id),
+                  ].slice(0, 20));
                 })
               }
             >
@@ -441,6 +457,58 @@ export default function CourseraExtractionWorkspace({
             </div>
           )}
         </>
+      )}
+
+      {!!recentJobs.length && (
+        <details className="scope">
+          <summary>Recent background extractions ({recentJobs.length})</summary>
+          <p className="hint">
+            These jobs are stored server-side for your CTI identity, so you can
+            reopen a running or completed extraction even if this browser lost
+            its local job pointer.
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Course</th>
+                  <th>State</th>
+                  <th>Started</th>
+                  <th>Evidence</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {recentJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td><code>{job.courseId}</code></td>
+                    <td>{job.state.replaceAll("_", " ")}</td>
+                    <td>{dateLabel(job.startedAt || job.createdAt)}</td>
+                    <td>
+                      {job.capture
+                        ? `${job.capture.completeCount}/${job.capture.inventoryCount} complete · ${job.capture.unresolvedCount} unresolved`
+                        : job.phase || "Pending"}
+                    </td>
+                    <td>
+                      <button
+                        className="text-button"
+                        disabled={!!busy}
+                        onClick={() => {
+                          setExtractionJob(job);
+                          setShellUrl(job.shellUrl);
+                          if (running(job))
+                            localStorage.setItem(extractionKey, job.id);
+                        }}
+                      >
+                        Open job
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
 
       {!editable && (
