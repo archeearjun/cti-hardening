@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
 import type {
+  ExtractorDelivery,
   ReviewOptions,
   ReviewResult,
   Severity,
@@ -43,6 +44,8 @@ export default function App() {
     [seconds, setSeconds] = useState(0);
   const [error, setError] = useState(""),
     [result, setResult] = useState<ReviewResult | null>(null);
+  const [extractor, setExtractor] = useState<ExtractorDelivery | null>(null),
+    [copyStatus, setCopyStatus] = useState("");
   const [filter, setFilter] = useState("ALL"),
     [query, setQuery] = useState(""),
     [visibleItems, setVisibleItems] = useState(50);
@@ -66,19 +69,30 @@ export default function App() {
     setBusy(false);
   }
   function launch(
-    request: Omit<Extract<WorkerRequest, { kind: "review" }>, "id">,
+    request:
+      | Omit<Extract<WorkerRequest, { kind: "review" }>, "id">
+      | Omit<Extract<WorkerRequest, { kind: "extractor" }>, "id">,
   ) {
     stop();
     const id = ++requestId.current;
     setError("");
+    setCopyStatus("");
     setBusy(true);
     setSeconds(0);
     startedAt.current = Date.now();
-    setPhase("Starting capture review");
-    setResult(null);
-    setVisibleItems(50);
-    setFilter("ALL");
-    setQuery("");
+    setPhase(
+      request.kind === "review"
+        ? "Starting capture review"
+        : "Preparing current extractor",
+    );
+    if (request.kind === "review") {
+      setResult(null);
+      setVisibleItems(50);
+      setFilter("ALL");
+      setQuery("");
+    } else {
+      setExtractor(null);
+    }
     try {
       const w = new Worker(
         new URL("../src/worker/evidence.worker.ts", import.meta.url),
@@ -112,6 +126,10 @@ export default function App() {
           setResult(data.result);
           setPhase("Capture review complete");
         }
+        if (data.kind === "extractor") {
+          setExtractor(data.result);
+          setPhase("Extractor ready");
+        }
         stop();
       };
       w.postMessage({ ...request, id } satisfies WorkerRequest);
@@ -120,6 +138,18 @@ export default function App() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  async function copyScript() {
+    if (!extractor) return;
+    try {
+      await navigator.clipboard.writeText(extractor.script);
+      setCopyStatus(extractor.version + " copied.");
+    } catch {
+      setCopyStatus(
+        "Clipboard access was unavailable. Download the script or select the manual-copy text below.",
+      );
+    }
+  }
+
   const findings = useMemo(
     () =>
       result?.findings.filter(
@@ -263,6 +293,46 @@ export default function App() {
                 Review capture <span aria-hidden="true">→</span>
               </button>
             </section>
+            <section
+              id="extractor-tools"
+              className="card extractor-card"
+              aria-labelledby="extractor-title"
+            >
+              <div className="section-top">
+                <span className="step">02</span>
+                <h2 id="extractor-title">Get a current extractor</h2>
+              </div>
+              <p>
+                These are the maintained extractor programs used by CTI. Run the
+                Coursera extractor in your already signed-in Chrome tab; no paid
+                remote browser is required.
+              </p>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  launch({ kind: "extractor", platform: "coursera" })
+                }
+              >
+                Coursera extractor <span aria-hidden="true">↗</span>
+              </button>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  launch({ kind: "extractor", platform: "brightspace" })
+                }
+              >
+                Brightspace extractor <span aria-hidden="true">↗</span>
+              </button>
+              <div className="local-note">
+                <strong>Local by default</strong>
+                <p>
+                  The LMS session stays in your browser. The extractor downloads
+                  evidence JSON locally for review or comparison.
+                </p>
+              </div>
+            </section>
           </div>
           {(busy || phase) && (
             <section className="status" role="status">
@@ -292,6 +362,60 @@ export default function App() {
               <strong>Could not complete this review</strong>
               <p>{error}</p>
             </div>
+          )}
+          {extractor && (
+            <section className="card script-panel">
+              <div className="section-top">
+                <div>
+                  <h2>
+                    {extractor.platform === "COURSERA"
+                      ? "Coursera"
+                      : "Brightspace"}{" "}
+                    extractor
+                  </h2>
+                  <p>
+                    {extractor.version} · Schema {extractor.schemaVersion}
+                  </p>
+                </div>
+                <button
+                  className="text-button"
+                  onClick={() => setExtractor(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="button-row">
+                <button className="primary" onClick={() => void copyScript()}>
+                  Copy script
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    saveFile(
+                      "CTI-" +
+                        extractor.platform.toLowerCase() +
+                        "-" +
+                        extractor.version +
+                        ".js",
+                      extractor.script,
+                      "text/javascript",
+                    )
+                  }
+                >
+                  Download script
+                </button>
+              </div>
+              <p role="status">{copyStatus}</p>
+              <details>
+                <summary>Manual-copy fallback</summary>
+                <textarea
+                  aria-label="Extractor script"
+                  readOnly
+                  value={extractor.script}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </details>
+            </section>
           )}
           {result && (
             <section className="results" aria-labelledby="result-title">
