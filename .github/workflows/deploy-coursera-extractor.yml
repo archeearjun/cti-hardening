@@ -1,0 +1,214 @@
+name: Deploy Coursera background extractor
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "workers/coursera-extractor/**"
+      - "src/extractors/coursera/**"
+      - "src/domain/coursera-background-extraction.ts"
+      - "src/domain/coursera-extraction-http.ts"
+      - "web/CourseraExtractionWorkspace.tsx"
+      - "web/OwnerActionCard.tsx"
+      - "web/OwnerEvidence.tsx"
+      - "web/FullWorkspace.tsx"
+      - "server/api.ts"
+      - "functions/api/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-coursera-extractor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cti-coursera-extractor-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_PAGES_PROJECT: cti-hardening
+      CF_WORKER_NAME: cti-coursera-extractor
+      CF_R2_BUCKET: cti-extraction-artifacts
+      WORKER_CONFIG: workers/coursera-extractor/wrangler.jsonc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Cloudflare deployment credentials
+        id: preflight
+        shell: bash
+        run: |
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            {
+              echo "## Coursera background extractor not deployed"
+              echo
+              echo "Repository secrets CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID are not configured."
+              echo "The Pages app can still deploy, but background Coursera extraction remains unavailable until those two secrets are added."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.preflight.outputs.configured == 'true'
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install and generate
+        if: steps.preflight.outputs.configured == 'true'
+        run: |
+          npm ci
+          npm run generate
+
+      - name: Ensure private R2 artifact bucket
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUCKETS="$(npx --yes wrangler@4.143.0 r2 bucket list --config "${WORKER_CONFIG}")"
+          if ! grep -Fq "${CF_R2_BUCKET}" <<<"${BUCKETS}"; then
+            npx --yes wrangler@4.143.0 r2 bucket create "${CF_R2_BUCKET}" --config "${WORKER_CONFIG}"
+          fi
+
+      - name: Deploy Browser Run Worker and Workflow
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.143.0 deploy --config "${WORKER_CONFIG}"
+
+      - name: Ensure stable session-encryption secret
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SECRETS="$(npx --yes wrangler@4.143.0 secret list --config "${WORKER_CONFIG}" --format json)"
+          if ! jq -e '.[] | select(.name == "CTI_SESSION_KEY")' <<<"${SECRETS}" >/dev/null; then
+            openssl rand -base64 48 | npx --yes wrangler@4.143.0 secret put CTI_SESSION_KEY --config "${WORKER_CONFIG}"
+          fi
+
+      - name: Bind Pages API to extractor Worker
+        if: steps.preflight.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4"
+          AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
+          PROJECT="$(
+            curl --fail-with-body --silent --show-error "${AUTH[@]}"               "${API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}"
+          )"
+          jq -e '.success == true' <<<"${PROJECT}" >/dev/null
+
+          CURRENT_SERVICES="$(jq -c '.result.deployment_configs.production.services // {}' <<<"${PROJECT}")"
+          PATCH="$(
+            jq -nc               --argjson services "${CURRENT_SERVICES}"               --arg worker "${CF_WORKER_NAME}"               '{
+                deployment_configs: {
+                  production: {
+                    services: (
+                      $services + {
+                        CTI_EXTRACTOR: { service: $worker }
+                      }
+                    )
+                  }
+                }
+              }'
+          )"
+
+          UPDATED="$(
+            curl --fail-with-body --silent --show-error -X PATCH "${AUTH[@]}"               --data "${PATCH}"               "${API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}"
+          )"
+          jq -e '.success == true' <<<"${UPDATED}" >/dev/null
+          jq -e --arg worker "${CF_WORKER_NAME}"             '.result.deployment_configs.production.services.CTI_EXTRACTOR.service == $worker'             <<<"${UPDATED}" >/dev/null
+
+      - name: Wait for this commit to reach Pages production
+        if: steps.preflight.outputs.configured == 'true' && github.event_name == 'push'
+        id: pages_commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4"
+          AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+          DEPLOYMENT_ID=""
+          for attempt in $(seq 1 72); do
+            DEPLOYMENTS="$(
+              curl --fail-with-body --silent --show-error "${AUTH[@]}"                 "${API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}/deployments?env=production&per_page=25"
+            )"
+            DEPLOYMENT_ID="$(
+              jq -r --arg sha "${GITHUB_SHA}"                 '.result[] | select(.deployment_trigger.metadata.commit_hash == $sha) | .id'                 <<<"${DEPLOYMENTS}" | head -n 1
+            )"
+            if [[ -n "${DEPLOYMENT_ID}" && "${DEPLOYMENT_ID}" != "null" ]]; then
+              STATUS="$(jq -r --arg id "${DEPLOYMENT_ID}" '.result[] | select(.id == $id) | .latest_stage.status' <<<"${DEPLOYMENTS}")"
+              if [[ "${STATUS}" == "success" ]]; then
+                echo "deployment_id=${DEPLOYMENT_ID}" >> "${GITHUB_OUTPUT}"
+                exit 0
+              fi
+              if [[ "${STATUS}" == "failure" ]]; then
+                echo "Pages production deployment for ${GITHUB_SHA} failed." >&2
+                exit 1
+              fi
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Pages production deployment for ${GITHUB_SHA}." >&2
+          exit 1
+
+      - name: Redeploy production Pages with service binding
+        if: steps.preflight.outputs.configured == 'true' && github.event_name == 'push'
+        id: retry_pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4"
+          AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
+          ORIGINAL_ID="${{ steps.pages_commit.outputs.deployment_id }}"
+          RETRY="$(
+            curl --fail-with-body --silent --show-error -X POST "${AUTH[@]}"               --data '{}'               "${API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}/deployments/${ORIGINAL_ID}/retry"
+          )"
+          jq -e '.success == true' <<<"${RETRY}" >/dev/null
+          RETRY_ID="$(jq -r '.result.id' <<<"${RETRY}")"
+          test -n "${RETRY_ID}"
+          test "${RETRY_ID}" != "null"
+          echo "deployment_id=${RETRY_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify bound Pages redeployment
+        if: steps.preflight.outputs.configured == 'true' && github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4"
+          AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+          ID="${{ steps.retry_pages.outputs.deployment_id }}"
+          for attempt in $(seq 1 72); do
+            DEPLOYMENT="$(
+              curl --fail-with-body --silent --show-error "${AUTH[@]}"                 "${API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}/deployments/${ID}"
+            )"
+            STATUS="$(jq -r '.result.latest_stage.status' <<<"${DEPLOYMENT}")"
+            if [[ "${STATUS}" == "success" ]]; then
+              {
+                echo "## Coursera background extractor deployed"
+                echo
+                echo "- Worker: \`${CF_WORKER_NAME}\`"
+                echo "- R2: \`${CF_R2_BUCKET}\`"
+                echo "- Pages binding: \`CTI_EXTRACTOR\`"
+                echo "- Pages commit: \`${GITHUB_SHA}\`"
+              } >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            if [[ "${STATUS}" == "failure" ]]; then
+              echo "Bound Pages redeployment failed." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for bound Pages redeployment." >&2
+          exit 1
