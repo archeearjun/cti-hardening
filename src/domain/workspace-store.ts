@@ -82,6 +82,16 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             sourceScanSha256: d.sourceScanSha256,
             summary: scalarSummary(d.result?.summary),
             stage: d.result?.snapshotContext?.mode,
+            capturedAt:
+              d.result?.stats?.extractorMeta?.capturedAt ||
+              d.result?.stats?.extractorMeta?.page?.capturedAt ||
+              d.capturedAt ||
+              "",
+            recommendationCode:
+              d.result?.operationalPolicy?.recommendationCode ||
+              d.result?.summary?.operationalPolicy?.recommendationCode ||
+              d.result?.destinationReadiness?.recommendationCode ||
+              "",
           }
         : record.kind === "reference-data"
           ? {
