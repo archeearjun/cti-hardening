@@ -70,20 +70,9 @@ export interface ReviewResult {
     links: number;
   }>;
 }
-export interface ExtractorDelivery {
-  success: boolean;
-  platform: Platform;
-  version: string;
-  schemaVersion: number;
-  buildId: string;
-  script: string;
-  error?: string;
-}
 export type WorkerRequest =
-  | { id: number; kind: "review"; file: File; options: ReviewOptions }
-  | { id: number; kind: "extractor"; platform: "coursera" | "brightspace" };
+  | { id: number; kind: "review"; file: File; options: ReviewOptions };
 export type WorkerResponse =
   | { id: number; kind: "progress"; phase: string }
   | { id: number; kind: "review"; result: ReviewResult }
-  | { id: number; kind: "extractor"; result: ExtractorDelivery }
   | { id: number; kind: "error"; message: string };
