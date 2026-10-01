@@ -477,7 +477,7 @@ function applyBackgroundPluginEvidence(
     ? capture.fingerprints
     : [];
   let pluginItemsObserved = 0,
-    verifiedExternalBodies = 0,
+    bodyObservedExternalBodies = 0,
     unresolvedExternalBodies = 0;
 
   for (const fp of fingerprints) {
@@ -512,14 +512,14 @@ function applyBackgroundPluginEvidence(
     plugin.backgroundCapture = {
       method: "PLAYWRIGHT_CROSS_ORIGIN_FRAME",
       observedFrames: publicFrames.length,
-      verifiedFrames: verified.length,
+      bodyObservedFrames: verified.length,
       interactionVerified: false,
       scopeComplete: false,
       meaning:
         "Background browser observed the external frame DOM passively. No playback, form submission or protected interaction was performed.",
     };
     if (verified.length) {
-      verifiedExternalBodies++;
+      bodyObservedExternalBodies++;
       plugin.readiness = {
         pending: false,
         status: "BACKGROUND_FRAME_CONTENT_OBSERVED",
@@ -544,7 +544,7 @@ function applyBackgroundPluginEvidence(
     capture.meta.backgroundExternalFrameEvidence = {
       method: "PLAYWRIGHT_CROSS_ORIGIN_FRAME",
       pluginItemsObserved,
-      verifiedExternalBodies,
+      bodyObservedExternalBodies,
       unresolvedExternalBodies,
       passiveOnly: true,
     };
