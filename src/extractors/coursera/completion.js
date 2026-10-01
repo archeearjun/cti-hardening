@@ -166,7 +166,7 @@ export function captureContractV6150(fp) {
       const backgroundBodyObserved=Boolean(
         plugin.backgroundCapture &&
         plugin.externalBodyVerified === true &&
-        Number(plugin.backgroundCapture.verifiedFrames || 0) > 0
+        Number(plugin.backgroundCapture.bodyObservedFrames || 0) > 0
       );
       const backgroundScopeComplete=Boolean(
         plugin.backgroundCapture &&
@@ -699,9 +699,9 @@ export function finalCaptureAccountingV6150(fingerprints, activeMeta) {
     terminalAccountedIncompleteCount: unresolved.filter(
       (x) => x.accounted && !x.retryable,
     ).length,
-    externalContentUnverifiedCount: Number(
-      statusCounts.ACCOUNTED_EXTERNAL_TARGET_ONLY || 0,
-    ),
+    externalContentUnverifiedCount:
+      Number(statusCounts.ACCOUNTED_EXTERNAL_TARGET_ONLY || 0) +
+      Number(statusCounts.ACCOUNTED_EXTERNAL_BODY_OBSERVED || 0),
     untypedMaterialLeafCount: Number(
       statusCounts.UNRESOLVED_UNTYPED_MATERIAL_LEAF || 0,
     ),
