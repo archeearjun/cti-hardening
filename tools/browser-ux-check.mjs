@@ -289,11 +289,17 @@ try {
   await page
     .getByText("Local Coursera capture loaded into Compare.", { exact: false })
     .waitFor();
+  // Browsers do not permit application code to populate another native
+  // <input type=file>. CTI carries the validated File in React state and shows
+  // the selected-file indicator used by the comparison workflow.
+  await page
+    .getByText("Selected: local-schema-35.json", { exact: false })
+    .waitFor();
   assert.equal(
     await page
       .getByLabel("Coursera full capture JSON")
-      .evaluate((element) => element.files?.[0]?.name || ""),
-    "local-schema-35.json",
+      .evaluate((element) => element.files?.length || 0),
+    0,
   );
 
   await tab("Compare");
