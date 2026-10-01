@@ -140,20 +140,25 @@ read a required third-party body, CTI must remain INCOMPLETE until that evidence
 becomes available through an approved API/same-origin integration or equivalent
 source.
 
-## Current extractor migration boundary
+## Current extractor
 
-The maintained repository currently labels its modular Coursera extractor
-v6.14.7/schema 34. The stricter background verifier requires the newer explicit
-captureAccounting contract before it can certify COMPLETE.
+The maintained modular Coursera extractor on this branch is **v6.15.4/schema 35**.
+It now emits the explicit per-item capture contracts and `meta.captureAccounting`
+used by the independent background completion gate.
 
-Until the proven v6.15.x contract changes are ported into
-src/extractors/coursera/, background runs can still create and preserve raw
-captures, but the strict verifier intentionally reports them INCOMPLETE rather
-than upgrading old evidence to complete.
+The normal operator flow is site-only: the Worker injects the generated extractor
+bundle into the authenticated Coursera authoring browser. The bundle is still
+generated because Browser Run and targeted developer checks need a self-contained
+program; it is not the intended end-user interaction.
 
-Do not work around this by weakening the verifier. Port the extractor behaviour
-into the maintained feature modules, run the extractor regression suite, replay
-the retained evidence corpus, and only then update the release registry.
+The strict gate remains independent from the extractor. A v6.15.4 run is still
+INCOMPLETE if any required item/channel is unresolved, unvisited, unknown, timed
+out without proof, settings-only, or an external plugin body remains unverified.
+Do not weaken those states to obtain a green result.
+
+The automated regression/build suite validates the modular port. A real
+authenticated Coursera shell run is still required before treating the new
+background path as production-validated against a specific live course.
 
 ## Recovery
 
