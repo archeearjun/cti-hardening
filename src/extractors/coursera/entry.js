@@ -27,7 +27,12 @@ javascript:(async function () {
   const CTI_RUN_LOCK_STALE_MS = 45000;
   const existingRunLock = window[CTI_RUN_LOCK_KEY];
   const nowForLock = Date.now();
-  let CTI_WHOLE_RUN_DEADLINE=nowForLock+CTI_WHOLE_RUN_MAX_MS;
+  const backgroundChunkDeadline=Number(window.__CTI_BACKGROUND_CHUNK_DEADLINE_MS || 0);
+  const backgroundChunkMode=Number.isFinite(backgroundChunkDeadline) && backgroundChunkDeadline>nowForLock;
+  const CTI_BACKGROUND_FINALIZE_RESERVE_MS=backgroundChunkMode?90*1000:0;
+  let CTI_WHOLE_RUN_DEADLINE=backgroundChunkMode
+    ? Math.min(nowForLock+CTI_WHOLE_RUN_MAX_MS,backgroundChunkDeadline)
+    : nowForLock+CTI_WHOLE_RUN_MAX_MS;
   if (existingRunLock && existingRunLock.running &&
       (nowForLock - Number(existingRunLock.lastHeartbeatAt || existingRunLock.startedAt || 0)) < CTI_RUN_LOCK_STALE_MS) {
     console.warn("CTI Item Fidelity Extractor is already running. Second invocation blocked.", existingRunLock);
@@ -704,6 +709,12 @@ javascript:(async function () {
       maxBudgetMs: retryPass ? 20 * 60 * 1000 : ACTIVE_CRAWL_MAX_TOTAL_MS,
       timeBudgetExhausted: false,
       unvisitedDueToBudget: 0,
+      cooperativeChunk: options.cooperativeChunk===true,
+      cooperativeChunkYielded: false,
+      cooperativeYieldReason: "",
+      nextItemId: "",
+      nextItemRequiredBudgetMs: 0,
+      remainingChunkBudgetMs: 0,
       visibilityPauseCount:0,
       visibilityPausedMs:0,
       discoveredTargets: 0,
@@ -764,25 +775,48 @@ javascript:(async function () {
         if (Date.now() - crawlStartedAt >= crawlBudgetMs) {
           meta.timeBudgetExhausted = true;
           meta.unvisitedDueToBudget = targets.length - index;
+          if(options.cooperativeChunk===true){
+            const next=targets[index];
+            meta.cooperativeChunkYielded=true;
+            meta.cooperativeYieldReason="CHUNK_CRAWL_BUDGET_EXHAUSTED";
+            meta.nextItemId=String(next && next.id || "");
+            meta.nextItemRequiredBudgetMs=next?itemAttemptBudgetV6153(next,retryPass):0;
+            meta.remainingChunkBudgetMs=0;
+          }
           break;
         }
         const visibilityPausedMs=await waitForVisibleV6154(()=>{
           if(typeof ctiProgressUpdateV1==='function')ctiProgressUpdateV1({detail:'Paused — return to the Coursera tab to continue extraction'});
         });
         if(visibilityPausedMs>0){
-          crawlStartedAt+=visibilityPausedMs;
-          CTI_WHOLE_RUN_DEADLINE+=visibilityPausedMs;
+          if(!backgroundChunkMode){
+            crawlStartedAt+=visibilityPausedMs;
+            CTI_WHOLE_RUN_DEADLINE+=visibilityPausedMs;
+          }
           meta.visibilityPauseCount++;
           meta.visibilityPausedMs+=visibilityPausedMs;
         }
-        const itemStartedAt=Date.now();
         const fp = targets[index];
+        const itemBoundaryNow=Date.now();
+        const courseAttemptDeadline=crawlStartedAt+crawlBudgetMs;
+        const requiredAttemptBudgetMs=itemAttemptBudgetV6153(fp,retryPass);
+        const remainingCrawlBudgetMs=Math.max(0,courseAttemptDeadline-itemBoundaryNow);
+        if(options.cooperativeChunk===true && remainingCrawlBudgetMs<requiredAttemptBudgetMs){
+          meta.timeBudgetExhausted=true;
+          meta.unvisitedDueToBudget=targets.length-index;
+          meta.cooperativeChunkYielded=true;
+          meta.cooperativeYieldReason="NEXT_ITEM_REQUIRES_FULL_ATTEMPT_BUDGET";
+          meta.nextItemId=String(fp.id || "");
+          meta.nextItemRequiredBudgetMs=requiredAttemptBudgetMs;
+          meta.remainingChunkBudgetMs=remainingCrawlBudgetMs;
+          break;
+        }
+        const itemStartedAt=Date.now();
         try {
           window.__CTI_ACTIVE_ITEM_ID=String(fp.id || "");
           window.__CTI_ACTIVE_ITEM_TYPE=String(fp.typeName || fp.type || "");
         } catch (_) {}
-        const courseAttemptDeadline=crawlStartedAt+crawlBudgetMs;
-        let itemAttemptDeadline=Math.min(courseAttemptDeadline,itemStartedAt+itemAttemptBudgetV6153(fp,retryPass));
+        let itemAttemptDeadline=Math.min(courseAttemptDeadline,itemStartedAt+requiredAttemptBudgetMs);
         fp.payload=fp.payload || {};
         fp.payload.captureAttempts=Math.min(CTI_MAX_ITEM_ATTEMPTS,Math.max(0,Number(fp.payload.captureAttempts || 0))+1);
         fp.payload.lastCaptureAttemptAt=new Date(itemStartedAt).toISOString();  // CTI_PROGRESS_BEGIN
@@ -1391,6 +1425,9 @@ javascript:(async function () {
         count:meta.targetDiagnostics.length + "/" + targets.length + " visits attempted · " + meta.targetDiagnostics.filter(d => d.domCaptured || d.editorSurfaceCaptured).length + " editors observed"});
   // CTI_PROGRESS_END
 
+      const attemptedIds=new Set((meta.targetDiagnostics || []).map(d=>String(d.id || "")));
+      meta.unvisitedTargetIds=(meta.targetIds || []).filter(id=>!attemptedIds.has(String(id)));
+      meta.unvisitedDueToBudget=Math.max(Number(meta.unvisitedDueToBudget || 0),meta.unvisitedTargetIds.length);
       meta.allTargetsAttempted = Number(meta.routeAttempts || 0) >= Number(targets.length || 0) && Number(meta.unvisitedDueToBudget || 0) === 0;
       recorder.restore();
       meta.networkRecorderAfterCleanup=recorder.stats();
@@ -1554,11 +1591,42 @@ javascript:(async function () {
   console.log("CTI exhaustive crawl: adaptive primary budget up to " + (ACTIVE_CRAWL_MAX_TOTAL_MS / 60000) + " minutes; bounded recovery visits untouched items first.");
   const primaryStartedAt=Date.now();
   const checkpointWriter=ctiCheckpointManager ? ((fp,diag,pass)=>ctiCheckpointManager.save(fp,diag,pass)) : null;
-  const primaryCrawl = await activeSpaCrawl(result.fingerprints, id, { retryPass:false,readingRouteTemplate,checkpoint:checkpointWriter,
-    budgetMs:Math.max(0,CTI_WHOLE_RUN_DEADLINE-Date.now()) });
+  const crawlBudgetRemaining=()=>Math.max(0,CTI_WHOLE_RUN_DEADLINE-Date.now()-CTI_BACKGROUND_FINALIZE_RESERVE_MS);
+  // A resumed background chunk must not turn an already-used first attempt into
+  // another "primary" attempt with shorter budgets. Finish all untouched items
+  // first, then let attempt-1 unresolved items enter the normal recovery pass.
+  const firstAttemptIds=result.fingerprints.filter(fp=>{
+    const contract=captureContractV6150(fp);
+    return contract.needsEditor===true && Number(contract.attempts || 0)===0;
+  }).map(fp=>String(fp.id || "")).filter(Boolean);
+  const primaryCrawl = await activeSpaCrawl(result.fingerprints, id, {
+    retryPass:false,
+    readingRouteTemplate,
+    onlyIds:firstAttemptIds,
+    maxItems:firstAttemptIds.length,
+    checkpoint:checkpointWriter,
+    cooperativeChunk:backgroundChunkMode,
+    budgetMs:crawlBudgetRemaining()
+  });
   const primaryFinishedAt=Date.now();
-  const retryPlan = buildRetryPlan(primaryCrawl, result.fingerprints);
+  let retryPlan = [];
   let retryCrawl = null;
+  if(!primaryCrawl.cooperativeChunkYielded){
+    const retryQueueIds=result.fingerprints.filter(fp=>{
+      const contract=captureContractV6150(fp);
+      const attempts=Number(contract.attempts || 0);
+      return contract.complete!==true && contract.needsEditor===true && contract.retryable===true &&
+        attempts>0 && attempts<CTI_MAX_ITEM_ATTEMPTS;
+    }).map(fp=>String(fp.id || "")).filter(Boolean);
+    const retryQueueSet=new Set(retryQueueIds);
+    const retryPlannerMeta=Object.assign({},primaryCrawl,{
+      targetIds:retryQueueIds,
+      targetDiagnostics:(primaryCrawl.targetDiagnostics || []).filter(d=>retryQueueSet.has(String(d.id || "")))
+    });
+    retryPlan=buildRetryPlan(retryPlannerMeta,result.fingerprints);
+    for(const key of ["retryDeferredEvidence","assessmentTextHeuristicSkipped","retryCandidateIds","retryCandidatesNotScheduled"])
+      if(Object.prototype.hasOwnProperty.call(retryPlannerMeta,key))primaryCrawl[key]=retryPlannerMeta[key];
+  }
   if (retryPlan.length) {
     console.log("CTI self-healing retry targets:", retryPlan);
     retryCrawl = await activeSpaCrawl(result.fingerprints, id, {
@@ -1567,11 +1635,35 @@ javascript:(async function () {
       onlyIds:retryPlan.map(x => x.id),
       maxItems:retryPlan.length,
       checkpoint:checkpointWriter,
-      budgetMs:Math.max(0,CTI_WHOLE_RUN_DEADLINE-Date.now())
+      cooperativeChunk:backgroundChunkMode,
+      budgetMs:crawlBudgetRemaining()
     });
   }
   const recoveryFinishedAt=Date.now();
-  result.meta.activeSpaCrawl = attachRetryResults(primaryCrawl, retryCrawl, retryPlan, result.fingerprints);
+  const combinedCrawl=attachRetryResults(primaryCrawl,retryCrawl,retryPlan,result.fingerprints);
+  const yieldedCrawl=retryCrawl && retryCrawl.cooperativeChunkYielded ? retryCrawl :
+    (primaryCrawl.cooperativeChunkYielded ? primaryCrawl : null);
+  if(yieldedCrawl){
+    combinedCrawl.timeBudgetExhausted=true;
+    combinedCrawl.cooperativeChunkYielded=true;
+    combinedCrawl.cooperativeYieldPass=String(yieldedCrawl.pass || "");
+    combinedCrawl.cooperativeYieldReason=String(yieldedCrawl.cooperativeYieldReason || "");
+    combinedCrawl.nextItemId=String(yieldedCrawl.nextItemId || "");
+    combinedCrawl.nextItemRequiredBudgetMs=Number(yieldedCrawl.nextItemRequiredBudgetMs || 0);
+    combinedCrawl.remainingChunkBudgetMs=Number(yieldedCrawl.remainingChunkBudgetMs || 0);
+    combinedCrawl.unvisitedTargetIds=unique([
+      ...(primaryCrawl.unvisitedTargetIds || []),
+      ...((retryCrawl && retryCrawl.unvisitedTargetIds) || [])
+    ],5000);
+    combinedCrawl.unvisitedDueToBudget=combinedCrawl.unvisitedTargetIds.length;
+  }
+  result.meta.activeSpaCrawl=combinedCrawl;
+  result.meta.backgroundChunk={
+    enabled:backgroundChunkMode,
+    deadlineMs:backgroundChunkMode?backgroundChunkDeadline:0,
+    finalizeReserveMs:CTI_BACKGROUND_FINALIZE_RESERVE_MS,
+    yielded:Boolean(combinedCrawl.cooperativeChunkYielded)
+  };
 
   // If the script is run while an individual Reading/Assignment/Discussion is
   // open, capture the actual rendered learner-facing DOM and attach it only to
@@ -1701,7 +1793,7 @@ javascript:(async function () {
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;
   ctiProgressUpdateV1({phase:progressGaps ? "Capture finished · review gaps" : "Capture finished"});
-  ctiProgress.finish(progressGaps ? "review" : "success", retainCheckpoint ? "Run limit reached. Item checkpoints were kept; rerun in this tab to continue." : "JSON prepared; every inventory item has an explicit final capture state.",
+  ctiProgress.finish(progressGaps ? "review" : "success", retainCheckpoint ? (backgroundChunkMode ? "Background chunk checkpointed; CTI will continue automatically." : "Run limit reached. Item checkpoints were kept; rerun in this tab to continue.") : "JSON prepared; every inventory item has an explicit final capture state.",
     Number(accounting.completeCount || 0) + "/" + Number(accounting.inventoryCount || 0) + " items complete · " + Number(accounting.unresolvedCount || 0) + " unresolved · " + Number(accounting.unvisitedCount || 0) + " unvisited");
   // CTI_PROGRESS_END
   } finally {
