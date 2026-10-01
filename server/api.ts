@@ -11,12 +11,16 @@ export interface Database {
   prepare(sql: string): Statement;
   batch(statements: Statement[]): Promise<Array<{ meta: { changes: number } }>>;
 }
+export interface ServiceFetcher {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
 export interface Environment {
   CTI_DB?: Database;
   CTI_ACCESS_ISSUER?: string;
   CTI_ACCESS_AUD?: string;
   CTI_ADMINS?: string;
   CTI_EDITORS?: string;
+  CTI_EXTRACTOR?: ServiceFetcher;
 }
 const keys = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const list = (value = "") =>
@@ -115,7 +119,12 @@ export async function handleApi(
 ): Promise<Response> {
   try {
     const user = await authenticate(request, env);
-    return await handleAuthorized(request, env.CTI_DB!, user);
+    return await handleAuthorized(
+      request,
+      env.CTI_DB!,
+      user,
+      env.CTI_EXTRACTOR,
+    );
   } catch (error) {
     return response(
       {
@@ -132,6 +141,7 @@ export async function handleAuthorized(
   request: Request,
   db: Database,
   user: { email: string; role: string },
+  extractor?: ServiceFetcher,
 ): Promise<Response> {
   const url = new URL(request.url),
     p = url.pathname
@@ -144,6 +154,37 @@ export async function handleAuthorized(
       fail("Cross-origin writes are not allowed.", 403);
     if (!["admin", "editor"].includes(user.role))
       fail("Your account has read-only access.", 403);
+  }
+  if (p[0] === "extraction") {
+    if (!extractor)
+      return response(
+        {
+          error:
+            "Background Coursera extraction is not configured for this CTI deployment.",
+        },
+        503,
+      );
+    const target = new URL(
+      "https://cti-coursera-extractor.internal/" +
+        p
+          .slice(1)
+          .map((part) => encodeURIComponent(part))
+          .join("/"),
+    );
+    target.search = url.search;
+    const headers = new Headers();
+    const contentType = request.headers.get("Content-Type");
+    if (contentType) headers.set("Content-Type", contentType);
+    headers.set("X-CTI-User", user.email);
+    headers.set("X-CTI-Role", user.role);
+    const init: RequestInit = {
+      method,
+      headers,
+      redirect: "manual",
+    };
+    if (method !== "GET" && method !== "HEAD")
+      init.body = await boundedBody(request, 256 * 1024);
+    return extractor.fetch(new Request(target, init));
   }
   if (p[0] === "session" && method === "GET") return response(user);
   if (p[0] === "records" && p.length === 1 && method === "GET") {
