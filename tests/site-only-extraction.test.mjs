@@ -199,7 +199,13 @@ test("cross-origin plugin observations survive cooperative chunk boundaries", ()
 test("Browser Run acquisition backpressure converts temporary 429s into waits", () => {
   const background = read("workers/coursera-extractor/index.ts");
 
-  assert.match(background, /BROWSER\?\.limits/);
+  assert.match(
+    background,
+    /import\s*\{[^}]*limits\s+as\s+playwrightLimits[^}]*\}\s*from\s*["']@cloudflare\/playwright["']/s,
+  );
+  assert.match(background, /playwrightLimits\(env\.BROWSER\)/);
+  assert.doesNotMatch(background, /env\.BROWSER\?\.limits/);
+  assert.doesNotMatch(background, /env\.BROWSER\.limits\(/);
   assert.match(background, /allowedBrowserAcquisitions/);
   assert.match(background, /maxConcurrentSessions/);
   assert.match(background, /timeUntilNextAllowedBrowserAcquisition/);
@@ -208,6 +214,13 @@ test("Browser Run acquisition backpressure converts temporary 429s into waits", 
   assert.match(background, /launchBrowserWithRateLimitRecovery\(/);
   assert.match(background, /attempt <= 3/);
   assert.match(background, /fallbackMs = 25_000/);
+  assert.match(background, /maxWaitMs = 11 \* 60 \* 1000/);
+  assert.equal(
+    (background.match(/timeout:\s*["']12 minutes["']/g) || []).length,
+    2,
+    "both Browser Run capacity waits must outlast orphaned 10-minute keep-alive sessions",
+  );
+  assert.match(background, /browserRunCapacitySummary/);
   assert.match(
     background,
     /Cloudflare Browser Run rate-limited browser startup · retrying in/,
