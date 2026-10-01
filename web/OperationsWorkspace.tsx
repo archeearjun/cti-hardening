@@ -758,6 +758,7 @@ export default function OperationsWorkspace({
               <label>
                 Scope
                 <select
+                  aria-label="Scope"
                   value={workState.scope}
                   onChange={(e) =>
                     setWorkState(normalizeWorkState({ ...workState, scope: e.target.value }))
@@ -770,6 +771,7 @@ export default function OperationsWorkspace({
               <label>
                 Coursera redo
                 <select
+                  aria-label="Coursera redo"
                   value={workState.courseraRedo}
                   onChange={(e) =>
                     setWorkState(normalizeWorkState({ ...workState, courseraRedo: e.target.value }))
@@ -781,6 +783,7 @@ export default function OperationsWorkspace({
               <label>
                 Course outline
                 <select
+                  aria-label="Course outline"
                   value={workState.courseOutline}
                   onChange={(e) =>
                     setWorkState(normalizeWorkState({ ...workState, courseOutline: e.target.value }))
@@ -792,6 +795,7 @@ export default function OperationsWorkspace({
               <label>
                 Source audit
                 <select
+                  aria-label="Source audit"
                   value={workState.sourceAudit}
                   onChange={(e) =>
                     setWorkState(normalizeWorkState({ ...workState, sourceAudit: e.target.value }))
@@ -803,6 +807,7 @@ export default function OperationsWorkspace({
               <label>
                 Specialization outline
                 <select
+                  aria-label="Specialization outline"
                   value={workState.specializationOutline}
                   onChange={(e) =>
                     setWorkState(normalizeWorkState({ ...workState, specializationOutline: e.target.value }))
@@ -814,6 +819,7 @@ export default function OperationsWorkspace({
               <label>
                 Content map
                 <select
+                  aria-label="Content map"
                   value={workState.contentMap}
                   onChange={(e) =>
                     setWorkState(normalizeWorkState({ ...workState, contentMap: e.target.value }))
@@ -826,6 +832,7 @@ export default function OperationsWorkspace({
             <label>
               Operational notes
               <textarea
+                aria-label="Operational notes"
                 maxLength={4000}
                 value={workState.notes}
                 onChange={(e) => setWorkState({ ...workState, notes: e.target.value })}
