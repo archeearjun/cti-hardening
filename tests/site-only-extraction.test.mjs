@@ -161,6 +161,12 @@ test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute time
   assert.doesNotMatch(entry, /options\.budgetMs\s*\|\|\s*Infinity/);
   assert.match(
     entry,
+    /CTI_BACKGROUND_FINALIZE_RESERVE_MS=backgroundChunkMode\?3\*60\*1000:0/,
+  );
+  assert.match(entry, /evidenceWorkDeadline/);
+  assert.match(entry, /cooperativePartialCapture/);
+  assert.match(
+    entry,
     /targetedItemPayloadProbes\([^;]*backgroundProbeOptions\)/s,
   );
   assert.match(
