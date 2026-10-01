@@ -4186,7 +4186,7 @@
         },
         {
           "name": "checkpointSessionIdV6150",
-          "reviewedCurrentHash": "55ba8b8744603b59cd374bf14f81b654376eb3c427d4c2dfc7e864456c8aa8f1"
+          "reviewedCurrentHash": "4d901613e82e9c7f76b973435c8834e574f4960e6122ca54564da57d883cd58e"
         },
         {
           "name": "compactDiagnosticV6150",
@@ -4194,7 +4194,7 @@
         },
         {
           "name": "createCheckpointManagerV6150",
-          "reviewedCurrentHash": "113188e15ceb7cde8f970d46d3e0011f8d4191425a079e3ee85cf4b6684bb7c8"
+          "reviewedCurrentHash": "6c08764786fbbe127e9e4895a58815f410c60b47dfc551e3a4f9471bef5d88a3"
         },
         {
           "name": "fetchWithTimeoutV6150",
@@ -4278,6 +4278,12 @@
           "status": "added",
           "archivedHash": null,
           "reviewedCurrentHash": "50323b0ab815a86318b7b9f7b369a280031e9012806f9bc15d448b9648230e50"
+        },
+        {
+          "name": "CTI_CHECKPOINT_TTL_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "b48dbf8b41d2694c8a1ac6c506020581ee825e3a36d6c5a091398ce6a00eb455"
         },
         {
           "name": "CTI_DISCUSSION_ATTEMPT_MS",
