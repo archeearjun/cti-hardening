@@ -86,6 +86,7 @@ export default function FullWorkspace({
     [seconds, setSeconds] = useState(0),
     [importProgress, setImportProgress] = useState("");
   const [portfolio, setPortfolio] = useState<EvidenceObject | null>(null);
+  const [extractionPrefill, setExtractionPrefill] = useState("");
   useEffect(() => setPortfolio(null), [records]);
   const [reportId, setReportId] = useState("");
   const [report, setReport] = useState<EvidenceObject | null>(null),
@@ -912,6 +913,7 @@ export default function FullWorkspace({
             enabled={store?.mode === "team"}
             editable={editable}
             disabled={!!busy}
+            initialUrl={extractionPrefill}
             onUseCapture={(file) => {
               setCapture(file);
               setTab("Compare");
@@ -1274,6 +1276,13 @@ export default function FullWorkspace({
               records={records}
               store={store}
               onSaved={() => refresh()}
+              onOpenExtraction={(url) => {
+                setExtractionPrefill(url || "");
+                setTab("Extract");
+                setNotice(
+                  "Background extraction opened for this Coursera shell. Run it here; no console script is needed.",
+                );
+              }}
             />
             <details className="recorded-audit-overview">
               <summary>Recorded QA scores and publication blockers</summary>
