@@ -46,7 +46,14 @@ jobs:
         id: preflight
         shell: bash
         run: |
-          if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            {
+              echo "## Coursera background extractor not deployed"
+              echo
+              echo "Run this workflow from the main branch."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          elif [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
             echo "configured=false" >> "${GITHUB_OUTPUT}"
             {
               echo "## Coursera background extractor not deployed"
@@ -131,7 +138,7 @@ jobs:
           jq -e --arg worker "${CF_WORKER_NAME}"             '.result.deployment_configs.production.services.CTI_EXTRACTOR.service == $worker'             <<<"${UPDATED}" >/dev/null
 
       - name: Wait for this commit to reach Pages production
-        if: steps.preflight.outputs.configured == 'true' && github.event_name == 'push'
+        if: steps.preflight.outputs.configured == 'true'
         id: pages_commit
         shell: bash
         run: |
@@ -163,7 +170,7 @@ jobs:
           exit 1
 
       - name: Redeploy production Pages with service binding
-        if: steps.preflight.outputs.configured == 'true' && github.event_name == 'push'
+        if: steps.preflight.outputs.configured == 'true'
         id: retry_pages
         shell: bash
         run: |
@@ -181,7 +188,7 @@ jobs:
           echo "deployment_id=${RETRY_ID}" >> "${GITHUB_OUTPUT}"
 
       - name: Verify bound Pages redeployment
-        if: steps.preflight.outputs.configured == 'true' && github.event_name == 'push'
+        if: steps.preflight.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
