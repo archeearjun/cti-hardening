@@ -83,6 +83,14 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             summary: scalarSummary(d.result?.summary),
             stage: d.result?.snapshotContext?.mode,
           }
+        : record.kind === "reference-data"
+          ? {
+              subtype: d.subtype,
+              partner: d.partner,
+              sourceName: d.sourceName,
+              importedAt: d.importedAt,
+              rowCount: Array.isArray(d.rows) ? d.rows.length : Number(d.rowCount || 0),
+            }
         : record.kind === "item-review"
           ? {
               auditId: d.auditId,
