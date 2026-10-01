@@ -38,8 +38,11 @@ only after a new ingestion, not a repeated export.
 
 Do not rerun all 15 titles simply because the hosting changed. First reuse one
 complete retained set and compare it against the accepted Apps Script report.
-Use differences to decide targeted follow-up. Extraction remains in the user's
-signed-in LMS; the website does not crawl LMS accounts on their behalf.
+Use differences to decide targeted follow-up. Coursera extraction now starts
+from **Full CTI workspace → Extract** and runs through the authenticated
+background browser service after the user connects Coursera with normal SSO/MFA.
+The normal operator flow does not require DevTools or a pasted console script.
+Brightspace source capture remains a separate source-evidence workflow.
 
 ## Retire Apps Script only after
 
