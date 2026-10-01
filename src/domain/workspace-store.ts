@@ -238,20 +238,38 @@ export function localStore(): WorkspaceStore {
           const all = table.getAll();
           all.onerror = () => stop("Course identity could not be checked.");
           all.onsuccess = () => {
+            const rows = all.result as WorkspaceRecord[];
             const partner = normalizePartnerName(record.data.partner);
             const semantic = packageSemanticKey(
               record.data.scan?.fileName || record.title,
             );
-            const duplicate = (all.result as WorkspaceRecord[]).find(
-              (candidate) =>
-                candidate.id !== record.id &&
-                candidate.kind === "package" &&
-                candidate.data.archived !== true &&
-                normalizePartnerName(candidate.data.partner) === partner &&
-                packageSemanticKey(
-                  candidate.data.scan?.fileName || candidate.title,
-                ) === semantic,
-            );
+            const prior = rows.find((candidate) => candidate.id === record.id);
+            const priorPartner = normalizePartnerName(prior?.data.partner);
+            const priorSemantic = prior
+              ? packageSemanticKey(prior.data.scan?.fileName || prior.title)
+              : "";
+            // Existing historical duplicate rows must remain editable so the
+            // reconciliation workflow can preserve/merge them. Enforce
+            // uniqueness when an identity is introduced, changed or restored
+            // from archive—not on a same-identity edit that does not worsen the
+            // pre-existing state.
+            const activatesIdentity =
+              !prior ||
+              prior.data.archived === true ||
+              priorPartner !== partner ||
+              priorSemantic !== semantic;
+            const duplicate = activatesIdentity
+              ? rows.find(
+                  (candidate) =>
+                    candidate.id !== record.id &&
+                    candidate.kind === "package" &&
+                    candidate.data.archived !== true &&
+                    normalizePartnerName(candidate.data.partner) === partner &&
+                    packageSemanticKey(
+                      candidate.data.scan?.fileName || candidate.title,
+                    ) === semantic,
+                )
+              : undefined;
             if (partner && semantic && duplicate) {
               stop(
                 "An active course with the same partner and semantic package identity already exists. Rescan that course or reconcile duplicates in Operations.",
