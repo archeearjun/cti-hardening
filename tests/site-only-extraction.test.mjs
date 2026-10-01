@@ -117,15 +117,61 @@ test("SSO automation never types credentials or submits forms", () => {
 });
 
 
-test("Workflow extraction step never exceeds Cloudflare's 30 minute timeout limit", () => {
+test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute timeout", () => {
   const background = read("workers/coursera-extractor/index.ts");
+  const entry = read("src/extractors/coursera/entry.js");
+
   assert.doesNotMatch(background, /timeout:\s*["']2 hours 10 minutes["']/);
+  assert.match(background, /EXTRACTION_CHUNK_ACTIVE_MS\s*=\s*25\s*\*\s*60\s*\*\s*1000/);
+  assert.match(background, /EXTRACTION_CHUNK_MONITOR_MS\s*=\s*27\s*\*\s*60\s*\*\s*1000/);
+  assert.match(background, /MAX_EXTRACTION_CHUNKS\s*=\s*9/);
   assert.match(background, /timeout:\s*["']30 minutes["']/);
   assert.match(
     background,
-    /limit:\s*4[\s\S]*delay:\s*["']10 seconds["'][\s\S]*backoff:\s*["']constant["']/,
+    /limit:\s*1[\s\S]*delay:\s*["']10 seconds["'][\s\S]*backoff:\s*["']constant["']/,
+  );
+  assert.doesNotMatch(background, /limit:\s*4/);
+  assert.match(background, /runExtractionChunk\(/);
+  assert.match(background, /chunkResult\.state\s*===\s*["']DONE["']/);
+  assert.match(background, /state:\s*["']CONTINUE["']/);
+
+  assert.match(entry, /__CTI_BACKGROUND_CHUNK_DEADLINE_MS/);
+  assert.match(entry, /cooperativeChunkYielded/);
+  assert.match(entry, /NEXT_ITEM_REQUIRES_FULL_ATTEMPT_BUDGET/);
+  const boundaryGuard = entry.indexOf(
+    "remainingCrawlBudgetMs<requiredAttemptBudgetMs",
+  );
+  const attemptIncrement = entry.indexOf(
+    "fp.payload.captureAttempts=Math.min",
+    boundaryGuard,
+  );
+  assert.ok(boundaryGuard >= 0, "item-aware cooperative boundary guard is missing");
+  assert.ok(
+    attemptIncrement > boundaryGuard,
+    "capture attempt must not be incremented before a safe chunk boundary is proven",
+  );
+
+  assert.match(entry, /Number\(contract\.attempts\s*\|\|\s*0\)===0/);
+  assert.match(
+    entry,
+    /attempts>0\s*&&\s*attempts<CTI_MAX_ITEM_ATTEMPTS/,
   );
   assert.match(background, /loadRuntimeState\(/);
   assert.match(background, /saveRuntimeState\(/);
   assert.match(background, /storageState\(\{ indexedDB: true \}\)/);
+});
+
+test("cross-origin plugin observations survive cooperative chunk boundaries", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  assert.match(background, /backgroundFrameEvidenceKey/);
+  assert.match(background, /loadBackgroundFrameEvidence\(/);
+  assert.match(background, /saveBackgroundFrameEvidence\(/);
+  assert.match(
+    background,
+    /saveRuntimeState\([\s\S]*saveBackgroundFrameEvidence\(/,
+  );
+  assert.match(
+    background,
+    /ARTIFACTS\.delete\(backgroundFrameEvidenceKey\(payload\.id\)\)/,
+  );
 });
