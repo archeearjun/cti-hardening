@@ -889,7 +889,7 @@ javascript:(async function () {
         meta.outlineDisclosureExpansions += Number(diag.outlineExpanded || 0);
 
         if (!found) {
-          const recovery=typedRecovery || readingRecovery || await recoverReadingRouteV61311(fp,courseOrBranchId,readingRouteTemplate,{deadline:crawlStartedAt+crawlBudgetMs,recorder,initialCount:readingInitialRecords});
+          const recovery=typedRecovery || readingRecovery || await recoverReadingRouteV61311(fp,courseOrBranchId,readingRouteTemplate,{deadline:itemAttemptDeadline,recorder,initialCount:readingInitialRecords});
           const recoverySummary={attempted:recovery.attempted,captured:recovery.captured,reason:recovery.reason,route:recovery.route,dwellMs:recovery.dwellMs,pluginWait:recovery.pluginWait,waitBudget:recovery.waitBudget};
           if(typedRecovery){diag.typedEditorRecovery=recoverySummary;if(recovery.diagnostics)diag.typedEditorDiagnostics=recovery.diagnostics;}
           else diag.readingRouteRecovery=recoverySummary;
@@ -923,6 +923,9 @@ javascript:(async function () {
           }
           diag.networkRecorderRelease=recorder.releaseFor(fp);
           diag.elapsedMs=Date.now()-itemStartedAt;diag.navigationMs=diag.elapsedMs;
+          diag.itemAttemptDeadlineReached=Date.now()>=itemAttemptDeadline;
+          diag.captureContract=captureContractSummaryV6150(fp);
+          await checkpointItem(fp,diag);
           continue;
         }
         try {
@@ -1016,7 +1019,8 @@ javascript:(async function () {
           const trackedEditItem = /(?:^|\b)edititem(?:\b|$)/.test(String(control.trackComponent || ""));
           await waitForNetworkQuiet(
             recorder, fp, initialRecords,
-            trackedEditItem ? ACTIVE_CRAWL_EDITITEM_QUIET_MS : ACTIVE_CRAWL_GENERIC_QUIET_MS
+            trackedEditItem ? ACTIVE_CRAWL_EDITITEM_QUIET_MS : ACTIVE_CRAWL_GENERIC_QUIET_MS,
+            itemAttemptDeadline
           );
           await sleepMs(160);
           const changedNodes = mutationCapture.stop();
@@ -1042,7 +1046,7 @@ javascript:(async function () {
               meta.directReactAttempts++;
               diag.directReactAttempts++;
               await sleepMs(350);
-              await waitForNetworkQuiet(recorder, fp, directBeforeRecords, ACTIVE_CRAWL_DIRECT_QUIET_MS);
+              await waitForNetworkQuiet(recorder, fp, directBeforeRecords, ACTIVE_CRAWL_DIRECT_QUIET_MS, itemAttemptDeadline);
               await sleepMs(120);
               const directChanged = directMutation.stop();
               const directRoute = isItemSpecificCourseRoute(location.href, fp, courseOrBranchId);
@@ -1073,6 +1077,9 @@ javascript:(async function () {
           diag.navigation = "no-safe-navigation";
           diag.networkRecorderRelease=recorder.releaseFor(fp);
           diag.elapsedMs=Date.now()-itemStartedAt;
+          diag.itemAttemptDeadlineReached=Date.now()>=itemAttemptDeadline;
+          diag.captureContract=captureContractSummaryV6150(fp);
+          await checkpointItem(fp,diag);
           continue;
         }
 
@@ -1094,7 +1101,7 @@ javascript:(async function () {
 
         const stability = await waitForItemEvidenceStability(
           fp, recorder, initialRecords, openedSurface, itemSessionBaseline,
-          { retryMode: retryPass, strongSessionIdentity: strongIdentitySeed,deadline:crawlStartedAt+crawlBudgetMs }
+          { retryMode: retryPass, strongSessionIdentity: strongIdentitySeed,deadline:itemAttemptDeadline }
         );
         diag.stabilityPhaseMs=Date.now()-stabilityPhaseStart;
         meta.stabilityWaits++;
@@ -1129,7 +1136,13 @@ javascript:(async function () {
               parsedType:probe.question?.type || '',parsedChoices:probe.question?.options.length || 0};
           });
           retainAssessmentSurfaceEvidenceV6138(openedSurface.root,fp);
-          const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {seedAssessment:retryPass?fp.payload.structuredAssessment:null,deadline:assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1),
+          const declaredForBudget=Math.max(assessmentDeclaredCountV662(openedSurface.root),Number(fp.payload?.structuredAssessment?.declaredQuestionCount || 0));
+          if(declaredForBudget>0){
+            const assessmentWork=Math.min(CTI_ASSESSMENT_MAX_MS,Math.max(45000,CTI_ASSESSMENT_BASE_MS+declaredForBudget*CTI_ASSESSMENT_PER_QUESTION_MS));
+            itemAttemptDeadline=Math.min(courseAttemptDeadline,Math.max(itemAttemptDeadline,itemStartedAt+Math.min(CTI_ASSESSMENT_ATTEMPT_MAX_MS,60000+assessmentWork)));
+            diag.itemAttemptBudgetMs=Math.max(0,itemAttemptDeadline-itemStartedAt);
+          }
+          const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {seedAssessment:retryPass?fp.payload.structuredAssessment:null,deadline:Math.min(itemAttemptDeadline,assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1,declaredForBudget)),
             certifiedItem:strongIdentitySeed && isItemSpecificCourseRoute(location.href,fp,courseOrBranchId)});
           diag.assessmentMs=Date.now()-assessmentStartedAt;
           diag.questionCycleReactStateMs=Number(cycle.reactStateElapsedMs || 0);
@@ -1179,8 +1192,12 @@ javascript:(async function () {
         routeIdHit = routeIdHit || String(currentHref).toLowerCase().includes(String(fp.id || "").toLowerCase());
         diag.routeChanged = currentHref !== startUrl;
 
-        const dom = collectCurrentDomEvidence();
-        const domMatched = routeIdHit || matchCurrentPageToFingerprint([fp], dom);
+        const itemExpiredBeforeHarvest=Date.now()>=itemAttemptDeadline;
+        const skipWholePageHarvest=Boolean(itemExpiredBeforeHarvest || (!openedSurface && stability && stability.timedOut));
+        diag.itemAttemptDeadlineReached=itemExpiredBeforeHarvest;
+        diag.harvestFastPath=skipWholePageHarvest;
+        const dom = skipWholePageHarvest ? null : collectCurrentDomEvidence();
+        const domMatched = dom && (routeIdHit || matchCurrentPageToFingerprint([fp], dom));
         if (domMatched && dom && !/\/content(?:\/edit)?\/?$/i.test(location.pathname)) {
           // v5.9: whole-page DOM is diagnostic/navigation evidence only. It may
           // contain authoring chrome, cookie logos and unrelated navigation links,
@@ -1346,8 +1363,11 @@ javascript:(async function () {
         await returnToOutlineV6142(startUrl);
         diag.harvestMs=Date.now()-harvestStartedAt;
         diag.elapsedMs=Date.now()-itemStartedAt;
+        diag.itemAttemptDeadlineReached=diag.itemAttemptDeadlineReached || Date.now()>=itemAttemptDeadline;
         diag.completed = true;
+        diag.captureContract=captureContractSummaryV6150(fp);
         meta.returned++;
+        await checkpointItem(fp,diag);
         await sleepMs(220);
       }
     } finally {
