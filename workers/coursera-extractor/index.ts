@@ -239,7 +239,14 @@ async function launchBrowserWithRateLimitRecovery(
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await launch(env.BROWSER, { keep_alive: 600_000 });
+      // @cloudflare/playwright 1.3.6 normally acquires through its legacy
+      // HTTP /v1/devtools/browser path. Supplying an outboundByHost map makes
+      // the package use the newer Browser Binding RPC launch() path instead.
+      // An empty map does not route any hostname through another Worker.
+      return await launch(env.BROWSER, {
+        keep_alive: 600_000,
+        outboundByHost: {},
+      });
     } catch (error) {
       lastError = error;
       if (browserRunDailyQuotaExceeded(error))
@@ -277,7 +284,7 @@ async function launchBrowserWithRateLimitRecovery(
   }
   const finalLimits = await browserRunLimits(env);
   throw new Error(
-    `Cloudflare Browser Run is still rate-limiting new browser instances after CTI waited and retried. No extraction work was started. Capacity: ${browserRunCapacitySummary(finalLimits)}. Last error: ${browserRunErrorMessage(lastError)}`,
+    `Cloudflare Browser Run's RPC-backed launch is still being rejected after CTI waited and retried. No extraction work was started. Capacity: ${browserRunCapacitySummary(finalLimits)}. Last error: ${browserRunErrorMessage(lastError)}`,
   );
 }
 
