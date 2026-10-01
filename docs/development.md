@@ -22,7 +22,9 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Owner report text | `src/reporting/` | `npm run test:engine` |
 | Source ZIP, XML, QTI and PDF scanning | `src/source/`, `src/domain/package-scan.ts` | `npm run test:browser:package` |
 | Workbook/Macmillan checks | `src/engine/workbook/`, `src/adapters/workbook.ts` | `npm run test:engine` |
-| Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |\n| Background Coursera browser jobs and strict completion gate | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` | `tests/coursera-background-extraction.test.mjs`; `npm run worker:check` |
+| Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |
+| Migrated planner/catalog/runtime/duplicate operations | `src/domain/operations.ts`, `web/OperationsWorkspace.tsx` | `tests/operations-migration.test.mjs`; `npm run test:browser:ux` |
+| Background Coursera browser jobs and strict completion gate | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` | `tests/coursera-background-extraction.test.mjs`; `npm run worker:check` |
 
 For example, a source navigation fix can change `source-navigation.ts` and its
 focused test. It does not change any extractor, engine bundle, or Apps Script file.
@@ -92,7 +94,10 @@ docs/background-coursera-extraction.md.
 ## Regression and publishing
 
 Use the focused commands above while implementing. Before publishing changes
-across feature boundaries, run `npm test` and `npm run build`. The full suite runs
+across feature boundaries, run `npm test` and `npm run build`. CI additionally
+runs the built app in Chromium for package scanning, workspace workflows,
+responsive UX and owner actions; production publishing waits for both the
+deterministic and browser jobs. The full suite runs
 historical assertions against the current engine and independently compares a
 complete source/XLSX/JSON workflow with the frozen reference. DOM simulations
 exercise the current extractor functions by syntax/name, independent of file order.
@@ -103,7 +108,9 @@ Read [the full Code.gs audit](audits/code-gs-audit.md) before claiming parity.
 `npm run audit:parity` accounts for every original function/constant/override and
 declared capability, compares active rule bodies independently of that harness,
 and checks both extractor programs including their execution code. The ledger
-deliberately records unresolved gaps. Intentional future rule changes require an
+requires every historical capability to remain explicitly implemented, replaced,
+archive-only, unverified, or intentionally retired; silent gap/partial
+dispositions fail the parity test. Intentional future rule changes require an
 explicit reviewed disposition; do not edit the frozen archive to pass parity.
 
 `main` is the source of truth. Its passing GitHub checks forward the exact commit
