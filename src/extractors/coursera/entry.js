@@ -683,7 +683,9 @@ javascript:(async function () {
     const explicitMaxItems = Number(options.maxItems || 0);
     const targetCap = explicitMaxItems > 0 ? explicitMaxItems : eligibleTargets.length;
     const targets = eligibleTargets.slice(0, targetCap);
-    const crawlBudgetMs = Math.min(retryPass?recoveryCrawlBudgetV61326(targets):activeCrawlBudgetMs(targets, false),Number(options.budgetMs || Infinity));
+    const requestedBudgetMs=Number(options.budgetMs);
+    const boundedBudgetMs=Number.isFinite(requestedBudgetMs)?Math.max(0,requestedBudgetMs):Infinity;
+    const crawlBudgetMs = Math.min(retryPass?recoveryCrawlBudgetV61326(targets):activeCrawlBudgetMs(targets, false),boundedBudgetMs);
     let crawlStartedAt = Date.now();
 
     const meta = {
@@ -1573,21 +1575,31 @@ javascript:(async function () {
   // export clears this run; stale captures from another session are never reused.
   result.meta.checkpointResume=ctiCheckpointManager ? await ctiCheckpointManager.restore(result.fingerprints) : {available:false,restored:0};
 
+  const preCrawlDeadline=backgroundChunkMode
+    ? Math.max(Date.now(),CTI_WHOLE_RUN_DEADLINE-CTI_BACKGROUND_FINALIZE_RESERVE_MS)
+    : Infinity;
+  const backgroundProbeOptions=backgroundChunkMode ? {
+    deadline:preCrawlDeadline,
+    needsEditor:(fp)=>captureContractV6150(fp).needsEditor===true
+  } : undefined;
   // CTI_PROGRESS_BEGIN
   ctiProgressUpdateV1({detail:"Reading item-specific payloads for " + result.fingerprints.length + " discovered items."});
   // CTI_PROGRESS_END
-  result.meta.targetedProbe = await targetedItemPayloadProbes(result.fingerprints, knownResponses, id);
+  result.meta.targetedProbe = await targetedItemPayloadProbes(result.fingerprints, knownResponses, id, backgroundProbeOptions);
   // CTI_PROGRESS_BEGIN
   ctiProgressUpdateV1({detail:"Checking additional content evidence."});
   // CTI_PROGRESS_END
-  result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints);
+  result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints, backgroundProbeOptions);
   // v6.11 pre-hydrates/expands the authoring outline before exhaustive per-item traversal.
   // This is read-only and specifically addresses virtualized/collapsed outlines
   // where later assignment/rubric rows never entered the DOM in v6.8.
   // CTI_PROGRESS_BEGIN
   ctiProgressUpdateV1({detail:"Expanding the course outline before editor visits."});
   // CTI_PROGRESS_END
-  result.meta.outlineHydration = await hydrateOutlineSurfaceForCrawl();
+  result.meta.outlineHydration = await hydrateOutlineSurfaceForCrawl(
+    backgroundChunkMode ? {deadline:preCrawlDeadline} : undefined
+  );
+  result.meta.preCrawlChunkBudgetExhausted=backgroundChunkMode && Date.now()>=preCrawlDeadline;
   console.log("CTI exhaustive crawl: adaptive primary budget up to " + (ACTIVE_CRAWL_MAX_TOTAL_MS / 60000) + " minutes; bounded recovery visits untouched items first.");
   const primaryStartedAt=Date.now();
   const checkpointWriter=ctiCheckpointManager ? ((fp,diag,pass)=>ctiCheckpointManager.save(fp,diag,pass)) : null;
