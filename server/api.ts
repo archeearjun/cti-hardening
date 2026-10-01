@@ -183,7 +183,7 @@ export async function handleAuthorized(
       redirect: "manual",
     };
     if (method !== "GET" && method !== "HEAD")
-      init.body = await boundedBody(request, 256 * 1024);
+      init.body = (await boundedBody(request, 256 * 1024)) as unknown as BodyInit;
     return extractor.fetch(new Request(target, init));
   }
   if (p[0] === "session" && method === "GET") return response(user);
