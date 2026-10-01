@@ -1,4 +1,8 @@
-import { validateRecord } from "../src/domain/workspace-validation.ts";
+import {
+  validateRecordSummary,
+} from "../src/domain/workspace-validation.ts";
+import { sha256 as incrementalSha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
 interface Statement {
@@ -270,7 +274,7 @@ export async function handleAuthorized(
     );
     const r = input.record as WorkspaceRecord;
     try {
-      validateRecord(r, false);
+      validateRecordSummary(r);
     } catch (error) {
       fail(error instanceof Error ? error.message : "Invalid record.");
     }
@@ -355,6 +359,26 @@ export async function handleAuthorized(
         .first();
       if (counts.count !== u.parts || counts.bytes !== u.bytes)
         fail("Upload is incomplete. Nothing has been saved.", 409);
+      const hasher = incrementalSha256.create();
+      for (let part = 0; part < u.parts; part++) {
+        const chunk = await db
+          .prepare(
+            "SELECT value,bytes FROM chunks WHERE upload_id=? AND part=?",
+          )
+          .bind(u.id, part)
+          .first();
+        if (!chunk)
+          fail("Upload is incomplete. Nothing has been saved.", 409);
+        const bytes = new Uint8Array(chunk.value);
+        if (bytes.length !== chunk.bytes)
+          fail("Stored evidence chunk length is inconsistent.", 409);
+        hasher.update(bytes);
+      }
+      if (bytesToHex(hasher.digest()) !== u.sha256)
+        fail(
+          "Upload checksum differs from its manifest. Nothing has been saved.",
+          409,
+        );
       const r = JSON.parse(u.metadata);
       let q: Statement;
       if (u.expected_version === 0)
