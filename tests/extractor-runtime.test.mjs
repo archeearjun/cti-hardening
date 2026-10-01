@@ -98,7 +98,7 @@ function pluginWaitFixture({readyAt=8000, blocked=false, deadline=60000, routeCh
     frames:[{src:'https://external.test/resource',access:blocked?'CROSS_ORIGIN_UNREADABLE':'READABLE',readyState:now>=readyAt?'complete':'loading',
       surfaceStatus:blocked?'NOT_OBSERVED':now>=readyAt?'CONTENT_OBSERVED':'LOADING',textLength:now>=readyAt?300:0,textPreview:now>=readyAt?'Loaded content':'Loading...'}]});
   const c={Date:class extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}},
-    Set,Math,Number,String,JSON,location:{href:route},
+    Set,Math,Number,String,JSON,CTI_PLUGIN_PRIMARY_MAX_MS:45000,CTI_PLUGIN_RETRY_MAX_MS:60000,location:{href:route},
     typedEditorRouteTypeV61316:()=> 'plugin',typedEditorRouteV61316:()=>route,
     typedEditorNameFieldsV61317:()=>[],safelyRestoreRoute:()=>true,
     authoringItemRouteV61311:()=>({courseId:'branch',itemId:now>=routeChangeAt?'different':'item',typeName:'plugin'}),
@@ -133,7 +133,7 @@ test('cross-origin frames retain their target and an explicit unreadable status 
 });
 test('a permanently loading plugin retains partial evidence at a bounded timeout',async()=>{
   const f=pluginWaitFixture({readyAt:Infinity}),r=await f.run();
-  assert.equal(f.now(),20000);assert(r.captured);
+  assert.equal(f.now(),45000);assert(r.captured);
   assert.equal(r.reason,'PLUGIN_WAIT_LIMIT_REACHED');
   assert.equal(r.pluginWait.pending,true);assert.equal(r.pluginWait.status,'FRAME_STILL_LOADING');
   assert.equal(r.evidence.pluginEvidence.targets.length,1);
@@ -176,7 +176,7 @@ test('generic plugin fallback measures its grace from surface appearance; ordina
       location:{pathname:'/editor',search:''},isHeavyHydrationFingerprint:()=>false,
       EVIDENCE_STABILITY_MAX_MS:8000,EVIDENCE_STABILITY_HEAVY_MAX_MS:10000,
       EVIDENCE_STABILITY_MIN_MS:1600,EVIDENCE_STABILITY_HEAVY_MIN_MS:2600,
-      EVIDENCE_STABILITY_EMPTY_HEAVY_MIN_MS:4600,EVIDENCE_STABILITY_REQUIRED_SAMPLES:3,EVIDENCE_STABILITY_SAMPLE_MS:400,
+      EVIDENCE_STABILITY_EMPTY_HEAVY_MIN_MS:4600,EVIDENCE_STABILITY_REQUIRED_SAMPLES:3,EVIDENCE_STABILITY_SAMPLE_MS:400,CTI_PLUGIN_PRIMARY_MAX_MS:45000,CTI_PLUGIN_RETRY_MAX_MS:60000,
       isVisibleElement:()=>true,findCurrentEditorSurface:()=>now>=4000?surface:null,
       quickRootEvidenceSnapshot:()=>({links:1,loading:false,signature:'stable'}),
       quickNetworkEvidenceSnapshot:()=>({links:1,signature:'stable'}),

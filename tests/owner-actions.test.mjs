@@ -14,7 +14,7 @@ import {
   validateItemCheck,
   evaluateItemEvidence,
 } from "../src/domain/item-check.ts";
-import { getExtractor } from "../src/domain/capture-review.ts";
+import { ctiExtractorDelivery_ } from "../src/engine/extractor-delivery.js";
 import { recordSummary, newRecord } from "../src/domain/workspace-store.ts";
 import { validateRecord } from "../src/domain/workspace-validation.ts";
 import { comparisonFixture } from "./workflow-fixtures.mjs";
@@ -219,7 +219,7 @@ test("reject wrong report, course, item, expected finding and diagnostic format"
   );
 });
 test("item script reuses canonical parsers with one fresh target and cannot be used as a course audit", () => {
-  const script = buildItemCheckScript(getExtractor("coursera"), spec);
+  const script = buildItemCheckScript(ctiExtractorDelivery_("coursera"), spec);
   new vm.Script(script);
   assert(
     script.includes(
@@ -237,14 +237,14 @@ test("item script reuses canonical parsers with one fresh target and cannot be u
   assert.throws(
     () =>
       buildItemCheckScript(
-        { ...getExtractor("coursera"), version: "future" },
+        { ...ctiExtractorDelivery_("coursera"), version: "future" },
         spec,
       ),
     /compatible/,
   );
 });
 test("item script rejects another item before touching the page or starting extraction", async () => {
-  const script = buildItemCheckScript(getExtractor("coursera"), spec);
+  const script = buildItemCheckScript(ctiExtractorDelivery_("coursera"), spec);
   const c = { URL, location: { href: url.replace("itemA", "other") } };
   await assert.rejects(vm.runInNewContext(script, c), /exact Coursera item/);
 });

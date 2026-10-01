@@ -5,7 +5,8 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { createEngine } from "../src/engine/index.js";
 import { createBrowserServices } from "../src/adapters/browser-services.ts";
-import { getExtractor, reviewCapture } from "../src/domain/capture-review.ts";
+import { reviewCapture } from "../src/domain/capture-review.ts";
+import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 
 const require = createRequire(import.meta.url),
   original = require("../tools/legacy-reference.cjs");
@@ -110,12 +111,24 @@ test("unsupported Google services fail explicitly instead of fabricating shared 
 
 for (const platform of ["coursera", "brightspace"])
   test(`${platform} delivery retains the accepted extractor identity`, () => {
-    const actual = getExtractor(platform),
-      expected = original.ctiExtractorDelivery_(platform);
+    const actual = engine.ctiExtractorDelivery_(platform);
     assert.ok(actual.script.length > 40000);
-    assert.equal(actual.buildId, expected.buildId);
-    assert.equal(actual.version, expected.version);
-    assert.equal(actual.schemaVersion, expected.schemaVersion);
+    if (platform === "coursera") {
+      const expected = CTI_RELEASE_REGISTRY_.courseraExtractor;
+      assert.equal(actual.buildId, expected.build);
+      assert.equal(actual.version, expected.version);
+      assert.equal(actual.schemaVersion, expected.schema);
+      assert.notEqual(
+        actual.buildId,
+        original.ctiExtractorDelivery_("coursera").buildId,
+        "The reviewed v6.15.4 release intentionally differs from the frozen v6.14.7 reference.",
+      );
+    } else {
+      const expected = original.ctiExtractorDelivery_(platform);
+      assert.equal(actual.buildId, expected.buildId);
+      assert.equal(actual.version, expected.version);
+      assert.equal(actual.schemaVersion, expected.schemaVersion);
+    }
   });
 
 test("normalization and readiness match GAS with identical capture inputs", () => {

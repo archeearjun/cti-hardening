@@ -1,4 +1,6 @@
 import { genericAssessmentTextHeuristicNotApplicableV6146 } from "./assessments-5.js";
+import { captureContractSummaryV6150, captureContractV6150 } from "./completion.js";
+import { CTI_MAX_ITEM_ATTEMPTS } from "./config.js";
 import { diagnosticNavigated } from "./navigation-2.js";
 import { diagnosticQualityScore } from "./text-and-dom-5.js";
 
@@ -82,179 +84,171 @@ export function retrySeverity(reasons) {
   }
 
 export function buildRetryPlan(primaryMeta, fingerprints) {
-    const byId = new Map((fingerprints || []).map(fp => [String(fp.id || ""), fp]));
-    primaryMeta.retryDeferredEvidence=[];
-    primaryMeta.assessmentTextHeuristicSkipped=(primaryMeta.targetDiagnostics || []).filter(d=>
-      Number(d.textCompleteness)>0 && Number(d.textCompleteness)<0.75 &&
-      genericAssessmentTextHeuristicNotApplicableV6146(d)).map(d=>({id:String(d.id),reason:'GENERIC_TEXT_HEURISTIC_NOT_APPLICABLE',evidence:d.assessmentTextReceipt}));
-    const attempted = new Set((primaryMeta && primaryMeta.targetDiagnostics || []).map(d => String(d.id || "")));
-    // Use the explicit primary queue, not all fingerprints: excluded/already
-    // complete items must not be mistaken for budget leftovers.
-    const unvisited = [...new Set(primaryMeta && primaryMeta.targetIds || [])]
-      .filter(id => !attempted.has(id) && byId.has(id))
-      .map(id => ({id, name:String(byId.get(id).name || ""), reasons:["not-attempted"], severity:110}));
-    const weak = (primaryMeta && primaryMeta.targetDiagnostics || [])
-      .map(d => {
-        let reasons = retryReasonsForDiagnostic(d);
-        const fp = byId.get(String(d.id || ""));
-        const p = fp && fp.payload || {};
-        const decision=retryDecisionV61318(d,p,reasons);
-        reasons=decision.retryReasons;
-        if(decision.deferredReasons.length)primaryMeta.retryDeferredEvidence.push({id:String(d.id),
-          reasons:decision.deferredReasons,status:decision.status,action:decision.action});
-        const concreteAsset = (p.assetDetails || []).some(a => Boolean(
-          String(a && a.url || "") || String(a && a.sha256 || "") ||
-          String(a && a.assetId || "") || Number(a && a.size || 0) > 0
-        ));
-        const strongAsset = concreteAsset && Number(p.assetEvidenceConfidence || 0) >= 0.90;
-        const strongLink = (p.links || []).length > 0 && Number(p.linkEvidenceConfidence || 0) >= 0.90;
-        const strongText = String(p.textConfidence || "").toLowerCase() === "high" &&
-          Number(p.textEvidenceCompleteness || 0) >= 0.85;
-
-        // A timeout is not itself a failure if the item already yielded strong
-        // payload. Retry only when the timeout/incomplete capture left an
-        // evidence gap that another pass can plausibly repair.
-        if (strongAsset || strongLink || strongText) {
-          reasons = reasons.filter(r => r !== "timeout");
-        }
-        if (strongAsset || strongLink) {
-          reasons = reasons.filter(r => r !== "incomplete-text");
-        }
-        if ((strongAsset || strongLink || strongText) && reasons.length === 1 && reasons[0] === "no-upgrade") {
-          reasons = [];
-        }
-        return { id:String(d.id || ""), name:String(d.name || ""), reasons, severity:retrySeverity(reasons) };
-      })
-      .filter(x => x.id && x.reasons.length);
-    const candidates=unvisited.concat(weak).sort((a,b)=>b.severity-a.severity);
-    primaryMeta.retryCandidateIds=candidates.map(x=>x.id);
-    primaryMeta.retryCandidatesNotScheduled=0;
-    return candidates;
+  const contractFn=typeof captureContractV6150==='function'?captureContractV6150:(fp)=>({
+    complete:false,retryable:true,attempts:Number(fp && fp.payload && fp.payload.captureAttempts || 0),reasons:[]
+  });
+  const contractSummaryFn=typeof captureContractSummaryV6150==='function'?captureContractSummaryV6150:(fp)=>({
+    itemId:String(fp && fp.id || ''),status:'LEGACY_TEST_FALLBACK',complete:false,retryable:true,
+    attempts:Number(fp && fp.payload && fp.payload.captureAttempts || 0),reasons:[]
+  });
+  const maxAttempts=typeof CTI_MAX_ITEM_ATTEMPTS==='number'?CTI_MAX_ITEM_ATTEMPTS:2;
+  const byId=new Map((fingerprints || []).map(fp=>[String(fp.id || ''),fp]));
+  const diagById=new Map((primaryMeta && primaryMeta.targetDiagnostics || []).map(d=>[String(d.id || ''),d]));
+  const queueIds=[...new Set(primaryMeta && primaryMeta.targetIds || [])];
+  primaryMeta.retryDeferredEvidence=[];
+  primaryMeta.assessmentTextHeuristicSkipped=(primaryMeta.targetDiagnostics || []).filter(d=>
+    Number(d.textCompleteness)>0 && Number(d.textCompleteness)<0.75 &&
+    genericAssessmentTextHeuristicNotApplicableV6146(d)).map(d=>({id:String(d.id),reason:'GENERIC_TEXT_HEURISTIC_NOT_APPLICABLE',evidence:d.assessmentTextReceipt}));
+  const candidates=[];
+  for(const id of queueIds){
+    const fp=byId.get(id);if(!fp)continue;
+    const contract=contractFn(fp);
+    const d=diagById.get(id);
+    let reasons=d?retryReasonsForDiagnostic(d):['not-attempted'];
+    const visitHadGap=reasons.length>0;
+    if(contract.complete && !visitHadGap)continue;
+    if(!contract.complete && (!contract.retryable || contract.attempts>=maxAttempts))continue;
+    const decision=d?retryDecisionV61318(d,fp.payload || {},reasons):{retryReasons:reasons,deferredReasons:[],status:'',action:''};
+    reasons=decision.retryReasons || [];
+    if(decision.deferredReasons && decision.deferredReasons.length)primaryMeta.retryDeferredEvidence.push({id,
+      reasons:decision.deferredReasons,status:decision.status,action:decision.action});
+    if(!contract.complete)for(const reason of contract.reasons || [])if(!reasons.includes(reason))reasons.push(reason);
+    if(!reasons.length && !contract.complete)reasons.push('CAPTURE_CONTRACT_INCOMPLETE');
+    if(!reasons.length)continue;
+    candidates.push({id,name:String(fp.name || ''),reasons,severity:d?Math.max(65,retrySeverity(reasons)):110,contract:contractSummaryFn(fp)});
   }
+  candidates.sort((a,b)=>b.severity-a.severity);
+  primaryMeta.retryCandidateIds=candidates.map(x=>x.id);
+  primaryMeta.retryCandidatesNotScheduled=0;
+  return candidates;
+}
+export function attachRetryResults(primaryMeta, retryMeta, plan, fingerprints) {
+  const contractFn=typeof captureContractV6150==='function'?captureContractV6150:null;
+  primaryMeta.retryTargets = (plan || []).length;
+  primaryMeta.retryDeferredCount=(primaryMeta.retryDeferredEvidence || []).length;
+  primaryMeta.retryAttempts = retryMeta ? (retryMeta.targetDiagnostics || []).length : 0;
+  primaryMeta.retryImproved = 0;
+  primaryMeta.retryResolved = 0;
+  primaryMeta.retryRemainingWeak = 0;
+  primaryMeta.retryDiagnostics = [];
 
-export function attachRetryResults(primaryMeta, retryMeta, plan) {
-    primaryMeta.retryTargets = (plan || []).length;
-    primaryMeta.retryDeferredCount=(primaryMeta.retryDeferredEvidence || []).length;
-    primaryMeta.retryAttempts = retryMeta ? (retryMeta.targetDiagnostics || []).length : 0;
-    primaryMeta.retryImproved = 0;
-    primaryMeta.retryResolved = 0;
-    primaryMeta.retryRemainingWeak = 0;
-    primaryMeta.retryDiagnostics = [];
+  const primaryById = new Map((primaryMeta.targetDiagnostics || []).map(d => [String(d.id || ""), d]));
+  const retryById = new Map((retryMeta && retryMeta.targetDiagnostics || []).map(d => [String(d.id || ""), d]));
+  const planById = new Map((plan || []).map(p => [String(p.id || ""), p]));
+  const fingerprintById = new Map((fingerprints || []).map(fp => [String(fp.id || ""), fp]));
 
-    const primaryById = new Map((primaryMeta.targetDiagnostics || []).map(d => [String(d.id || ""), d]));
-    const retryById = new Map((retryMeta && retryMeta.targetDiagnostics || []).map(d => [String(d.id || ""), d]));
-    const planById = new Map((plan || []).map(p => [String(p.id || ""), p]));
+  for (const p of plan || []) {
+    const before = primaryById.get(String(p.id || ""));
+    const after = retryById.get(String(p.id || ""));
+    const beforeQuality = diagnosticQualityScore(before);
+    const afterQuality = diagnosticQualityScore(after);
+    const fp=fingerprintById.get(String(p.id || ""));
+    const contract=fp&&contractFn?contractFn(fp):null;
+    const afterReasons = contract && contract.complete ? [] : [...new Set([...(after?retryReasonsForDiagnostic(after):["retry-not-attempted"]),...((contract && contract.reasons) || [])])];
+    const improved = Boolean(after && afterQuality > beforeQuality);
+    const resolved = contract ? Boolean(contract.complete) : Boolean(after && retryReasonsForDiagnostic(after).length===0);
+    if (improved) primaryMeta.retryImproved++;
+    if (resolved) primaryMeta.retryResolved++;
+    if (!resolved) primaryMeta.retryRemainingWeak++;
 
-    for (const p of plan || []) {
-      const before = primaryById.get(String(p.id || ""));
-      const after = retryById.get(String(p.id || ""));
-      const beforeQuality = diagnosticQualityScore(before);
-      const afterQuality = diagnosticQualityScore(after);
-      const afterReasons = retryReasonsForDiagnostic(after);
-      const improved = Boolean(after && afterQuality > beforeQuality);
-      const resolved = Boolean(after && afterReasons.length === 0);
-      if (improved) primaryMeta.retryImproved++;
-      if (resolved) primaryMeta.retryResolved++;
-      if (!resolved) primaryMeta.retryRemainingWeak++;
-
-      if (before) {
-        before.retryAttempted = Boolean(after);
-        before.retryReason = (planById.get(String(p.id || "")) || {}).reasons || [];
-        before.retryImproved = improved;
-        before.retryResolved = resolved;
-        before.retryResult = after ? {
-          found:Boolean(after.found),
-          navigated:diagnosticNavigated(after),
-          surface:Boolean(after.editorSurfaceCaptured),
-          upgraded:Boolean(after.upgraded),
-          textCompleteness:Number(after.textCompleteness || 0),
-          stabilityTimedOut:Boolean(after.stabilityTimedOut),
-          stabilityMs:Number(after.stabilityMs || 0),
-          sessionPayloadFiles:Number(after.sessionPayloadFiles || 0),
-          sessionPayloadLinks:Number(after.sessionPayloadLinks || 0),
-          launchUrlsFound:Number(after.launchUrlsFound || 0)
-        } : null;
-      }
-
-      primaryMeta.retryDiagnostics.push({
-        id:String(p.id || ""),
-        name:String(p.name || ""),
-        reasons:p.reasons,
-        beforeQuality,
-        afterQuality,
-        improved,
-        resolved,
-        remainingReasons:afterReasons,
-        result: after ? {
-          found:Boolean(after.found),
-          navigated:diagnosticNavigated(after),
-          surface:Boolean(after.editorSurfaceCaptured),
-          upgraded:Boolean(after.upgraded),
-          textCompleteness:Number(after.textCompleteness || 0),
-          stabilityTimedOut:Boolean(after.stabilityTimedOut),
-          stabilityMs:Number(after.stabilityMs || 0),
-          sessionPayloadFiles:Number(after.sessionPayloadFiles || 0),
-          sessionPayloadLinks:Number(after.sessionPayloadLinks || 0),
-          launchUrlsFound:Number(after.launchUrlsFound || 0)
-        } : null
-      });
+    if (before) {
+      before.retryAttempted = Boolean(after);
+      before.retryReason = (planById.get(String(p.id || "")) || {}).reasons || [];
+      before.retryImproved = improved;
+      before.retryResolved = resolved;
+      before.retryResult = after ? {
+        found:Boolean(after.found),
+        navigated:diagnosticNavigated(after),
+        surface:Boolean(after.editorSurfaceCaptured),
+        upgraded:Boolean(after.upgraded),
+        textCompleteness:Number(after.textCompleteness || 0),
+        stabilityTimedOut:Boolean(after.stabilityTimedOut),
+        stabilityMs:Number(after.stabilityMs || 0),
+        sessionPayloadFiles:Number(after.sessionPayloadFiles || 0),
+        sessionPayloadLinks:Number(after.sessionPayloadLinks || 0),
+        launchUrlsFound:Number(after.launchUrlsFound || 0)
+      } : null;
     }
 
-    // Effective coverage is target-based rather than pass-based: a successful retry
-    // can recover a weak primary attempt without double-counting visits.
-    let effectiveDiscovered = 0, effectiveNavigated = 0, effectiveUpgraded = 0;
-    const effectiveIds = new Set([...primaryById.keys(), ...retryById.keys()]);
-    for (const targetId of effectiveIds) {
-      const d = primaryById.get(targetId) || {};
-      const rd = retryById.get(targetId);
-      if (d.found || (rd && rd.found)) effectiveDiscovered++;
-      if (diagnosticNavigated(d) || diagnosticNavigated(rd)) effectiveNavigated++;
-      if (d.upgraded || (rd && rd.upgraded)) effectiveUpgraded++;
-    }
-    primaryMeta.effectiveDiscoveredTargets = effectiveDiscovered;
-    primaryMeta.effectiveNavigated = effectiveNavigated;
-    primaryMeta.effectiveEvidenceUpgrades = effectiveUpgraded;
-    if (Array.isArray(primaryMeta.targetIds)) {
-      primaryMeta.primaryCompletedTargets = Number(primaryMeta.completedTargets || 0);
-      primaryMeta.primaryUnvisitedDueToBudget = Number(primaryMeta.unvisitedDueToBudget || 0);
-      const queueIds = [...new Set(primaryMeta.targetIds)];
-      primaryMeta.recoveryFirstVisits = queueIds.filter(id => !primaryById.has(id) && retryById.has(id)).length;
-      primaryMeta.unvisitedTargetIds = queueIds.filter(id => !effectiveIds.has(id));
-      primaryMeta.unvisitedDueToBudget = primaryMeta.unvisitedTargetIds.length;
-      primaryMeta.completedTargets = queueIds.filter(id => (primaryById.get(id) || {}).completed || (retryById.get(id) || {}).completed).length;
-      primaryMeta.allTargetsAttempted = primaryMeta.unvisitedTargetIds.length===0 && primaryMeta.coverageLimitedByCap!==true;
-      primaryMeta.unreachedEditorIds = queueIds.filter(id => {
-        const d=primaryById.get(id), r=retryById.get(id);
-        return !(d&&(d.domCaptured||d.editorSurfaceCaptured)) && !(r&&(r.domCaptured||r.editorSurfaceCaptured));
-      });
-      primaryMeta.visitedEditorCount = queueIds.length-primaryMeta.unreachedEditorIds.length;
-      primaryMeta.allEditorsVisited = primaryMeta.unreachedEditorIds.length===0 && primaryMeta.coverageLimitedByCap!==true;
-      primaryMeta.coverageMeaning = 'allTargetsAttempted means searched for; allEditorsVisited requires an observed item editor. Neither verifies all payload.';
-    }
-    primaryMeta.retryPassStats = retryMeta ? {
-      targets:Number(retryMeta.targets || 0),
-      discoveredTargets:Number(retryMeta.discoveredTargets || 0),
-      navigated:Number(retryMeta.navigated || 0),
-      evidenceUpgrades:Number(retryMeta.evidenceUpgrades || 0),
-      stabilityTimeouts:Number(retryMeta.stabilityTimeouts || 0),
-      sessionAssociatedResponses:Number(retryMeta.sessionAssociatedResponses || 0),
-      sessionPayloadFiles:Number(retryMeta.sessionPayloadFiles || 0),
-      sessionPayloadLinks:Number(retryMeta.sessionPayloadLinks || 0)
-    } : null;
-
-    primaryMeta.unresolvedRetryIds=(primaryMeta.retryCandidateIds || []).filter(id=>{
-      const d=retryById.get(id);return !d || retryReasonsForDiagnostic(d).length>0;
+    primaryMeta.retryDiagnostics.push({
+      id:String(p.id || ""),
+      name:String(p.name || ""),
+      reasons:p.reasons,
+      beforeQuality,
+      afterQuality,
+      improved,
+      resolved,
+      remainingReasons:afterReasons,
+      result: after ? {
+        found:Boolean(after.found),
+        navigated:diagnosticNavigated(after),
+        surface:Boolean(after.editorSurfaceCaptured),
+        upgraded:Boolean(after.upgraded),
+        textCompleteness:Number(after.textCompleteness || 0),
+        stabilityTimedOut:Boolean(after.stabilityTimedOut),
+        stabilityMs:Number(after.stabilityMs || 0),
+        sessionPayloadFiles:Number(after.sessionPayloadFiles || 0),
+        sessionPayloadLinks:Number(after.sessionPayloadLinks || 0),
+        launchUrlsFound:Number(after.launchUrlsFound || 0)
+      } : null
     });
-    primaryMeta.unresolvedEvidenceCount=new Set([...(primaryMeta.unresolvedRetryIds || []),
-      ...(primaryMeta.retryDeferredEvidence || []).map(x=>x.id)]).size;
-    primaryMeta.runHealthMeaning='Editor traversal and unresolved retry/review evidence only; not a course-content or publication verdict.';
-    const fullTraversal = Number(primaryMeta.effectiveDiscoveredTargets || 0) === Number(primaryMeta.targets || 0) &&
-      Number(primaryMeta.effectiveNavigated || 0) === Number(primaryMeta.targets || 0) &&
-      Number(primaryMeta.routeFailures || 0) === 0 &&
-      primaryMeta.allTargetsAttempted === true && primaryMeta.coverageLimitedByCap !== true;
-    primaryMeta.deepCoverageCompleteness = Number(primaryMeta.eligibleTargets || 0) ?
-      Number((Math.min(Number(primaryMeta.effectiveNavigated || 0), Number(primaryMeta.eligibleTargets || 0)) / Number(primaryMeta.eligibleTargets || 1)).toFixed(3)) : 1;
-    primaryMeta.runHealthGrade = fullTraversal && Number(primaryMeta.retryRemainingWeak || 0) === 0 && Number(primaryMeta.retryDeferredCount || 0) === 0 && Number(primaryMeta.unresolvedEvidenceCount || 0) === 0 ? "A" :
-      (fullTraversal ? "B" : (Number(primaryMeta.deepCoverageCompleteness || 0) >= 0.90 ? "B" : (Number(primaryMeta.deepCoverageCompleteness || 0) >= 0.70 ? "C" : "D")));
-    return primaryMeta;
   }
+
+  let effectiveDiscovered = 0, effectiveNavigated = 0, effectiveUpgraded = 0;
+  const effectiveIds = new Set([...primaryById.keys(), ...retryById.keys()]);
+  for (const targetId of effectiveIds) {
+    const d = primaryById.get(targetId) || {};
+    const rd = retryById.get(targetId);
+    if (d.found || (rd && rd.found)) effectiveDiscovered++;
+    if (diagnosticNavigated(d) || diagnosticNavigated(rd)) effectiveNavigated++;
+    if (d.upgraded || (rd && rd.upgraded)) effectiveUpgraded++;
+  }
+  primaryMeta.effectiveDiscoveredTargets = effectiveDiscovered;
+  primaryMeta.effectiveNavigated = effectiveNavigated;
+  primaryMeta.effectiveEvidenceUpgrades = effectiveUpgraded;
+  if (Array.isArray(primaryMeta.targetIds)) {
+    primaryMeta.primaryCompletedTargets = Number(primaryMeta.completedTargets || 0);
+    primaryMeta.primaryUnvisitedDueToBudget = Number(primaryMeta.unvisitedDueToBudget || 0);
+    const queueIds = [...new Set(primaryMeta.targetIds)];
+    primaryMeta.recoveryFirstVisits = queueIds.filter(id => !primaryById.has(id) && retryById.has(id)).length;
+    primaryMeta.unvisitedTargetIds = queueIds.filter(id => !effectiveIds.has(id));
+    primaryMeta.unvisitedDueToBudget = primaryMeta.unvisitedTargetIds.length;
+    primaryMeta.completedTargets = queueIds.filter(id => (primaryById.get(id) || {}).completed || (retryById.get(id) || {}).completed).length;
+    primaryMeta.allTargetsAttempted = primaryMeta.unvisitedTargetIds.length===0 && primaryMeta.coverageLimitedByCap!==true;
+    primaryMeta.unreachedEditorIds = queueIds.filter(id => {
+      const d=primaryById.get(id), r=retryById.get(id);
+      return !(d&&(d.domCaptured||d.editorSurfaceCaptured)) && !(r&&(r.domCaptured||r.editorSurfaceCaptured));
+    });
+    primaryMeta.visitedEditorCount = queueIds.length-primaryMeta.unreachedEditorIds.length;
+    primaryMeta.allEditorsVisited = primaryMeta.unreachedEditorIds.length===0 && primaryMeta.coverageLimitedByCap!==true;
+    primaryMeta.coverageMeaning = 'allTargetsAttempted means searched for; allEditorsVisited requires an observed item editor. Neither verifies all payload.';
+  }
+  primaryMeta.retryPassStats = retryMeta ? {
+    targets:Number(retryMeta.targets || 0),
+    discoveredTargets:Number(retryMeta.discoveredTargets || 0),
+    navigated:Number(retryMeta.navigated || 0),
+    evidenceUpgrades:Number(retryMeta.evidenceUpgrades || 0),
+    stabilityTimeouts:Number(retryMeta.stabilityTimeouts || 0),
+    sessionAssociatedResponses:Number(retryMeta.sessionAssociatedResponses || 0),
+    sessionPayloadFiles:Number(retryMeta.sessionPayloadFiles || 0),
+    sessionPayloadLinks:Number(retryMeta.sessionPayloadLinks || 0)
+  } : null;
+
+  primaryMeta.unresolvedRetryIds=(primaryMeta.retryCandidateIds || []).filter(id=>{
+    const fp=fingerprintById.get(id);
+    if(fp && contractFn)return contractFn(fp).complete!==true;
+    const d=retryById.get(id);return !d || retryReasonsForDiagnostic(d).length>0;
+  });
+  primaryMeta.unresolvedEvidenceCount=new Set([...(primaryMeta.unresolvedRetryIds || []),
+    ...(primaryMeta.retryDeferredEvidence || []).map(x=>x.id)]).size;
+  primaryMeta.runHealthMeaning='Editor traversal and unresolved retry/review evidence only; not a course-content or publication verdict.';
+  const fullTraversal = Number(primaryMeta.effectiveDiscoveredTargets || 0) === Number(primaryMeta.targets || 0) &&
+    Number(primaryMeta.effectiveNavigated || 0) === Number(primaryMeta.targets || 0) &&
+    Number(primaryMeta.routeFailures || 0) === 0 &&
+    primaryMeta.allTargetsAttempted === true && primaryMeta.coverageLimitedByCap !== true;
+  primaryMeta.deepCoverageCompleteness = Number(primaryMeta.eligibleTargets || 0) ?
+    Number((Math.min(Number(primaryMeta.effectiveNavigated || 0), Number(primaryMeta.eligibleTargets || 0)) / Number(primaryMeta.eligibleTargets || 1)).toFixed(3)) : 1;
+  primaryMeta.runHealthGrade = fullTraversal && Number(primaryMeta.retryRemainingWeak || 0) === 0 && Number(primaryMeta.retryDeferredCount || 0) === 0 && Number(primaryMeta.unresolvedEvidenceCount || 0) === 0 ? "A" :
+    (fullTraversal ? "B" : (Number(primaryMeta.deepCoverageCompleteness || 0) >= 0.90 ? "B" : (Number(primaryMeta.deepCoverageCompleteness || 0) >= 0.70 ? "C" : "D")));
+  return primaryMeta;
+}

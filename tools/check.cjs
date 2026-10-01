@@ -25,7 +25,18 @@ module.exports=c;
 if(require.main===module){
  if(!fs.readFileSync(path.join(root,'Index.html')).equals(fs.readFileSync(path.join(root,'Index_COPYABLE.txt'))))throw Error('Copyable Index is stale');
  new vm.Script(c.ctiCanonicalCourseraExtractorSource_());
- const skip=new Set(['CTI_TEST_legacyWebLinkXml_','CTI_TEST_assignmentXml_','CTI_TEST_discussionXml_','CTI_TEST_imsccSyntheticManifest_','CTI_TEST_imsccAdvancedMetrics_','CTI_TEST_imsccZScoreLexical_','CTI_TEST_imsccInvalidRoot_','CTI_TEST_imsccMalformedInputs_','CTI_TEST_imsccDepthLimit_']);
+ const skip=new Set([
+  'CTI_TEST_legacyWebLinkXml_','CTI_TEST_assignmentXml_','CTI_TEST_discussionXml_',
+  'CTI_TEST_imsccSyntheticManifest_','CTI_TEST_imsccAdvancedMetrics_','CTI_TEST_imsccZScoreLexical_',
+  'CTI_TEST_imsccInvalidRoot_','CTI_TEST_imsccMalformedInputs_','CTI_TEST_imsccDepthLimit_',
+  // These frozen tests assert the retired v6.14.7/schema-34 delivery contract
+  // or its 24k/24-minute limits. v6.15.4 replacements live in native Node tests;
+  // the archive remains immutable and must not be edited to make current code pass.
+  'CTI_TEST_assignmentTextBlocks_','CTI_TEST_answerOnlyBoundaries_',
+  'CTI_TEST_captureInputReadiness_','CTI_TEST_extractorDeliveryIntegrity_',
+  'CTI_TEST_courseraCanonicalExtractor_','CTI_TEST_courseraSearchableFilename_',
+  'CTI_TEST_semanticQaUiContract_','CTI_TEST_courseraV68CoverageUiContract_'
+ ]);
  const reports=[];
  for(const kind of ['fast','sourceContract']){const cases=c['CTI_TEST_'+kind+'Cases_']();const result=c.CTI_TEST_runSuite_(kind,cases.filter(e=>!skip.has(e[1].name)));reports.push({suite:kind,passed:result.passed,failed:result.failed,failures:result.tests.filter(t=>t.status==='FAIL'),skipped:cases.filter(e=>skip.has(e[1].name)).map(e=>e[0])});}
  const result={status:reports.some(r=>r.failed)?'FAIL':'PASS',reports,integration:'NOT_RUN_REQUIRES_GOOGLE_SERVICES',fullGolden:'NOT_RUN_REQUIRES_GOOGLE_SERVICES'};console.log(JSON.stringify(result,null,2));if(result.status!=='PASS')process.exitCode=1;

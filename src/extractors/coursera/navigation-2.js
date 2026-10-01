@@ -1,5 +1,5 @@
-import { questionEvidenceReadyV6138 } from "./assessments-2.js";
-import { ACTIVE_CRAWL_BASE_BUDGET_MS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS } from "./config.js";
+import { isAssessmentLikeFingerprintV662, questionEvidenceReadyV6138 } from "./assessments-2.js";
+import { ACTIVE_CRAWL_BASE_BUDGET_MS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_UNKNOWN_ATTEMPT_MS, CTI_DISCUSSION_ATTEMPT_MS, CTI_GENERIC_ATTEMPT_MS, CTI_PLUGIN_PRIMARY_ATTEMPT_MS, CTI_PLUGIN_RETRY_ATTEMPT_MS, CTI_READING_PRIMARY_ATTEMPT_MS, CTI_READING_RETRY_ATTEMPT_MS, CTI_UNTYPED_ATTEMPT_MS } from "./config.js";
 import { evidenceHasUsefulPayload, scoreSurfaceForFingerprint } from "./evidence-2.js";
 import { harvestEvidence, mergeEvidence } from "./evidence.js";
 import { authoringItemRouteV61311, isSafeCourseRoute } from "./navigation.js";
@@ -7,7 +7,7 @@ import { elementAttributeBlob, exactReadingEditorV61311, isCourseWideNetworkResp
 import { editorSurfaceSignalScore, isVisibleElement } from "./text-and-dom-3.js";
 import { isGlobalChromeElement } from "./text-and-dom-4.js";
 import { dismissEditorSurfaceSafely } from "./text-and-dom-5.js";
-import { getJson, normalizeName, unique } from "./text-and-dom.js";
+import { getJson, normalizeName, normalizeType, unique } from "./text-and-dom.js";
 
 export async function waitForRouteChange(oldHref, timeoutMs) {
     const start = Date.now();
@@ -183,58 +183,88 @@ export async function returnToOutlineV6142(startUrl) {
   }
 
 export function recoveryCrawlBudgetV61326(targets) {
-    let questionWork=0;
-    for(const fp of targets || []){
-      const a=fp.payload?.structuredAssessment || {},qs=a.questions || [];
-      const ready=qs.filter(q=>q.courseraQuestionId && q.questionOrdinalObserved && questionEvidenceReadyV6138(q)).length;
-      questionWork+=Math.max(0,Math.max(Number(a.declaredQuestionCount || 0),qs.length)-ready);
-    }
-    return Math.min(1200000,Math.max(activeCrawlBudgetMs((targets || []).length,true),30000+(targets || []).length*16000+questionWork*4500));
+  let questionWork=0;
+  for(const fp of targets || []){
+    const a=fp.payload?.structuredAssessment || {},qs=a.questions || [];
+    const ready=qs.filter(q=>q.courseraQuestionId && q.questionOrdinalObserved && questionEvidenceReadyV6138(q)).length;
+    questionWork+=Math.max(0,Math.max(Number(a.declaredQuestionCount || 0),qs.length)-ready);
   }
+  return Math.min(1200000,Math.max(activeCrawlBudgetMs((targets || []),true),30000+(targets || []).length*16000+questionWork*4500));
+}
 
-export function activeCrawlBudgetMs(targetCount, retryPass) {
-    if (retryPass) return Math.min(4 * 60 * 1000, Math.max(90000, Number(targetCount || 0) * 16000 + 30000));
-    const scaled = ACTIVE_CRAWL_FIXED_OVERHEAD_MS + Math.max(0, Number(targetCount || 0)) * ACTIVE_CRAWL_PER_TARGET_BUDGET_MS;
-    return Math.min(ACTIVE_CRAWL_MAX_TOTAL_MS, Math.max(ACTIVE_CRAWL_BASE_BUDGET_MS, scaled));
+export function itemAttemptBudgetV6153(fp,retryPass) {
+  const normalized=normalizeType((fp && (fp.typeName || fp.type)) || '');
+  const typeName=String(fp && fp.typeName || '').toLowerCase();
+  if(normalized==='Assessment' || normalized==='Assignment' || isAssessmentLikeFingerprintV662(fp)) {
+    const declared=Number(fp && fp.payload && fp.payload.structuredAssessment && fp.payload.structuredAssessment.declaredQuestionCount || 0);
+    if(declared>0) {
+      const assessmentWork=Math.min(CTI_ASSESSMENT_MAX_MS,Math.max(45000,CTI_ASSESSMENT_BASE_MS+declared*CTI_ASSESSMENT_PER_QUESTION_MS));
+      return Math.min(CTI_ASSESSMENT_ATTEMPT_MAX_MS,Math.max(120000,60000+assessmentWork));
+    }
+    return retryPass ? Math.min(CTI_ASSESSMENT_ATTEMPT_MAX_MS,8*60*1000) : CTI_ASSESSMENT_UNKNOWN_ATTEMPT_MS;
   }
+  if(normalized==='Reading' || typeName==='supplement' || typeName==='reading') return retryPass?CTI_READING_RETRY_ATTEMPT_MS:CTI_READING_PRIMARY_ATTEMPT_MS;
+  if(normalized==='Plugin') return retryPass?CTI_PLUGIN_RETRY_ATTEMPT_MS:CTI_PLUGIN_PRIMARY_ATTEMPT_MS;
+  if(normalized==='Discussion') return CTI_DISCUSSION_ATTEMPT_MS;
+  if(normalized==='unknown' && !typeName) return CTI_UNTYPED_ATTEMPT_MS;
+  return retryPass?Math.max(CTI_GENERIC_ATTEMPT_MS,90000):CTI_GENERIC_ATTEMPT_MS;
+}
+
+export function activeCrawlBudgetMs(targetsOrCount, retryPass) {
+  const targets=Array.isArray(targetsOrCount)?targetsOrCount:null;
+  const targetCount=targets?targets.length:Math.max(0,Number(targetsOrCount || 0));
+  if (retryPass) return Math.min(4 * 60 * 1000, Math.max(90000, targetCount * 16000 + 30000));
+  let scaled=ACTIVE_CRAWL_FIXED_OVERHEAD_MS;
+  if(!targets)scaled+=targetCount*ACTIVE_CRAWL_PER_TARGET_BUDGET_MS;
+  else for(const fp of targets){
+    const type=normalizeType((fp && (fp.typeName || fp.type)) || '');
+    const declared=Number(fp?.payload?.structuredAssessment?.declaredQuestionCount || 0);
+    if(type==='Assessment' || type==='Assignment' || isAssessmentLikeFingerprintV662(fp))
+      scaled+=Math.min(CTI_ASSESSMENT_MAX_MS,Math.max(120000,CTI_ASSESSMENT_BASE_MS+Math.max(1,declared)*CTI_ASSESSMENT_PER_QUESTION_MS));
+    else if(type==='Plugin' || type==='Reading')scaled+=60000;
+    else scaled+=ACTIVE_CRAWL_PER_TARGET_BUDGET_MS;
+  }
+  return Math.min(ACTIVE_CRAWL_MAX_TOTAL_MS, Math.max(ACTIVE_CRAWL_BASE_BUDGET_MS, scaled));
+}
 
 export function diagnosticNavigated(d) {
     return Boolean(d && (d.routeChanged || d.domCaptured || d.editorSurfaceCaptured));
   }
 
-export async function targetedItemPayloadProbes(fingerprints, knownResponses, courseOrBranchId) {
-    const resourceUrls = unique(performance.getEntriesByType("resource").map(x => x.name), 800);
-    const probeMeta = { attempted: 0, usable: 0, supplementHits: 0, assetHits: 0, speculativeSupplementProbes: 0 };
+export async function targetedItemPayloadProbes(fingerprints, knownResponses, courseOrBranchId, options) {
+  options=options || {};
+  const deadline=Number.isFinite(Number(options.deadline))?Number(options.deadline):Infinity;
+  const needsEditor=typeof options.needsEditor==="function"?options.needsEditor:()=>true;
+  const resourceUrls = unique(performance.getEntriesByType("resource").map(x => x.name), 800);
+  const probeMeta = { attempted: 0, usable: 0, supplementHits: 0, assetHits: 0, speculativeSupplementProbes: 0 };
 
-    for (const fp of fingerprints || []) {
-      if (!fp.id) continue;
-      const idLower = String(fp.id).toLowerCase();
-      const directUrls = resourceUrls.filter(url => {
-        try {
-          const parsed = new URL(url);
-          if (parsed.origin !== location.origin || !parsed.pathname.includes("/api/")) return false;
-          if (isPerItemNetworkNoise(parsed.href) || isCourseWideNetworkResponse(parsed.href)) return false;
-          return (parsed.pathname + parsed.search).toLowerCase().includes(idLower);
-        } catch (e) { return false; }
-      }).slice(0, 6);
+  for (const fp of fingerprints || []) {
+    if (Date.now()>=deadline) break;
+    if (!fp.id || needsEditor(fp)!==true) continue;
+    const idLower = String(fp.id).toLowerCase();
+    const directUrls = resourceUrls.filter(url => {
+      try {
+        const parsed = new URL(url);
+        if (parsed.origin !== location.origin || !parsed.pathname.includes("/api/")) return false;
+        if (isPerItemNetworkNoise(parsed.href) || isCourseWideNetworkResponse(parsed.href)) return false;
+        return (parsed.pathname + parsed.search).toLowerCase().includes(idLower);
+      } catch (e) { return false; }
+    }).slice(0, 6);
 
-      // Re-fetch only URLs Coursera actually requested for this exact stable item ID.
-      // v4.7 guessed /onDemandSupplements/<branch>~<item>, producing many 400/404s
-      // because supplement IDs are not universally authoring item IDs.
-      for (const url of directUrls) {
-        const response = await getJson(url);
-        probeMeta.attempted++;
-        if (!response.ok || !response.data) continue;
-        probeMeta.usable++;
-        const evidence = harvestEvidence(response.data);
-        if (!evidenceHasUsefulPayload(evidence)) continue;
-        if ((evidence.assetDetails || []).length) evidence.assetEvidenceConfidence = Math.max(Number(evidence.assetEvidenceConfidence || 0), 0.88);
-        if ((evidence.links || []).length) evidence.linkEvidenceConfidence = Math.max(Number(evidence.linkEvidenceConfidence || 0), 0.82);
-        evidence.evidenceSources = ["item-specific-observed-api"];
-        mergeEvidence(fp.payload, evidence, "item-specific-observed-api");
-        fp.evidenceSources = unique([...(fp.evidenceSources || []), "item-specific-observed-api"], 50);
-        if (/onDemandSupplements\.v1/i.test(url)) probeMeta.supplementHits++;
-      }
+    for (const url of directUrls) {
+      const response = await getJson(url);
+      probeMeta.attempted++;
+      if (!response.ok || !response.data) continue;
+      probeMeta.usable++;
+      const evidence = harvestEvidence(response.data);
+      if (!evidenceHasUsefulPayload(evidence)) continue;
+      if ((evidence.assetDetails || []).length) evidence.assetEvidenceConfidence = Math.max(Number(evidence.assetEvidenceConfidence || 0), 0.88);
+      if ((evidence.links || []).length) evidence.linkEvidenceConfidence = Math.max(Number(evidence.linkEvidenceConfidence || 0), 0.82);
+      evidence.evidenceSources = ["item-specific-observed-api"];
+      mergeEvidence(fp.payload, evidence, "item-specific-observed-api");
+      fp.evidenceSources = unique([...(fp.evidenceSources || []), "item-specific-observed-api"], 50);
+      if (/onDemandSupplements\.v1/i.test(url)) probeMeta.supplementHits++;
     }
-    return probeMeta;
   }
+  return probeMeta;
+}

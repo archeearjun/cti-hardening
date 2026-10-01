@@ -72,10 +72,8 @@ const dateLabel = (value: string) =>
     : "Date not recorded";
 export default function FullWorkspace({
   onBusyChange,
-  onOpenExtractors,
 }: {
   onBusyChange?: (busy: boolean) => void;
-  onOpenExtractors?: () => void;
 }) {
   const [store, setStore] = useState<WorkspaceStore | null>(null),
     [records, setRecords] = useState<WorkspaceRecord[]>([]);
@@ -88,6 +86,7 @@ export default function FullWorkspace({
     [seconds, setSeconds] = useState(0),
     [importProgress, setImportProgress] = useState("");
   const [portfolio, setPortfolio] = useState<EvidenceObject | null>(null);
+  const [extractionPrefill, setExtractionPrefill] = useState("");
   useEffect(() => setPortfolio(null), [records]);
   const [reportId, setReportId] = useState("");
   const [report, setReport] = useState<EvidenceObject | null>(null),
@@ -914,6 +913,7 @@ export default function FullWorkspace({
             enabled={store?.mode === "team"}
             editable={editable}
             disabled={!!busy}
+            initialUrl={extractionPrefill}
             onUseCapture={(file) => {
               setCapture(file);
               setTab("Compare");
@@ -938,15 +938,13 @@ export default function FullWorkspace({
             )}
             <div className="section-heading">
               <h3>1. Add destination evidence</h3>
-              {onOpenExtractors && (
-                <button
-                  className="text-button"
-                  disabled={!!busy}
-                  onClick={onOpenExtractors}
-                >
-                  Get extractor scripts →
-                </button>
-              )}
+              <button
+                className="text-button"
+                disabled={!!busy}
+                onClick={() => setTab("Extract")}
+              >
+                Extract Coursera shell →
+              </button>
             </div>
             <fieldset key={courseId} disabled={!course || !!busy || !editable}>
               <legend className="sr-only">Comparison inputs</legend>
@@ -1278,6 +1276,13 @@ export default function FullWorkspace({
               records={records}
               store={store}
               onSaved={() => refresh()}
+              onOpenExtraction={(url) => {
+                setExtractionPrefill(url || "");
+                setTab("Extract");
+                setNotice(
+                  "Background extraction opened for this Coursera shell. Run it here; no console script is needed.",
+                );
+              }}
             />
             <details className="recorded-audit-overview">
               <summary>Recorded QA scores and publication blockers</summary>

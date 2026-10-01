@@ -8,7 +8,6 @@ import {
   type OwnerReview,
 } from "../src/domain/owner-actions";
 import {
-  buildItemCheckScript,
   validateItemCheck,
   type ItemCheckSpec,
 } from "../src/domain/item-check";
@@ -43,6 +42,7 @@ export default function OwnerActionCard({
   onSaved,
   context,
   courseLocation,
+  onOpenExtraction,
 }: {
   task: OwnerTask;
   label: string;
@@ -53,6 +53,7 @@ export default function OwnerActionCard({
   onSaved?: () => Promise<void>;
   context: EvidenceObject;
   courseLocation: { courseId: string; base: string } | null;
+  onOpenExtraction?: (url?: string) => void;
 }) {
   const [open, setOpen] = useState(false),
     [loaded, setLoaded] = useState(!saved),
@@ -66,7 +67,6 @@ export default function OwnerActionCard({
   const [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
-  const [script, setScript] = useState("");
   const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
   useEffect(() => {
@@ -113,24 +113,6 @@ export default function OwnerActionCard({
     } finally {
       setBusy("");
     }
-  }
-  async function copyCheck() {
-    if (!spec) return;
-    await act("Preparing this item’s check…", async () => {
-      const { getExtractor } = await import("../src/domain/capture-review");
-      const text = buildItemCheckScript(getExtractor("coursera"), spec);
-      setScript(text);
-      try {
-        await navigator.clipboard.writeText(text);
-        setMessage(
-          "Script copied. Open the linked Coursera item, run it in the browser console, then upload the downloaded JSON here.",
-        );
-      } catch {
-        setMessage(
-          "Clipboard unavailable. Download this item’s script below, then copy its contents.",
-        );
-      }
-    });
   }
   async function persist(
     nextCapture = capture,
@@ -331,67 +313,59 @@ export default function OwnerActionCard({
           {spec && (
             <section className="targeted-check">
               <p className="eyebrow">3 · NEED MORE EVIDENCE?</p>
-              <h4>Check only this item</h4>
+              <h4>Refresh Coursera evidence from CTI</h4>
               <p>
-                Copy the script, open the item above, and run it in the Coursera
-                browser console. It uses the current extractor’s parsers for
-                this item and downloads a separate JSON. Return here to add the
-                result.
+                Run the site’s background Coursera extraction for this shell.
+                CTI will revisit the course with the current v6.15.4 extractor,
+                preserve the raw capture, and refuse to call it complete while
+                required evidence is unresolved.
               </p>
               <div className="action-links">
                 <button
                   className="secondary"
-                  disabled={!!busy}
-                  onClick={() => void copyCheck()}
+                  disabled={!!busy || !onOpenExtraction}
+                  onClick={() =>
+                    onOpenExtraction?.(
+                      courseLocation ? `${courseLocation.base}/edit` : task.url,
+                    )
+                  }
                 >
-                  Copy this item’s check
+                  Open background extraction
                 </button>
-                {script && (
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      download(
-                        `CTI_check_${task.id}.js`,
-                        script,
-                        "text/javascript",
-                      )
-                    }
-                  >
-                    Download item script
-                  </button>
-                )}
               </div>
               <p className="hint">
-                Keep Coursera in the foreground. Elapsed time appears while it
-                runs. An unobserved reference remains uncertain; protected
-                frames, file contents and playback may still need a manual
-                check.
+                No DevTools or console script is required. After the site capture
+                completes, load it into Compare to create a fresh QA snapshot.
               </p>
-              <label>
-                Upload this item’s check JSON
-                <input
-                  type="file"
-                  accept=".json,application/json"
-                  disabled={!editable || !loaded || !!busy}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file)
-                      void act("Reading item check…", async () => {
-                        if (file.size > 16 * 1024 * 1024)
-                          throw new Error("Item check exceeds 16 MiB.");
-                        await importCheck(await file.text());
-                      });
-                    e.target.value = "";
-                  }}
-                />
-              </label>
               <details>
-                <summary>Or paste the item-check JSON</summary>
+                <summary>Import an older item-check JSON</summary>
+                <p className="hint">
+                  This is only for evidence created by an earlier CTI workflow.
+                  New evidence should come from the site background extractor.
+                </p>
+                <label>
+                  Existing item-check JSON
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    disabled={!editable || !loaded || !!busy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file)
+                        void act("Reading item check…", async () => {
+                          if (file.size > 16 * 1024 * 1024)
+                            throw new Error("Item check exceeds 16 MiB.");
+                          await importCheck(await file.text());
+                        });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
                 <textarea
-                  aria-label="Item-check JSON"
+                  aria-label="Legacy item-check JSON"
                   value={paste}
                   onChange={(e) => setPaste(e.target.value)}
-                  placeholder="Paste the downloaded JSON here"
+                  placeholder="Paste an existing item-check JSON"
                 />
                 <button
                   className="secondary"
@@ -400,7 +374,7 @@ export default function OwnerActionCard({
                     void act("Reading item check…", () => importCheck(paste))
                   }
                 >
-                  Add pasted check
+                  Add existing check
                 </button>
               </details>
               {capture && (

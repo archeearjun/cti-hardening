@@ -2878,9 +2878,11 @@
     },
     {
       "name": "CTI_RELEASE_REGISTRY_",
-      "status": "reference-metadata",
+      "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Accepted engine/extractor versions preserved; CODE_GS_CANONICAL delivery/architecture labels are stale host metadata."
+      "note": "Reviewed release metadata update: Coursera extractor intentionally advanced from v6.14.7/schema 34 to v6.15.4/schema 35; other registry fields remain unchanged.",
+      "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
+      "reviewedCurrentHash": "a2e4bd7e741429fd788edc979008ecea68dc480b6fc9b05167f078952a2c84e6"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4070,5 +4072,307 @@
       "path": "src/reporting/source-evidence.js",
       "status": "preserved"
     }
-  ]
+  ],
+  "extractorReviews": {
+    "coursera": {
+      "schemaVersion": 1,
+      "baseline": "v6.14.7/schema34",
+      "current": "v6.15.4/schema35",
+      "changed": [
+        {
+          "name": "activeCrawlBudgetMs",
+          "archivedHash": "f235338350261b6ea1fb59174e2a1cd26d3bf02988d6b65db69d002425acd05b",
+          "reviewedCurrentHash": "356949e14258327bc85743b70f311a0562371da6e93e7c174d746f1cd6f7679f"
+        },
+        {
+          "name": "activeSpaCrawl",
+          "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
+          "reviewedCurrentHash": "908d6dbbfe7bf7cceafe4ecbd00103a71d4ae189531309539b4169c4d3b2ffe4"
+        },
+        {
+          "name": "assessmentDeadlineV61313",
+          "archivedHash": "0b12f5cefbd5e3d1706e85c068c7d797254ba3ff2cfd21f08f368435ac20e584",
+          "reviewedCurrentHash": "6b8dfb269d86584a6bf49a7f4fbc79821a27abd1a58f701f3df79f70704e45f2"
+        },
+        {
+          "name": "assignmentTextBlockBodyV61321",
+          "archivedHash": "4fd922cfc1e958b77364c0810c7cc4922fc29a3e257eecfb3bc99fb610c25865",
+          "reviewedCurrentHash": "ac37b62ca319d88f4a8994eccf132c779f8550b7691aab95f196564255cc889a"
+        },
+        {
+          "name": "attachRetryResults",
+          "archivedHash": "f8e66d090d5ecd449136418c75220ffb7a732e65d529bcc3e4e7f925b506e224",
+          "reviewedCurrentHash": "5e19dec2d0ded7c5ce93d70f806939a20d3d51b284dc915e54569983e1cae56a"
+        },
+        {
+          "name": "automaticDeepVerify",
+          "archivedHash": "602b9d4b7a578e3428d38291e9a7b1bf9328defb1eb67647f34b6a4bb25c39c2",
+          "reviewedCurrentHash": "a8953f9b208eac88b192ebfb8627e52b905d83be7664dcdc4419f7d468fd317f"
+        },
+        {
+          "name": "buildRetryPlan",
+          "archivedHash": "a6a2d23b9795e9e33c7a9a8be642a6cf2e70aef5aa0725881652aa85c18ca628",
+          "reviewedCurrentHash": "881ebf9b110ed9c8329d4a7a40791471f1c822200c08609fbd178731dc7841d4"
+        },
+        {
+          "name": "collectPluginEvidenceV6139",
+          "archivedHash": "e70687a4aea7f9f2ca95c4df00717a1f07f44e344e62141e824f3aa3c15ae035",
+          "reviewedCurrentHash": "e4d7aacd50fdd5920097801e757d937866ce790eaeea6455d46474a523c4ab40"
+        },
+        {
+          "name": "ctiCourseraExportName",
+          "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
+          "reviewedCurrentHash": "3dd47d30aae4bdcf8effaa12ac9c483d0cf3df9b2baea0faf4ac42d3d2357bbe"
+        },
+        {
+          "name": "fetchHtmlEvidence",
+          "archivedHash": "19188c663bd4424797bbbb448fa20f41acf3dca7bdff69a5bd5e274b86aaf656",
+          "reviewedCurrentHash": "346836dc516b51ca2c36ffc810ceade9f2bc9991ec79346f3e428ea37eab96a3"
+        },
+        {
+          "name": "getJson",
+          "archivedHash": "b47f8218eef6d95d49b57d71fb9c1221d85311f603191185df4f24ec49106413",
+          "reviewedCurrentHash": "45dcd1c83c7c2c3d55e900cf4fc44c0bdfad5e702184274c9b1b7e2f3541d6e2"
+        },
+        {
+          "name": "parseAssignmentTextBlockV61321",
+          "archivedHash": "2c9a227944eaf644501f433f7d0ec3a8ad0132679ff32c170b06b0c8d6cd0a05",
+          "reviewedCurrentHash": "e91d2365353eb2eb99c84181052590c20fc475db5fdfd0820861ed9b299d63d7"
+        },
+        {
+          "name": "recoverReadingRouteV61311",
+          "archivedHash": "618019da45b6116400b96e89e785b128478e5fda97f2163b7164fe89211ff96e",
+          "reviewedCurrentHash": "fcc7b9c4b0c6bed5d293970e410a45441127d347abd3c9721cd2fecde6da427e"
+        },
+        {
+          "name": "recoverTypedEditorV61317",
+          "archivedHash": "d6056dd6071a52e6632e613259f21ac416ce8dc08969a64ba896b617011a3998",
+          "reviewedCurrentHash": "b13c8bc0442a409ada34a6ecd4322fae2b4212005baa20ea02d07730cbf373f6"
+        },
+        {
+          "name": "recoveryCrawlBudgetV61326",
+          "archivedHash": "b9a4493cfbc895317b0269645f2da0b6da681f7cd38ec752d1a23f8d5ca7224a",
+          "reviewedCurrentHash": "bfbac97ac8a150a041830011c9a9e3253968ef327bb169b259587f2e43056cd3"
+        },
+        {
+          "name": "releaseCtiRunLock",
+          "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
+          "reviewedCurrentHash": "881f2bf94c53f7c31614ffd8af9a4610df463a56306c92079cf4285ed6c3df26"
+        },
+        {
+          "name": "targetedItemPayloadProbes",
+          "archivedHash": "bb2f573a29d57869b5e4698e2fa4057109daace4aa6b173883a22b364224f1c0",
+          "reviewedCurrentHash": "d0c61db6e42e53f2f324596ad4377eed48fe4018fcb1644c00980d6be7807895"
+        },
+        {
+          "name": "waitForItemEvidenceStability",
+          "archivedHash": "5b7a15831c243a6da18e7b181af6aff5feece85c94aa633925e9e752259387e5",
+          "reviewedCurrentHash": "9ad743120cc89f2319f1a325645295dab24431fbff9b049bfec92fb0556744b1"
+        },
+        {
+          "name": "waitForNetworkQuiet",
+          "archivedHash": "353560a5535597e1a29d0e9daed68d4ae9734805a0cb2d6507f24ad01633ff79",
+          "reviewedCurrentHash": "d04ac21ce6f1341445e9117fe7cbbd26214aa63fe3373e35321ba6b2820ed022"
+        }
+      ],
+      "added": [
+        {
+          "name": "captureContractSummaryV6150",
+          "reviewedCurrentHash": "d46558e416d0d1b289fde78dafd9d7b3099be468a1e5ab0e307e3082d2f05371"
+        },
+        {
+          "name": "captureContractV6150",
+          "reviewedCurrentHash": "e68f086c56ea96c185b26910c9ffbc0873f43708f9aa1a2558f45fb06cab2a4d"
+        },
+        {
+          "name": "checkpointSessionIdV6150",
+          "reviewedCurrentHash": "4d901613e82e9c7f76b973435c8834e574f4960e6122ca54564da57d883cd58e"
+        },
+        {
+          "name": "compactDiagnosticV6150",
+          "reviewedCurrentHash": "b4ec63dd91556e6eb657c5f73b3999d9274c7926e0e441bad6e388a1e9584827"
+        },
+        {
+          "name": "createCheckpointManagerV6150",
+          "reviewedCurrentHash": "6c08764786fbbe127e9e4895a58815f410c60b47dfc551e3a4f9471bef5d88a3"
+        },
+        {
+          "name": "fetchWithTimeoutV6150",
+          "reviewedCurrentHash": "16f9b2a91e85d784ab3b690eee695755cead3c6027e0329ae6b96fc347aba96a"
+        },
+        {
+          "name": "finalCaptureAccountingV6150",
+          "reviewedCurrentHash": "0518ee5f64818bd93706c6ac72d75ea2209a2d64ed36b05202c4975cad6b4fb6"
+        },
+        {
+          "name": "itemAttemptBudgetV6153",
+          "reviewedCurrentHash": "e68599a675cd33571435ec31fdaa2d20549cccc1d38cada9ab8f69a2d2c405cb"
+        },
+        {
+          "name": "openCheckpointDbV6150",
+          "reviewedCurrentHash": "8345a3d8d7aa0f3ffad8aa42cd92e3053feda6813b0c780ba9f744d83cd349af"
+        },
+        {
+          "name": "waitForVisibleV6154",
+          "reviewedCurrentHash": "a48148005d856a66e167f81d9f18f74f8a166274ca52692d708f5ece4995461b"
+        }
+      ],
+      "removed": [],
+      "constants": [
+        {
+          "name": "ACTIVE_CRAWL_MAX_TOTAL_MS",
+          "status": "changed",
+          "archivedHash": "eb2e5e9b1b1c84e01e540b4076ddd83c62bc3def62074417d8be8a96d24cda87",
+          "reviewedCurrentHash": "2df1f769b06fd9cf247b58d251e9e48d609d6214705bfce128ae2a0f6cb6faab"
+        },
+        {
+          "name": "CTI_API_FETCH_TIMEOUT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "2a1dd980d6ccba30822358f0d3e049c5e39d34891035632575299579cd0f64cd"
+        },
+        {
+          "name": "CTI_ASSESSMENT_ATTEMPT_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "ffa4564cd7987d0d45947f854b786cb6ae9aac1644bdbf892ee73f584a69c01b"
+        },
+        {
+          "name": "CTI_ASSESSMENT_BASE_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "e92b6752c22fc4a58d3802bd82805b7c05ec9286b4007a956df26be84e641f5a"
+        },
+        {
+          "name": "CTI_ASSESSMENT_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "e14dfc9cf9664c6c916ce44847c7f404a98491463e35c4cd5f7fcdf1f0a83b06"
+        },
+        {
+          "name": "CTI_ASSESSMENT_PER_QUESTION_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "9e59db518832558c1ca9acf5134e93047cfb4b2fab0acc8f1f9986137e535021"
+        },
+        {
+          "name": "CTI_ASSESSMENT_UNKNOWN_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "bc6e3db14ecbe6609503bde554d2309f41b57cc7ea653f3db501eb6218765d66"
+        },
+        {
+          "name": "CTI_CHECKPOINT_DB",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "b188619be2e6aa3c193163c6b6b3454a79e475e4c505a36d1fe2a2105b468e78"
+        },
+        {
+          "name": "CTI_CHECKPOINT_SESSION_PREFIX",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "afc00f810535d67aecfe8a4791d59cc164319ff0f0be003a536f37fcef4a6f61"
+        },
+        {
+          "name": "CTI_CHECKPOINT_STORE",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "50323b0ab815a86318b7b9f7b369a280031e9012806f9bc15d448b9648230e50"
+        },
+        {
+          "name": "CTI_CHECKPOINT_TTL_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "b48dbf8b41d2694c8a1ac6c506020581ee825e3a36d6c5a091398ce6a00eb455"
+        },
+        {
+          "name": "CTI_DISCUSSION_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "74fa1fcbbdcb804e45727cfe60faa14847024f568d0238a8a5b9dfe15f9cbaed"
+        },
+        {
+          "name": "CTI_GENERIC_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "95d3f4b35086eec0f32a7e99de0733d18016ee76804a07dbe5fa97cd95f49cde"
+        },
+        {
+          "name": "CTI_MAX_ITEM_ATTEMPTS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "94a2460a2c7da59bcce655af86db4ef0cf5f1bdc7e3e99e201f71ca152f78115"
+        },
+        {
+          "name": "CTI_PLUGIN_PRIMARY_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "44ed9552374351a24be70e546e926621283be934f7e62498a5a3954c5b009589"
+        },
+        {
+          "name": "CTI_PLUGIN_PRIMARY_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "4bf1c6b7ed60fa8238ecfa8f83dce7fe377b544ff5b668fa20d86afd69d3648b"
+        },
+        {
+          "name": "CTI_PLUGIN_RETRY_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "499c9611998e6e9645dc08fd9d799c31a3936fecfa3e02a94fa67e2e6b04ae65"
+        },
+        {
+          "name": "CTI_PLUGIN_RETRY_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "555534a4f0a5d7f7f4e6b1fc03874917fa42509045809135de739e885bb662db"
+        },
+        {
+          "name": "CTI_READING_PRIMARY_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "44ed9552374351a24be70e546e926621283be934f7e62498a5a3954c5b009589"
+        },
+        {
+          "name": "CTI_READING_RETRY_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "499c9611998e6e9645dc08fd9d799c31a3936fecfa3e02a94fa67e2e6b04ae65"
+        },
+        {
+          "name": "CTI_UNTYPED_ATTEMPT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "a96f117db4be9484e46ae0754c86c50e792c59122a524918adb1d2b2ab468ddc"
+        },
+        {
+          "name": "CTI_WHOLE_RUN_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "d62518ed6069f86f4591bea68c304ff7e0ccd3c38cfcc884cbfaf3f993ebfaa4"
+        },
+        {
+          "name": "MAX_EXACT_READING_TEXT_V61318",
+          "status": "changed",
+          "archivedHash": "8977315c36566fe7d4c58e8f8cf1d51ab7db8a62cf70d7e1fbc8144770b2113a",
+          "reviewedCurrentHash": "b135195f1f02063eb5a958fd1a02dfd9384def13b847796fc3cc805d542dcf80"
+        },
+        {
+          "name": "MAX_TEXT_SAMPLE",
+          "status": "changed",
+          "archivedHash": "d49a5e5c6a32828da23edbdc9548040aca0593efc14cee5d492e0a2ccb727939",
+          "reviewedCurrentHash": "c91e1ab2b4d6cbe02abc836684614e78eadac47217422da46417799c14815d76"
+        }
+      ],
+      "entry": {
+        "changed": true,
+        "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
+        "reviewedCurrentHash": "560ac608a04c2b33434f0639325c1e896b4f86460f1417801f110615d2840b53"
+      },
+      "releaseRegistry": {
+        "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
+        "reviewedCurrentHash": "a2e4bd7e741429fd788edc979008ecea68dc480b6fc9b05167f078952a2c84e6"
+      }
+    }
+  }
 }

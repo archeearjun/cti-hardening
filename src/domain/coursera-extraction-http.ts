@@ -51,6 +51,17 @@ export async function disconnectCoursera(
   );
 }
 
+export async function recentCourseraExtractions(
+  signal?: AbortSignal,
+): Promise<CourseraExtractionStatus[]> {
+  const data = await workspaceRequest(
+    "extraction/jobs",
+    {},
+    { signal, context: "Loading recent Coursera extractions" },
+  );
+  return Array.isArray(data.statuses) ? data.statuses : [];
+}
+
 export async function startCourseraExtraction(
   url: string,
   signal?: AbortSignal,

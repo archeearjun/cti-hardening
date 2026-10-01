@@ -1,8 +1,9 @@
 import { ctiGuardAssessmentOptionEvidence_ } from "./assessments-3.js";
 import { assetDescriptor, fileNameFromUrl, isCourseraUiAssetUrl, uniqueAssetDetails } from "./assets.js";
-import { MAX_EXACT_READING_TEXT_V61318, MAX_TEXT_SAMPLE, MAX_WALK_NODES } from "./config.js";
+import { CTI_API_FETCH_TIMEOUT_MS, MAX_EXACT_READING_TEXT_V61318, MAX_TEXT_SAMPLE, MAX_WALK_NODES } from "./config.js";
 import { evidenceFromCapturedRecord, isSessionScopedPayloadEndpoint, mergeCourseraLearnerText, sanitizeSessionPayloadEvidence } from "./evidence-2.js";
 import { mergePluginEvidenceV6139 } from "./plugins.js";
+import { fetchWithTimeoutV6150 } from "./network.js";
 import { isCourseWideNetworkResponse, isPerItemNetworkNoise, readingAttachmentCoverageV61323 } from "./text-and-dom-2.js";
 import { sessionAtomIsRelationPaired } from "./text-and-dom-3.js";
 import { inferPublished, isAuthoringChromeUrl, normalizeName, normalizeType, sha256, shouldUseDomResourceElement, stripHtml, unique } from "./text-and-dom.js";
@@ -347,7 +348,7 @@ export async function fetchHtmlEvidence(url, fp) {
     try {
       const parsed = new URL(url, location.origin);
       if (parsed.origin !== location.origin) return null;
-      const response = await fetch(parsed.href, { credentials: "include", headers: { Accept: "text/html,application/xhtml+xml,*/*" } });
+      const response = await fetchWithTimeoutV6150(parsed.href, { credentials: "include", headers: { Accept: "text/html,application/xhtml+xml,*/*" } }, CTI_API_FETCH_TIMEOUT_MS);
       if (!response.ok) return null;
       const html = await response.text();
       if (!html || html.length > 6000000) return null;

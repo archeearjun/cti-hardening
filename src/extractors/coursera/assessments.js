@@ -1,6 +1,7 @@
 import { isAssessmentLikeFingerprintV662 } from "./assessments-2.js";
 import { ctiGuardOptionEvidence_, ctiOptionLabelLooksLikeFeedback_ } from "./assessments-3.js";
 import { exactAssessmentLayoutV61313 } from "./assessments-4.js";
+import { MAX_TEXT_SAMPLE } from "./config.js";
 import { isItemSpecificCourseRoute } from "./navigation-2.js";
 import { hasVisibleLoadingIndicator } from "./text-and-dom-2.js";
 import { isVisibleElement, splitCarryDescriptionAndLabel, textWithoutExactBadges } from "./text-and-dom-3.js";
@@ -25,7 +26,7 @@ export function parseAssignmentTextBlockV61321(part) {
       text=clean(boundary[3]);method='BOUNDED_TEXT_BLOCK_PART';
     }
     if(!text)return null;
-    const limit=24000,frames=[...part.querySelectorAll('iframe,embed,object')].length;
+    const limit=MAX_TEXT_SAMPLE,frames=[...part.querySelectorAll('iframe,embed,object')].length;
     return {id:String(part.id),kind:'text-block',title,text:text.slice(0,limit),method,
       observedCharacters:text.length,capturedCharacters:Math.min(text.length,limit),limit,truncated:text.length>limit,
       embeddedFrameCount:frames,embeddedFrameTextIncluded:false,submissionBehavior:'NOT_INFERRED_FROM_INSTRUCTIONS'};
@@ -54,11 +55,11 @@ export function collectAssignmentTextBlocksV61321(root,fp) {
 export function assignmentTextBlockBodyV61321(root,fp) {
     const evidence=collectAssignmentTextBlocksV61321(root,fp);
     if(!evidence || !evidence.completeTextBlockOnly)return null;
-    const full=evidence.blocks.map(b=>[b.title,b.text].filter(Boolean).join(' ')).join(' '),text=full.slice(0,24000);
-    const incomplete=full.length>24000 || evidence.blocks.some(b=>b.embeddedFrameCount>0);
+    const full=evidence.blocks.map(b=>[b.title,b.text].filter(Boolean).join(' ')).join(' '),text=full.slice(0,MAX_TEXT_SAMPLE);
+    const incomplete=full.length>MAX_TEXT_SAMPLE || evidence.blocks.some(b=>b.embeddedFrameCount>0);
     return {text,confidence:'high',priority:98,scoped:true,completeness:incomplete?.72:.94,
-      scopeKind:'assignment-text-blocks',fullObservedTextLength:full.length,textCaptureLimit:24000,
-      textCaptureTruncated:full.length>24000};
+      scopeKind:'assignment-text-blocks',fullObservedTextLength:full.length,textCaptureLimit:MAX_TEXT_SAMPLE,
+      textCaptureTruncated:full.length>MAX_TEXT_SAMPLE};
   }
 
 export function assignmentOutlineLinksV61320(sidebar,root) {

@@ -326,8 +326,13 @@ test(
       "",
       "",
     );
-    const actual = plain(workflows.compare(input).result);
+    const actual = plain(workflows.compare(input).result),
+      expected = plain(result);
     delete actual.workspaceWarnings;
-    assert.deepEqual(actual, plain(result));
+    // The evidence engine stays equal to the frozen GAS baseline. The available
+    // extractor release is deployment metadata and intentionally advanced to v6.15.4.
+    if (actual.captureReadiness) delete actual.captureReadiness.expectedVersion;
+    if (expected.captureReadiness) delete expected.captureReadiness.expectedVersion;
+    assert.deepEqual(actual, expected);
   },
 );

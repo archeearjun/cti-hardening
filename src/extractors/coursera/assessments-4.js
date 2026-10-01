@@ -1,6 +1,7 @@
 import { assessmentDeclaredCountV662, assessmentEnvelopeRootV662, assessmentPartCountV8, assessmentPromptKey_, isAssessmentLikeFingerprintV662, mergeCourseraAssessmentEvidence, questionEvidenceReadyV6138 } from "./assessments-2.js";
 import { ctiGuardOptionEvidence_, parseAssignmentPartDomV665 } from "./assessments-3.js";
 import { assessmentLayoutDiagnosticV61318, assessmentTypeKey, emptyAssessmentProbeV61320, exactAssessmentBadgeElements, isAssignmentTextBlockV61321, observedAssignmentLayoutV61319, optionRowForBadge, optionSemanticPartsFromRow, parseCourseraAssessmentTextFallback } from "./assessments.js";
+import { CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_PER_QUESTION_MS } from "./config.js";
 import { isItemSpecificCourseRoute } from "./navigation-2.js";
 import { choiceDiagnosticsV61318, elementAttributeBlob, isDocumentScrollRoot, observedEmptyLayoutV61318, scrollRootMax } from "./text-and-dom-2.js";
 import { ctiPlainTextV664, findNamedValueV664, isObservedWrittenResponseV6138, isVisibleElement, ownStateValueV61313, reactFiberForElementV664, stateSearchBudgetV61313, stateSearchStepV61313, textWithoutExactBadges } from "./text-and-dom-3.js";
@@ -117,14 +118,16 @@ export function emptyAssessmentSnapshotV61313(root,fp) {
     return emptyAssessmentProbeV61320(root,fp).snapshot;
   }
 
-export function assessmentDeadlineV61313(runDeadline, remainingTargets) {
-    const now=Date.now(),remaining=Math.max(0,runDeadline-now);
-    // Reserve visits for later items. Large assessments may use up to 15 minutes;
-    // recovery resumes missing questions within its own bounded budget.
-    const reserve=Math.min(remaining*0.65,Math.max(0,remainingTargets)*8000);
-    return Math.min(runDeadline,now+900000,now+Math.max(0,remaining-reserve));
-  }
-
+export function assessmentDeadlineV61313(runDeadline, remainingTargets, declaredHint) {
+  const now=Date.now(),remaining=Math.max(0,runDeadline-now);
+  const declared=Math.max(1,Number(declaredHint || 1));
+  const itemCap=Math.min(
+    CTI_ASSESSMENT_MAX_MS,
+    Math.max(45000,CTI_ASSESSMENT_BASE_MS+declared*CTI_ASSESSMENT_PER_QUESTION_MS),
+  );
+  const reserve=Math.min(remaining*0.65,Math.max(0,remainingTargets)*8000);
+  return Math.min(runDeadline,now+itemCap,now+Math.max(0,remaining-reserve));
+}
 export function assessmentSurfaceDiagnosticsV61313(root, fp) {
     const envelope=assessmentEnvelopeRootV662(root,fp) || root;
     if (!envelope) return {partCount:0,parts:[]};

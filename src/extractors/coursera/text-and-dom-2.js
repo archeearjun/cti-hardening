@@ -15,6 +15,25 @@ export function sleepMs(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+export async function waitForVisibleV6154(onPause) {
+  if (typeof document === 'undefined' || document.visibilityState === 'visible') return 0;
+  const started=Date.now();
+  try {
+    console.warn('CTI paused: keep the Coursera authoring tab visible while editor items are being inspected.');
+    if (typeof onPause === 'function') onPause();
+  } catch(_) {}
+  await new Promise(resolve=>{
+    const onVisibility=()=>{
+      if(document.visibilityState==='visible'){
+        document.removeEventListener('visibilitychange',onVisibility);
+        resolve();
+      }
+    };
+    document.addEventListener('visibilitychange',onVisibility,{passive:true});
+  });
+  return Date.now()-started;
+}
+
 export function readingLoadingOnlyV61312(root) {
     const text=String(root && (root.innerText || root.textContent) || '').replace(/[\u200b-\u200d\ufeff]/g,'').replace(/\s+/g,' ').trim();
     return /^(?:(?:\d+\s*)?\/\s*\d+\s+\d{1,3}%\s*)?Loading(?:\.{0,3}|…)?$/i.test(text);
@@ -457,20 +476,22 @@ export function isCourseWideNetworkResponse(url) {
     return /authoringcoursematerials\.v1|authoringcourses\.v2|authoringbranchproperties\.v1|itemdraftproperties\.v1|ondemandstoredlearningobjectives\.v1|coursetypemetadata\.v1|opencoursememberships\.v1|partners\.v1|\/api\/rest\/v1\/client-gateway\/eval/.test(value);
   }
 
-export async function waitForNetworkQuiet(recorder, fp, initialCount, timeoutMs) {
-    const start = Date.now();
-    let lastCount = initialCount, stableSince = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const count = recorder.takeFor(fp).length;
-      if (count !== lastCount) {
-        lastCount = count;
-        stableSince = Date.now();
-      }
-      if (Date.now() - stableSince >= 700) return count;
-      await sleepMs(150);
+export async function waitForNetworkQuiet(recorder, fp, initialCount, timeoutMs, deadline) {
+  const start = Date.now();
+  const hardDeadline=Math.min(start+Math.max(0,Number(timeoutMs)||0),Number.isFinite(Number(deadline))?Number(deadline):Infinity);
+  let lastCount = initialCount, stableSince = Date.now();
+  while (Date.now() < hardDeadline) {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return recorder.takeFor(fp).length;
+    const count = recorder.takeFor(fp).length;
+    if (count !== lastCount) {
+      lastCount = count;
+      stableSince = Date.now();
     }
-    return recorder.takeFor(fp).length;
+    if (Date.now() - stableSince >= 700) return count;
+    await sleepMs(Math.min(150,Math.max(0,hardDeadline-Date.now())));
   }
+  return recorder.takeFor(fp).length;
+}
 
 export function hasVisibleLoadingIndicator(root) {
     const scope = root && root.querySelectorAll ? root : document;

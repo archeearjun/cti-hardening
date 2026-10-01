@@ -29,8 +29,10 @@ and required plugin bodies are verified. Otherwise the artifact is retained as
 - src/domain/coursera-background-extraction.ts independently evaluates the
   resulting capture before CTI can call it complete.
 
-The CTI page can be closed after a job starts. Reopening the site restores the
-latest job ID from local storage and reads durable status from R2.
+The CTI page can be closed after a job starts. Reopening the site lists recent
+extraction jobs from server-side R2 metadata scoped to the signed-in CTI identity,
+so a running/completed job remains discoverable even if the browser-local pointer
+was cleared.
 
 ## Security and Coursera sign-in
 
@@ -140,22 +142,37 @@ read a required third-party body, CTI must remain INCOMPLETE until that evidence
 becomes available through an approved API/same-origin integration or equivalent
 source.
 
-## Current extractor migration boundary
+## Current extractor
 
-The maintained repository currently labels its modular Coursera extractor
-v6.14.7/schema 34. The stricter background verifier requires the newer explicit
-captureAccounting contract before it can certify COMPLETE.
+The maintained modular Coursera extractor on this branch is **v6.15.4/schema 35**.
+It now emits the explicit per-item capture contracts and `meta.captureAccounting`
+used by the independent background completion gate.
 
-Until the proven v6.15.x contract changes are ported into
-src/extractors/coursera/, background runs can still create and preserve raw
-captures, but the strict verifier intentionally reports them INCOMPLETE rather
-than upgrading old evidence to complete.
+The normal operator flow is site-only: the Worker injects the generated extractor
+bundle into the authenticated Coursera authoring browser. The bundle is still
+generated because Browser Run and targeted developer checks need a self-contained
+program; it is not the intended end-user interaction.
 
-Do not work around this by weakening the verifier. Port the extractor behaviour
-into the maintained feature modules, run the extractor regression suite, replay
-the retained evidence corpus, and only then update the release registry.
+The strict gate remains independent from the extractor. A v6.15.4 run is still
+INCOMPLETE if any required item/channel is unresolved, unvisited, unknown, timed
+out without proof, settings-only, or an external plugin body remains unverified.
+Do not weaken those states to obtain a green result.
+
+The automated regression/build suite validates the modular port. A real
+authenticated Coursera shell run is still required before treating the new
+background path as production-validated against a specific live course.
 
 ## Recovery
+
+During an extraction the Worker periodically serializes Playwright storage state
+with IndexedDB enabled and stores it encrypted under that job in R2. The
+v6.15.4 item checkpoint run ID is kept in localStorage with a 12-hour TTL, so a
+Workflow retry can recreate the browser context, restore completed-item
+IndexedDB checkpoints and continue the remaining queue. Successful artifact
+creation deletes the per-job runtime state.
+
+This is crash recovery, not a reason to accept partial evidence: the final
+capture still has to satisfy the same strict completion gate.
 
 - A failed browser run leaves its job state and any already-persisted raw
   artifact in R2.

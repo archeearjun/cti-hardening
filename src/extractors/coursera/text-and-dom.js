@@ -1,10 +1,11 @@
 import { ctiLocalFileTimestamp, ctiSafeFileToken, isCourseraUiAssetUrl } from "./assets.js";
-import { MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, MAX_WALK_NODES } from "./config.js";
+import { CTI_API_FETCH_TIMEOUT_MS, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, MAX_WALK_NODES } from "./config.js";
 import { evidenceHasUsefulPayload } from "./evidence-2.js";
 import { fetchHtmlEvidence, harvestEvidence, mergeEvidence } from "./evidence.js";
 import { collectEmbeddedPageState } from "./plugins.js";
 import { elementAttributeBlob, isCourseWideNetworkResponse, isPerItemNetworkNoise, isRejectedItemNavigationUrl } from "./text-and-dom-2.js";
 import { isGlobalChromeElement } from "./text-and-dom-4.js";
+import { fetchWithTimeoutV6150 } from "./network.js";
 
 export function downloadJson(name, data) {
     const json = JSON.stringify(data, null, 2);
@@ -87,25 +88,38 @@ export function absolute(url) {
   }
 
 export async function getJson(url) {
-    try {
-      const response = await fetch(absolute(url), {
+  try {
+    const response = await fetchWithTimeoutV6150(
+      absolute(url),
+      {
         credentials: "include",
-        headers: { Accept: "application/json, text/plain, */*" }
-      });
-      const text = await response.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch (e) {}
-      return {
-        ok: response.ok,
-        status: response.status,
-        url: response.url,
-        data,
-        bytes: text.length
-      };
-    } catch (error) {
-      return { ok: false, status: 0, url: absolute(url), data: null, error: error.message, bytes: 0 };
-    }
+        headers: { Accept: "application/json, text/plain, */*" },
+      },
+      CTI_API_FETCH_TIMEOUT_MS,
+    );
+    const text = await response.text();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {}
+    return {
+      ok: response.ok,
+      status: response.status,
+      url: response.url,
+      data,
+      bytes: text.length,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      url: absolute(url),
+      data: null,
+      error: error instanceof Error ? error.message : String(error),
+      bytes: 0,
+    };
   }
+}
 
 export function courseId() {
     let match = location.href.match(/\/teach\/[^/]+\/([A-Za-z0-9_-]+)\/content/);
@@ -195,11 +209,11 @@ export function ctiCourseraCourseLabel() {
   }
 
 export function ctiCourseraExportName(courseIdValue, suffix = "ITEM_FINGERPRINT") {
-    const label = ctiSafeFileToken(ctiCourseraCourseLabel(), 110);
-    const idToken = ctiSafeFileToken(courseIdValue || "UNKNOWN", 80);
-    const stamp = ctiLocalFileTimestamp(new Date());
-    return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.14.7_s34__${suffix}.json`;
-  }
+  const label = ctiSafeFileToken(ctiCourseraCourseLabel(), 110);
+  const idToken = ctiSafeFileToken(courseIdValue || "UNKNOWN", 80);
+  const stamp = ctiLocalFileTimestamp(new Date());
+  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.4_s35__${suffix}.json`;
+}
 
 export function inferPublished(obj) {
     let answer = null;
@@ -433,82 +447,106 @@ export function instantiateObservedTemplate(template, itemId) {
       .split("{ITEM_ID_ENC}").join(encodeURIComponent(String(itemId || "")));
   }
 
-export async function automaticDeepVerify(fingerprints) {
-    const templates = discoverObservedItemTemplates(fingerprints);
-    const targets = (fingerprints || []).filter(fp => {
-      const p = fp.payload || {};
-      return fp.id && (!(p.assetDetails || []).length || !p.textSample || p.published == null || Number(p.assetEvidenceConfidence || 0) < 0.90);
-    });
-    const meta = {
-      targets: targets.length,
-      learnedApiTemplates: templates.length,
-      apiAttempts: 0,
-      apiUsable: 0,
-      apiAssociated: 0,
-      pageAttempts: 0,
-      pageUsable: 0,
-      evidenceUpgrades: 0,
-      embeddedState: collectEmbeddedPageState(fingerprints)
-    };
+export async function automaticDeepVerify(fingerprints, options) {
+  options=options || {};
+  const deadline=Number.isFinite(Number(options.deadline))?Number(options.deadline):Infinity;
+  const needsEditor=typeof options.needsEditor==="function"?options.needsEditor:()=>true;
+  const templates = discoverObservedItemTemplates(fingerprints);
+  const targets = (fingerprints || []).filter(fp => fp && fp.id && needsEditor(fp)===true);
+  const meta = {
+    targets: targets.length,
+    learnedApiTemplates: templates.length,
+    apiAttempts: 0,
+    apiUsable: 0,
+    apiAssociated: 0,
+    pageAttempts: 0,
+    pageUsable: 0,
+    evidenceUpgrades: 0,
+    embeddedState: collectEmbeddedPageState(fingerprints),
+  };
 
-    // Reuse only API shapes Coursera already requested in this authenticated page.
-    for (const fp of targets) {
-      if (meta.apiAttempts >= MAX_AUTO_DEEP_API_PROBES) break;
-      let perItem = 0;
-      for (const spec of templates) {
-        if (meta.apiAttempts >= MAX_AUTO_DEEP_API_PROBES || perItem >= 5) break;
-        const url = instantiateObservedTemplate(spec.template, fp.id);
-        const response = await getJson(url);
-        meta.apiAttempts++; perItem++;
-        if (!response.ok || !response.data) continue;
-        meta.apiUsable++;
-        const association = objectAssociationScore(response.data, fp);
-        if (association < 0.85 && !String(url).toLowerCase().includes(String(fp.id).toLowerCase())) continue;
-        meta.apiAssociated++;
-        const before = JSON.stringify({ a:(fp.payload.assetDetails||[]).length, l:(fp.payload.links||[]).length, t:String(fp.payload.textSample||'').length, p:fp.payload.published });
-        const evidence = harvestEvidence(response.data);
-        if (!evidenceHasUsefulPayload(evidence)) continue;
-        if ((evidence.assetDetails || []).length) evidence.assetEvidenceConfidence = Math.max(Number(evidence.assetEvidenceConfidence || 0), association >= 0.99 ? 0.94 : 0.86);
-        if ((evidence.links || []).length) evidence.linkEvidenceConfidence = Math.max(Number(evidence.linkEvidenceConfidence || 0), association >= 0.99 ? 0.90 : 0.82);
-        evidence.evidenceSources = ["auto-observed-api-template"];
-        mergeEvidence(fp.payload, evidence, "auto-observed-api-template");
-        fp.evidenceSources = unique([...(fp.evidenceSources || []), "auto-observed-api-template"], 50);
-        const after = JSON.stringify({ a:(fp.payload.assetDetails||[]).length, l:(fp.payload.links||[]).length, t:String(fp.payload.textSample||'').length, p:fp.payload.published });
-        if (before !== after) meta.evidenceUpgrades++;
-      }
+  for (const fp of targets) {
+    if (Date.now()>=deadline || meta.apiAttempts >= MAX_AUTO_DEEP_API_PROBES) break;
+    let perItem = 0;
+    for (const spec of templates) {
+      if (Date.now()>=deadline || meta.apiAttempts >= MAX_AUTO_DEEP_API_PROBES || perItem >= 5) break;
+      const url = instantiateObservedTemplate(spec.template, fp.id);
+      const response = await getJson(url);
+      meta.apiAttempts++;
+      perItem++;
+      if (!response.ok || !response.data) continue;
+      meta.apiUsable++;
+      const association = objectAssociationScore(response.data, fp);
+      if (association < 0.85 && !String(url).toLowerCase().includes(String(fp.id).toLowerCase())) continue;
+      meta.apiAssociated++;
+      const before = JSON.stringify({
+        a:(fp.payload.assetDetails||[]).length,
+        l:(fp.payload.links||[]).length,
+        t:String(fp.payload.textSample||"").length,
+        p:fp.payload.published,
+      });
+      const evidence = harvestEvidence(response.data);
+      if (!evidenceHasUsefulPayload(evidence)) continue;
+      if ((evidence.assetDetails || []).length)
+        evidence.assetEvidenceConfidence = Math.max(Number(evidence.assetEvidenceConfidence || 0), association >= 0.99 ? 0.94 : 0.86);
+      if ((evidence.links || []).length)
+        evidence.linkEvidenceConfidence = Math.max(Number(evidence.linkEvidenceConfidence || 0), association >= 0.99 ? 0.90 : 0.82);
+      evidence.evidenceSources = ["auto-observed-api-template"];
+      mergeEvidence(fp.payload, evidence, "auto-observed-api-template");
+      fp.evidenceSources = unique([...(fp.evidenceSources || []), "auto-observed-api-template"], 50);
+      const after = JSON.stringify({
+        a:(fp.payload.assetDetails||[]).length,
+        l:(fp.payload.links||[]).length,
+        t:String(fp.payload.textSample||"").length,
+        p:fp.payload.published,
+      });
+      if (before !== after) meta.evidenceUpgrades++;
     }
+  }
 
-    // v6.2: generic /content/edit SPA-shell HTML is diagnostic only, not
-    // item evidence. Static page harvesting is allowed only for genuinely deeper
-    // same-origin content routes; ?itemId= and changeLog URLs are excluded.
-    const anchors = [...document.querySelectorAll("a[href]")].map(a => ({
+  const anchors = [...document.querySelectorAll("a[href]")]
+    .map(a => ({
       href: a.href,
-      text: normalizeName(a.innerText || a.textContent || "")
-    })).filter(x => {
+      text: normalizeName(a.innerText || a.textContent || ""),
+    }))
+    .filter(x => {
       if (!x.href || !x.href.startsWith(location.origin) || isRejectedItemNavigationUrl(x.href)) return false;
       try {
         const u = new URL(x.href);
         if (/\/content\/edit\/?$/i.test(u.pathname)) return false;
         if (u.searchParams.has("itemId")) return false;
         return /\/teach\/[^/]+\/[A-Za-z0-9_-]+\/content\/(?!edit\/?$)[^/?#]+/i.test(u.pathname);
-      } catch (e) { return false; }
+      } catch (e) {
+        return false;
+      }
     });
 
-    for (const fp of targets) {
-      if (meta.pageAttempts >= MAX_AUTO_DEEP_PAGE_FETCHES) break;
-      const idLower = String(fp.id || "").toLowerCase();
-      const nameKey = normalizeName(fp.name);
-      const link = anchors.find(a => (idLower && a.href.toLowerCase().includes(idLower)) || (nameKey && a.text === nameKey));
-      if (!link) continue;
-      meta.pageAttempts++;
-      const evidence = await fetchHtmlEvidence(link.href, fp);
-      if (!evidence) continue;
-      meta.pageUsable++;
-      const before = JSON.stringify({ a:(fp.payload.assetDetails||[]).length, l:(fp.payload.links||[]).length, t:String(fp.payload.textSample||'').length });
-      mergeEvidence(fp.payload, evidence, "auto-item-page");
-      fp.evidenceSources = unique([...(fp.evidenceSources || []), "auto-item-page"], 50);
-      const after = JSON.stringify({ a:(fp.payload.assetDetails||[]).length, l:(fp.payload.links||[]).length, t:String(fp.payload.textSample||'').length });
-      if (before !== after) meta.evidenceUpgrades++;
-    }
-    return meta;
+  for (const fp of targets) {
+    if (Date.now()>=deadline || meta.pageAttempts >= MAX_AUTO_DEEP_PAGE_FETCHES) break;
+    const idLower = String(fp.id || "").toLowerCase();
+    const nameKey = normalizeName(fp.name);
+    const link = anchors.find(a =>
+      (idLower && a.href.toLowerCase().includes(idLower)) ||
+      (nameKey && a.text === nameKey),
+    );
+    if (!link) continue;
+    meta.pageAttempts++;
+    const evidence = await fetchHtmlEvidence(link.href, fp);
+    if (!evidence) continue;
+    meta.pageUsable++;
+    const before = JSON.stringify({
+      a:(fp.payload.assetDetails||[]).length,
+      l:(fp.payload.links||[]).length,
+      t:String(fp.payload.textSample||"").length,
+    });
+    mergeEvidence(fp.payload, evidence, "auto-item-page");
+    fp.evidenceSources = unique([...(fp.evidenceSources || []), "auto-item-page"], 50);
+    const after = JSON.stringify({
+      a:(fp.payload.assetDetails||[]).length,
+      l:(fp.payload.links||[]).length,
+      t:String(fp.payload.textSample||"").length,
+    });
+    if (before !== after) meta.evidenceUpgrades++;
   }
+  return meta;
+}

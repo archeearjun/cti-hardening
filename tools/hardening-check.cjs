@@ -55,14 +55,18 @@ function hashFixture(options={}){
   assert.equal(resolve(['docs/File.pdf','docs/file.pdf'],'docs/File.pdf').path,'docs/File.pdf');
   assert.equal(resolve(['docs;folder/File.pdf'],'docs;/folder/File.pdf').method,'SEMICOLON_SLASH_NORMALIZED');
  });
- await test('Reading check delivery compiles and advertises the canonical release',()=>{
+ await test('Legacy focused Reading check fails closed after extractor release change; canonical delivery still compiles',()=>{
+  const delivery=c.ctiExtractorDelivery_('coursera');
+  assert(delivery.success);
+  new vm.Script(delivery.script);
+  assert(delivery.script.includes("v6.15.4"));
+  assert(delivery.script.includes("v6.15.4-empty-reading-visibility-20261001"));
   const fs=require('node:fs'),html=fs.readFileSync(require('node:path').join(__dirname,'../archive/apps-script/Index.html'),'utf8');
-  const start=html.indexOf(' function ctiBuildReadingAttachmentCheck_(');
-  // Find the actual builder by its observed unique rejection text if renamed.
-  const functions=[...html.matchAll(/^ function (\w+)\(/gm)];const hit=functions.findIndex((x,i)=>html.slice(x.index,functions[i+1]?.index).includes('The reading check and deployed extractor do not match'));
-  assert(hit>=0);const f=functions[hit],context={};vm.createContext(context);vm.runInContext(html.slice(f.index,functions[hit+1].index),context);
-  const delivery=c.ctiExtractorDelivery_('coursera'),script=context[f[1]](delivery);
-  new vm.Script(script);assert(script.includes("version:'v6.14.7'"));assert(script.includes('SINGLE_READING_CHECK_NOT_A_FULL_COURSE_CAPTURE'));
+  const functions=[...html.matchAll(/^ function (\w+)\(/gm)];
+  const hit=functions.findIndex((x,i)=>html.slice(x.index,functions[i+1]?.index).includes('The reading check and deployed extractor do not match'));
+  assert(hit>=0);
+  const f=functions[hit],context={};vm.createContext(context);vm.runInContext(html.slice(f.index,functions[hit+1].index),context);
+  assert.throws(()=>context[f[1]](delivery),/reading check and deployed extractor do not match/i);
  });
  const hash='a'.repeat(64),clean=()=>({verdict:'VERIFIED',issues:[],checks:{structure:{status:'VERIFIED'}}});
  await test('Missing asset/link checks cannot default to verified',()=>{for(const source of [{type:'Reading',assetDetails:[{name:'x.pdf',sha256:hash}]},{type:'Reading',links:[{raw:'https://example.test'}]}]){const r=c.qaApplyDimensionalVerdictGateV8_(source,{},clean());assert.equal(r.verdict,'UNVERIFIED');}});

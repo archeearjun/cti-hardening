@@ -1,5 +1,5 @@
 import { isCourseraUiAssetUrl } from "./assets.js";
-import { MAX_EMBEDDED_STATE_SCRIPTS } from "./config.js";
+import { MAX_EMBEDDED_STATE_SCRIPTS, MAX_TEXT_SAMPLE } from "./config.js";
 import { isVisibleElement } from "./text-and-dom-3.js";
 import { isGlobalChromeElement, reactPropsForElement } from "./text-and-dom-4.js";
 import { enrichFromObservedObject, extractConfiguredExternalUrls, isAuthoringChromeUrl } from "./text-and-dom.js";
@@ -138,7 +138,7 @@ export function collectPluginEvidenceV6139(root, fp) {
         record.access='READABLE';record.readyState=String(doc.readyState||'');
         const text=String(doc.body && (doc.body.innerText||doc.body.textContent) || '').trim();
         record.textLength=text.length;record.textPreview=text.slice(0,400);
-        record.textSample=text.slice(0,24000);record.textTruncated=text.length>24000;
+        record.textSample=text.slice(0,MAX_TEXT_SAMPLE);record.textTruncated=text.length>MAX_TEXT_SAMPLE;
         record.surfaceStatus=!text?'EMPTY':/^(?:loading(?: item)?[.\s…]*|please wait[.\s…]*)$/i.test(text)?'LOADING':
           /^(?:access denied|403 forbidden|404 not found|sign in to continue|log in to continue)\b/i.test(text)?'ACCESS_OR_ERROR_PAGE':'CONTENT_OBSERVED';
         if(record.surfaceStatus!=='CONTENT_OBSERVED')delete record.textSample;
