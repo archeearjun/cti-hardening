@@ -2,17 +2,18 @@
   "schemaVersion": 1,
   "baselineCommit": "01d7d0d8f663509e2b290c99e396ec098003b77a",
   "archiveSha256": "90b8abdda8ed160331734ec6924d1937e83ee55458255c78761c3ffb2beffa03",
-  "verdict": "NOT_FEATURE_COMPLETE",
+  "verdict": "MIGRATION_CLOSED_WITH_INTENTIONAL_RETIREMENTS",
   "scope": "All top-level Code.gs functions, late overrides, constants, declared capability flags and both embedded extractor programs. Available means implemented/source-traced, not certified against every live course or production account.",
   "groups": {
     "bootstrap": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "web/App.tsx",
-        "server/api.ts",
-        "src/engine/release.js"
+        "web/OperationsWorkspace.tsx",
+        "src/domain/product-capabilities.ts",
+        "server/api.ts"
       ],
-      "note": "React and /api/session replace HtmlService and bootstrap. Build timestamps and a truthful application-wide capability/health view are not implemented; the copied engine manifest describes the old product, not current availability."
+      "note": "React + Cloudflare bootstrap is active. Operations exposes a truthful current capability/health view; historical engine flags remain explicitly labeled as migration reference."
     },
     "extractor-endpoint": {
       "status": "replaced",
@@ -44,12 +45,14 @@
       "note": "In-memory registered workbook IDs and selected saved workbooks replace Drive IDs and user properties."
     },
     "metadata-validation": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/workspace-validation.ts",
-        "web/FullWorkspace.tsx"
+        "src/domain/operations.ts",
+        "web/FullWorkspace.tsx",
+        "server/api.ts"
       ],
-      "note": "Record shape and UI status choices are validated, but the old server-side status/date/Drive-link restrictions and date/link editing are not equivalent."
+      "note": "Current metadata editing validates status, real YYYY-MM-DD dates and HTTPS Drive/Docs links. Shared commits reconstruct and validate the full record server-side; historical blank partner rows remain import-compatible."
     },
     "versions": {
       "status": "replaced",
@@ -60,9 +63,13 @@
       "note": "Versioned saves use IndexedDB transactions or atomic D1 conditional commits with immutable audit snapshots."
     },
     "semantic-package-identity": {
-      "status": "gap",
-      "paths": [],
-      "note": "The new-record path uses a random UUID without the old partner+semantic-filename duplicate guard, download-suffix normalization, or DEV/B0RL normalization."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/FullWorkspace.tsx",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Partner + semantic filename identity, download suffix stripping, DEV/NCE normalization and B0RL/BORL normalization are restored. New/rescan/metadata UI writes reject active semantic duplicates; Operations provides conflict-aware reconciliation."
     },
     "analytics-cache": {
       "status": "replaced",
@@ -73,32 +80,38 @@
       "note": "Portfolio metrics are recalculated from refreshed records; no Apps Script cache needs invalidation."
     },
     "catalog-sync": {
-      "status": "gap",
-      "paths": [],
-      "note": "No current NAIT/Marshall catalog input, matching or catalog-driven owner/title refresh. Exported Catalog_Map tables remain in migration backups only."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Portable catalog XLSX imports replace hard-coded Google Sheet IDs while retaining Title Code/Common Cartridge matching, owner resolution, product/access/import fields and expected filenames."
     },
     "planner-queue": {
-      "status": "gap",
-      "paths": [],
-      "note": "The current Work queue is a course list and evidence checklist. It does not implement planner date campaigns, title-slot reconciliation, owner disambiguation, audit-first next actions, or the original workflow state machine."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     "work-state": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
-        "src/domain/legacy-import.ts",
-        "web/FullWorkspace.tsx",
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx",
         "src/domain/workspace-store.ts"
       ],
-      "note": "Checklist booleans and notes can be imported/edited/versioned. Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map states remain in legacyRow without a current state-machine UI."
+      "note": "The current Operations workspace restores typed Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map states plus notes and next-action sequencing."
     },
     "scan-history": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/workspace-store.ts",
-        "src/domain/legacy-import.ts",
-        "web/FullWorkspace.tsx"
+        "web/OperationsWorkspace.tsx",
+        "src/domain/workflows.ts"
       ],
-      "note": "Full source record revisions are retained and shared revisions can be reopened; legacy scan history remains in the backup. Queue freshness checks and source-scan IDs in automatic longitudinal metadata are not ported."
+      "note": "Versioned source revisions remain reopenable; bulk rescan uses semantic identity and scan timestamps, queue freshness uses the configured cutoff, and audits retain source scan hashes."
     },
     "storage": {
       "status": "replaced",
@@ -111,17 +124,23 @@
       "note": "Checksummed chunked D1 records/local IndexedDB and the loss-aware migration importer replace spreadsheet discovery, tree cells/chunks and schema migration. No Google runtime service is required."
     },
     "generation-memory": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/workflows.ts",
-        "src/domain/legacy-import.ts"
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx",
+        "src/engine/lifecycle/generation.js",
+        "src/engine/lifecycle/lineage.js"
       ],
-      "note": "First valid raw baseline, generation isolation, provenance memory, exact replay and stage guards are implemented. The old explicit import-event provenance, destination-ID-change warnings, parent/source-scan links and automatic stage/reimport summary deltas are not fully implemented."
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     "lineage-repair": {
-      "status": "gap",
-      "paths": [],
-      "note": "No operator-confirmed, conservative repair path for the old v6.12.0 repeated-export misclassification. Imported original metadata is retained, not repaired."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Conservative repeated-export candidates require consecutive raw snapshots, matching source identity and identical retained item evidence. Confirmation stores separate lineage-repair metadata; original audit payloads remain immutable."
     },
     "saved-history": {
       "status": "replaced",
@@ -134,36 +153,50 @@
       "note": "Full immutable reports can be saved, reopened, downloaded and compared. Original lineage/review metadata is retained in imports; specialized repair/longitudinal features are separately marked partial/gap."
     },
     "duplicate-cleanup": {
-      "status": "gap",
-      "paths": [],
-      "note": "No preview/token-checked conflict-aware merge/archive workflow. Original code chose a stable survivor UUID, kept newest scan evidence, preserved metadata and archived pre-merge rows; keeping this code in archive does not provide the feature."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     "telemetry": {
-      "status": "gap",
-      "paths": [],
-      "note": "No equivalent persisted total-visit/last-visit counter. It is not evidence logic, but was an available feature."
+      "status": "retired-privacy",
+      "paths": [
+        "src/domain/product-capabilities.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "The legacy total-visit/last-visit counter is intentionally retired because it collected usage telemetry without affecting evidence integrity or business decisions. Current product capability/health state is exposed without user visit tracking."
     },
     "package-writes": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "web/FullWorkspace.tsx",
         "src/domain/workspace-store.ts",
+        "src/domain/workspace-validation.ts",
+        "src/domain/operations.ts",
         "server/api.ts"
       ],
-      "note": "Save, rescan and edit owner/partner/status work with version checks and preserved revisions. Semantic duplicate prevention and the complete old metadata editing/validation contract are missing."
+      "note": "Save/rescan/metadata writes preserve optimistic versioning and revisions, enforce the metadata contract, reject UI semantic duplicates and validate complete shared payloads before commit."
     },
     "package-delete": {
-      "status": "gap",
-      "paths": [],
-      "note": "No delete/archive method in WorkspaceStore, corresponding API route, or current catalogue action."
+      "status": "replaced",
+      "paths": [
+        "web/OperationsWorkspace.tsx",
+        "src/domain/operations.ts",
+        "src/domain/workspace-store.ts"
+      ],
+      "note": "Destructive deletion is replaced by reversible soft archive/restore so course evidence and audit history are never silently destroyed. Duplicate reconciliation uses the same lossless archive model."
     },
     "portfolio": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
         "src/domain/workflows.ts",
-        "web/FullWorkspace.tsx"
+        "src/domain/operations.ts",
+        "web/FullWorkspace.tsx",
+        "web/OperationsWorkspace.tsx"
       ],
-      "note": "Core IFS, workload estimate and profile/cosine functions are retained. Partner aggregate totals, catalog owner refresh and duplicate summary are not ported."
+      "note": "Existing vectors/IFS/workload analytics remain. Operations adds partner aggregate totals, owner inventory and semantic duplicate summaries."
     },
     "source-analysis": {
       "status": "replaced",
@@ -174,9 +207,13 @@
       "note": "Browser package scanner invokes the retained analyzeImsccCore_ with explicit byte/XML services."
     },
     "manifest-export": {
-      "status": "gap",
-      "paths": [],
-      "note": "Source scan JSON is downloadable, but no equivalent Level/Name/Assignment_Tool/System Format/Ingestion Status manifest table export exists. A Google dependency is not necessary to restore an XLSX equivalent."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx",
+        "src/adapters/workbook.ts"
+      ],
+      "note": "Master Manifest XLSX export restores Level, Name, Assignment_Tool, System Format and Ingestion Status without requiring Google Sheets."
     },
     "workbook-io": {
       "status": "replaced",
@@ -188,19 +225,30 @@
       "note": "Local XLSX adapters replace Drive conversion/temp files. Scan/split/validation rules are unchanged; Spec downloads retain export, Module Context, Time Policy and Excluded Modules sheets."
     },
     "preflight": {
-      "status": "gap",
-      "paths": [],
-      "note": "The deterministic no-valid-items / core-empty-folders / >50-LTI preflight verdict and explanation are not exposed. Source statistics alone are not an equivalent."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "The deterministic no-valid-items, core-empty-folder and >50-LTI preflight verdict is restored and displayed before ingestion decisions."
     },
     "advisory": {
-      "status": "gap",
-      "paths": [],
-      "note": "No replacement for Gemini advisory triage or the bounded deterministic deep-architecture summary/advisory endpoint. Advisory text must remain separate from evidence verdicts."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx",
+        "src/domain/product-capabilities.ts"
+      ],
+      "note": "Bounded deterministic architecture diagnostics are restored as evidence-neutral diagnostics. Gemini advisory text is intentionally retired to preserve the zero-cost architecture and keep advisory output separate from evidence verdicts."
     },
     "health": {
-      "status": "gap",
-      "paths": [],
-      "note": "No current operator-facing aggregated registry/extractor/storage/runtime health check. CI and /api/session cover only parts of the old feature."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "src/domain/product-capabilities.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Operations now exposes package/audit/migration/duplicate/metadata health together with a truthful current capability manifest."
     },
     "lifecycle": {
       "status": "replaced",
@@ -212,13 +260,13 @@
       "note": "Saved report pairs replace four-file entry. Same-generation raw/current uses the identical delta engine; other comparisons are explicitly observational. This audit restores entry-point incoherence and full-capture checks. Automatic lineage deltas remain a separate partial feature."
     },
     "runtime-inventory": {
-      "status": "partial",
+      "status": "replaced",
       "paths": [
-        "src/domain/legacy-import.ts",
-        "src/domain/workflows.ts",
-        "src/engine/capture/normalization.js"
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx",
+        "src/domain/workflows.ts"
       ],
-      "note": "Saved external SCORM/Rise evidence is imported and consumed; source-package/live-source runtime policies remain. No fresh inventory refresh/import workflow; missing inventory is explicitly warned."
+      "note": "Portable runtime inventory XLSX import restores RISE/Storyline evidence refresh and applies provenance-tagged runtime evidence to matching active courses; QA continues to warn when inventory is absent."
     },
     "comparison-entry": {
       "status": "replaced",
@@ -271,13 +319,15 @@
       "name": "getCtiBootstrap",
       "line": 63,
       "group": "bootstrap",
-      "status": "partial"
+      "status": "replaced",
+      "note": "React + Cloudflare bootstrap is active. Operations exposes a truthful current capability/health view; historical engine flags remain explicitly labeled as migration reference."
     },
     {
       "name": "getCtiFeatureManifest",
       "line": 74,
       "group": "bootstrap",
-      "status": "partial"
+      "status": "replaced",
+      "note": "React + Cloudflare bootstrap is active. Operations exposes a truthful current capability/health view; historical engine flags remain explicitly labeled as migration reference."
     },
     {
       "name": "getCtiExtractor",
@@ -304,19 +354,22 @@
       "name": "setBuildTimestamp",
       "line": 108,
       "group": "bootstrap",
-      "status": "partial"
+      "status": "replaced",
+      "note": "React + Cloudflare bootstrap is active. Operations exposes a truthful current capability/health view; historical engine flags remain explicitly labeled as migration reference."
     },
     {
       "name": "getDeploymentTimestamp",
       "line": 115,
       "group": "bootstrap",
-      "status": "partial"
+      "status": "replaced",
+      "note": "React + Cloudflare bootstrap is active. Operations exposes a truthful current capability/health view; historical engine flags remain explicitly labeled as migration reference."
     },
     {
       "name": "doGet",
       "line": 120,
       "group": "bootstrap",
-      "status": "partial"
+      "status": "replaced",
+      "note": "React + Cloudflare bootstrap is active. Operations exposes a truthful current capability/health view; historical engine flags remain explicitly labeled as migration reference."
     },
     {
       "name": "authorize_",
@@ -340,19 +393,22 @@
       "name": "validateDateOnly_",
       "line": 173,
       "group": "metadata-validation",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Current metadata editing validates status, real YYYY-MM-DD dates and HTTPS Drive/Docs links. Shared commits reconstruct and validate the full record server-side; historical blank partner rows remain import-compatible."
     },
     {
       "name": "validateStatus_",
       "line": 181,
       "group": "metadata-validation",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Current metadata editing validates status, real YYYY-MM-DD dates and HTTPS Drive/Docs links. Shared commits reconstruct and validate the full record server-side; historical blank partner rows remain import-compatible."
     },
     {
       "name": "validateDriveLink_",
       "line": 187,
       "group": "metadata-validation",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Current metadata editing validates status, real YYYY-MM-DD dates and HTTPS Drive/Docs links. Shared commits reconstruct and validate the full record server-side; historical blank partner rows remain import-compatible."
     },
     {
       "name": "validateUuid_",
@@ -391,13 +447,15 @@
       "name": "normalizeFileName_",
       "line": 226,
       "group": "semantic-package-identity",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Partner + semantic filename identity, download suffix stripping, DEV/NCE normalization and B0RL/BORL normalization are restored. New/rescan/metadata UI writes reject active semantic duplicates; Operations provides conflict-aware reconciliation."
     },
     {
       "name": "canonicalDisplayFileName_",
       "line": 246,
       "group": "semantic-package-identity",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Partner + semantic filename identity, download suffix stripping, DEV/NCE normalization and B0RL/BORL normalization are restored. New/rescan/metadata UI writes reject active semantic duplicates; Operations provides conflict-aware reconciliation."
     },
     {
       "name": "invalidateAnalyticsCache_",
@@ -409,73 +467,85 @@
       "name": "getMatchKey_",
       "line": 271,
       "group": "semantic-package-identity",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Partner + semantic filename identity, download suffix stripping, DEV/NCE normalization and B0RL/BORL normalization are restored. New/rescan/metadata UI writes reject active semantic duplicates; Operations provides conflict-aware reconciliation."
     },
     {
       "name": "packageSemanticKey_",
       "line": 289,
       "group": "semantic-package-identity",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Partner + semantic filename identity, download suffix stripping, DEV/NCE normalization and B0RL/BORL normalization are restored. New/rescan/metadata UI writes reject active semantic duplicates; Operations provides conflict-aware reconciliation."
     },
     {
       "name": "updateCatalogMapSheet_",
       "line": 295,
       "group": "catalog-sync",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable catalog XLSX imports replace hard-coded Google Sheet IDs while retaining Title Code/Common Cartridge matching, owner resolution, product/access/import fields and expected filenames."
     },
     {
       "name": "loadCatalogMap_",
       "line": 311,
       "group": "catalog-sync",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable catalog XLSX imports replace hard-coded Google Sheet IDs while retaining Title Code/Common Cartridge matching, owner resolution, product/access/import fields and expected filenames."
     },
     {
       "name": "syncCatalogsFromDrive",
       "line": 325,
       "group": "catalog-sync",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable catalog XLSX imports replace hard-coded Google Sheet IDs while retaining Title Code/Common Cartridge matching, owner resolution, product/access/import fields and expected filenames."
     },
     {
       "name": "workNormalizeHeader_",
       "line": 390,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workHeaderIndex_",
       "line": 394,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workOwnerKey_",
       "line": 404,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workDateOnly_",
       "line": 408,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workValidateDateOnly_",
       "line": 419,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workCampaignId_",
       "line": 425,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workDisplayCode_",
       "line": 430,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workNumberOrZero_",
@@ -487,79 +557,92 @@
       "name": "workScormCount_",
       "line": 441,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workBuildNaitCatalog_",
       "line": 449,
       "group": "catalog-sync",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable catalog XLSX imports replace hard-coded Google Sheet IDs while retaining Title Code/Common Cartridge matching, owner resolution, product/access/import fields and expected filenames."
     },
     {
       "name": "workBuildMarshallCatalog_",
       "line": 494,
       "group": "catalog-sync",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable catalog XLSX imports replace hard-coded Google Sheet IDs while retaining Title Code/Common Cartridge matching, owner resolution, product/access/import fields and expected filenames."
     },
     {
       "name": "workBuildScormIndex_",
       "line": 535,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workResolveCatalogCandidate_",
       "line": 569,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workExtractCatalogKeysFromText_",
       "line": 586,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workReadPlannerGroups_",
       "line": 600,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workPackageMetricsFromRow_",
       "line": 674,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workPackageMetricsFromPayload_",
       "line": 713,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "getPackageScanHistorySheet_",
       "line": 739,
       "group": "scan-history",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Versioned source revisions remain reopenable; bulk rescan uses semantic identity and scan timestamps, queue freshness uses the configured cutoff, and audits retain source scan hashes."
     },
     {
       "name": "appendPackageScanHistory_",
       "line": 752,
       "group": "scan-history",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Versioned source revisions remain reopenable; bulk rescan uses semantic identity and scan timestamps, queue freshness uses the configured cutoff, and audits retain source scan hashes."
     },
     {
       "name": "loadLatestPackageScanHistoryMap_",
       "line": 772,
       "group": "scan-history",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Versioned source revisions remain reopenable; bulk rescan uses semantic identity and scan timestamps, queue freshness uses the configured cutoff, and audits retain source scan hashes."
     },
     {
       "name": "loadLatestRawQaMap_",
       "line": 796,
       "group": "scan-history",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Versioned source revisions remain reopenable; bulk rescan uses semantic identity and scan timestamps, queue freshness uses the configured cutoff, and audits retain source scan hashes."
     },
     {
       "name": "workRedoPolicyDefinition_",
@@ -608,31 +691,36 @@
       "name": "workRawQaRecommendation_",
       "line": 1097,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workIsImportOnlyAssignment_",
       "line": 1142,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workHasScormFlag_",
       "line": 1148,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workHasSourceRuntimeFlag_",
       "line": 1152,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workHasExistingCourseraShell_",
       "line": 1159,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workEvidenceChecklistSteps_",
@@ -659,55 +747,64 @@
       "name": "getWorkStateSheet_",
       "line": 1209,
       "group": "work-state",
-      "status": "partial"
+      "status": "replaced",
+      "note": "The current Operations workspace restores typed Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map states plus notes and next-action sequencing."
     },
     {
       "name": "loadWorkStateMap_",
       "line": 1227,
       "group": "work-state",
-      "status": "partial"
+      "status": "replaced",
+      "note": "The current Operations workspace restores typed Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map states plus notes and next-action sequencing."
     },
     {
       "name": "workDefaultState_",
       "line": 1256,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workValidateStatePatch_",
       "line": 1265,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "updateRedoWorkItemState",
       "line": 1292,
       "group": "work-state",
-      "status": "partial"
+      "status": "replaced",
+      "note": "The current Operations workspace restores typed Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map states plus notes and next-action sequencing."
     },
     {
       "name": "workBuildPackageIndex_",
       "line": 1346,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workPlannerEvidenceForItem_",
       "line": 1359,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "workNextAction_",
       "line": 1376,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "getRedoWorkQueueDb",
       "line": 1427,
       "group": "planner-queue",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Portable planner imports restore date/partner/Smart-Ingestion campaigns, title-slot reconciliation, owner filtering, catalog ambiguity handling and audit-first next actions."
     },
     {
       "name": "getDatabaseSheet_",
@@ -799,13 +896,15 @@
       "name": "qaExtractorIdentityFromResult_",
       "line": 1832,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaCourseIdFromSnapshot_",
       "line": 1844,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaRunHeaderMap_",
@@ -817,31 +916,36 @@
       "name": "qaLatestSourceScanForUuid_",
       "line": 1859,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaNormalizeRequestedGeneration_",
       "line": 1878,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaSnapshotStageFromResult_",
       "line": 1886,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaLineageRows_",
       "line": 1902,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaRequestedGenerationFromMemory_",
       "line": 1928,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaCompactIngestionIntelligence_",
@@ -895,7 +999,8 @@
       "name": "qaLoadGenerationEvidenceContext_",
       "line": 2128,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaLineageItemKey_",
@@ -915,31 +1020,36 @@
       "name": "qaResolveLineage_",
       "line": 2284,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaRepeatedExportRepairCandidates_",
       "line": 2353,
       "group": "lineage-repair",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Conservative repeated-export candidates require consecutive raw snapshots, matching source identity and identical retained item evidence. Confirmation stores separate lineage-repair metadata; original audit payloads remain immutable."
     },
     {
       "name": "qaRepairRepeatedExportLineage_",
       "line": 2385,
       "group": "lineage-repair",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Conservative repeated-export candidates require consecutive raw snapshots, matching source identity and identical retained item evidence. Confirmation stores separate lineage-repair metadata; original audit payloads remain immutable."
     },
     {
       "name": "repairQaRepeatedExportLineage",
       "line": 2417,
       "group": "lineage-repair",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Conservative repeated-export candidates require consecutive raw snapshots, matching source identity and identical retained item evidence. Confirmation stores separate lineage-repair metadata; original audit payloads remain immutable."
     },
     {
       "name": "qaBuildLongitudinalDelta_",
       "line": 2433,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaLoadRunPayloadById_",
@@ -951,19 +1061,22 @@
       "name": "qaItemEvolutionDelta_",
       "line": 2476,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "qaBuildStageDelta_",
       "line": 2505,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "persistQaRun_",
       "line": 2514,
       "group": "generation-memory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Generation isolation, raw-baseline memory, stage guards and lifecycle comparisons remain active. Conservative repeated-export repairs are separate operator-confirmed metadata; course/input coherence prevents silent destination identity changes rather than rewriting immutable audits."
     },
     {
       "name": "getQaRunHistory",
@@ -1000,127 +1113,148 @@
       "name": "duplicateDigest_",
       "line": 2732,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateTimestampNumber_",
       "line": 2733,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateDisplayTimestamp_",
       "line": 2734,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateCellIsBlank_",
       "line": 2735,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateComparableValue_",
       "line": 2736,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateScanFingerprint_",
       "line": 2738,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "chooseOldestDuplicateRecord_",
       "line": 2745,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "chooseLatestDuplicateRecord_",
       "line": 2746,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "mergeDuplicateMetadata_",
       "line": 2748,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "buildDuplicatePlan_",
       "line": 2765,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateGroupForClient_",
       "line": 2798,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "getDuplicateEntryPreview",
       "line": 2802,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "getDuplicateArchiveSheet_",
       "line": 2812,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "duplicateArchiveRow_",
       "line": 2829,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "archiveDuplicateEntries",
       "line": 2834,
       "group": "duplicate-cleanup",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Duplicate preview restores stable survivor choice, newest scan preservation and metadata conflict blocking. Plan tokens/version re-reads guard stale actions. Duplicates are soft-archived rather than destructively deleted."
     },
     {
       "name": "recordSiteVisit",
       "line": 2890,
       "group": "telemetry",
-      "status": "gap"
+      "status": "retired-privacy",
+      "note": "The legacy total-visit/last-visit counter is intentionally retired because it collected usage telemetry without affecting evidence integrity or business decisions. Current product capability/health state is exposed without user visit tracking."
     },
     {
       "name": "savePackageAuditToDb",
       "line": 2911,
       "group": "package-writes",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Save/rescan/metadata writes preserve optimistic versioning and revisions, enforce the metadata contract, reject UI semantic duplicates and validate complete shared payloads before commit."
     },
     {
       "name": "updatePackageInDb",
       "line": 2966,
       "group": "package-writes",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Save/rescan/metadata writes preserve optimistic versioning and revisions, enforce the metadata contract, reject UI semantic duplicates and validate complete shared payloads before commit."
     },
     {
       "name": "updatePackageMetadataInDb",
       "line": 2999,
       "group": "package-writes",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Save/rescan/metadata writes preserve optimistic versioning and revisions, enforce the metadata contract, reject UI semantic duplicates and validate complete shared payloads before commit."
     },
     {
       "name": "deletePackageFromDb",
       "line": 3027,
       "group": "package-delete",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Destructive deletion is replaced by reversible soft archive/restore so course evidence and audit history are never silently destroyed. Duplicate reconciliation uses the same lossless archive model."
     },
     {
       "name": "getPartnerAnalyticsDb",
       "line": 3048,
       "group": "portfolio",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Existing vectors/IFS/workload analytics remain. Operations adds partner aggregate totals, owner inventory and semantic duplicate summaries."
     },
     {
       "name": "fetchPackageStructureDb",
@@ -1215,7 +1349,8 @@
       "name": "exportMasterManifestAsGoogleSheet",
       "line": 3450,
       "group": "manifest-export",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Master Manifest XLSX export restores Level, Name, Assignment_Tool, System Format and Ingestion Status without requiring Google Sheets."
     },
     {
       "name": "ctiDriveConversionRetryable_",
@@ -1333,37 +1468,43 @@
       "name": "deterministicPreflightMessage_",
       "line": 4294,
       "group": "preflight",
-      "status": "gap"
+      "status": "replaced",
+      "note": "The deterministic no-valid-items, core-empty-folder and >50-LTI preflight verdict is restored and displayed before ingestion decisions."
     },
     {
       "name": "callGeminiText_",
       "line": 4305,
       "group": "advisory",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Bounded deterministic architecture diagnostics are restored as evidence-neutral diagnostics. Gemini advisory text is intentionally retired to preserve the zero-cost architecture and keep advisory output separate from evidence verdicts."
     },
     {
       "name": "runPreFlightInspector",
       "line": 4339,
       "group": "preflight",
-      "status": "gap"
+      "status": "replaced",
+      "note": "The deterministic no-valid-items, core-empty-folder and >50-LTI preflight verdict is restored and displayed before ingestion decisions."
     },
     {
       "name": "generateAiRiskReportDb",
       "line": 4354,
       "group": "advisory",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Bounded deterministic architecture diagnostics are restored as evidence-neutral diagnostics. Gemini advisory text is intentionally retired to preserve the zero-cost architecture and keep advisory output separate from evidence verdicts."
     },
     {
       "name": "executeDeepArchitectureAudit",
       "line": 4364,
       "group": "advisory",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Bounded deterministic architecture diagnostics are restored as evidence-neutral diagnostics. Gemini advisory text is intentionally retired to preserve the zero-cost architecture and keep advisory output separate from evidence verdicts."
     },
     {
       "name": "runCTISystemHealthCheck",
       "line": 4413,
       "group": "health",
-      "status": "gap"
+      "status": "replaced",
+      "note": "Operations now exposes package/audit/migration/duplicate/metadata health together with a truthful current capability manifest."
     },
     {
       "name": "predictLaborHours",
@@ -2343,7 +2484,8 @@
       "name": "qaExternalRuntimeEvidenceForPackage_",
       "line": 8568,
       "group": "runtime-inventory",
-      "status": "partial"
+      "status": "replaced",
+      "note": "Portable runtime inventory XLSX import restores RISE/Storyline evidence refresh and applies provenance-tagged runtime evidence to matching active courses; QA continues to warn when inventory is absent."
     },
     {
       "name": "qaApplyExternalRuntimePolicy_",
@@ -3183,15 +3325,22 @@
     },
     {
       "name": "sourcePackage.preflight",
-      "status": "gap",
-      "paths": [],
-      "note": "No current preflight verdict or tabular master-manifest export."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Deterministic preflight is restored in Operations."
     },
     {
       "name": "sourcePackage.googleSheetExport",
-      "status": "gap",
-      "paths": [],
-      "note": "No current preflight verdict or tabular master-manifest export."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "src/adapters/workbook.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Portable Master Manifest XLSX replaces the Google-Sheets-only export."
     },
     {
       "name": "operations.workQueue",
@@ -3203,33 +3352,48 @@
     },
     {
       "name": "operations.campaignFilters",
-      "status": "gap",
-      "paths": [],
-      "note": "Old planner/catalog workflow and state transitions are not implemented."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Planner partner/date/owner campaign filters are restored from portable XLSX inputs."
     },
     {
       "name": "operations.catalogSync",
-      "status": "gap",
-      "paths": [],
-      "note": "Old planner/catalog workflow and state transitions are not implemented."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Catalog import/matching is restored without hard-coded external sheet IDs."
     },
     {
       "name": "operations.ownerResolution",
-      "status": "gap",
-      "paths": [],
-      "note": "Old planner/catalog workflow and state transitions are not implemented."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Catalog duplicates are resolved by exact normalized planner owner when uniquely possible."
     },
     {
       "name": "operations.auditExistingShellFirst",
-      "status": "gap",
-      "paths": [],
-      "note": "Old planner/catalog workflow and state transitions are not implemented."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Import-only existing shells route to fresh raw audit before re-ingestion decisions."
     },
     {
       "name": "operations.stateMachine",
-      "status": "gap",
-      "paths": [],
-      "note": "Old planner/catalog workflow and state transitions are not implemented."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Typed operational state machine and next actions are restored."
     },
     {
       "name": "directory.courseLibrary",
@@ -3277,45 +3441,65 @@
     },
     {
       "name": "directory.deepAudit",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Deterministic bounded architecture diagnostics replace the evidence-neutral portion of deep audit."
     },
     {
       "name": "directory.aiTriage",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "retired-zero-cost",
+      "paths": [
+        "src/domain/product-capabilities.ts"
+      ],
+      "note": "Gemini advisory triage is intentionally retired: it was advisory-only, requires an external paid/configured service, and conflicts with the zero-cost product constraint."
     },
     {
       "name": "directory.bulkRescan",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "replaced",
+      "paths": [
+        "web/OperationsWorkspace.tsx",
+        "src/domain/package-scan.ts"
+      ],
+      "note": "Bulk rescan updates only one-to-one semantic matches and reports missing/ambiguous files."
     },
     {
       "name": "directory.delete",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "replaced-safe-archive",
+      "paths": [
+        "web/OperationsWorkspace.tsx",
+        "src/domain/operations.ts"
+      ],
+      "note": "Reversible archive/restore replaces destructive delete to preserve evidence and history."
     },
     {
       "name": "directory.duplicateReview",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Semantic duplicate preview and conflict review are restored."
     },
     {
       "name": "directory.duplicateArchive",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Version-checked duplicate reconciliation soft-archives duplicate records after preserving the survivor."
     },
     {
       "name": "directory.systemHealth",
-      "status": "gap",
-      "paths": [],
-      "note": "No corresponding current action/API workflow."
+      "status": "replaced",
+      "paths": [
+        "src/domain/operations.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "Current operator-facing health and capability checks are restored."
     },
     {
       "name": "qa.singleSnapshot",
@@ -3813,15 +3997,20 @@
     },
     {
       "name": "platform.telemetry",
-      "status": "gap",
-      "paths": [],
-      "note": "No visit counter or truthful product-capability view. The retained engine feature manifest is historical."
+      "status": "retired-privacy",
+      "paths": [
+        "src/domain/product-capabilities.ts"
+      ],
+      "note": "Visit counting is intentionally retired as unnecessary usage telemetry."
     },
     {
       "name": "platform.featureManifest",
-      "status": "gap",
-      "paths": [],
-      "note": "No visit counter or truthful product-capability view. The retained engine feature manifest is historical."
+      "status": "replaced",
+      "paths": [
+        "src/domain/product-capabilities.ts",
+        "web/OperationsWorkspace.tsx"
+      ],
+      "note": "A current product capability manifest now distinguishes available, optional, retired and reference-only behavior."
     },
     {
       "name": "platform.releaseRegistry",
