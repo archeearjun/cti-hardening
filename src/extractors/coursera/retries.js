@@ -84,6 +84,14 @@ export function retrySeverity(reasons) {
   }
 
 export function buildRetryPlan(primaryMeta, fingerprints) {
+  const contractFn=typeof captureContractV6150==='function'?captureContractV6150:(fp)=>({
+    complete:false,retryable:true,attempts:Number(fp && fp.payload && fp.payload.captureAttempts || 0),reasons:[]
+  });
+  const contractSummaryFn=typeof captureContractSummaryV6150==='function'?captureContractSummaryV6150:(fp)=>({
+    itemId:String(fp && fp.id || ''),status:'LEGACY_TEST_FALLBACK',complete:false,retryable:true,
+    attempts:Number(fp && fp.payload && fp.payload.captureAttempts || 0),reasons:[]
+  });
+  const maxAttempts=typeof CTI_MAX_ITEM_ATTEMPTS==='number'?CTI_MAX_ITEM_ATTEMPTS:2;
   const byId=new Map((fingerprints || []).map(fp=>[String(fp.id || ''),fp]));
   const diagById=new Map((primaryMeta && primaryMeta.targetDiagnostics || []).map(d=>[String(d.id || ''),d]));
   const queueIds=[...new Set(primaryMeta && primaryMeta.targetIds || [])];
@@ -94,8 +102,8 @@ export function buildRetryPlan(primaryMeta, fingerprints) {
   const candidates=[];
   for(const id of queueIds){
     const fp=byId.get(id);if(!fp)continue;
-    const contract=captureContractV6150(fp);
-    if(contract.complete || !contract.retryable || contract.attempts>=CTI_MAX_ITEM_ATTEMPTS)continue;
+    const contract=contractFn(fp);
+    if(contract.complete || !contract.retryable || contract.attempts>=maxAttempts)continue;
     const d=diagById.get(id);
     let reasons=d?retryReasonsForDiagnostic(d):['not-attempted'];
     const decision=d?retryDecisionV61318(d,fp.payload || {},reasons):{retryReasons:reasons,deferredReasons:[],status:'',action:''};
@@ -104,7 +112,7 @@ export function buildRetryPlan(primaryMeta, fingerprints) {
       reasons:decision.deferredReasons,status:decision.status,action:decision.action});
     for(const reason of contract.reasons || [])if(!reasons.includes(reason))reasons.push(reason);
     if(!reasons.length)reasons.push('CAPTURE_CONTRACT_INCOMPLETE');
-    candidates.push({id,name:String(fp.name || ''),reasons,severity:Math.max(65,retrySeverity(reasons)),contract:captureContractSummaryV6150(fp)});
+    candidates.push({id,name:String(fp.name || ''),reasons,severity:Math.max(65,retrySeverity(reasons)),contract:contractSummaryFn(fp)});
   }
   candidates.sort((a,b)=>b.severity-a.severity);
   primaryMeta.retryCandidateIds=candidates.map(x=>x.id);
@@ -112,6 +120,7 @@ export function buildRetryPlan(primaryMeta, fingerprints) {
   return candidates;
 }
 export function attachRetryResults(primaryMeta, retryMeta, plan, fingerprints) {
+  const contractFn=typeof captureContractV6150==='function'?captureContractV6150:null;
   primaryMeta.retryTargets = (plan || []).length;
   primaryMeta.retryDeferredCount=(primaryMeta.retryDeferredEvidence || []).length;
   primaryMeta.retryAttempts = retryMeta ? (retryMeta.targetDiagnostics || []).length : 0;
@@ -131,10 +140,10 @@ export function attachRetryResults(primaryMeta, retryMeta, plan, fingerprints) {
     const beforeQuality = diagnosticQualityScore(before);
     const afterQuality = diagnosticQualityScore(after);
     const fp=fingerprintById.get(String(p.id || ""));
-    const contract=fp?captureContractV6150(fp):null;
+    const contract=fp&&contractFn?contractFn(fp):null;
     const afterReasons = contract && contract.complete ? [] : [...new Set([...(after?retryReasonsForDiagnostic(after):["retry-not-attempted"]),...((contract && contract.reasons) || [])])];
     const improved = Boolean(after && afterQuality > beforeQuality);
-    const resolved = Boolean(contract && contract.complete);
+    const resolved = contract ? Boolean(contract.complete) : Boolean(after && retryReasonsForDiagnostic(after).length===0);
     if (improved) primaryMeta.retryImproved++;
     if (resolved) primaryMeta.retryResolved++;
     if (!resolved) primaryMeta.retryRemainingWeak++;
@@ -223,7 +232,9 @@ export function attachRetryResults(primaryMeta, retryMeta, plan, fingerprints) {
   } : null;
 
   primaryMeta.unresolvedRetryIds=(primaryMeta.retryCandidateIds || []).filter(id=>{
-    const fp=fingerprintById.get(id);return !fp || captureContractV6150(fp).complete!==true;
+    const fp=fingerprintById.get(id);
+    if(fp && contractFn)return contractFn(fp).complete!==true;
+    const d=retryById.get(id);return !d || retryReasonsForDiagnostic(d).length>0;
   });
   primaryMeta.unresolvedEvidenceCount=new Set([...(primaryMeta.unresolvedRetryIds || []),
     ...(primaryMeta.retryDeferredEvidence || []).map(x=>x.id)]).size;
