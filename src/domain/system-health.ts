@@ -18,7 +18,7 @@ export function buildSystemHealth(
   const ids = new Set(records.map((record) => record.id));
   for (const record of records) {
     try {
-      validateRecord(record);
+      validateRecord(record, false);
     } catch (error) {
       findings.push({
         code: "INVALID_RECORD",
