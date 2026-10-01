@@ -55,11 +55,18 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
           assignedDate: d.assignedDate,
           deadline: d.deadline,
           driveLink: d.driveLink,
+          archived: d.archived === true,
+          archivedAt: d.archivedAt,
+          archivedReason: d.archivedReason,
+          duplicateSurvivorId: d.duplicateSurvivorId,
+          hasExternalRuntimeEvidence: !!d.externalRuntimeEvidence,
+          workState: d.workState,
           scan: {
             fileName: d.scan?.fileName,
             stats: scalarSummary(d.scan?.stats),
             moduleCount: d.scan?.moduleCount,
             fileSha256: d.scan?.fileSha256,
+            scannedAt: d.scan?.scannedAt,
           },
         }
       : record.kind === "audit"
@@ -85,6 +92,16 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             }
           : record.kind === "checklist"
             ? d
+            : record.kind === "operations"
+              ? {
+                  type: d.type,
+                  partner: d.partner,
+                  sourceName: d.sourceName,
+                  importedAt: d.importedAt,
+                  rowCount: Array.isArray(d.rows) ? d.rows.length : 0,
+                  runId: d.runId,
+                  toGeneration: d.toGeneration,
+                }
             : record.kind === "legacy-backup" &&
                 d.kind === "CTI_MIGRATION_RECOVERY_CASE"
               ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
