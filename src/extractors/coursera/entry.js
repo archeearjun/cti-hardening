@@ -1394,7 +1394,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.14.7", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.4", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1408,16 +1408,16 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.14.7", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.4", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
-    schemaVersion: 34,
+    schemaVersion: 35,
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.14.7",
-      buildId: "v6.14.7-plugin-readiness-20260929",
+      extractor: "CTI Item Fidelity Extractor v6.15.4",
+      buildId: "v6.15.4-empty-reading-visibility-20261001",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1426,6 +1426,9 @@ javascript:(async function () {
     fingerprints: [],
     embeddedFiles: []
   };
+  ctiCheckpointManager=await createCheckpointManagerV6150(id);
+  result.meta.checkpoint={available:Boolean(ctiCheckpointManager && ctiCheckpointManager.available),runId:ctiCheckpointManager && ctiCheckpointManager.runId || '',error:ctiCheckpointManager && ctiCheckpointManager.error || ''};
+
   result.meta.filterSelfTest = {
     telemetry: isPerItemNetworkNoise("/api/rest/v1/eventing/infobatch"),
     courseWide: isCourseWideNetworkResponse("/api/authoringCourseMaterials.v1/example/")
@@ -1509,6 +1512,7 @@ javascript:(async function () {
   ctiProgressUpdateV1({phase:"Read item data",detail:"Checking already-observed course responses."});
   // CTI_PROGRESS_END
   for (const url of observedUrls) {
+    if (Date.now()>=CTI_WHOLE_RUN_DEADLINE) { result.meta.wholeRunDeadlineReachedDuring='observed-api'; break; }
     if (knownAbsolute.has(url)) continue;
     const response = await getJson(url);
     result.meta.observedApiResponsesFetched++;
@@ -1518,6 +1522,10 @@ javascript:(async function () {
       enrichFromObservedObject(response.data, result.fingerprints, safeSourceLabel(url));
     }
   }
+
+  // Restore only the current tab/session's item checkpoints. A clean completed
+  // export clears this run; stale captures from another session are never reused.
+  result.meta.checkpointResume=ctiCheckpointManager ? await ctiCheckpointManager.restore(result.fingerprints) : {available:false,restored:0};
 
   // CTI_PROGRESS_BEGIN
   ctiProgressUpdateV1({detail:"Reading item-specific payloads for " + result.fingerprints.length + " discovered items."});
@@ -1536,7 +1544,9 @@ javascript:(async function () {
   result.meta.outlineHydration = await hydrateOutlineSurfaceForCrawl();
   console.log("CTI exhaustive crawl: adaptive primary budget up to " + (ACTIVE_CRAWL_MAX_TOTAL_MS / 60000) + " minutes; bounded recovery visits untouched items first.");
   const primaryStartedAt=Date.now();
-  const primaryCrawl = await activeSpaCrawl(result.fingerprints, id, { retryPass:false,readingRouteTemplate });
+  const checkpointWriter=ctiCheckpointManager ? ((fp,diag,pass)=>ctiCheckpointManager.save(fp,diag,pass)) : null;
+  const primaryCrawl = await activeSpaCrawl(result.fingerprints, id, { retryPass:false,readingRouteTemplate,checkpoint:checkpointWriter,
+    budgetMs:Math.max(0,CTI_WHOLE_RUN_DEADLINE-Date.now()) });
   const primaryFinishedAt=Date.now();
   const retryPlan = buildRetryPlan(primaryCrawl, result.fingerprints);
   let retryCrawl = null;
@@ -1546,11 +1556,13 @@ javascript:(async function () {
       retryPass:true,
       readingRouteTemplate,
       onlyIds:retryPlan.map(x => x.id),
-      maxItems:retryPlan.length
+      maxItems:retryPlan.length,
+      checkpoint:checkpointWriter,
+      budgetMs:Math.max(0,CTI_WHOLE_RUN_DEADLINE-Date.now())
     });
   }
   const recoveryFinishedAt=Date.now();
-  result.meta.activeSpaCrawl = attachRetryResults(primaryCrawl, retryCrawl, retryPlan);
+  result.meta.activeSpaCrawl = attachRetryResults(primaryCrawl, retryCrawl, retryPlan, result.fingerprints);
 
   // If the script is run while an individual Reading/Assignment/Discussion is
   // open, capture the actual rendered learner-facing DOM and attach it only to
@@ -1571,7 +1583,7 @@ javascript:(async function () {
   // an asset comparison into cryptographic proof instead of filename guessing.
   const assetPhaseStartedAt=Date.now();
   console.log('CTI: checking asset hashes and preparing the JSON export');
-  const hashBudget = { remaining: MAX_TOTAL_REMOTE_ASSET_BYTES, cache:new Map(), deadline:Date.now()+ASSET_STAGE_MAX_MS };  // CTI_PROGRESS_BEGIN
+  const hashBudget = { remaining: MAX_TOTAL_REMOTE_ASSET_BYTES, cache:new Map(), deadline:Math.min(Date.now()+ASSET_STAGE_MAX_MS,CTI_WHOLE_RUN_DEADLINE) };  // CTI_PROGRESS_BEGIN
   let progressAssetsProcessed = 0;
   ctiProgressUpdateV1({phase:"Check assets",detail:"Checking accessible file hashes and preparing evidence."});
   // CTI_PROGRESS_END
@@ -1625,6 +1637,7 @@ javascript:(async function () {
       textScopeKind: String(fp.payload.textScopeKind || ""),
       evidenceSources: unique(fp.evidenceSources || fp.payload.evidenceSources || [], 50)
     };
+    fp.payload.captureContract=captureContractSummaryV6150(fp);
   }
 
   // CTI_PROGRESS_BEGIN
@@ -1654,28 +1667,33 @@ javascript:(async function () {
   result.meta.itemsWithPublicationEvidence = result.fingerprints.filter(fp => fp.payload.published === true || fp.payload.published === false).length;
   result.meta.itemsWithCurrentStateEvidence = result.fingerprints.filter(fp => fp.payload.currentState && ((fp.payload.currentState.attachmentFacts || []).length || fp.payload.currentState.grading)).length;
   result.meta.currentAttachmentFacts = result.fingerprints.reduce((n,fp) => n + (((fp.payload.currentState || {}).attachmentFacts || []).length), 0);
+  result.meta.captureAccounting=finalCaptureAccountingV6150(result.fingerprints,result.meta.activeSpaCrawl);
+  result.meta.noSilentMisses=Boolean(result.meta.captureAccounting.noSilentMisses);
+  result.meta.wholeRunHardLimitMs=CTI_WHOLE_RUN_MAX_MS;
+  result.meta.wholeRunDeadlineReached=Date.now()>=CTI_WHOLE_RUN_DEADLINE;
 
   result.meta.runtime={totalBeforeDownloadMs:Date.now()-nowForLock,setupMs:primaryStartedAt-nowForLock,
     primaryMs:primaryFinishedAt-primaryStartedAt,recoveryMs:recoveryFinishedAt-primaryFinishedAt,
     postCrawlCaptureMs:assetPhaseStartedAt-recoveryFinishedAt,assetAndNormalizationMs:assetPhaseFinishedAt-assetPhaseStartedAt,
     finalizationMs:Date.now()-assetPhaseFinishedAt};
-  console.log("%cExtraction complete", "color:#059669;font-size:16px;font-weight:bold");
-  console.table(result.meta);
-  console.log(result);
-
   result.meta.exportFileName = ctiCourseraExportName(id, "ITEM_FINGERPRINT");
+  const accounting=result.meta.captureAccounting || {};
+  const retainCheckpoint=Boolean((result.meta.activeSpaCrawl || {}).timeBudgetExhausted || Number(accounting.unvisitedCount || 0)>0);
+  result.meta.checkpointRetainedForResume=retainCheckpoint;
+  result.meta.checkpointSavedItems=ctiCheckpointManager ? Number(ctiCheckpointManager.saved || 0) : 0;
+  if(ctiCheckpointManager && !retainCheckpoint)await ctiCheckpointManager.clear();
   // CTI_PROGRESS_BEGIN
   result.meta.progressTiming = {elapsedMs:ctiProgress.snapshot().elapsedMs, phaseDurationsMs:ctiProgress.snapshot().phaseDurationsMs};
   // CTI_PROGRESS_END
+  console.log("%cExtraction complete", "color:#059669;font-size:16px;font-weight:bold");
+  console.table(result.meta);
+  console.log(result);
   downloadJson(result.meta.exportFileName, result);
   // CTI_PROGRESS_BEGIN
-  const progressCrawl = result.meta.activeSpaCrawl || {};
-  const progressReached = Number(progressCrawl.visitedEditorCount || 0);
-  const progressTotal = Number(progressCrawl.eligibleTargets || 0);
-  const progressGaps = progressReached < progressTotal || !result.fingerprints.length || Number(progressCrawl.retryRemainingWeak || 0) > 0 || Number(progressCrawl.unresolvedEvidenceCount || 0) > 0;
+  const progressGaps = !accounting.complete || !result.fingerprints.length;
   ctiProgressUpdateV1({phase:progressGaps ? "Capture finished · review gaps" : "Capture finished"});
-  ctiProgress.finish(progressGaps ? "review" : "success", "JSON prepared; download requested. Review evidence coverage in CTI.",
-    progressReached + "/" + progressTotal + " eligible editors observed · " + result.fingerprints.reduce((n,fp) => n + Number(fp.payload.structuredAssessment && fp.payload.structuredAssessment.questionCount || 0), 0) + " question records collected");
+  ctiProgress.finish(progressGaps ? "review" : "success", retainCheckpoint ? "Run limit reached. Item checkpoints were kept; rerun in this tab to continue." : "JSON prepared; every inventory item has an explicit final capture state.",
+    Number(accounting.completeCount || 0) + "/" + Number(accounting.inventoryCount || 0) + " items complete · " + Number(accounting.unresolvedCount || 0) + " unresolved · " + Number(accounting.unvisitedCount || 0) + " unvisited");
   // CTI_PROGRESS_END
   } finally {
   // CTI_PROGRESS_BEGIN
