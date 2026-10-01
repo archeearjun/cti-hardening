@@ -127,14 +127,7 @@ export function assessmentDeadlineV61313(runDeadline, remainingTargets, declared
   );
   const reserve=Math.min(remaining*0.65,Math.max(0,remainingTargets)*8000);
   return Math.min(runDeadline,now+itemCap,now+Math.max(0,remaining-reserve));
-}{
-    const now=Date.now(),remaining=Math.max(0,runDeadline-now);
-    // Reserve visits for later items. Large assessments may use up to 15 minutes;
-    // recovery resumes missing questions within its own bounded budget.
-    const reserve=Math.min(remaining*0.65,Math.max(0,remainingTargets)*8000);
-    return Math.min(runDeadline,now+900000,now+Math.max(0,remaining-reserve));
-  }
-
+}
 export function assessmentSurfaceDiagnosticsV61313(root, fp) {
     const envelope=assessmentEnvelopeRootV662(root,fp) || root;
     if (!envelope) return {partCount:0,parts:[]};
