@@ -1,4 +1,8 @@
 import { validateRecord } from "../src/domain/workspace-validation.ts";
+import {
+  normalizePartnerName,
+  packageSemanticKey,
+} from "../src/domain/operations.ts";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
 interface Statement {
@@ -412,6 +416,44 @@ export async function handleAuthorized(
           400,
         );
       }
+      if (r.kind === "package") {
+        const data = fullData as Record<string, any>;
+        if (data.archived !== true) {
+          const partnerKey = normalizePartnerName(data.partner);
+          const semanticKey = packageSemanticKey(
+            data.scan?.fileName || r.title,
+          );
+          if (partnerKey && semanticKey) {
+            const { results: existingPackages } = await db
+              .prepare(
+                "SELECT id,title,summary FROM documents WHERE kind='package' AND id<>?",
+              )
+              .bind(r.id)
+              .all<{ id: string; title: string; summary: string }>();
+            for (const existing of existingPackages) {
+              let summary: Record<string, any> = {};
+              try {
+                summary = JSON.parse(existing.summary || "{}");
+              } catch {
+                // A malformed old summary is an operational health issue, not a
+                // reason to weaken duplicate protection for valid rows.
+              }
+              if (summary.archived === true) continue;
+              if (
+                normalizePartnerName(summary.partner) === partnerKey &&
+                packageSemanticKey(
+                  summary.scan?.fileName || existing.title,
+                ) === semanticKey
+              )
+                fail(
+                  "An active course with the same partner and semantic package identity already exists. Rescan that course or reconcile duplicates in Operations.",
+                  409,
+                );
+            }
+          }
+        }
+      }
+
       let q: Statement;
       if (u.expected_version === 0)
         q = db
