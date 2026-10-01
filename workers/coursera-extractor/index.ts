@@ -3,6 +3,10 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import { courseraSource } from "../../src/generated/extractor-sources.js";
 import { CTI_RELEASE_REGISTRY_ } from "../../src/engine/release.js";
 import {
+  captureContractSummaryV6150,
+  finalCaptureAccountingV6150,
+} from "../../src/extractors/coursera/completion.js";
+import {
   evaluateCourseraCapture,
   parseCourseraShellUrl,
   type CourseraExtractionStatus,
@@ -271,6 +275,287 @@ async function readCaptureJson(page: any) {
   return pieces.join("");
 }
 
+
+type BackgroundFrameEvidence = {
+  itemId: string;
+  observedUrl: string;
+  safeUrl: string;
+  hostname: string;
+  title: string;
+  readyState: string;
+  status: "CONTENT_OBSERVED" | "LOADING" | "EMPTY" | "ACCESS_OR_ERROR_PAGE";
+  textSample: string;
+  observedTextLength: number;
+  textTruncated: boolean;
+  links: string[];
+  media: Array<{
+    tag: string;
+    src: string;
+    poster: string;
+    duration: number | null;
+    trackCount: number;
+  }>;
+  observedAt: string;
+  score: number;
+};
+
+function safeObservedUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return "";
+    return url.origin + url.pathname;
+  } catch {
+    return "";
+  }
+}
+
+function hostFamily(hostname: string) {
+  const parts = String(hostname || "").toLowerCase().split(".").filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join(".") : parts.join(".");
+}
+
+function frameMatchesPluginTarget(frameUrl: string, targetUrl: string) {
+  try {
+    const frame = new URL(frameUrl),
+      target = new URL(targetUrl);
+    if (frame.hostname === target.hostname) return true;
+    if (
+      /(?:^|\.)youtube(?:-nocookie)?\.com$/i.test(frame.hostname) &&
+      /(?:^|\.)youtube(?:-nocookie)?\.com$|(?:^|\.)youtu\.be$/i.test(
+        target.hostname,
+      )
+    )
+      return true;
+    return hostFamily(frame.hostname) === hostFamily(target.hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function collectExternalFramesForItem(
+  page: any,
+  itemId: string,
+  observations: Map<string, BackgroundFrameEvidence[]>,
+) {
+  if (!itemId) return;
+  const mainFrame = page.mainFrame();
+  const existing = observations.get(itemId) || [];
+  for (const frame of page.frames()) {
+    if (frame === mainFrame) continue;
+    const observedUrl = String(frame.url() || "");
+    let parsed: URL;
+    try {
+      parsed = new URL(observedUrl);
+    } catch {
+      continue;
+    }
+    if (
+      !/^https?:$/.test(parsed.protocol) ||
+      parsed.hostname === "www.coursera.org" ||
+      /(?:^|\.)coursera\.org$/i.test(parsed.hostname)
+    )
+      continue;
+
+    let body: any;
+    try {
+      body = await frame.evaluate(() => {
+        const clean = (value: unknown) =>
+          String(value || "").replace(/\s+/g, " ").trim();
+        const rawText = clean(document.body?.innerText || document.body?.textContent || "");
+        const linkValues = Array.from(document.querySelectorAll("a[href]"))
+          .slice(0, 160)
+          .map((el) => (el as HTMLAnchorElement).href)
+          .filter(Boolean);
+        const media = Array.from(
+          document.querySelectorAll("video,audio"),
+        )
+          .slice(0, 40)
+          .map((el) => {
+            const node = el as HTMLMediaElement;
+            const tracks = Array.from(node.querySelectorAll("track"));
+            return {
+              tag: node.tagName.toLowerCase(),
+              src: node.currentSrc || node.getAttribute("src") || "",
+              poster:
+                node instanceof HTMLVideoElement
+                  ? node.poster || node.getAttribute("poster") || ""
+                  : "",
+              duration:
+                Number.isFinite(node.duration) && node.duration >= 0
+                  ? node.duration
+                  : null,
+              trackCount: tracks.length,
+            };
+          });
+        return {
+          title: document.title || "",
+          readyState: document.readyState || "",
+          rawText,
+          links: linkValues,
+          media,
+        };
+      });
+    } catch {
+      continue;
+    }
+
+    const text = String(body.rawText || ""),
+      accessError =
+        /^(?:access denied|403 forbidden|404 not found|sign in to continue|log in to continue|unauthorized)\b/i.test(
+          text,
+        ),
+      readyState = String(body.readyState || ""),
+      hasBodyEvidence =
+        text.length >= 20 ||
+        (body.links || []).length > 0 ||
+        (body.media || []).length > 0;
+    const status: BackgroundFrameEvidence["status"] = accessError
+      ? "ACCESS_OR_ERROR_PAGE"
+      : readyState === "loading"
+        ? "LOADING"
+        : hasBodyEvidence
+          ? "CONTENT_OBSERVED"
+          : "EMPTY";
+    const sanitize = (value: string) => safeObservedUrl(String(value || ""));
+    const evidence: BackgroundFrameEvidence = {
+      itemId,
+      observedUrl,
+      safeUrl: safeObservedUrl(observedUrl),
+      hostname: parsed.hostname,
+      title: String(body.title || "").slice(0, 500),
+      readyState,
+      status,
+      textSample: status === "CONTENT_OBSERVED" ? text.slice(0, 256_000) : "",
+      observedTextLength: text.length,
+      textTruncated: text.length > 256_000,
+      links: [...new Set((body.links || []).map(sanitize).filter(Boolean))].slice(
+        0,
+        120,
+      ),
+      media: (body.media || [])
+        .map((media: any) => ({
+          tag: String(media.tag || ""),
+          src: sanitize(media.src),
+          poster: sanitize(media.poster),
+          duration:
+            media.duration == null || !Number.isFinite(Number(media.duration))
+              ? null
+              : Number(media.duration),
+          trackCount: Math.max(0, Number(media.trackCount || 0)),
+        }))
+        .slice(0, 40),
+      observedAt: now(),
+      score:
+        (status === "CONTENT_OBSERVED" ? 1000000 : 0) +
+        Math.min(text.length, 500000) +
+        (body.links || []).length * 100 +
+        (body.media || []).length * 1000,
+    };
+
+    const key = evidence.safeUrl || evidence.hostname;
+    const index = existing.findIndex(
+      (entry) => (entry.safeUrl || entry.hostname) === key,
+    );
+    if (index < 0) existing.push(evidence);
+    else if (evidence.score >= existing[index].score) existing[index] = evidence;
+  }
+  observations.set(
+    itemId,
+    existing
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20),
+  );
+}
+
+function applyBackgroundPluginEvidence(
+  capture: any,
+  observations: Map<string, BackgroundFrameEvidence[]>,
+) {
+  const fingerprints = Array.isArray(capture?.fingerprints)
+    ? capture.fingerprints
+    : [];
+  let pluginItemsObserved = 0,
+    verifiedExternalBodies = 0,
+    unresolvedExternalBodies = 0;
+
+  for (const fp of fingerprints) {
+    const type = String(fp?.typeName || fp?.type || "").toLowerCase();
+    if (!/plugin|lti|widget/.test(type)) continue;
+    const payload = (fp.payload ||= {}),
+      plugin = (payload.pluginEvidence ||= {}),
+      observed = observations.get(String(fp.id || "")) || [],
+      targets = Array.isArray(plugin.targets)
+        ? plugin.targets.map((target: any) => String(target?.url || "")).filter(Boolean)
+        : [];
+    const matched = observed.filter((frame) => {
+      if (!targets.length) return observed.length === 1;
+      return targets.some((target) =>
+        frameMatchesPluginTarget(frame.observedUrl, target),
+      );
+    });
+    if (!matched.length) continue;
+
+    pluginItemsObserved++;
+    const publicFrames = matched.map(({ observedUrl: _observedUrl, score: _score, ...rest }) => rest);
+    plugin.backgroundFrames = publicFrames;
+    const verified = publicFrames.filter(
+      (frame) =>
+        frame.status === "CONTENT_OBSERVED" &&
+        frame.readyState !== "loading" &&
+        (frame.observedTextLength > 0 ||
+          frame.links.length > 0 ||
+          frame.media.length > 0),
+    );
+    plugin.externalBodyVerified = verified.length > 0;
+    plugin.backgroundCapture = {
+      method: "PLAYWRIGHT_CROSS_ORIGIN_FRAME",
+      observedFrames: publicFrames.length,
+      verifiedFrames: verified.length,
+      interactionVerified: false,
+      meaning:
+        "Background browser observed the external frame DOM passively. No playback, form submission or protected interaction was performed.",
+    };
+    if (verified.length) {
+      verifiedExternalBodies++;
+      plugin.readiness = {
+        pending: false,
+        status: "BACKGROUND_FRAME_CONTENT_OBSERVED",
+        readableFrames: verified.length,
+        unreadableFrames: publicFrames.length - verified.length,
+        interactionVerified: false,
+      };
+    } else {
+      unresolvedExternalBodies++;
+      plugin.readiness = {
+        pending: false,
+        status: "BACKGROUND_FRAME_UNRESOLVED",
+        readableFrames: 0,
+        unreadableFrames: publicFrames.length,
+        interactionVerified: false,
+      };
+    }
+    payload.captureContract = captureContractSummaryV6150(fp);
+  }
+
+  if (capture?.meta) {
+    capture.meta.backgroundExternalFrameEvidence = {
+      method: "PLAYWRIGHT_CROSS_ORIGIN_FRAME",
+      pluginItemsObserved,
+      verifiedExternalBodies,
+      unresolvedExternalBodies,
+      passiveOnly: true,
+    };
+    capture.meta.captureAccounting = finalCaptureAccountingV6150(
+      fingerprints,
+      capture.meta.activeSpaCrawl,
+    );
+    capture.meta.noSilentMisses = Boolean(
+      capture.meta.captureAccounting.noSilentMisses,
+    );
+  }
+  return capture;
+}
+
 async function runConnection(env: Env, payload: Extract<WorkflowPayload, { kind: "connect" }>) {
   let status = (await getJson<CourseraExtractionStatus>(
     env,
@@ -392,7 +677,9 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
 
     const deadline = Date.now() + 2 * 60 * 60 * 1000;
     let lastStatusWrite = 0,
-      lastRuntimeCheckpoint = 0;
+      lastRuntimeCheckpoint = 0,
+      lastExternalFrameScan = 0;
+    const externalFrameEvidence = new Map<string, BackgroundFrameEvidence[]>();
     while (Date.now() < deadline) {
       const snapshot = await page.evaluate(() => {
         const w = window as any;
@@ -407,6 +694,8 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
             !!w.__CTI_LAST_RESULT,
           href: location.href,
           progress: String(progress || "").replace(/\s+/g, " ").slice(0, 260),
+          activeItemId: String(w.__CTI_ACTIVE_ITEM_ID || ""),
+          activeItemType: String(w.__CTI_ACTIVE_ITEM_TYPE || ""),
         };
       });
 
@@ -414,6 +703,18 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
         throw new Error(
           "Coursera left the requested authoring shell during extraction. The saved session may have expired.",
         );
+      if (
+        snapshot.activeItemId &&
+        /plugin|lti|widget/i.test(snapshot.activeItemType) &&
+        Date.now() - lastExternalFrameScan > 3500
+      ) {
+        await collectExternalFramesForItem(
+          page,
+          snapshot.activeItemId,
+          externalFrameEvidence,
+        );
+        lastExternalFrameScan = Date.now();
+      }
       if (snapshot.done) break;
 
       if (Date.now() - lastStatusWrite > 15_000) {
@@ -448,8 +749,10 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
       throw new Error("Extractor produced invalid capture JSON.");
     }
 
+    capture = applyBackgroundPluginEvidence(capture, externalFrameEvidence);
+    const finalizedCaptureJson = JSON.stringify(capture);
     const verdict = evaluateCourseraCapture(capture, payload.courseId);
-    await env.ARTIFACTS.put(artifactKey(payload.id), captureJson, {
+    await env.ARTIFACTS.put(artifactKey(payload.id), finalizedCaptureJson, {
       httpMetadata: { contentType: "application/json" },
     });
     await env.ARTIFACTS.delete(runtimeStateKey(payload.id));
