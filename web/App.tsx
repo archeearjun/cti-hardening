@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
 import type {
-  ExtractorDelivery,
   ReviewOptions,
   ReviewResult,
   Severity,
@@ -44,8 +43,6 @@ export default function App() {
     [seconds, setSeconds] = useState(0);
   const [error, setError] = useState(""),
     [result, setResult] = useState<ReviewResult | null>(null);
-  const [extractor, setExtractor] = useState<ExtractorDelivery | null>(null),
-    [copyStatus, setCopyStatus] = useState("");
   const [filter, setFilter] = useState("ALL"),
     [query, setQuery] = useState(""),
     [visibleItems, setVisibleItems] = useState(50);
@@ -69,28 +66,19 @@ export default function App() {
     setBusy(false);
   }
   function launch(
-    request:
-      | Omit<Extract<WorkerRequest, { kind: "review" }>, "id">
-      | Omit<Extract<WorkerRequest, { kind: "extractor" }>, "id">,
+    request: Omit<Extract<WorkerRequest, { kind: "review" }>, "id">,
   ) {
     stop();
     const id = ++requestId.current;
     setError("");
-    setCopyStatus("");
     setBusy(true);
     setSeconds(0);
     startedAt.current = Date.now();
-    setPhase(
-      request.kind === "review"
-        ? "Starting capture review"
-        : "Preparing extractor",
-    );
-    if (request.kind === "review") {
-      setResult(null);
-      setVisibleItems(50);
-      setFilter("ALL");
-      setQuery("");
-    } else setExtractor(null);
+    setPhase("Starting capture review");
+    setResult(null);
+    setVisibleItems(50);
+    setFilter("ALL");
+    setQuery("");
     try {
       const w = new Worker(
         new URL("../src/worker/evidence.worker.ts", import.meta.url),
@@ -124,10 +112,6 @@ export default function App() {
           setResult(data.result);
           setPhase("Capture review complete");
         }
-        if (data.kind === "extractor") {
-          setExtractor(data.result);
-          setPhase("Extractor ready");
-        }
         stop();
       };
       w.postMessage({ ...request, id } satisfies WorkerRequest);
@@ -147,18 +131,6 @@ export default function App() {
       ) ?? [],
     [result, filter, query],
   );
-  async function copyScript() {
-    if (!extractor) return;
-    try {
-      await navigator.clipboard.writeText(extractor.script);
-      setCopyStatus("Script copied.");
-    } catch {
-      setCopyStatus(
-        "Clipboard access was unavailable. Download the script or select the text below.",
-      );
-    }
-  }
-
   return (
     <>
       <header className="topbar">
