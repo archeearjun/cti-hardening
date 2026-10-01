@@ -267,39 +267,4 @@ export async function targetedItemPayloadProbes(fingerprints, knownResponses, co
     }
   }
   return probeMeta;
-}{
-    const resourceUrls = unique(performance.getEntriesByType("resource").map(x => x.name), 800);
-    const probeMeta = { attempted: 0, usable: 0, supplementHits: 0, assetHits: 0, speculativeSupplementProbes: 0 };
-
-    for (const fp of fingerprints || []) {
-      if (!fp.id) continue;
-      const idLower = String(fp.id).toLowerCase();
-      const directUrls = resourceUrls.filter(url => {
-        try {
-          const parsed = new URL(url);
-          if (parsed.origin !== location.origin || !parsed.pathname.includes("/api/")) return false;
-          if (isPerItemNetworkNoise(parsed.href) || isCourseWideNetworkResponse(parsed.href)) return false;
-          return (parsed.pathname + parsed.search).toLowerCase().includes(idLower);
-        } catch (e) { return false; }
-      }).slice(0, 6);
-
-      // Re-fetch only URLs Coursera actually requested for this exact stable item ID.
-      // v4.7 guessed /onDemandSupplements/<branch>~<item>, producing many 400/404s
-      // because supplement IDs are not universally authoring item IDs.
-      for (const url of directUrls) {
-        const response = await getJson(url);
-        probeMeta.attempted++;
-        if (!response.ok || !response.data) continue;
-        probeMeta.usable++;
-        const evidence = harvestEvidence(response.data);
-        if (!evidenceHasUsefulPayload(evidence)) continue;
-        if ((evidence.assetDetails || []).length) evidence.assetEvidenceConfidence = Math.max(Number(evidence.assetEvidenceConfidence || 0), 0.88);
-        if ((evidence.links || []).length) evidence.linkEvidenceConfidence = Math.max(Number(evidence.linkEvidenceConfidence || 0), 0.82);
-        evidence.evidenceSources = ["item-specific-observed-api"];
-        mergeEvidence(fp.payload, evidence, "item-specific-observed-api");
-        fp.evidenceSources = unique([...(fp.evidenceSources || []), "item-specific-observed-api"], 50);
-        if (/onDemandSupplements\.v1/i.test(url)) probeMeta.supplementHits++;
-      }
-    }
-    return probeMeta;
-  }
+}
