@@ -355,7 +355,63 @@ export async function handleAuthorized(
         .first();
       if (counts.count !== u.parts || counts.bytes !== u.bytes)
         fail("Upload is incomplete. Nothing has been saved.", 409);
-      const r = JSON.parse(u.metadata);
+
+      // The prepare request contains only a bounded summary. Reconstruct and
+      // validate the complete payload at the trust boundary before committing
+      // it as a workspace record. Client-side validation is not authoritative.
+      const { results: storedChunks } = await db
+        .prepare(
+          "SELECT part,bytes,value FROM chunks WHERE upload_id=? ORDER BY part ASC",
+        )
+        .bind(u.id)
+        .all();
+      if (storedChunks.length !== u.parts)
+        fail("Upload is incomplete. Nothing has been saved.", 409);
+      const payloadBytes = new Uint8Array(u.bytes);
+      let payloadOffset = 0;
+      for (let index = 0; index < storedChunks.length; index++) {
+        const chunk = storedChunks[index] as any;
+        if (
+          Number(chunk.part) !== index ||
+          !Number.isInteger(Number(chunk.bytes)) ||
+          Number(chunk.bytes) < 1
+        )
+          fail("Uploaded evidence chunk ordering is invalid.", 409);
+        const value =
+          chunk.value instanceof ArrayBuffer
+            ? new Uint8Array(chunk.value)
+            : ArrayBuffer.isView(chunk.value)
+              ? new Uint8Array(
+                  chunk.value.buffer,
+                  chunk.value.byteOffset,
+                  chunk.value.byteLength,
+                )
+              : new Uint8Array(chunk.value || []);
+        if (value.length !== Number(chunk.bytes))
+          fail("Uploaded evidence chunk length is invalid.", 409);
+        payloadBytes.set(value, payloadOffset);
+        payloadOffset += value.length;
+      }
+      if (payloadOffset !== u.bytes || (await sha(payloadBytes)) !== u.sha256)
+        fail("Uploaded evidence checksum failed. Nothing has been saved.", 409);
+
+      let fullData: unknown;
+      try {
+        fullData = JSON.parse(new TextDecoder().decode(payloadBytes));
+      } catch {
+        fail("Uploaded evidence is not valid JSON. Nothing has been saved.", 400);
+      }
+      const r = JSON.parse(u.metadata) as WorkspaceRecord;
+      try {
+        validateRecord({ ...r, data: fullData as Record<string, unknown> });
+      } catch (error) {
+        fail(
+          error instanceof Error
+            ? error.message
+            : "Uploaded evidence does not satisfy the record contract.",
+          400,
+        );
+      }
       let q: Statement;
       if (u.expected_version === 0)
         q = db
