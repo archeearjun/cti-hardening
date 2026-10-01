@@ -201,13 +201,30 @@ async function verifiedAuthoringPage(page: any, shellUrl: string, courseId: stri
     !url.pathname.includes(`/${courseId}/content`)
   )
     return false;
-  const state = await page.evaluate(() => ({
-    title: document.title,
-    text: (document.body?.innerText || "").slice(0, 4000),
-  }));
+  const state = await page.evaluate(async (expectedCourseId: string) => {
+    const title = document.title;
+    const text = (document.body?.innerText || "").slice(0, 4000);
+    let materialsOk = false;
+    try {
+      const response = await fetch(
+        "/api/authoringCourseMaterials.v1/" +
+          encodeURIComponent(expectedCourseId) +
+          "/",
+        { credentials: "include" },
+      );
+      materialsOk = response.ok;
+    } catch {
+      materialsOk = false;
+    }
+    return { title, text, materialsOk };
+  }, courseId);
   if (/sign in|log in|access denied|not authorized/i.test(state.text))
     return false;
-  return /edit content/i.test(state.title) || /course material|content/i.test(state.text);
+  return (
+    state.materialsOk &&
+    (/edit content/i.test(state.title) ||
+      /course material|content/i.test(state.text))
+  );
 }
 
 async function readCaptureJson(page: any) {
@@ -441,8 +458,12 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
           ? "connect Coursera session"
           : "extract Coursera shell",
         {
-          retries: { limit: 1, delay: "10 seconds" },
-          timeout: payload.kind === "connect" ? "20 minutes" : "2 hours 10 minutes",
+          retries:
+            payload.kind === "connect"
+              ? { limit: 0, delay: "1 second" }
+              : { limit: 1, delay: "10 seconds" },
+          timeout:
+            payload.kind === "connect" ? "20 minutes" : "2 hours 10 minutes",
         },
         async () => {
           if (payload.kind === "connect") await runConnection(this.env, payload);
