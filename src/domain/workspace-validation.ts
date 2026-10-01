@@ -58,6 +58,7 @@ const kinds = [
   "checklist",
   "legacy-backup",
   "item-review",
+  "reference-data",
 ];
 export function validateRecord(record: WorkspaceRecord, full = true): void {
   if (
@@ -130,6 +131,33 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       ))
   )
     throw new Error("Invalid saved workbook.");
+  if (record.kind === "reference-data") {
+    const subtype = String(record.data.subtype || "");
+    if (!["CATALOG", "PLANNER", "RUNTIME"].includes(subtype))
+      throw new Error("Reference data must identify CATALOG, PLANNER, or RUNTIME.");
+    if (
+      typeof record.data.sourceName !== "string" ||
+      record.data.sourceName.length > 500 ||
+      typeof record.data.importedAt !== "string" ||
+      !Number.isFinite(Date.parse(record.data.importedAt))
+    )
+      throw new Error("Invalid reference-data source metadata.");
+    if (
+      record.data.partner != null &&
+      (typeof record.data.partner !== "string" ||
+        record.data.partner.length > 200)
+    )
+      throw new Error("Invalid reference-data partner.");
+    if (!Array.isArray(record.data.rows) || record.data.rows.length > 50_000)
+      throw new Error("Reference data must contain at most 50,000 parsed rows.");
+    if (
+      record.data.rows.some(
+        (row: unknown) =>
+          !row || typeof row !== "object" || Array.isArray(row),
+      )
+    )
+      throw new Error("Reference data contains an invalid parsed row.");
+  }
   if (record.kind === "checklist") {
     if (
       !record.data.evidence ||
