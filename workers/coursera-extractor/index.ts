@@ -44,6 +44,7 @@ const json = (value: unknown, status = 200) =>
 const now = () => new Date().toISOString();
 const statusKey = (id: string) => `jobs/${id}/status.json`;
 const artifactKey = (id: string) => `jobs/${id}/capture.json`;
+const runtimeStateKey = (id: string) => `jobs/${id}/runtime-state.json`;
 const sessionKey = (ownerHash: string) => `sessions/${ownerHash}/state.json`;
 const sessionMetaKey = (ownerHash: string) => `sessions/${ownerHash}/meta.json`;
 
@@ -186,6 +187,20 @@ async function loadSession(env: Env, hash: string) {
   const object = await env.ARTIFACTS.get(sessionKey(hash));
   if (!object) return null;
   return decryptState(env, await object.text());
+}
+
+async function loadRuntimeState(env: Env, id: string) {
+  const object = await env.ARTIFACTS.get(runtimeStateKey(id));
+  if (!object) return null;
+  return decryptState(env, await object.text());
+}
+
+async function saveRuntimeState(env: Env, id: string, storageState: unknown) {
+  await env.ARTIFACTS.put(
+    runtimeStateKey(id),
+    await encryptState(env, storageState),
+    { httpMetadata: { contentType: "application/json" } },
+  );
 }
 
 async function verifiedAuthoringPage(page: any, shellUrl: string, courseId: string) {
@@ -334,7 +349,9 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
     env,
     statusKey(payload.id),
   ))!;
-  const storageState = await loadSession(env, payload.ownerHash);
+  const resumedStorageState = await loadRuntimeState(env, payload.id);
+  const storageState =
+    resumedStorageState || (await loadSession(env, payload.ownerHash));
   if (!storageState)
     throw new Error(
       "Coursera is not connected for this CTI account. Connect Coursera before starting extraction.",
@@ -342,8 +359,10 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
 
   status = await writeStatus(env, status, {
     state: "RUNNING",
-    phase: "Starting authenticated browser",
-    startedAt: now(),
+    phase: resumedStorageState
+      ? "Resuming authenticated browser from saved item checkpoints"
+      : "Starting authenticated browser",
+    startedAt: status.startedAt || now(),
   });
 
   const browser = await launch(env.BROWSER, { keep_alive: 600_000 });
@@ -372,7 +391,8 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
     await page.addScriptTag({ content: courseraSource });
 
     const deadline = Date.now() + 2 * 60 * 60 * 1000;
-    let lastStatusWrite = 0;
+    let lastStatusWrite = 0,
+      lastRuntimeCheckpoint = 0;
     while (Date.now() < deadline) {
       const snapshot = await page.evaluate(() => {
         const w = window as any;
@@ -402,6 +422,11 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
         });
         lastStatusWrite = Date.now();
       }
+      if (Date.now() - lastRuntimeCheckpoint > 30_000) {
+        const runtimeState = await context.storageState({ indexedDB: true });
+        await saveRuntimeState(env, payload.id, runtimeState);
+        lastRuntimeCheckpoint = Date.now();
+      }
       await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
 
@@ -427,6 +452,7 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
     await env.ARTIFACTS.put(artifactKey(payload.id), captureJson, {
       httpMetadata: { contentType: "application/json" },
     });
+    await env.ARTIFACTS.delete(runtimeStateKey(payload.id));
     const exportName =
       (capture as any)?.meta?.exportFileName ||
       `CTI__COURSERA__${payload.courseId}__${payload.id}.json`;
