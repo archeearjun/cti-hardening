@@ -121,6 +121,139 @@ async function writeStatus(
   return next;
 }
 
+type BrowserRunLimits = {
+  activeSessions?: Array<{ id?: string }>;
+  allowedBrowserAcquisitions?: number;
+  maxConcurrentSessions?: number;
+  timeUntilNextAllowedBrowserAcquisition?: number;
+};
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+
+function browserRunErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "");
+}
+
+function browserRunDailyQuotaExceeded(error: unknown) {
+  return /browser time limit exceeded for today/i.test(
+    browserRunErrorMessage(error),
+  );
+}
+
+function browserRunRateLimited(error: unknown) {
+  const status = Number((error as { status?: number })?.status || 0);
+  return (
+    status === 429 ||
+    /(?:code:\s*429|rate limit exceeded|too many requests|browser instance limit reached)/i.test(
+      browserRunErrorMessage(error),
+    )
+  );
+}
+
+async function browserRunLimits(env: Env): Promise<BrowserRunLimits | null> {
+  if (typeof env.BROWSER?.limits !== "function") return null;
+  try {
+    return (await env.BROWSER.limits()) as BrowserRunLimits;
+  } catch {
+    return null;
+  }
+}
+
+function browserRunHasCapacity(limits: BrowserRunLimits | null) {
+  if (!limits) return true;
+  const allowed = Number(limits.allowedBrowserAcquisitions);
+  const max = Number(limits.maxConcurrentSessions);
+  const active = Array.isArray(limits.activeSessions)
+    ? limits.activeSessions.length
+    : 0;
+  const acquisitionAvailable = !Number.isFinite(allowed) || allowed > 0;
+  const concurrencyAvailable =
+    !Number.isFinite(max) || max <= 0 || active < max;
+  return acquisitionAvailable && concurrencyAvailable;
+}
+
+function browserRunWaitMs(limits: BrowserRunLimits | null, fallbackMs = 25_000) {
+  const raw = Number(limits?.timeUntilNextAllowedBrowserAcquisition || 0);
+  if (!Number.isFinite(raw) || raw <= 0) return fallbackMs;
+  // Browser Run exposes a waiting period. Older clients have represented
+  // sub-minute values differently, so accept both seconds and milliseconds.
+  const interpretedMs = raw <= 60 ? raw * 1000 : raw;
+  return Math.max(1_000, Math.min(30_000, interpretedMs + 1_000));
+}
+
+async function waitForBrowserRunCapacity(
+  env: Env,
+  payload: WorkflowPayload,
+  maxWaitMs = 4 * 60 * 1000,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < maxWaitMs) {
+    const limits = await browserRunLimits(env);
+    if (!limits || browserRunHasCapacity(limits)) return;
+    const active = Array.isArray(limits.activeSessions)
+      ? limits.activeSessions.length
+      : 0;
+    const max = Number(limits.maxConcurrentSessions || 0);
+    const waitMs =
+      Number.isFinite(max) && max > 0 && active >= max
+        ? 5_000
+        : browserRunWaitMs(limits, 5_000);
+    const current = await getJson<CourseraExtractionStatus>(
+      env,
+      statusKey(payload.id),
+    );
+    if (current)
+      await writeStatus(env, current, {
+        state: "RUNNING",
+        phase:
+          Number.isFinite(max) && max > 0
+            ? `Waiting for Cloudflare Browser Run capacity · ${active}/${max} browsers active`
+            : "Waiting for Cloudflare Browser Run capacity",
+        liveViewUrl: "",
+      });
+    await sleep(Math.min(waitMs, maxWaitMs - (Date.now() - startedAt)));
+  }
+  throw new Error(
+    "Cloudflare Browser Run has no browser capacity available yet. CTI waited for capacity without starting extraction; retry after current Browser Run sessions finish.",
+  );
+}
+
+async function launchBrowserWithRateLimitRecovery(
+  env: Env,
+  status: CourseraExtractionStatus,
+) {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await launch(env.BROWSER, { keep_alive: 600_000 });
+    } catch (error) {
+      lastError = error;
+      if (browserRunDailyQuotaExceeded(error))
+        throw new Error(
+          "Cloudflare Browser Run reports that today's browser-time quota is exhausted. CTI did not start extraction. If this account uses Workers Free, Browser Run is limited to 10 browser minutes per UTC day; use Workers Paid or retry after the quota resets.",
+        );
+      if (!browserRunRateLimited(error)) throw error;
+      if (attempt >= 3) break;
+
+      const limits = await browserRunLimits(env);
+      const waitMs = browserRunWaitMs(limits);
+      const current =
+        (await getJson<CourseraExtractionStatus>(env, statusKey(status.id))) ||
+        status;
+      await writeStatus(env, current, {
+        state: "RUNNING",
+        phase: `Cloudflare Browser Run rate-limited browser startup · retrying in ${Math.ceil(waitMs / 1000)}s`,
+        liveViewUrl: "",
+      });
+      await sleep(waitMs);
+    }
+  }
+  throw new Error(
+    `Cloudflare Browser Run is still rate-limiting new browser instances after CTI waited and retried. No extraction work was started. Last error: ${browserRunErrorMessage(lastError)}`,
+  );
+}
+
 async function ownedStatus(env: Env, id: string, hash: string) {
   const value = await getJson<CourseraExtractionStatus>(env, statusKey(id));
   if (!value || value.ownerHash !== hash) fail("Extraction job not found.", 404);
@@ -726,7 +859,7 @@ async function runConnection(env: Env, payload: Extract<WorkflowPayload, { kind:
     env,
     statusKey(payload.id),
   ))!;
-  const browser = await launch(env.BROWSER, { keep_alive: 600_000 });
+  const browser = await launchBrowserWithRateLimitRecovery(env, status);
   try {
     const context = await browser.newContext({ bypassCSP: true }),
       page = await context.newPage();
@@ -824,7 +957,7 @@ async function runExtractionChunk(
     startedAt: status.startedAt || now(),
   });
 
-  const browser = await launch(env.BROWSER, { keep_alive: 600_000 });
+  const browser = await launchBrowserWithRateLimitRecovery(env, status);
   try {
     const contextOptions: Record<string, unknown> = {
       bypassCSP: true,
@@ -1031,6 +1164,21 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
     try {
       if (payload.kind === "connect") {
         await step.do(
+          "wait for Browser Run capacity",
+          {
+            retries: {
+              limit: 0,
+              delay: "1 second",
+              backoff: "constant",
+            },
+            timeout: "5 minutes",
+          },
+          async () => {
+            await waitForBrowserRunCapacity(this.env, payload);
+            return { id: payload.id };
+          },
+        );
+        await step.do(
           "connect Coursera session",
           {
             retries: {
@@ -1049,6 +1197,21 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
       }
 
       for (let chunkNumber = 1; chunkNumber <= MAX_EXTRACTION_CHUNKS; chunkNumber++) {
+        await step.do(
+          `wait for Browser Run capacity chunk ${chunkNumber}`,
+          {
+            retries: {
+              limit: 0,
+              delay: "1 second",
+              backoff: "constant",
+            },
+            timeout: "5 minutes",
+          },
+          async () => {
+            await waitForBrowserRunCapacity(this.env, payload);
+            return { id: payload.id, chunk: chunkNumber };
+          },
+        );
         const chunkResult = await step.do(
           `extract Coursera shell chunk ${chunkNumber}`,
           {
@@ -1056,7 +1219,10 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
               // Cooperative chunking is the normal continuation path. One retry
               // remains only as a fallback for transient browser/platform failure.
               limit: 1,
-              delay: "10 seconds",
+              // Keep the fallback retry outside Workers Free's 20-second
+              // new-browser acquisition interval. Normal 429 handling happens
+              // inside launchBrowserWithRateLimitRecovery.
+              delay: "30 seconds",
               backoff: "constant",
             },
             timeout: "30 minutes",

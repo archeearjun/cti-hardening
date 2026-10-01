@@ -129,7 +129,7 @@ test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute time
   assert.match(background, /timeout:\s*["']30 minutes["']/);
   assert.match(
     background,
-    /limit:\s*1[\s\S]*delay:\s*["']10 seconds["'][\s\S]*backoff:\s*["']constant["']/,
+    /limit:\s*1[\s\S]*delay:\s*["']30 seconds["'][\s\S]*backoff:\s*["']constant["']/,
   );
   assert.doesNotMatch(background, /limit:\s*4/);
   assert.match(background, /runExtractionChunk\(/);
@@ -192,5 +192,42 @@ test("cross-origin plugin observations survive cooperative chunk boundaries", ()
   assert.match(
     background,
     /ARTIFACTS\.delete\(backgroundFrameEvidenceKey\(payload\.id\)\)/,
+  );
+});
+
+
+test("Browser Run acquisition backpressure converts temporary 429s into waits", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+
+  assert.match(background, /BROWSER\?\.limits/);
+  assert.match(background, /allowedBrowserAcquisitions/);
+  assert.match(background, /maxConcurrentSessions/);
+  assert.match(background, /timeUntilNextAllowedBrowserAcquisition/);
+  assert.match(background, /waitForBrowserRunCapacity\(/);
+  assert.match(background, /wait for Browser Run capacity chunk/);
+  assert.match(background, /launchBrowserWithRateLimitRecovery\(/);
+  assert.match(background, /attempt <= 3/);
+  assert.match(background, /fallbackMs = 25_000/);
+  assert.match(
+    background,
+    /Cloudflare Browser Run rate-limited browser startup · retrying in/,
+  );
+  assert.match(
+    background,
+    /browser time limit exceeded for today/i,
+  );
+  assert.match(
+    background,
+    /Workers Free, Browser Run is limited to 10 browser minutes per UTC day/,
+  );
+  assert.doesNotMatch(
+    background,
+    /const browser = await launch\(env\.BROWSER, \{ keep_alive: 600_000 \}\);/,
+  );
+  assert.equal(
+    (background.match(/return await launch\(env\.BROWSER, \{ keep_alive: 600_000 \}\)/g) || [])
+      .length,
+    1,
+    "all Browser Run launches should go through the rate-limit recovery helper",
   );
 });
