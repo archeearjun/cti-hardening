@@ -22,7 +22,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Owner report text | `src/reporting/` | `npm run test:engine` |
 | Source ZIP, XML, QTI and PDF scanning | `src/source/`, `src/domain/package-scan.ts` | `npm run test:browser:package` |
 | Workbook/Macmillan checks | `src/engine/workbook/`, `src/adapters/workbook.ts` | `npm run test:engine` |
-| Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |
+| Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |\n| Background Coursera browser jobs and strict completion gate | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` | `tests/coursera-background-extraction.test.mjs`; `npm run worker:check` |
 
 For example, a source navigation fix can change `source-navigation.ts` and its
 focused test. It does not change any extractor, engine bundle, or Apps Script file.
@@ -59,6 +59,25 @@ platform directory. This bundling is only for console delivery, not the app engi
 Generated console scripts and delivery strings live under ignored `src/generated/`.
 Do not paste encoded strings or generated scripts back into source control. Run
 `npm run generate` after changing extractor modules, including during `npm run dev`.
+
+## Background browser extraction
+
+The normal Pages application remains the control plane. Background Coursera
+capture is a separate service-bound Worker because Browser Run and durable
+Workflows are Worker capabilities, not a reason to expose course records or LMS
+credentials from the Pages app.
+
+The Pages API authenticates the CTI user first and forwards only the verified
+email/role to the Worker. Coursera login occurs in a temporary remote Live View;
+encrypted Playwright storage state is scoped to that CTI identity. The Worker
+stores large raw captures in R2 and the domain-level strict verifier independently
+decides whether a job may be labelled COMPLETE.
+
+Do not weaken the strict verifier to make a job green. Improve the maintained
+Coursera extractor until its evidence satisfies the completion contract. Run
+npm run worker:check in addition to the normal app tests when editing this
+boundary. Deployment and security details are in
+docs/background-coursera-extraction.md.
 
 ## Regression and publishing
 
