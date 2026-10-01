@@ -58,9 +58,7 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       // Preserve them on import, but validate every other supplied field. New
       // CTI course creation still requires a partner in the active UI.
       validateCourseMetadata({
-        partner:
-          record.data.partner ||
-          (record.data.legacyTimestamp ? "Legacy unassigned" : ""),
+        partner: record.data.partner || "Legacy unassigned",
         owner: record.data.owner,
         status: record.data.status,
         assignedDate: record.data.assignedDate,
