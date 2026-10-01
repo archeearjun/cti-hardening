@@ -1,5 +1,5 @@
-import type { BookData } from "../adapters/workbook.ts";
-import type { PackageScan } from "./package-types.ts";
+import type { BookData, Cell } from "../adapters/workbook.ts";
+import type { PackageNode, PackageScan } from "./package-types.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
 
 export const COURSE_STATUSES = [
@@ -361,7 +361,7 @@ export function sourceManifestRows(scan: PackageScan): Array<Array<string | numb
   const rows: Array<Array<string | number>> = [
     ["Level", "Name", "Assignment_Tool", "System Format", "Ingestion Status"],
   ];
-  const walk = (nodes: any[], level: number) => {
+  const walk = (nodes: PackageNode[], level: number) => {
     for (const node of nodes || []) {
       const type = String(node?.type || "unknown");
       rows.push([
@@ -375,7 +375,7 @@ export function sourceManifestRows(scan: PackageScan): Array<Array<string | numb
         walk(node.children, level + 1);
     }
   };
-  walk(scan.courseTree as any[], 1);
+  walk(scan.courseTree, 1);
   return rows;
 }
 
@@ -404,12 +404,12 @@ export function deepArchitectureDiagnostics(scan: PackageScan): ArchitectureDiag
   const topLevelModules: Array<{ title: string; descendants: number }> = [];
   let nodeCount = 0;
   let maxDepth = 0;
-  const descendants = (node: any): number =>
-    (node?.children || []).reduce(
-      (sum: number, child: any) => sum + 1 + descendants(child),
+  const descendants = (node: PackageNode): number =>
+    node.children.reduce(
+      (sum, child) => sum + 1 + descendants(child),
       0,
     );
-  const walk = (nodes: any[], depth: number) => {
+  const walk = (nodes: PackageNode[], depth: number) => {
     maxDepth = Math.max(maxDepth, depth);
     for (const node of nodes || []) {
       nodeCount++;
@@ -428,7 +428,7 @@ export function deepArchitectureDiagnostics(scan: PackageScan): ArchitectureDiag
       walk(node?.children || [], depth + 1);
     }
   };
-  walk(scan.courseTree as any[], 1);
+  walk(scan.courseTree, 1);
   return {
     nodeCount,
     maxDepth,
@@ -497,17 +497,21 @@ const WORK_ALLOWED = {
   contentMap: ["NOT_STARTED", "IN_PROGRESS", "DONE", "BLOCKED"],
 } as const;
 
-export function normalizeWorkState(value: any): WorkState {
+export function normalizeWorkState(value: unknown): WorkState {
   const base = defaultWorkState();
-  const out: any = { ...base };
+  const source =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const out: WorkState = { ...base };
   for (const field of Object.keys(WORK_ALLOWED) as Array<keyof typeof WORK_ALLOWED>) {
-    const candidate = String(value?.[field] || base[field]);
+    const candidate = String(source[field] || base[field]);
     if (!(WORK_ALLOWED[field] as readonly string[]).includes(candidate))
       throw new Error("Invalid work-state value for " + field + ".");
-    out[field] = candidate;
+    (out as unknown as Record<string, string>)[field] = candidate;
   }
-  out.notes = String(value?.notes || "").slice(0, 4000);
-  return out as WorkState;
+  out.notes = String(source.notes || "").slice(0, 4000);
+  return out;
 }
 
 export interface WorkNextAction {
@@ -529,7 +533,7 @@ export interface WorkItemContext {
   plannerCategories?: string[];
 }
 
-export function nextWorkAction(item: WorkItemContext, stateValue: any): WorkNextAction {
+export function nextWorkAction(item: WorkItemContext, stateValue: unknown): WorkNextAction {
   const state = normalizeWorkState(stateValue);
   if (state.scope === "EXCLUDED")
     return { code: "EXCLUDED", label: "Excluded from this redo campaign", tone: "muted" };
@@ -618,10 +622,10 @@ function headerIndex(headers: unknown[], names: string[]): number {
   return -1;
 }
 
-function firstSheet(book: BookData): any[][] {
+function firstSheet(book: BookData): Cell[][] {
   const name = Object.keys(book.sheets)[0];
   if (!name) throw new Error("Workbook has no sheets.");
-  return book.sheets[name].values as any[][];
+  return book.sheets[name].values;
 }
 
 export interface CatalogRow {
@@ -868,9 +872,34 @@ export function systemHealth(records: WorkspaceRecord[]): SystemHealth {
   return { status: failed ? "FAIL" : warned ? "WARN" : "PASS", checks };
 }
 
-export function partnerAnalytics(records: WorkspaceRecord[]) {
+export interface PartnerMetrics {
+  packageCount: number;
+  totalModules: number;
+  totalWebContent: number;
+  totalAssessments: number;
+  totalDiscussions: number;
+  totalWebLinks: number;
+  totalLtiRisk: number;
+  totalUnknown: number;
+  totalEmpty: number;
+  totalIFS: number;
+  avgIFS: number;
+}
+
+export interface PartnerAnalytics {
+  partners: Record<string, PartnerMetrics>;
+  owners: string[];
+  totalPackages: number;
+  duplicateSummary: {
+    groupCount: number;
+    duplicateEntryCount: number;
+    safeGroupCount: number;
+  };
+}
+
+export function partnerAnalytics(records: WorkspaceRecord[]): PartnerAnalytics {
   const duplicatePlan = buildDuplicatePlan(records);
-  const partners: Record<string, any> = {};
+  const partners: Record<string, PartnerMetrics> = {};
   const owners = new Set<string>();
   for (const record of records) {
     if (record.kind !== "package" || record.data.archived === true) continue;
@@ -903,13 +932,15 @@ export function partnerAnalytics(records: WorkspaceRecord[]) {
     target.totalIFS += Number(stats.ifs || 0);
     if (record.data.owner) owners.add(String(record.data.owner));
   }
-  for (const value of Object.values(partners) as any[])
-    value.avgIFS = value.packageCount ? Math.round(value.totalIFS / value.packageCount) : 0;
+  for (const value of Object.values(partners))
+    value.avgIFS = value.packageCount
+      ? Math.round(value.totalIFS / value.packageCount)
+      : 0;
   return {
     partners,
     owners: [...owners].sort(),
     totalPackages: Object.values(partners).reduce(
-      (sum: number, value: any) => sum + value.packageCount,
+      (sum, value) => sum + value.packageCount,
       0,
     ),
     duplicateSummary: {
@@ -976,7 +1007,7 @@ export function repeatedExportRepairCandidates(
     const priorItems = previous.data.result?.itemResults;
     const currentItems = current.data.result?.itemResults;
     if (!Array.isArray(priorItems) || !Array.isArray(currentItems)) continue;
-    const signature = (items: any[]) =>
+    const signature = (items: EvidenceObject[]) =>
       JSON.stringify(
         items.map((item) => [
           item.sourceId || item.sourceName,
