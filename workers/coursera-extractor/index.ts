@@ -934,14 +934,29 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
         payload.kind === "connect"
           ? "connect Coursera session"
           : "extract Coursera shell",
-        {
-          retries:
-            payload.kind === "connect"
-              ? { limit: 0, delay: "1 second" }
-              : { limit: 1, delay: "10 seconds" },
-          timeout:
-            payload.kind === "connect" ? "20 minutes" : "2 hours 10 minutes",
-        },
+        payload.kind === "connect"
+          ? {
+              retries: {
+                limit: 0,
+                delay: "1 second",
+                backoff: "constant",
+              },
+              timeout: "20 minutes",
+            }
+          : {
+              retries: {
+                // Cloudflare limits each step.do attempt to 30 minutes.
+                // Re-running the same deterministic extraction step is safe:
+                // runExtraction persists browser storage + IndexedDB item
+                // checkpoints to R2 every ~30 seconds and restores them on
+                // the next attempt, so long courses continue instead of
+                // restarting from zero.
+                limit: 4,
+                delay: "10 seconds",
+                backoff: "constant",
+              },
+              timeout: "30 minutes",
+            },
         async () => {
           if (payload.kind === "connect") await runConnection(this.env, payload);
           else await runExtraction(this.env, payload);
