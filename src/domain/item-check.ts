@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.14.7" ||
-    delivery.buildId !== "v6.14.7-plugin-readiness-20260929"
+    delivery.version !== "v6.15.4" ||
+    delivery.buildId !== "v6.15.4-empty-reading-visibility-20261001"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",
@@ -176,7 +176,7 @@ export function buildItemCheckScript(
   const candidates = fresh.filter(fp => String(fp.id) === expected.itemId);
   if(candidates.length !== 1) throw Error('The exact item could not be uniquely identified in the current course. No substitute item was used.');
   const fp = candidates[0];
-  const crawl = await activeSpaCrawl([fp],id,{onlyIds:[expected.itemId],maxItems:1,budgetMs:180000,readingRouteTemplate:readingRouteTemplateV61312(id)});
+  const crawl = await activeSpaCrawl([fp],id,{onlyIds:[expected.itemId],maxItems:1,budgetMs:960000,readingRouteTemplate:readingRouteTemplateV61312(id)});
   finalizeCapturedTextV61318(fp.payload);
   attachQuestionFailureEvidenceV61318(fp.payload);
   const diag = (crawl.targetDiagnostics || []).find(d => String(d.id) === expected.itemId);
