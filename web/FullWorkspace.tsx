@@ -937,6 +937,86 @@ export default function FullWorkspace({
                     Save course details
                   </button>
                 </fieldset>
+                <details className="section-divider">
+                  <summary>External SCORM / Rise runtime inventory</summary>
+                  <p className="hint">
+                    Import the portable runtime-inventory JSON when source
+                    interactivity is known outside the IMSCC. CTI keeps this
+                    evidence separate from structural extraction and will require
+                    manual launch review when flagged.
+                  </p>
+                  {course.data.externalRuntimeEvidence ? (
+                    <div className="scope">
+                      <strong>
+                        {course.data.externalRuntimeEvidence.riseCount || 0} Rise ·{" "}
+                        {course.data.externalRuntimeEvidence.storylineCount || 0} Storyline
+                      </strong>
+                      <p>
+                        {course.data.externalRuntimeEvidence.source ||
+                          "Imported runtime inventory"}
+                        {course.data.externalRuntimeEvidence.capturedAt
+                          ? " · " +
+                            dateLabel(
+                              course.data.externalRuntimeEvidence.capturedAt,
+                            )
+                          : ""}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="empty-state">
+                      No external runtime inventory is attached to this course.
+                    </p>
+                  )}
+                  <label>
+                    Runtime inventory JSON
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      disabled={!editable || !!busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        void act("Importing runtime inventory", async () => {
+                          const evidence =
+                            await readExternalRuntimeEvidenceFile(file);
+                          const saved = await store!.save({
+                            ...course,
+                            data: {
+                              ...course.data,
+                              externalRuntimeEvidence: evidence,
+                            },
+                          });
+                          setCourse(saved);
+                          await refresh();
+                          setNotice(
+                            "External runtime inventory saved. Future comparisons will retain its manual-launch review requirement.",
+                          );
+                        });
+                      }}
+                    />
+                  </label>
+                  {course.data.externalRuntimeEvidence && (
+                    <button
+                      className="secondary"
+                      disabled={!editable || !!busy}
+                      onClick={() =>
+                        void act("Clearing runtime inventory", async () => {
+                          const data = { ...course.data };
+                          delete data.externalRuntimeEvidence;
+                          const saved = await store!.save({ ...course, data });
+                          setCourse(saved);
+                          await refresh();
+                          setNotice(
+                            "External runtime inventory cleared. Previous record versions remain recoverable.",
+                          );
+                        })
+                      }
+                    >
+                      Clear current runtime inventory
+                    </button>
+                  )}
+                </details>
                 <button className="secondary" onClick={() => setTab("Explore")}>
                   Explore saved source structure
                 </button>
@@ -1780,6 +1860,99 @@ export default function FullWorkspace({
             >
               Analyse saved courses
             </button>
+            {portfolio?.partnerTotals?.length > 0 && (
+              <>
+                <h3>Partner totals</h3>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Partner</th>
+                        <th>Courses</th>
+                        <th>Source items</th>
+                        <th>IFS</th>
+                        <th>Estimated hours</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {portfolio.partnerTotals.map((row: EvidenceObject) => (
+                        <tr key={row.name}>
+                          <td>{row.name}</td>
+                          <td>{row.courses}</td>
+                          <td>{row.totalItems}</td>
+                          <td>{Number(row.totalIfs || 0).toFixed(1)}</td>
+                          <td>{Number(row.estimatedHours || 0).toFixed(1)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {!!portfolio?.duplicates?.length && (
+              <div className="migration-issues">
+                <h3>Duplicate source-course identities</h3>
+                <p>
+                  These active records share the same partner and normalized
+                  package identity. Choose the record to keep. CTI retains the
+                  newest source scan on that survivor and archives the others;
+                  their historical records remain recoverable.
+                </p>
+                {portfolio.duplicates.map((group: EvidenceObject) => (
+                  <div className="duplicate-resolution" key={group.identityKey}>
+                    <code>{group.identityKey}</code>
+                    <div className="action-links">
+                      {group.courses.map((candidate: EvidenceObject) => (
+                        <button
+                          className="secondary"
+                          key={candidate.id}
+                          disabled={!editable || !!busy}
+                          onClick={() =>
+                            void act(
+                              "Reconciling duplicate source courses",
+                              async () => {
+                                const fullGroup = await Promise.all(
+                                  group.courses.map((entry: EvidenceObject) =>
+                                    store!.get(entry.id),
+                                  ),
+                                );
+                                const plan = planDuplicateResolution(
+                                  fullGroup,
+                                  candidate.id,
+                                );
+                                try {
+                                  await store!.save(plan.survivor);
+                                  for (const archived of plan.archived)
+                                    await store!.save(archived);
+                                } catch (error) {
+                                  await refresh();
+                                  throw error;
+                                }
+                                await refresh();
+                                setPortfolio(null);
+                                if (
+                                  plan.archived.some(
+                                    (record) => record.id === courseId,
+                                  )
+                                ) {
+                                  setCourseId(candidate.id);
+                                  setCourse(await store!.get(candidate.id));
+                                }
+                                setNotice(
+                                  "Duplicate records archived recoverably. Re-run portfolio analytics to confirm the group is resolved.",
+                                );
+                              },
+                            )
+                          }
+                        >
+                          Keep {candidate.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {portfolio?.profiles && (
               <div className="table-wrap">
                 <table>
@@ -1881,6 +2054,75 @@ export default function FullWorkspace({
               settings. An unconfigured service refuses access; it does not
               expose course records publicly.
             </p>
+            <div
+              className={
+                systemHealth.status === "HEALTHY"
+                  ? "success-notice"
+                  : systemHealth.status === "ERROR"
+                    ? "error"
+                    : "migration-issues"
+              }
+              role="status"
+            >
+              <strong>System health · {systemHealth.status}</strong>
+              <p>
+                {systemHealth.counts.records} records ·{" "}
+                {systemHealth.counts.errors} error(s) ·{" "}
+                {systemHealth.counts.warnings} warning(s)
+              </p>
+              {!!systemHealth.findings.length && (
+                <ul>
+                  {systemHealth.findings.slice(0, 30).map((finding) => (
+                    <li key={finding.code + finding.detail}>
+                      <strong>{finding.code}</strong>: {finding.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                className="secondary"
+                onClick={() =>
+                  download(
+                    "CTI_system_health.json",
+                    json(systemHealth),
+                  )
+                }
+              >
+                Download health report
+              </button>
+            </div>
+            {!!archivedCourses.length && (
+              <details className="section-divider">
+                <summary>
+                  Recoverable archived source courses ({archivedCourses.length})
+                </summary>
+                <p className="hint">
+                  Duplicate cleanup never destroys these records. Restoring one
+                  may intentionally recreate a duplicate group, which System
+                  Health will flag for review.
+                </p>
+                {archivedCourses.map((record) => (
+                  <p key={record.id}>
+                    <strong>{record.title}</strong>{" "}
+                    <button
+                      className="secondary"
+                      disabled={!editable || !!busy}
+                      onClick={() =>
+                        void act("Restoring archived source course", async () => {
+                          const full = await store!.get(record.id);
+                          await store!.save(restoreArchivedPackage(full));
+                          await refresh();
+                          setPortfolio(null);
+                          setNotice("Archived source course restored.");
+                        })
+                      }
+                    >
+                      Restore
+                    </button>
+                  </p>
+                ))}
+              </details>
+            )}
             <div className="workspace-tabs">
               <button
                 className="primary"
