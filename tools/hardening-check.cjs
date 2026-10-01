@@ -62,7 +62,7 @@ function hashFixture(options={}){
   const functions=[...html.matchAll(/^ function (\w+)\(/gm)];const hit=functions.findIndex((x,i)=>html.slice(x.index,functions[i+1]?.index).includes('The reading check and deployed extractor do not match'));
   assert(hit>=0);const f=functions[hit],context={};vm.createContext(context);vm.runInContext(html.slice(f.index,functions[hit+1].index),context);
   const delivery=c.ctiExtractorDelivery_('coursera'),script=context[f[1]](delivery);
-  new vm.Script(script);assert(script.includes("version:'v6.14.7'"));assert(script.includes('SINGLE_READING_CHECK_NOT_A_FULL_COURSE_CAPTURE'));
+  new vm.Script(script);assert(script.includes("version:'"+delivery.version+"'"));assert(script.includes('SINGLE_READING_CHECK_NOT_A_FULL_COURSE_CAPTURE'));
  });
  const hash='a'.repeat(64),clean=()=>({verdict:'VERIFIED',issues:[],checks:{structure:{status:'VERIFIED'}}});
  await test('Missing asset/link checks cannot default to verified',()=>{for(const source of [{type:'Reading',assetDetails:[{name:'x.pdf',sha256:hash}]},{type:'Reading',links:[{raw:'https://example.test'}]}]){const r=c.qaApplyDimensionalVerdictGateV8_(source,{},clean());assert.equal(r.verdict,'UNVERIFIED');}});
