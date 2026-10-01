@@ -42,6 +42,7 @@ export interface CourseraExtractionStatus {
   ownerHash?: string;
   liveViewUrl?: string;
   artifactAvailable?: boolean;
+  artifactName?: string;
   capture?: CourseraCaptureVerdict;
   error?: string;
 }
