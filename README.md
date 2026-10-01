@@ -100,12 +100,13 @@ not generate partner content maps or specialization outlines.
 Coursera extraction is **v6.15.4/schema 35** and Brightspace remains
 **v1.0.8/schema 2**. Coursera v6.15.4 adds explicit no-silent-miss accounting,
 bounded slow-item waits, two-attempt recovery, strict assessment/plugin/empty-reading
-contracts and checkpointable browser traversal. In the normal CTI workflow,
-Coursera capture is started from **Full CTI workspace → Extract** and runs in the
-authenticated background browser service; operators are not expected to copy a
-console script. The generated standalone bundle remains an internal delivery/test
-artifact and supports maintained targeted-check code. Comparisons/workbook checks
-run in cancellable workers.
+contracts and checkpointable browser traversal. The zero-cost normal workflow is
+**Full CTI workspace → Extract → local Chrome**: run the current generated bundle
+inside the signed-in Coursera authoring tab, then return the downloaded JSON to CTI.
+CTI applies the same strict completion verifier locally before loading the capture
+into Compare. The Cloudflare Browser Run path remains optional for deployments
+that intentionally provision enough remote-browser quota; it is not required for
+the normal workflow. Comparisons/workbook checks run in cancellable workers.
 
 Package inspection is bounded to 250 MiB archives and a 24 MiB content-read budget;
 XLSX inspection to 25 MiB and two million cells; shared records to 32 MiB.
