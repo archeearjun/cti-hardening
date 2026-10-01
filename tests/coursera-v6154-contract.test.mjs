@@ -167,3 +167,50 @@ test("final accounting cannot claim complete with any explicit unresolved item",
   assert.equal(accounting.noSilentMisses, true);
   assert.equal(accounting.complete, false);
 });
+
+
+test("Playwright-observed external plugin body can satisfy the plugin body contract", () => {
+  const fp = {
+    id: "plugin-background",
+    type: "Plugin",
+    payload: {
+      pluginEvidence: {
+        targets: [{ url: "https://video.example.test/watch/abc" }],
+        frames: [
+          {
+            src: "https://video.example.test/embed/abc",
+            access: "CROSS_ORIGIN_UNREADABLE",
+            surfaceStatus: "NOT_OBSERVED",
+          },
+        ],
+        backgroundFrames: [
+          {
+            itemId: "plugin-background",
+            safeUrl: "https://video.example.test/embed/abc",
+            hostname: "video.example.test",
+            readyState: "complete",
+            status: "CONTENT_OBSERVED",
+            textSample: "Verified external player title and transcript text.",
+            observedTextLength: 51,
+            textTruncated: false,
+            links: [],
+            media: [{ tag: "video", src: "", poster: "", duration: 120, trackCount: 1 }],
+          },
+        ],
+        externalBodyVerified: true,
+        readiness: {
+          pending: false,
+          status: "BACKGROUND_FRAME_CONTENT_OBSERVED",
+          readableFrames: 1,
+          unreadableFrames: 0,
+          interactionVerified: false,
+        },
+      },
+    },
+  };
+  const contract = captureContractV6150(fp);
+  assert.equal(contract.complete, true);
+  assert.equal(contract.accounted, true);
+  assert.equal(contract.status, "COMPLETE_PLUGIN");
+  assert.equal(contract.externalBodyVerified, true);
+});
