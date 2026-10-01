@@ -169,7 +169,7 @@ test("final accounting cannot claim complete with any explicit unresolved item",
 });
 
 
-test("Playwright-observed external plugin body can satisfy the plugin body contract", () => {
+test("Playwright-observed external plugin body improves evidence but stays fail-closed without scope proof", () => {
   const fp = {
     id: "plugin-background",
     type: "Plugin",
@@ -190,14 +190,21 @@ test("Playwright-observed external plugin body can satisfy the plugin body contr
             hostname: "video.example.test",
             readyState: "complete",
             status: "CONTENT_OBSERVED",
-            textSample: "Verified external player title and transcript text.",
-            observedTextLength: 51,
+            textSample: "Observed external player title and transcript text.",
+            observedTextLength: 50,
             textTruncated: false,
             links: [],
             media: [{ tag: "video", src: "", poster: "", duration: 120, trackCount: 1 }],
           },
         ],
         externalBodyVerified: true,
+        backgroundCapture: {
+          method: "PLAYWRIGHT_CROSS_ORIGIN_FRAME",
+          observedFrames: 1,
+          verifiedFrames: 1,
+          interactionVerified: false,
+          scopeComplete: false,
+        },
         readiness: {
           pending: false,
           status: "BACKGROUND_FRAME_CONTENT_OBSERVED",
@@ -209,8 +216,9 @@ test("Playwright-observed external plugin body can satisfy the plugin body contr
     },
   };
   const contract = captureContractV6150(fp);
-  assert.equal(contract.complete, true);
+  assert.equal(contract.complete, false);
   assert.equal(contract.accounted, true);
-  assert.equal(contract.status, "COMPLETE_PLUGIN");
+  assert.equal(contract.status, "ACCOUNTED_EXTERNAL_BODY_OBSERVED");
   assert.equal(contract.externalBodyVerified, true);
+  assert(contract.reasons.includes("EXTERNAL_PLUGIN_SCOPE_NOT_VERIFIED"));
 });
