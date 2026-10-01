@@ -1,5 +1,4 @@
 import {
-  getExtractor,
   MAX_CAPTURE_BYTES,
   reviewCapture,
 } from "../domain/capture-review.ts";
@@ -12,14 +11,6 @@ const scope = self as unknown as {
 scope.onmessage = async ({ data }) => {
   const post = (message: WorkerResponse) => scope.postMessage(message);
   try {
-    if (data.kind === "extractor") {
-      post({
-        id: data.id,
-        kind: "extractor",
-        result: getExtractor(data.platform),
-      });
-      return;
-    }
     if (data.file.size > MAX_CAPTURE_BYTES)
       throw new Error(
         "This preview accepts capture JSON files up to 40 MiB. Keep larger files in the existing CTI workflow.",
