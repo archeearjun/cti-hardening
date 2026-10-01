@@ -107,23 +107,41 @@ test("all retained effective rules and used base definitions match Code.gs; deli
       );
   }
   for (const row of ledger.constants.filter((r) =>
-    ["preserved", "reference-metadata"].includes(r.status),
-  ))
-    assert.equal(
-      tokens(code.currentConstants.get(row.name).node.initializer),
-      tokens(code.constants.get(row.name).initializer),
-      `Constant changed: ${row.name}`,
-    );
+    ["preserved", "reference-metadata", "adapted-metadata"].includes(r.status),
+  )) {
+    const current = code.currentConstants.get(row.name);
+    const archived = code.constants.get(row.name);
+    assert(current && archived, `Missing audited constant: ${row.name}`);
+    if (row.status === "adapted-metadata") {
+      assert.equal(
+        digest(tokens(archived.initializer)),
+        row.archivedHash,
+        `Archived metadata baseline changed: ${row.name}`,
+      );
+      assert.equal(
+        digest(tokens(current.node.initializer)),
+        row.reviewedCurrentHash,
+        `Reviewed metadata changed: ${row.name}`,
+      );
+    } else
+      assert.equal(
+        tokens(current.node.initializer),
+        tokens(archived.initializer),
+        `Constant changed: ${row.name}`,
+      );
+  }
 });
 
 for (const platform of ["coursera", "brightspace"])
-  test(`${platform}: every helper, relocated constant and remaining execution statement matches the archived extractor`, () => {
+  test(`${platform}: archived extractor parity or reviewed change manifest is exact`, () => {
     const title = platform[0].toUpperCase() + platform.slice(1);
     const moved =
       platform === "coursera"
         ? parse(
             fs.readFileSync("src/extractors/coursera/config.js", "utf8"),
-          ).statements.map((n) => n.declarationList.declarations[0].name.text)
+          ).statements
+            .flatMap((n) => n.declarationList?.declarations || [])
+            .map((n) => n.name.text)
         : [];
     const a = extractorParts(
       original[`ctiCanonical${title}ExtractorSource_`](),
@@ -133,15 +151,102 @@ for (const platform of ["coursera", "brightspace"])
       bundleConsole(path.resolve(`src/extractors/${platform}/entry.js`)),
       moved,
     );
-    assert.deepEqual(sorted(b.functions.keys()), sorted(a.functions.keys()));
-    for (const [name, text] of a.functions)
+    const review = ledger.extractorReviews?.[platform];
+    if (!review) {
+      assert.deepEqual(sorted(b.functions.keys()), sorted(a.functions.keys()));
+      for (const [name, text] of a.functions)
+        assert.equal(
+          b.functions.get(name),
+          text,
+          `${platform} helper changed: ${name}`,
+        );
+      assert.deepEqual([...b.constants].sort(), [...a.constants].sort());
+      assert.equal(b.entry, a.entry, `${platform} execution code changed`);
+      return;
+    }
+
+    const changed = new Map(review.changed.map((row) => [row.name, row]));
+    const added = new Map(review.added.map((row) => [row.name, row]));
+    const removed = new Map(review.removed.map((row) => [row.name, row]));
+    const expectedFunctions = new Set(a.functions.keys());
+    for (const name of removed.keys()) expectedFunctions.delete(name);
+    for (const name of added.keys()) expectedFunctions.add(name);
+    assert.deepEqual(sorted(b.functions.keys()), sorted(expectedFunctions));
+
+    for (const [name, text] of a.functions) {
+      const row = changed.get(name);
+      if (row) {
+        assert.equal(
+          digest(text),
+          row.archivedHash,
+          `${platform} archived helper baseline changed: ${name}`,
+        );
+        assert.equal(
+          digest(b.functions.get(name)),
+          row.reviewedCurrentHash,
+          `${platform} reviewed helper changed: ${name}`,
+        );
+      } else if (removed.has(name)) {
+        assert.equal(
+          digest(text),
+          removed.get(name).archivedHash,
+          `${platform} removed helper baseline changed: ${name}`,
+        );
+        assert.equal(b.functions.has(name), false);
+      } else
+        assert.equal(
+          b.functions.get(name),
+          text,
+          `${platform} unreviewed helper changed: ${name}`,
+        );
+    }
+    for (const [name, row] of added) {
+      assert.equal(a.functions.has(name), false);
       assert.equal(
-        b.functions.get(name),
-        text,
-        `${platform} helper changed: ${name}`,
+        digest(b.functions.get(name)),
+        row.reviewedCurrentHash,
+        `${platform} reviewed added helper changed: ${name}`,
       );
-    assert.deepEqual([...b.constants].sort(), [...a.constants].sort());
-    assert.equal(b.entry, a.entry, `${platform} execution code changed`);
+    }
+
+    const constantReview = new Map(review.constants.map((row) => [row.name, row]));
+    const expectedConstants = new Set(a.constants.keys());
+    for (const row of review.constants) {
+      if (row.status === "added") expectedConstants.add(row.name);
+      if (row.status === "removed") expectedConstants.delete(row.name);
+    }
+    assert.deepEqual(sorted(b.constants.keys()), sorted(expectedConstants));
+    for (const [name, text] of a.constants) {
+      const row = constantReview.get(name);
+      if (!row)
+        assert.equal(
+          b.constants.get(name),
+          text,
+          `${platform} unreviewed relocated constant changed: ${name}`,
+        );
+      else if (row.status === "changed") {
+        assert.equal(digest(text), row.archivedHash);
+        assert.equal(digest(b.constants.get(name)), row.reviewedCurrentHash);
+      } else if (row.status === "removed") {
+        assert.equal(digest(text), row.archivedHash);
+        assert.equal(b.constants.has(name), false);
+      }
+    }
+    for (const row of review.constants.filter((row) => row.status === "added")) {
+      assert.equal(a.constants.has(row.name), false);
+      assert.equal(
+        digest(b.constants.get(row.name)),
+        row.reviewedCurrentHash,
+        `${platform} reviewed added constant changed: ${row.name}`,
+      );
+    }
+
+    assert.equal(digest(a.entry), review.entry.archivedHash);
+    assert.equal(
+      digest(b.entry),
+      review.entry.reviewedCurrentHash,
+      `${platform} reviewed execution code changed`,
+    );
   });
 
 test("source scanning and owner reporting retain every migrated Index.html function with reviewed host adaptations", () => {
