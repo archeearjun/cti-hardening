@@ -1875,7 +1875,7 @@ export default function FullWorkspace({
                       </tr>
                     </thead>
                     <tbody>
-                      {portfolio.partnerTotals.map((row: EvidenceObject) => (
+                      {portfolio?.partnerTotals.map((row: EvidenceObject) => (
                         <tr key={row.name}>
                           <td>{row.name}</td>
                           <td>{row.courses}</td>
@@ -1898,7 +1898,7 @@ export default function FullWorkspace({
                   newest source scan on that survivor and archives the others;
                   their historical records remain recoverable.
                 </p>
-                {portfolio.duplicates.map((group: EvidenceObject) => (
+                {portfolio?.duplicates.map((group: EvidenceObject) => (
                   <div className="duplicate-resolution" key={group.identityKey}>
                     <code>{group.identityKey}</code>
                     <div className="action-links">
