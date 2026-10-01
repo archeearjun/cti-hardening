@@ -9,7 +9,8 @@ export type RecordKind =
   | "workbook"
   | "checklist"
   | "item-review"
-  | "legacy-backup";
+  | "legacy-backup"
+  | "operations";
 export interface WorkspaceRecord {
   id: string;
   kind: RecordKind;
