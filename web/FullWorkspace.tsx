@@ -806,11 +806,28 @@ export default function FullWorkspace({
                       </select>
                     </label>
                     <label>
+                      Assigned date
+                      <input
+                        type="date"
+                        value={assignedDate.slice(0, 10)}
+                        onChange={(e) => setAssignedDate(e.target.value)}
+                      />
+                    </label>
+                    <label>
                       Deadline
                       <input
                         type="date"
                         value={deadline.slice(0, 10)}
                         onChange={(e) => setDeadline(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Drive / Docs link
+                      <input
+                        type="url"
+                        value={driveLink}
+                        placeholder="https://drive.google.com/..."
+                        onChange={(e) => setDriveLink(e.target.value)}
                       />
                     </label>
                   </div>
@@ -819,20 +836,30 @@ export default function FullWorkspace({
                     disabled={!editable || !!busy}
                     onClick={() =>
                       void act("Saving metadata", async () => {
-                        setCourse(
-                          await store!.save({
-                            ...course,
-                            data: {
-                              ...course.data,
-                              partner,
-                              owner,
-                              status,
-                              deadline,
-                            },
-                          }),
-                        );
+                        const metadata = validateCourseMetadata({
+                          partner,
+                          owner,
+                          status,
+                          assignedDate,
+                          deadline,
+                          driveLink,
+                        });
+                        const saved = await store!.save({
+                          ...course,
+                          data: {
+                            ...course.data,
+                            ...metadata,
+                          },
+                        });
+                        setCourse(saved);
+                        setPartner(saved.data.partner || "");
+                        setOwner(saved.data.owner || "");
+                        setStatus(saved.data.status || "In Queue");
+                        setAssignedDate(saved.data.assignedDate || "");
+                        setDeadline(saved.data.deadline || "");
+                        setDriveLink(saved.data.driveLink || "");
                         await refresh();
-                        setNotice("Course details saved.");
+                        setNotice("Course details saved and validated.");
                       })
                     }
                   >
@@ -1322,7 +1349,7 @@ export default function FullWorkspace({
                 setExtractionPrefill(url || "");
                 setTab("Extract");
                 setNotice(
-                  "Background extraction opened for this Coursera shell. Run it here; no console script is needed.",
+                  "Local Coursera extraction opened for this shell. Use the current extractor in your signed-in Chrome tab, then return its JSON here.",
                 );
               }}
             />
@@ -1622,6 +1649,30 @@ export default function FullWorkspace({
               </>
             )}
           </section>
+        )}
+        {tab === "Operations" && (
+          <OperationsWorkspace
+            store={store}
+            records={records}
+            course={course}
+            editable={editable}
+            disabled={!!busy}
+            onRefresh={() => refresh()}
+            onCourseUpdate={(next) => {
+              setCourse(next);
+              setCourseId(next?.id || "");
+              if (next) {
+                setPartner(next.data.partner || "");
+                setOwner(next.data.owner || "");
+                setStatus(next.data.status || "In Queue");
+                setAssignedDate(next.data.assignedDate || "");
+                setDeadline(next.data.deadline || "");
+                setDriveLink(next.data.driveLink || "");
+              }
+            }}
+            onNotice={setNotice}
+            onError={setError}
+          />
         )}
         {tab === "Setup" && (
           <section className="card">
