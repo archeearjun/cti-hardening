@@ -1972,6 +1972,10 @@ export default function FullWorkspace({
                               signal: controller.current?.signal,
                               onProgress: (message) =>
                                 setImportProgress(`${position}: ${message}`),
+                              // Migration/backup restore must preserve historical
+                              // duplicate rows so Operations can reconcile them
+                              // losslessly. Normal package writes never set this.
+                              allowSemanticDuplicate: true,
                             },
                           );
                           existing.add(r.id);
