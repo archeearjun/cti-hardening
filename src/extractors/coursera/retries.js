@@ -103,15 +103,18 @@ export function buildRetryPlan(primaryMeta, fingerprints) {
   for(const id of queueIds){
     const fp=byId.get(id);if(!fp)continue;
     const contract=contractFn(fp);
-    if(contract.complete || !contract.retryable || contract.attempts>=maxAttempts)continue;
     const d=diagById.get(id);
     let reasons=d?retryReasonsForDiagnostic(d):['not-attempted'];
+    const visitHadGap=reasons.length>0;
+    if(contract.complete && !visitHadGap)continue;
+    if(!contract.complete && (!contract.retryable || contract.attempts>=maxAttempts))continue;
     const decision=d?retryDecisionV61318(d,fp.payload || {},reasons):{retryReasons:reasons,deferredReasons:[],status:'',action:''};
     reasons=decision.retryReasons || [];
     if(decision.deferredReasons && decision.deferredReasons.length)primaryMeta.retryDeferredEvidence.push({id,
       reasons:decision.deferredReasons,status:decision.status,action:decision.action});
-    for(const reason of contract.reasons || [])if(!reasons.includes(reason))reasons.push(reason);
-    if(!reasons.length)reasons.push('CAPTURE_CONTRACT_INCOMPLETE');
+    if(!contract.complete)for(const reason of contract.reasons || [])if(!reasons.includes(reason))reasons.push(reason);
+    if(!reasons.length && !contract.complete)reasons.push('CAPTURE_CONTRACT_INCOMPLETE');
+    if(!reasons.length)continue;
     candidates.push({id,name:String(fp.name || ''),reasons,severity:d?Math.max(65,retrySeverity(reasons)):110,contract:contractSummaryFn(fp)});
   }
   candidates.sort((a,b)=>b.severity-a.severity);
