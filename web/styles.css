@@ -1669,3 +1669,79 @@ fieldset:disabled {
     overflow-wrap: anywhere;
   }
 }
+
+
+/* Zero-cost Coursera extraction: local Chrome is the primary runtime. */
+.local-extraction-stack {
+  display: grid;
+  gap: 18px;
+}
+.local-extraction-card {
+  border-color: #cfe1df !important;
+}
+.local-extraction-card > .section-heading {
+  align-items: flex-start;
+}
+.local-extraction-steps {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+  padding-left: 24px;
+}
+.local-extraction-steps li {
+  padding-left: 4px;
+  line-height: 1.5;
+}
+.local-extraction-steps strong,
+.local-extraction-steps span {
+  display: block;
+}
+.local-extraction-steps span {
+  color: #526a79;
+  font-size: 13px;
+  margin-top: 3px;
+}
+.extractor-source {
+  width: 100%;
+  min-height: 260px !important;
+  max-height: 52vh;
+  resize: vertical;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: auto;
+}
+.visually-hidden-file {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.local-extraction-card .file-picker:focus-within {
+  outline: 3px solid #5da3bf;
+  outline-offset: 3px;
+}
+.remote-extraction-advanced > summary {
+  cursor: pointer;
+  font-weight: 650;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+}
+.remote-extraction-advanced > summary .hint {
+  font-weight: 400;
+}
+@media (max-width: 600px) {
+  .local-extraction-card .action-links > *,
+  .remote-extraction-advanced .action-links > * {
+    width: 100%;
+  }
+  .local-extraction-steps {
+    padding-left: 20px;
+  }
+}

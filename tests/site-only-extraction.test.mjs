@@ -5,32 +5,33 @@ import fs from "node:fs";
 const read = (path) =>
   fs.readFileSync(new URL("../" + path, import.meta.url), "utf8");
 
-test("normal CTI operator flow has no manual extractor delivery path", () => {
+test("normal CTI operator flow defaults to current local Chrome extraction", () => {
   const app = read("web/App.tsx");
-  const workspace = read("web/FullWorkspace.tsx");
+  const workspace = read("web/CourseraExtractionWorkspace.tsx");
+  const local = read("web/LocalCourseraExtraction.tsx");
   const ownerAction = read("web/OwnerActionCard.tsx");
   const worker = read("src/worker/evidence.worker.ts");
   const types = read("src/domain/types.ts");
+  const delivery = read("src/engine/extractor-delivery.js");
 
-  for (const [name, source] of [
-    ["App", app],
-    ["FullWorkspace", workspace],
-    ["OwnerActionCard", ownerAction],
-  ]) {
-    assert.doesNotMatch(source, /Get extractor scripts/i, name);
-    assert.doesNotMatch(source, /Copy Script/i, name);
-    assert.doesNotMatch(source, /Download Script/i, name);
-    assert.doesNotMatch(source, /copyScript\s*\(/, name);
-    assert.doesNotMatch(source, /navigator\.clipboard\.writeText\([^)]*extractor/i, name);
-    assert.doesNotMatch(source, /browser console/i, name);
-    assert.doesNotMatch(source, /Download item script/i, name);
-    assert.doesNotMatch(source, /Copy this item.?s check/i, name);
-  }
+  assert.match(local, /ZERO-COST CAPTURE/);
+  assert.match(local, /Extract Coursera in your own Chrome/);
+  assert.match(local, /getExtractor\("coursera"\)/);
+  assert.match(local, /navigator\.clipboard\.writeText\(current\.script\)/);
+  assert.match(local, /inspectLocalCourseraCaptureFile/);
+  assert.match(local, /Use this capture in Compare/);
+  assert.match(workspace, /LocalCourseraExtraction/);
+  assert.match(workspace, /Optional remote background extraction/);
 
-  assert.match(ownerAction, /Open background extraction/);
-  assert.doesNotMatch(ownerAction, /buildItemCheckScript/);
-  assert.doesNotMatch(worker, /data\.kind\s*===\s*["']extractor["']/);
-  assert.doesNotMatch(types, /kind:\s*["']extractor["']/);
+  assert.match(app, /Get a current extractor/);
+  assert.match(app, /kind:\s*"extractor"/);
+  assert.match(worker, /data\.kind\s*===\s*["']extractor["']/);
+  assert.match(types, /kind:\s*["']extractor["']/);
+  assert.match(delivery, /ctiCanonicalCourseraExtractorSource_/);
+
+  assert.match(ownerAction, /buildItemCheckScript/);
+  assert.match(ownerAction, /Copy this item’s current check/);
+  assert.match(ownerAction, /Open full-course extraction/);
 });
 
 test("site background worker owns internal extractor injection", () => {
@@ -82,7 +83,7 @@ test("site can rediscover recent extraction jobs server-side", () => {
 });
 
 
-test("Coursera extraction is single-click and organization SSO is on-demand", () => {
+test("remote Coursera extraction remains optional and organization SSO is on-demand", () => {
   const background = read("workers/coursera-extractor/index.ts");
   const workspace = read("web/CourseraExtractionWorkspace.tsx");
 
@@ -102,10 +103,10 @@ test("Coursera extraction is single-click and organization SSO is on-demand", ()
     /context\.storageState\(\{ indexedDB: true \}\)/,
   );
 
-  assert.match(workspace, />\s*\{extractionActive \? "Extraction running…" : "Extract course"\}\s*</);
-  assert.doesNotMatch(workspace, />Connect Coursera</);
+  assert.match(workspace, /Optional remote background extraction/);
+  assert.match(workspace, /Start remote extraction/);
   assert.match(workspace, /Continue with Okta SSO/);
-  assert.match(workspace, /Okta only if needed/);
+  assert.doesNotMatch(workspace, />Connect Coursera</);
 });
 
 test("SSO automation never types credentials or submits forms", () => {

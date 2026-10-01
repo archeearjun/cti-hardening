@@ -1,9 +1,15 @@
-# Background Coursera extraction
+# Coursera extraction: local default and optional background mode
 
-The background extractor removes the normal DevTools/console step from Coursera
-capture. A signed-in CTI editor pastes a Coursera authoring-shell URL, CTI starts
-a durable Cloudflare Workflow, and a separate Worker controls Cloudflare Browser
-Run with Playwright.
+The zero-cost default runs the current Coursera extractor inside the operator's
+already authenticated Chrome authoring tab. The extractor keeps item checkpoints
+in local browser storage, downloads the raw JSON locally, and CTI applies the
+same strict completion verifier before the capture can be called COMPLETE or
+loaded into Compare.
+
+An optional background mode still starts a durable Cloudflare Workflow and uses
+a separate Worker with Browser Run/Playwright. That mode is preserved for
+deployments that intentionally provision enough remote-browser quota; it is not
+required for the normal Pages/shared-workspace workflow.
 
 This feature is deliberately fail-closed. A browser run producing JSON is **not**
 the same as a complete extraction. CTI stores the raw capture and runs an
@@ -61,11 +67,11 @@ authentication or approved browser automation path instead.
 ## Cloudflare resources
 
 Long course extractions are not a realistic Browser Run Free-plan workload.
-Cloudflare's current Browser Run Free allocation is limited to 10 browser
-minutes per day. Use this optional feature only after the organisation has
-approved the required Workers/Browser Run plan and cost. The existing shared CTI
-workspace can continue using its current free D1/Pages setup without enabling
-background extraction.
+The maintained extractor can legitimately run far longer than a small free
+remote-browser allowance. Use the local Chrome path for a zero-cost deployment.
+Enable optional background extraction only when the organisation has deliberately
+provisioned adequate Browser Run capacity. The shared CTI workspace does not
+depend on that optional Worker.
 
 Create the R2 bucket:
 
@@ -136,19 +142,17 @@ the UI does not pretend background extraction exists.
 ## Operator flow
 
 1. Open **Full CTI workspace → Extract**.
-2. Paste a Coursera URL containing /teach/<course>/<course-id>/content/....
-3. Choose **Extract course**.
-4. CTI first tries the encrypted saved Coursera/Okta browser session. If it is
-   still valid, extraction begins without another sign-in.
-5. If SSO is required, CTI opens the temporary organization-SSO view and routes
-   toward Okta where possible. Complete the normal Okta/MFA step and choose Done
-   when the Coursera authoring shell is visible.
-6. The same extraction resumes automatically. Closing the CTI page does not
-   cancel it.
-7. A completed raw JSON artifact is downloadable whether the strict verdict is
-   COMPLETE or INCOMPLETE.
-8. Use **Use this capture in Compare** to load the artifact into the existing
-   source/XLSX comparison flow.
+2. Paste the exact Coursera authoring-shell URL.
+3. Open that shell in the normal Chrome profile where Coursera/Okta already works.
+4. Copy the current Coursera extractor from CTI and run it once in that tab's
+   DevTools Console. Keep the tab open while its progress panel is active.
+5. Select the downloaded JSON back in CTI.
+6. CTI checks course identity and the strict no-silent-miss completion contract.
+   An incomplete capture remains usable evidence but is never presented as
+   certified complete.
+7. Choose **Use this capture in Compare** and add the matching Coursera XLSX.
+8. Optional remote background extraction remains available below the local flow
+   when that deployment has sufficient Browser Run capacity.
 
 ## Completion contract
 

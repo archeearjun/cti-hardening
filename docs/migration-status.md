@@ -38,11 +38,13 @@ only after a new ingestion, not a repeated export.
 
 Do not rerun all 15 titles simply because the hosting changed. First reuse one
 complete retained set and compare it against the accepted Apps Script report.
-Use differences to decide targeted follow-up. Coursera extraction now starts
-from **Full CTI workspace → Extract** and runs through the authenticated
-background browser service after the user connects Coursera with normal SSO/MFA.
-The normal operator flow does not require DevTools or a pasted console script.
-Brightspace source capture remains a separate source-evidence workflow.
+Use differences to decide targeted follow-up. Coursera extraction now starts from **Full CTI workspace → Extract** and defaults
+to the current v6.15.4 extractor running in the operator's already authenticated
+Chrome tab. The downloaded schema-35 JSON is checked by CTI's strict completion
+gate before it enters Compare. This local path avoids a paid remote-browser
+dependency. The Cloudflare Browser Run workflow remains an optional advanced
+path for deployments with sufficient quota. Brightspace source capture remains a
+separate source-evidence workflow.
 
 ## Retire Apps Script only after
 

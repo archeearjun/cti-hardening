@@ -8,6 +8,7 @@ import {
   type OwnerReview,
 } from "../src/domain/owner-actions";
 import {
+  buildItemCheckScript,
   validateItemCheck,
   type ItemCheckSpec,
 } from "../src/domain/item-check";
@@ -67,6 +68,7 @@ export default function OwnerActionCard({
   const [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const [script, setScript] = useState("");
   const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
   useEffect(() => {
@@ -114,6 +116,25 @@ export default function OwnerActionCard({
       setBusy("");
     }
   }
+  async function copyCheck() {
+    if (!spec) return;
+    await act("Preparing this item’s check…", async () => {
+      const { getExtractor } = await import("../src/domain/capture-review.ts");
+      const text = buildItemCheckScript(getExtractor("coursera"), spec);
+      setScript(text);
+      try {
+        await navigator.clipboard.writeText(text);
+        setMessage(
+          "Current v6.15.4 item check copied. Open this exact Coursera item in your normal signed-in Chrome tab, run it in DevTools → Console, then import the downloaded JSON here.",
+        );
+      } catch {
+        setMessage(
+          "Clipboard unavailable. Download the item-check script or use the manual-copy fallback below.",
+        );
+      }
+    });
+  }
+
   async function persist(
     nextCapture = capture,
     nextStatus = status,
@@ -313,38 +334,66 @@ export default function OwnerActionCard({
           {spec && (
             <section className="targeted-check">
               <p className="eyebrow">3 · NEED MORE EVIDENCE?</p>
-              <h4>Refresh Coursera evidence from CTI</h4>
+              <h4>Check this item in your signed-in Chrome</h4>
               <p>
-                Run the site’s background Coursera extraction for this shell.
-                CTI will revisit the course with the current v6.15.4 extractor,
-                preserve the raw capture, and refuse to call it complete while
-                required evidence is unresolved.
+                Use the current v6.15.4 targeted check in the exact Coursera item
+                above. It collects fresh evidence for this item only and never
+                clears a finding automatically.
               </p>
               <div className="action-links">
+                <button
+                  className="primary"
+                  disabled={!!busy}
+                  onClick={() => void copyCheck()}
+                >
+                  Copy this item’s current check
+                </button>
+                {script && (
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      download(
+                        "CTI_check_" + task.id + ".js",
+                        script,
+                        "text/javascript",
+                      )
+                    }
+                  >
+                    Download item-check script
+                  </button>
+                )}
                 <button
                   className="secondary"
                   disabled={!!busy || !onOpenExtraction}
                   onClick={() =>
                     onOpenExtraction?.(
-                      courseLocation ? `${courseLocation.base}/edit` : task.url,
+                      courseLocation ? courseLocation.base + "/edit" : task.url,
                     )
                   }
                 >
-                  Open background extraction
+                  Open full-course extraction
                 </button>
               </div>
               <p className="hint">
-                No DevTools or console script is required. After the site capture
-                completes, load it into Compare to create a fresh QA snapshot.
+                Keep the Coursera tab open while the check runs. Protected
+                cross-origin plugin bodies may remain unverified; CTI records that
+                uncertainty instead of manufacturing a pass.
               </p>
+              {script && (
+                <details>
+                  <summary>Manual-copy fallback</summary>
+                  <textarea
+                    aria-label="Current item-check script"
+                    readOnly
+                    value={script}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                </details>
+              )}
               <details>
-                <summary>Import an older item-check JSON</summary>
-                <p className="hint">
-                  This is only for evidence created by an earlier CTI workflow.
-                  New evidence should come from the site background extractor.
-                </p>
+                <summary>Import the downloaded item-check JSON</summary>
                 <label>
-                  Existing item-check JSON
+                  Item-check JSON
                   <input
                     type="file"
                     accept=".json,application/json"
@@ -362,10 +411,10 @@ export default function OwnerActionCard({
                   />
                 </label>
                 <textarea
-                  aria-label="Legacy item-check JSON"
+                  aria-label="Item-check JSON"
                   value={paste}
                   onChange={(e) => setPaste(e.target.value)}
-                  placeholder="Paste an existing item-check JSON"
+                  placeholder="Or paste the downloaded item-check JSON"
                 />
                 <button
                   className="secondary"
@@ -374,7 +423,7 @@ export default function OwnerActionCard({
                     void act("Reading item check…", () => importCheck(paste))
                   }
                 >
-                  Add existing check
+                  Add item check
                 </button>
               </details>
               {capture && (
