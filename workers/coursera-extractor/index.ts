@@ -309,11 +309,6 @@ function safeObservedUrl(value: string) {
   }
 }
 
-function hostFamily(hostname: string) {
-  const parts = String(hostname || "").toLowerCase().split(".").filter(Boolean);
-  return parts.length >= 2 ? parts.slice(-2).join(".") : parts.join(".");
-}
-
 function frameMatchesPluginTarget(frameUrl: string, targetUrl: string) {
   try {
     const frame = new URL(frameUrl),
@@ -326,7 +321,7 @@ function frameMatchesPluginTarget(frameUrl: string, targetUrl: string) {
       )
     )
       return true;
-    return hostFamily(frame.hostname) === hostFamily(target.hostname);
+    return false;
   } catch {
     return false;
   }
