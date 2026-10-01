@@ -7,6 +7,7 @@ import {
 } from "../adapters/workbook.ts";
 import { buildPostQaText_ } from "../reporting/owner-report.js";
 import { buildOwnerContext } from "./owner-actions.ts";
+import { packageRecordIdentity } from "./package-identity.ts";
 import type {
   ComparisonInput,
   ComparisonOutput,
@@ -387,7 +388,9 @@ export function createWorkflows(xmlService: unknown) {
     }
 
     if (job.kind === "analytics") {
-      const courses = job.records.filter((r) => r.kind === "package");
+      const courses = job.records.filter(
+        (r) => r.kind === "package" && r.data.archived !== true,
+      );
       const profiles = courses.map((record) => {
         const s = record.data.scan.stats;
         return {
@@ -396,6 +399,7 @@ export function createWorkflows(xmlService: unknown) {
           partner: record.data.partner,
           owner: record.data.owner,
           status: record.data.status,
+          identityKey: packageRecordIdentity(record),
           stats: s,
           vector: engine.vectorizeCourse({
             ...s,
@@ -410,13 +414,59 @@ export function createWorkflows(xmlService: unknown) {
           ),
         };
       });
+      const aggregate = (field: "partner" | "owner") => {
+        const groups = new Map<string, any>();
+        for (const profile of profiles) {
+          const name = String(profile[field] || "Unassigned").trim() || "Unassigned";
+          const current = groups.get(name) || {
+            name,
+            courses: 0,
+            totalItems: 0,
+            totalIfs: 0,
+            estimatedHours: 0,
+            statuses: {} as Record<string, number>,
+          };
+          current.courses++;
+          current.totalItems += Number(profile.stats.totalItems || 0);
+          current.totalIfs += Number(profile.stats.ifs || 0);
+          current.estimatedHours += Number(profile.estimatedHours || 0);
+          const status = String(profile.status || "Not set");
+          current.statuses[status] = Number(current.statuses[status] || 0) + 1;
+          groups.set(name, current);
+        }
+        return [...groups.values()].sort(
+          (a, b) => b.courses - a.courses || a.name.localeCompare(b.name),
+        );
+      };
+      const identityGroups = new Map<string, typeof profiles>();
+      for (const profile of profiles) {
+        if (!profile.identityKey) continue;
+        const group = identityGroups.get(profile.identityKey) || [];
+        group.push(profile);
+        identityGroups.set(profile.identityKey, group);
+      }
+      const duplicates = [...identityGroups.entries()]
+        .filter(([, group]) => group.length > 1)
+        .map(([identityKey, group]) => ({
+          identityKey,
+          courses: group.map((profile) => ({
+            id: profile.id,
+            title: profile.title,
+            partner: profile.partner,
+          })),
+        }));
       return {
         profiles,
+        partnerTotals: aggregate("partner"),
+        ownerTotals: aggregate("owner"),
+        duplicates,
         similarities: profiles
           .flatMap((a, i) =>
             profiles.slice(i + 1).map((b) => ({
-              left: a.title,
-              right: b.title,
+              left: a.id,
+              right: b.id,
+              leftTitle: a.title,
+              rightTitle: b.title,
               similarity: engine.calculateCosineSimilarity(a.vector, b.vector),
             })),
           )
