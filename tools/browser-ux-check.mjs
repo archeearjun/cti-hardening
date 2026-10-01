@@ -144,6 +144,42 @@ const afterAudit = {
   data: { ...structuredClone(audited), generation: 2 },
 };
 backup.records = [...courses, audit, afterAudit, ...books];
+const localCapture = {
+  schemaVersion: 35,
+  extractedAt: "2026-10-01T00:00:00.000Z",
+  page: { courseId: "course", title: "Synthetic Course" },
+  meta: {
+    extractor: "CTI Item Fidelity Extractor v6.15.4",
+    buildId: "v6.15.4-empty-reading-visibility-20261001",
+    baseFingerprintCount: 1,
+    captureAccounting: {
+      inventoryCount: 1,
+      completeCount: 1,
+      unresolvedCount: 0,
+      unknownCount: 0,
+      unvisitedCount: 0,
+      externalContentUnverifiedCount: 0,
+      terminalAccountedIncompleteCount: 0,
+      allInventoryAccounted: true,
+      noSilentMisses: true,
+      complete: true,
+    },
+  },
+  fingerprints: [
+    {
+      id: "reading-1",
+      type: "Reading",
+      name: "Reading",
+      payload: {},
+      captureContract: {
+        complete: true,
+        accounted: true,
+        retryable: false,
+        status: "COMPLETE_READING",
+      },
+    },
+  ],
+};
 const capturePath = process.env.CTI_UX_SCREENSHOTS || "/tmp/cti-ux-screenshots";
 fs.mkdirSync(capturePath, { recursive: true });
 const shot = async (name) => {
@@ -203,6 +239,63 @@ try {
   await page.getByText("Full entry evidence", { exact: true }).click();
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("source-desktop");
+
+  await tab("Extract");
+  await page
+    .getByRole("heading", { name: "Extract Coursera in your own Chrome" })
+    .waitFor();
+  const shellInput = page.getByLabel("Coursera authoring-shell URL", {
+    exact: true,
+  });
+  await shellInput.fill("https://example.test/not-coursera");
+  assert(
+    await page
+      .getByRole("button", { name: "Copy current Coursera extractor" })
+      .isDisabled(),
+    "invalid shell must not enable local extraction",
+  );
+  await shellInput.fill(
+    "https://www.coursera.org/teach/synthetic/course/content/edit",
+  );
+  assert(
+    await page
+      .getByRole("button", { name: "Copy current Coursera extractor" })
+      .isEnabled(),
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open Coursera authoring shell", exact: false })
+      .getAttribute("href"),
+    "https://www.coursera.org/teach/synthetic/course/content/edit",
+  );
+  const extractorDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download extractor", exact: true })
+    .click();
+  const extractorText = fs.readFileSync(
+    await (await extractorDownload).path(),
+    "utf8",
+  );
+  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.4/);
+  await page.locator("#local-coursera-capture").setInputFiles({
+    name: "local-schema-35.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(localCapture)),
+  });
+  await page
+    .getByText("COMPLETE — strict capture gate passed", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Use this capture in Compare" }).click();
+  await page
+    .getByText("Local Coursera capture loaded into Compare.", { exact: false })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByLabel("Coursera full capture JSON")
+      .evaluate((element) => element.files?.[0]?.name || ""),
+    "local-schema-35.json",
+  );
+
   await tab("Compare");
   const file = {
     name: "old-course.xlsx",
