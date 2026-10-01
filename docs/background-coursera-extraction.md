@@ -29,8 +29,10 @@ and required plugin bodies are verified. Otherwise the artifact is retained as
 - src/domain/coursera-background-extraction.ts independently evaluates the
   resulting capture before CTI can call it complete.
 
-The CTI page can be closed after a job starts. Reopening the site restores the
-latest job ID from local storage and reads durable status from R2.
+The CTI page can be closed after a job starts. Reopening the site lists recent
+extraction jobs from server-side R2 metadata scoped to the signed-in CTI identity,
+so a running/completed job remains discoverable even if the browser-local pointer
+was cleared.
 
 ## Security and Coursera sign-in
 
