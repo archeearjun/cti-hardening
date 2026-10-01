@@ -78,7 +78,35 @@ npx wrangler@4.143.0 secret put CTI_SESSION_KEY --config workers/coursera-extrac
 
 Keep the value in the Cloudflare secret store only. Use at least 32 random bytes.
 
-Validate and deploy the Worker:
+### Automatic production deployment
+
+The repository contains `.github/workflows/deploy-coursera-extractor.yml`.
+After these two GitHub repository secrets are configured, every relevant push
+to `main` deploys the background extractor automatically:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+
+The token must be scoped to the Cloudflare account and have enough permission to
+deploy Workers/Workflows, create or list the R2 bucket, and update/retry the
+`cti-hardening` Pages project. Store it only as a GitHub Actions secret.
+
+The workflow:
+
+1. creates `cti-extraction-artifacts` if it does not already exist;
+2. deploys `cti-coursera-extractor` with Browser Run and the Workflow binding;
+3. generates `CTI_SESSION_KEY` inside Cloudflare only if the Worker does not
+   already have one (subsequent deploys preserve it);
+4. merges the `CTI_EXTRACTOR` service binding into the existing production
+   Pages services without replacing other bindings;
+5. waits for the exact `main` commit to reach Pages production; and
+6. retries that production deployment so the new service binding is active.
+
+The workflow can also be run once manually from the `main` branch after adding
+the two secrets. No Coursera password or session encryption key is stored in
+GitHub.
+
+For local/manual operator fallback only, the equivalent Worker commands remain:
 
 ~~~sh
 npm ci
