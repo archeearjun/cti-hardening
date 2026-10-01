@@ -437,7 +437,7 @@ export function compactDiagnosticV6150(diag, fp) {
   return diag;
 }
 
-function checkpointSessionIdV6150(courseId) {
+export function checkpointSessionIdV6150(courseId) {
   const key = CTI_CHECKPOINT_SESSION_PREFIX + String(courseId || "unknown");
   try {
     let id = sessionStorage.getItem(key);
@@ -454,7 +454,7 @@ function checkpointSessionIdV6150(courseId) {
   }
 }
 
-function openCheckpointDbV6150() {
+export function openCheckpointDbV6150() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
       reject(new Error("IndexedDB unavailable"));
