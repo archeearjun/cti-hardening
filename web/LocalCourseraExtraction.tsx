@@ -1,5 +1,5 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
 import {
   inspectLocalCourseraCaptureFile,
@@ -28,6 +28,10 @@ export default function LocalCourseraExtraction({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (initialUrl) setShellUrl(initialUrl);
+  }, [initialUrl]);
 
   const shellTarget = useMemo(() => {
     if (!shellUrl.trim()) return null;
