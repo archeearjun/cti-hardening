@@ -216,6 +216,26 @@ export default function FullWorkspace({
   const checklistCount = steps.filter(
     ([key]) => checklist?.data.evidence?.[key],
   ).length;
+  function assertUniquePackageIdentity(
+    candidatePartner: string,
+    candidateFileName: string,
+    excludeId = "",
+  ) {
+    const partnerKey = normalizePartnerName(candidatePartner);
+    const semanticKey = packageSemanticKey(candidateFileName);
+    if (!partnerKey || !semanticKey) return;
+    const match = courses.find(
+      (candidate) =>
+        candidate.id !== excludeId &&
+        normalizePartnerName(candidate.data.partner) === partnerKey &&
+        packageSemanticKey(candidate.data.scan?.fileName || candidate.title) ===
+          semanticKey,
+    );
+    if (match)
+      throw new Error(
+        `A course with this partner and semantic package identity already exists: ${match.title}. Select that course and rescan it, or review the duplicate group in Operations.`,
+      );
+  }
   function resetCourseInputs() {
     setExcel(null);
     setCapture(null);
@@ -340,20 +360,11 @@ export default function FullWorkspace({
         deadline: rescan && course ? course.data.deadline || "" : "",
         driveLink: rescan && course ? course.data.driveLink || "" : "",
       });
-      if (!rescan || !course) {
-        const partnerKey = normalizePartnerName(metadata.partner);
-        const semanticKey = packageSemanticKey(scan.fileName);
-        const matches = courses.filter(
-          (candidate) =>
-            normalizePartnerName(candidate.data.partner) === partnerKey &&
-            packageSemanticKey(candidate.data.scan?.fileName || candidate.title) ===
-              semanticKey,
-        );
-        if (matches.length)
-          throw new Error(
-            "A course with this partner and semantic package identity already exists. Select that course and use Rescan, or review the duplicate group in Operations.",
-          );
-      }
+      assertUniquePackageIdentity(
+        metadata.partner,
+        scan.fileName,
+        rescan && course ? course.id : "",
+      );
       const record =
         rescan && course
           ? { ...course, data: { ...course.data, ...metadata, scan } }
@@ -849,6 +860,11 @@ export default function FullWorkspace({
                           deadline,
                           driveLink,
                         });
+                        assertUniquePackageIdentity(
+                          metadata.partner,
+                          course.data.scan?.fileName || course.title,
+                          course.id,
+                        );
                         const saved = await store!.save({
                           ...course,
                           data: {
