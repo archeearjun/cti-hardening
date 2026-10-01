@@ -19,11 +19,12 @@ This is a modular refactor, not a claim that every rule was rewritten in TypeScr
 Read the [development map](docs/development.md) to find the relevant source and
 focused checks. [AGENTS.md](AGENTS.md) gives concise instructions for coding agents.
 
-**Migration status:** the active QA rules and extractor programs are preserved,
-but the Cloudflare application is **not yet feature-complete** against Apps Script.
-The [Code.gs audit](docs/audits/code-gs-audit.md) lists missing and partial workflows,
-maps every original function, and separates code preservation from usable features.
-Run `npm run audit:parity` to check that ledger and the retained rule bodies.
+**Migration status:** the active application now has a working current
+implementation, architecture-appropriate replacement, or explicit retirement for
+every audited Apps Script function group and declared legacy capability. The
+[Code.gs audit](docs/audits/code-gs-audit.md) records those dispositions and keeps
+the frozen archive separate from current product availability. Run
+`npm run audit:parity` to verify the ledger and retained rule bodies.
 
 | Area | Source |
 | --- | --- |
@@ -35,7 +36,9 @@ Run `npm run audit:parity` to check that ledger and the retained rule bodies.
 | Owner report text | `src/reporting/` |
 | Typed workflows and local/shared records | `src/domain/`, `src/adapters/` |
 | Authenticated Cloudflare API and D1 | `server/`, `functions/` |
-| Background Coursera extraction | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` |
+| Coursera extraction | `src/domain/coursera-local-extraction.ts`, `web/LocalCourseraExtraction.tsx`, optional `workers/coursera-extractor/` |
+| Migrated operations / planner / catalog / runtime | `src/domain/operations.ts`, `web/OperationsWorkspace.tsx` |
+| Current product capability truth | `src/domain/product-capabilities.ts` |
 
 ## Develop and verify
 
@@ -94,8 +97,11 @@ course records public. Local IndexedDB records are not team-shared records.
 
 The app supports source package scanning and Explore, full source/Brightspace/
 Coursera comparisons, ordered owner review, immutable before/after audits,
-work queues, Macmillan workbook validation, and portfolio diagnostics. It does
-not generate partner content maps or specialization outlines.
+planner/catalog-driven work queues, operational state, duplicate reconciliation,
+runtime inventories, Macmillan workbook validation, and portfolio diagnostics.
+Course/specialization outline and content-map **state tracking** is restored; CTI
+does not claim to author partner content artifacts that were external to the
+evidence workflow.
 
 Coursera extraction is **v6.15.4/schema 35** and Brightspace remains
 **v1.0.8/schema 2**. Coursera v6.15.4 adds explicit no-silent-miss accounting,
