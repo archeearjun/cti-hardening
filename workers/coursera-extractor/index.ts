@@ -49,7 +49,12 @@ const now = () => new Date().toISOString();
 const statusKey = (id: string) => `jobs/${id}/status.json`;
 const artifactKey = (id: string) => `jobs/${id}/capture.json`;
 const runtimeStateKey = (id: string) => `jobs/${id}/runtime-state.json`;
+const backgroundFrameEvidenceKey = (id: string) =>
+  `jobs/${id}/background-frame-evidence.json`;
 const sessionKey = (ownerHash: string) => `sessions/${ownerHash}/state.json`;
+const EXTRACTION_CHUNK_ACTIVE_MS = 25 * 60 * 1000;
+const EXTRACTION_CHUNK_MONITOR_MS = 27 * 60 * 1000;
+const MAX_EXTRACTION_CHUNKS = 9;
 const sessionMetaKey = (ownerHash: string) => `sessions/${ownerHash}/meta.json`;
 const ownerJobPrefix = (ownerHash: string) => `owners/${ownerHash}/jobs/`;
 const ownerJobKey = (ownerHash: string, createdAt: string, id: string) =>
@@ -435,6 +440,34 @@ type BackgroundFrameEvidence = {
   score: number;
 };
 
+async function loadBackgroundFrameEvidence(env: Env, id: string) {
+  const object = await env.ARTIFACTS.get(backgroundFrameEvidenceKey(id));
+  if (!object) return new Map<string, BackgroundFrameEvidence[]>();
+  const decoded = (await decryptState(env, await object.text())) as Record<
+    string,
+    BackgroundFrameEvidence[]
+  >;
+  return new Map(
+    Object.entries(decoded || {}).map(([itemId, evidence]) => [
+      itemId,
+      Array.isArray(evidence) ? evidence : [],
+    ]),
+  );
+}
+
+async function saveBackgroundFrameEvidence(
+  env: Env,
+  id: string,
+  evidence: Map<string, BackgroundFrameEvidence[]>,
+) {
+  const value = Object.fromEntries(evidence.entries());
+  await env.ARTIFACTS.put(
+    backgroundFrameEvidenceKey(id),
+    await encryptState(env, value),
+    { httpMetadata: { contentType: "application/json" } },
+  );
+}
+
 function safeObservedUrl(value: string) {
   try {
     const url = new URL(value);
@@ -761,7 +794,14 @@ async function runConnection(env: Env, payload: Extract<WorkflowPayload, { kind:
   }
 }
 
-async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind: "extract" }>) {
+async function runExtractionChunk(
+  env: Env,
+  payload: Extract<WorkflowPayload, { kind: "extract" }>,
+  chunkNumber: number,
+) {
+  const chunkStartedAt = Date.now();
+  const chunkDeadline = chunkStartedAt + EXTRACTION_CHUNK_ACTIVE_MS;
+  const monitorDeadline = chunkStartedAt + EXTRACTION_CHUNK_MONITOR_MS;
   let status = (await getJson<CourseraExtractionStatus>(
     env,
     statusKey(payload.id),
@@ -769,6 +809,10 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
   const resumedStorageState = await loadRuntimeState(env, payload.id);
   const savedStorageState = await loadSession(env, payload.ownerHash);
   const storageState = resumedStorageState || savedStorageState || null;
+  const externalFrameEvidence = await loadBackgroundFrameEvidence(
+    env,
+    payload.id,
+  );
 
   status = await writeStatus(env, status, {
     state: "RUNNING",
@@ -801,7 +845,7 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
 
     status = await writeStatus(env, status, {
       state: "RUNNING",
-      phase: `Running Coursera extractor ${CTI_RELEASE_REGISTRY_.courseraExtractor.version}`,
+      phase: `Running Coursera extractor ${CTI_RELEASE_REGISTRY_.courseraExtractor.version} · chunk ${chunkNumber}`,
       liveViewUrl: "",
     });
 
@@ -810,14 +854,15 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
       if (pageErrors.length < 20) pageErrors.push(error.message);
     });
 
+    await page.evaluate((deadline: number) => {
+      (window as any).__CTI_BACKGROUND_CHUNK_DEADLINE_MS = deadline;
+    }, chunkDeadline);
     await page.addScriptTag({ content: courseraSource });
 
-    const deadline = Date.now() + 2 * 60 * 60 * 1000;
     let lastStatusWrite = 0,
       lastRuntimeCheckpoint = 0,
       lastExternalFrameScan = 0;
-    const externalFrameEvidence = new Map<string, BackgroundFrameEvidence[]>();
-    while (Date.now() < deadline) {
+    while (Date.now() < monitorDeadline) {
       const snapshot = await page.evaluate(() => {
         const w = window as any;
         const progress =
@@ -862,22 +907,26 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
       }
       if (Date.now() - lastRuntimeCheckpoint > 30_000) {
         const runtimeState = await context.storageState({ indexedDB: true });
-        await saveRuntimeState(env, payload.id, runtimeState);
+        await Promise.all([
+          saveRuntimeState(env, payload.id, runtimeState),
+          saveBackgroundFrameEvidence(env, payload.id, externalFrameEvidence),
+        ]);
         lastRuntimeCheckpoint = Date.now();
       }
       await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
 
     const captureJson = await readCaptureJson(page);
-    if (!captureJson)
+    if (!captureJson) {
+      const runtimeState = await context.storageState({ indexedDB: true });
+      await Promise.all([
+        saveRuntimeState(env, payload.id, runtimeState),
+        saveBackgroundFrameEvidence(env, payload.id, externalFrameEvidence),
+      ]);
       throw new Error(
-        `Coursera extractor did not produce a capture before the two-hour worker deadline.${pageErrors.length ? " Page errors: " + pageErrors.join(" | ") : ""}`,
+        `Coursera extractor chunk ${chunkNumber} did not checkpoint before its 27-minute monitor deadline.${pageErrors.length ? " Page errors: " + pageErrors.join(" | ") : ""}`,
       );
-
-    status = await writeStatus(env, status, {
-      state: "VERIFYING",
-      phase: "Verifying no-miss completion contract",
-    });
+    }
 
     let capture: unknown;
     try {
@@ -886,13 +935,62 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
       throw new Error("Extractor produced invalid capture JSON.");
     }
 
+    const captureMeta = (capture as any)?.meta || {};
+    const activeMeta = captureMeta.activeSpaCrawl || {};
+    const cooperativeYielded = Boolean(
+      captureMeta.backgroundChunk?.yielded || activeMeta.cooperativeChunkYielded,
+    );
+    if (cooperativeYielded) {
+      const runtimeState = await context.storageState({ indexedDB: true });
+      await Promise.all([
+        saveRuntimeState(env, payload.id, runtimeState),
+        saveBackgroundFrameEvidence(env, payload.id, externalFrameEvidence),
+      ]);
+      try {
+        await saveSession(
+          env,
+          payload.ownerHash,
+          runtimeState,
+          payload.shellUrl,
+          payload.courseId,
+        );
+      } catch {}
+      const accounting = captureMeta.captureAccounting || {};
+      const remainingItems = Math.max(
+        Number(accounting.unvisitedCount || 0),
+        Array.isArray(activeMeta.unvisitedTargetIds)
+          ? activeMeta.unvisitedTargetIds.length
+          : 0,
+      );
+      await writeStatus(env, status, {
+        state: "RUNNING",
+        phase: `Chunk ${chunkNumber} checkpointed safely · continuing${remainingItems ? ` · ${remainingItems} queued` : ""}`,
+        liveViewUrl: "",
+        artifactAvailable: false,
+      });
+      return {
+        state: "CONTINUE" as const,
+        chunk: chunkNumber,
+        remainingItems,
+        nextItemId: String(activeMeta.nextItemId || ""),
+      };
+    }
+
+    status = await writeStatus(env, status, {
+      state: "VERIFYING",
+      phase: "Verifying no-miss completion contract",
+    });
+
     capture = applyBackgroundPluginEvidence(capture, externalFrameEvidence);
     const finalizedCaptureJson = JSON.stringify(capture);
     const verdict = evaluateCourseraCapture(capture, payload.courseId);
     await env.ARTIFACTS.put(artifactKey(payload.id), finalizedCaptureJson, {
       httpMetadata: { contentType: "application/json" },
     });
-    await env.ARTIFACTS.delete(runtimeStateKey(payload.id));
+    await Promise.all([
+      env.ARTIFACTS.delete(runtimeStateKey(payload.id)),
+      env.ARTIFACTS.delete(backgroundFrameEvidenceKey(payload.id)),
+    ]);
     const exportName =
       (capture as any)?.meta?.exportFileName ||
       `CTI__COURSERA__${payload.courseId}__${payload.id}.json`;
@@ -918,6 +1016,7 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
       artifactName: exportName,
       capture: verdict,
     } as Partial<CourseraExtractionStatus>);
+    return { state: "DONE" as const, chunk: chunkNumber };
   } finally {
     await browser.close().catch(() => {});
   }
@@ -930,40 +1029,46 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
   async run(event: any, step: any) {
     const payload = event.payload as WorkflowPayload;
     try {
-      await step.do(
-        payload.kind === "connect"
-          ? "connect Coursera session"
-          : "extract Coursera shell",
-        payload.kind === "connect"
-          ? {
-              retries: {
-                limit: 0,
-                delay: "1 second",
-                backoff: "constant",
-              },
-              timeout: "20 minutes",
-            }
-          : {
-              retries: {
-                // Cloudflare limits each step.do attempt to 30 minutes.
-                // Re-running the same deterministic extraction step is safe:
-                // runExtraction persists browser storage + IndexedDB item
-                // checkpoints to R2 every ~30 seconds and restores them on
-                // the next attempt, so long courses continue instead of
-                // restarting from zero.
-                limit: 4,
-                delay: "10 seconds",
-                backoff: "constant",
-              },
-              timeout: "30 minutes",
+      if (payload.kind === "connect") {
+        await step.do(
+          "connect Coursera session",
+          {
+            retries: {
+              limit: 0,
+              delay: "1 second",
+              backoff: "constant",
             },
-        async () => {
-          if (payload.kind === "connect") await runConnection(this.env, payload);
-          else await runExtraction(this.env, payload);
-          return { id: payload.id };
-        },
+            timeout: "20 minutes",
+          },
+          async () => {
+            await runConnection(this.env, payload);
+            return { id: payload.id };
+          },
+        );
+        return { id: payload.id };
+      }
+
+      for (let chunkNumber = 1; chunkNumber <= MAX_EXTRACTION_CHUNKS; chunkNumber++) {
+        const chunkResult = await step.do(
+          `extract Coursera shell chunk ${chunkNumber}`,
+          {
+            retries: {
+              // Cooperative chunking is the normal continuation path. One retry
+              // remains only as a fallback for transient browser/platform failure.
+              limit: 1,
+              delay: "10 seconds",
+              backoff: "constant",
+            },
+            timeout: "30 minutes",
+          },
+          async () => runExtractionChunk(this.env, payload, chunkNumber),
+        );
+        if (chunkResult.state === "DONE")
+          return { id: payload.id, chunks: chunkNumber };
+      }
+      throw new Error(
+        `Coursera extraction still had checkpointed work after ${MAX_EXTRACTION_CHUNKS} cooperative chunks. No partial capture was promoted to COMPLETE; checkpoints were preserved.`,
       );
-      return { id: payload.id };
     } catch (error) {
       const current = await getJson<CourseraExtractionStatus>(
         this.env,
