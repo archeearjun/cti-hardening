@@ -69,17 +69,29 @@ async function waitIdle(p = page) {
   await p.locator(".full-workspace .status").waitFor({ state: "hidden" });
 }
 // Synthetic records only. This verifies navigation and input isolation, not course completeness.
-const courses = Array.from({ length: 62 }, (_, i) => ({
-  ...structuredClone(input.course),
-  id: crypto.randomUUID(),
-  title: `Course ${String(i + 1).padStart(3, "0")} · Source evidence (synthetic)`,
-  data: {
-    ...structuredClone(input.course.data),
-    partner: i % 2 ? "Partner B" : "Partner A",
-    owner: i % 3 ? "Review team" : "Assignment owner",
-    status: i % 4 ? "In Queue" : "QA Review",
-  },
-}));
+const courses = Array.from({ length: 62 }, (_, i) => {
+  const code = `COURSE${String(i + 1).padStart(3, "0")}`;
+  const cloned = structuredClone(input.course);
+  return {
+    ...cloned,
+    id: crypto.randomUUID(),
+    title: `Course ${String(i + 1).padStart(3, "0")} · Source evidence (synthetic)`,
+    data: {
+      ...cloned.data,
+      scan: {
+        ...cloned.data.scan,
+        fileName: code + ".imscc",
+        scannedAt: "2026-09-15T12:00:00.000Z",
+      },
+      partner: i % 2 ? "Partner B" : "Partner A",
+      owner: i % 3 ? "Review team" : "Assignment owner",
+      status: i % 4 ? "In Queue" : "QA Review",
+      assignedDate: "",
+      deadline: "",
+      driveLink: "",
+    },
+  };
+});
 const workflows = createWorkflows(workerXml);
 const audited = workflows.compare({ ...input, course: courses[0] });
 audited.result.ownerView.items[1].status = "EVIDENCE_NEEDED";
