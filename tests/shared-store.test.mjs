@@ -322,6 +322,11 @@ test("failed evidence upload leaves earlier records committed; retry skips them 
   const store = await teamStore();
   const first = comparisonFixture().course,
     second = comparisonFixture().course;
+  // This test is about interrupted multi-record import recovery, not duplicate
+  // identity handling. Give the second synthetic course a distinct semantic
+  // package identity so the restored duplicate guard is not the failure under test.
+  second.title = "Synthetic-Second.imscc";
+  second.data.scan.fileName = "Synthetic-Second.imscc";
   await store.save(first);
   failChunks = true;
   await assert.rejects(
