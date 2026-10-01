@@ -37,11 +37,9 @@ javascript:(async function () {
   window[CTI_RUN_LOCK_KEY] = {
     running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.4"
   };
-  const ctiRunHeartbeat=setInterval(()=>{
-    try{const current=window[CTI_RUN_LOCK_KEY];if(current && current.token===CTI_RUN_TOKEN && current.running)current.lastHeartbeatAt=Date.now();}catch(_){}
-  },10000);
+  let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
-    clearInterval(ctiRunHeartbeat);
+    if(ctiRunHeartbeat)clearInterval(ctiRunHeartbeat);
     try {
       const current = window[CTI_RUN_LOCK_KEY];
       if (current && current.token === CTI_RUN_TOKEN) {
@@ -65,6 +63,9 @@ javascript:(async function () {
   // CTI_PROGRESS_END
   let ctiCheckpointManager=null;
   try {
+  ctiRunHeartbeat=setInterval(()=>{
+    try{const current=window[CTI_RUN_LOCK_KEY];if(current && current.token===CTI_RUN_TOKEN && current.running)current.lastHeartbeatAt=Date.now();}catch(_){}
+  },10000);
 
   const MAX_OBSERVED_API_FETCHES = 80;
 
