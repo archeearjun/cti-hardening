@@ -447,7 +447,34 @@ export async function handleAuthorized(
           const semanticKey = packageSemanticKey(
             data.scan?.fileName || r.title,
           );
-          if (partnerKey && semanticKey) {
+          const currentPackage = await db
+            .prepare(
+              "SELECT title,summary FROM documents WHERE id=? AND kind='package'",
+            )
+            .bind(r.id)
+            .first<{ title: string; summary: string }>();
+          let currentSummary: Record<string, any> = {};
+          if (currentPackage) {
+            try {
+              currentSummary = JSON.parse(currentPackage.summary || "{}");
+            } catch {
+              // Full payload validation still protects the incoming record. A
+              // malformed old listing summary is surfaced through Operations
+              // health and must not be mistaken for a duplicate match.
+            }
+          }
+          const priorPartner = normalizePartnerName(currentSummary.partner);
+          const priorSemantic = currentPackage
+            ? packageSemanticKey(
+                currentSummary.scan?.fileName || currentPackage.title,
+              )
+            : "";
+          const activatesIdentity =
+            !currentPackage ||
+            currentSummary.archived === true ||
+            priorPartner !== partnerKey ||
+            priorSemantic !== semanticKey;
+          if (activatesIdentity && partnerKey && semanticKey) {
             const { results: existingPackages } = await db
               .prepare(
                 "SELECT id,title,summary FROM documents WHERE kind='package' AND id<>?",
