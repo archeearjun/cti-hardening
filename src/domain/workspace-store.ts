@@ -55,11 +55,24 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
           assignedDate: d.assignedDate,
           deadline: d.deadline,
           driveLink: d.driveLink,
+          archived: d.archived === true,
+          archive: scalarSummary(d.archive),
+          productType: d.productType,
+          catalogImportStatus: d.catalogImportStatus,
+          plannerCategories: Array.isArray(d.plannerCategories)
+            ? d.plannerCategories.slice(0, 40).map((value: unknown) =>
+                String(value || "").slice(0, 200),
+              )
+            : [],
+          externalRuntimeEvidence: d.externalRuntimeEvidence
+            ? scalarSummary(d.externalRuntimeEvidence)
+            : null,
           scan: {
             fileName: d.scan?.fileName,
             stats: scalarSummary(d.scan?.stats),
             moduleCount: d.scan?.moduleCount,
             fileSha256: d.scan?.fileSha256,
+            scannedAt: d.scan?.scannedAt,
           },
         }
       : record.kind === "audit"
