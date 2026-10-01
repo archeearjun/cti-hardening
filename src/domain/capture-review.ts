@@ -2,6 +2,7 @@ import { createEngine } from "../engine/index.js";
 import build from "../release.json" with { type: "json" };
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import type {
+  ExtractorDelivery,
   Finding,
   ItemEvidence,
   ReviewOptions,
@@ -31,6 +32,7 @@ interface CaptureEngine {
   qaAssertNotDiagnosticCapture_(capture: RecordValue): void;
   qaBrightspaceFlattenTopics_(tree: unknown[]): RecordValue[];
   qaNormalizeBrightspaceAssignment_(assignment: RecordValue): RecordValue;
+  ctiExtractorDelivery_(platform: string): ExtractorDelivery;
 }
 const engine = createEngine(
   createBrowserServices(),
@@ -54,6 +56,15 @@ function count(value: unknown): number {
 }
 function questionCount(item: ItemEvidence): number {
   return item.structuredAssessment?.questions?.length ?? 0;
+}
+
+export function getExtractor(
+  platform: "coursera" | "brightspace",
+): ExtractorDelivery {
+  const delivery = engine.ctiExtractorDelivery_(platform);
+  if (!delivery.success || !delivery.script)
+    throw new Error(delivery.error || "Extractor delivery failed.");
+  return delivery;
 }
 
 export function reviewCapture(
@@ -186,10 +197,10 @@ export function reviewCapture(
     if (
       !Number.isInteger(Number(capture.schemaVersion)) ||
       Number(capture.schemaVersion) < 1 ||
-      Number(capture.schemaVersion) > 34
+      Number(capture.schemaVersion) > 35
     )
       throw new Error(
-        "This preview supports Coursera capture schemas 1–34. Use a compatible full CTI capture.",
+        "This preview supports Coursera capture schemas 1–35. Use a compatible full CTI capture.",
       );
     if (capture.fingerprints.length > 20000)
       throw new Error(
