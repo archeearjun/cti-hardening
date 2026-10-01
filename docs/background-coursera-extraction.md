@@ -162,6 +162,16 @@ background path as production-validated against a specific live course.
 
 ## Recovery
 
+During an extraction the Worker periodically serializes Playwright storage state
+with IndexedDB enabled and stores it encrypted under that job in R2. The
+v6.15.4 item checkpoint run ID is kept in localStorage with a 12-hour TTL, so a
+Workflow retry can recreate the browser context, restore completed-item
+IndexedDB checkpoints and continue the remaining queue. Successful artifact
+creation deletes the per-job runtime state.
+
+This is crash recovery, not a reason to accept partial evidence: the final
+capture still has to satisfy the same strict completion gate.
+
 - A failed browser run leaves its job state and any already-persisted raw
   artifact in R2.
 - Coursera session expiry returns a clear reconnect error; reconnect and submit a
