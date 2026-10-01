@@ -6,7 +6,19 @@ import { readMigrationFiles } from "../src/domain/migration-files";
 import {
   prepareWorkspaceBackup,
   validateImportRecordSizes,
+  VALID_COURSE_STATUSES,
 } from "../src/domain/workspace-validation";
+import { findSemanticPackageDuplicates } from "../src/domain/package-identity";
+import {
+  deterministicPreflight,
+  sourceManifestCsv,
+} from "../src/domain/source-operations";
+import {
+  defaultCourseWorkState,
+  nextCourseWorkAction,
+  validateCourseWorkState,
+  WORK_STATE_OPTIONS,
+} from "../src/domain/work-state";
 import { useEffect, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import { runWorkflow } from "./workflow-client";
@@ -42,19 +54,13 @@ const steps = [
   ["afterQaSaved", "AFTER QA report saved"],
   ["evidenceOrganized", "Evidence organised for review"],
 ];
-const statuses = [
-  "In Queue",
-  "In Progress",
-  "QA Review",
-  "Blocked",
-  "Completed",
-];
+const statuses = [...VALID_COURSE_STATUSES];
 const descriptions: Record<string, string> = {
   Catalogue: "Find a course, see its ownership, and pick up your review.",
   Explore: "Understand the source package before making an ingestion decision.",
   Scan: "Inspect a new package or save a fresh baseline for an existing course.",
   Extract:
-    "Paste a Coursera authoring-shell link and run strict evidence extraction in the background.",
+    "Run strict Coursera evidence extraction in your signed-in Chrome; optional remote Browser Run stays available when provisioned.",
   Compare: "Compare source evidence with what was captured in Coursera.",
   History:
     "Review saved reports and compare ingestion attempts or manual corrections.",
@@ -104,7 +110,9 @@ export default function FullWorkspace({
     [partner, setPartner] = useState("NAIT"),
     [owner, setOwner] = useState(""),
     [status, setStatus] = useState("In Queue"),
-    [deadline, setDeadline] = useState("");
+    [assignedDate, setAssignedDate] = useState(""),
+    [deadline, setDeadline] = useState(""),
+    [driveLink, setDriveLink] = useState("");
   const [scan, setScan] = useState<PackageScan | null>(null),
     [rescan, setRescan] = useState(false),
     [checklist, setChecklist] = useState<WorkspaceRecord | null>(null);
@@ -205,6 +213,67 @@ export default function FullWorkspace({
   const checklistCount = steps.filter(
     ([key]) => checklist?.data.evidence?.[key],
   ).length;
+  const scanPreflight = scan ? deterministicPreflight(scan) : null;
+  const scanDuplicates = scan
+    ? findSemanticPackageDuplicates(
+        records,
+        partner,
+        scan.fileName,
+        rescan && course ? course.id : "",
+      )
+    : [];
+  const workState = validateCourseWorkState(
+    checklist?.data.workState || defaultCourseWorkState(),
+  );
+  const latestRawAudit = audits.find(
+    (audit) =>
+      audit.data?.result?.snapshotContext?.mode === "RAW_INGESTION" ||
+      audit.data?.result?.currentSnapshot?.snapshotContext?.mode === "RAW_INGESTION",
+  );
+  const rawRecommendation = String(
+    latestRawAudit?.data?.result?.operationalPolicy?.recommendationCode ||
+      latestRawAudit?.data?.result?.summary?.operationalPolicy?.recommendationCode ||
+      "NONE",
+  ) as "KEEP" | "REVIEW" | "REINGEST" | "NONE";
+  const workAction = nextCourseWorkAction(
+    {
+      hasSourcePackage: !!course,
+      sourceRescanned: !!checklist?.data.evidence?.sourceRescanned,
+      existingImportOnlyShell:
+        Array.isArray(course?.data?.plannerCategories) &&
+        course.data.plannerCategories.some(
+          (value: unknown) =>
+            String(value || "").trim().toLowerCase() === "import only",
+        ) &&
+        /complete|completed|imported/i.test(
+          String(course?.data?.catalogImportStatus || ""),
+        ),
+      rawQaFresh: !!latestRawAudit,
+      rawQaRecommendation: rawRecommendation,
+      runtimeFlagged:
+        Number(course?.data?.scan?.stats?.interactiveRuntimeCandidates || 0) > 0 ||
+        Number(course?.data?.scan?.stats?.scormLikeCandidates || 0) > 0 ||
+        Number(course?.data?.scan?.stats?.practiceJsonDependencies || 0) > 0,
+      needsSpecialization:
+        String(course?.data?.productType || "")
+          .toLowerCase()
+          .includes("specialization") ||
+        (course?.data?.plannerCategories || []).some((value: unknown) =>
+          String(value || "")
+            .toLowerCase()
+            .includes("course-to-specialization"),
+        ),
+      duplicateAmbiguous: course
+        ? findSemanticPackageDuplicates(
+            records,
+            String(course.data.partner || ""),
+            String(course.data.scan?.fileName || course.title),
+            course.id,
+          ).length > 0
+        : false,
+    },
+    workState,
+  );
   function resetCourseInputs() {
     setExcel(null);
     setCapture(null);
@@ -299,7 +368,9 @@ export default function FullWorkspace({
       setPartner(r.data.partner || "");
       setOwner(r.data.owner || "");
       setStatus(r.data.status || "In Queue");
+      setAssignedDate(r.data.assignedDate || "");
       setDeadline(r.data.deadline || "");
+      setDriveLink(r.data.driveLink || "");
       const saved = records.find(
         (x) => x.kind === "checklist" && x.packageId === id,
       );
@@ -319,6 +390,18 @@ export default function FullWorkspace({
   async function saveCourseScan() {
     if (!store || !scan) return;
     await act("Saving source scan", async () => {
+      const duplicates = findSemanticPackageDuplicates(
+        records,
+        partner,
+        scan.fileName,
+        rescan && course ? course.id : "",
+      );
+      if (!rescan && duplicates.length)
+        throw new Error(
+          "A source course with the same partner and semantic package identity already exists: " +
+            duplicates.map((record) => record.title).join(", ") +
+            ". Open that course and use Rescan instead of creating a duplicate.",
+        );
       const record =
         rescan && course
           ? { ...course, data: { ...course.data, scan } }
@@ -327,9 +410,9 @@ export default function FullWorkspace({
               partner,
               owner,
               status: "In Queue",
-              assignedDate: "",
-              deadline: "",
-              driveLink: "",
+              assignedDate,
+              deadline,
+              driveLink,
             });
       const saved = await store.save(record);
       await refresh();
@@ -339,7 +422,9 @@ export default function FullWorkspace({
       setPartner(saved.data.partner || "");
       setOwner(saved.data.owner || "");
       setStatus(saved.data.status || "In Queue");
+      setAssignedDate(saved.data.assignedDate || "");
       setDeadline(saved.data.deadline || "");
+      setDriveLink(saved.data.driveLink || "");
       const savedChecklist = records.find(
         (r) => r.kind === "checklist" && r.packageId === saved.id,
       );
@@ -764,11 +849,28 @@ export default function FullWorkspace({
                       </select>
                     </label>
                     <label>
+                      Assigned date
+                      <input
+                        type="date"
+                        value={assignedDate.slice(0, 10)}
+                        onChange={(e) => setAssignedDate(e.target.value)}
+                      />
+                    </label>
+                    <label>
                       Deadline
                       <input
                         type="date"
                         value={deadline.slice(0, 10)}
                         onChange={(e) => setDeadline(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Google Drive / Docs link
+                      <input
+                        type="url"
+                        value={driveLink}
+                        onChange={(e) => setDriveLink(e.target.value)}
+                        placeholder="https://drive.google.com/..."
                       />
                     </label>
                   </div>
@@ -785,7 +887,9 @@ export default function FullWorkspace({
                               partner,
                               owner,
                               status,
+                              assignedDate,
                               deadline,
+                              driveLink,
                             },
                           }),
                         );
@@ -870,7 +974,47 @@ export default function FullWorkspace({
           />
           {scan && (
             <section className="card">
-              <h3>Save this source scan</h3>
+              <div className="section-heading">
+                <h3>Save this source scan</h3>
+                <span
+                  className={
+                    scanPreflight?.verdict === "CLEARED_TO_INGEST"
+                      ? "badge"
+                      : "finding-label finding-REPAIR_OR_CONFIRM"
+                  }
+                >
+                  {scanPreflight?.verdict === "CLEARED_TO_INGEST"
+                    ? "Preflight cleared"
+                    : "Preflight blocked"}
+                </span>
+              </div>
+              {scanPreflight && (
+                <div
+                  className={
+                    scanPreflight.verdict === "CLEARED_TO_INGEST"
+                      ? "success-notice"
+                      : "migration-issues"
+                  }
+                  role="status"
+                >
+                  <strong>{scanPreflight.verdict.replaceAll("_", " ")}</strong>
+                  <p>{scanPreflight.message}</p>
+                </div>
+              )}
+              <div className="action-links">
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    download(
+                      "CTI_source_manifest.csv",
+                      sourceManifestCsv(scan),
+                      "text/csv",
+                    )
+                  }
+                >
+                  Download source manifest CSV
+                </button>
+              </div>
               <div className="settings">
                 <label>
                   Partner
@@ -887,6 +1031,17 @@ export default function FullWorkspace({
                   />
                 </label>
               </div>
+              {!!scanDuplicates.length && !rescan && (
+                <div className="migration-issues" role="alert">
+                  <strong>Possible duplicate source course</strong>
+                  <p>
+                    Same partner + normalized package identity already exists:{" "}
+                    {scanDuplicates.map((record) => record.title).join(", ")}.
+                    Open the existing course and rescan it rather than creating a
+                    second record.
+                  </p>
+                </div>
+              )}
               {course && (
                 <label>
                   <input
@@ -900,7 +1055,12 @@ export default function FullWorkspace({
               )}
               <button
                 className="primary"
-                disabled={!editable || !!busy || !partner.trim()}
+                disabled={
+                  !editable ||
+                  !!busy ||
+                  !partner.trim() ||
+                  (!rescan && scanDuplicates.length > 0)
+                }
                 onClick={() => void saveCourseScan()}
               >
                 Save {rescan && course ? "rescan" : "new course"}
@@ -918,7 +1078,7 @@ export default function FullWorkspace({
               setCapture(file);
               setTab("Compare");
               setNotice(
-                "Background Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
+                "Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
               );
             }}
           />
