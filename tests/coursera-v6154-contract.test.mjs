@@ -20,7 +20,7 @@ test("v6.15.4 is the maintained Coursera extractor release", () => {
     version: "v6.15.4",
     schema: 35,
     build: "v6.15.4-empty-reading-visibility-20261001",
-    delivery: "CODE_GS_CANONICAL",
+    delivery: "GENERATED_BROWSER_BUNDLE",
   });
   const script = bundleConsole(
     path.resolve("src/extractors/coursera/entry.js"),
