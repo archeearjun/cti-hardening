@@ -29,13 +29,15 @@ export default function CourseraExtractionWorkspace({
   editable,
   disabled = false,
   onUseCapture,
+  initialUrl = "",
 }: {
   enabled: boolean;
   editable: boolean;
   disabled?: boolean;
   onUseCapture?: (file: File) => void;
+  initialUrl?: string;
 }) {
-  const [shellUrl, setShellUrl] = useState("");
+  const [shellUrl, setShellUrl] = useState(initialUrl);
   const [session, setSession] = useState<CourseraConnectionSummary | null>(null);
   const [connectionJob, setConnectionJob] =
     useState<CourseraExtractionStatus | null>(null);
@@ -52,6 +54,9 @@ export default function CourseraExtractionWorkspace({
     },
     [],
   );
+  useEffect(() => {
+    if (initialUrl) setShellUrl(initialUrl);
+  }, [initialUrl]);
 
   async function refreshSession(signal?: AbortSignal) {
     if (!enabled) {
