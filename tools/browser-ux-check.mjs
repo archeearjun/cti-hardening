@@ -147,7 +147,7 @@ backup.records = [...courses, audit, afterAudit, ...books];
 const localCapture = {
   schemaVersion: 35,
   extractedAt: "2026-10-01T00:00:00.000Z",
-  page: { courseId: "course", title: "Synthetic Course" },
+  page: { courseId: "Course_id_123", title: "Synthetic Course" },
   meta: {
     extractor: "CTI Item Fidelity Extractor v6.15.4",
     buildId: "v6.15.4-empty-reading-visibility-20261001",
@@ -255,7 +255,7 @@ try {
     "invalid shell must not enable local extraction",
   );
   await shellInput.fill(
-    "https://www.coursera.org/teach/synthetic/course/content/edit",
+    "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
   );
   assert(
     await page
@@ -266,7 +266,7 @@ try {
     await page
       .getByRole("link", { name: "Open Coursera authoring shell", exact: false })
       .getAttribute("href"),
-    "https://www.coursera.org/teach/synthetic/course/content/edit",
+    "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
   );
   const extractorDownload = page.waitForEvent("download");
   await page
