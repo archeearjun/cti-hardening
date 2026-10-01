@@ -51,12 +51,12 @@ test('Receipts retain retries for uncertain fields, identity gaps and non-questi
 });
 test('Retry selection requires this visit, retains receipts, and never infers from a later merged payload',()=>{
   const c=runtime(),a=assessment(),d=diagnostic(c,a),meta={targetIds:['item'],targetDiagnostics:[d]};
-  assert.equal(c.buildRetryPlan(meta,[{id:'item',payload:{structuredAssessment:a}}]).length,0);
+  assert.equal(c.buildRetryPlan(meta,[{id:'item',type:'Assignment',payload:{structuredAssessment:a}}]).length,0);
   assert.equal(meta.assessmentTextHeuristicSkipped.length,1);assert.equal(meta.retryDeferredEvidence.length,0);
   for(const mutate of [d=>delete d.assessmentTextReceipt,d=>d.assessmentTextReceipt.itemId='other',d=>d.questionCycleReactStateTruncated=true,
     d=>d.textScopeKind='reading-contenteditable',d=>d.bodyScoped=false,d=>d.questionCycleQuestions=1]){
     const changed=clone(d);mutate(changed);const m={targetIds:['item'],targetDiagnostics:[changed]};
-    const plan=c.buildRetryPlan(m,[{id:'item',payload:{structuredAssessment:a}}]);
+    const plan=c.buildRetryPlan(m,[{id:'item',type:'Assignment',payload:{structuredAssessment:a}}]);
     assert(plan.some(p=>p.reasons.includes('incomplete-text')),mutate.toString());
   }
   const old=clone(d);delete old.assessmentTextReceipt;old.questionCycleQuestions=1;
