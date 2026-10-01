@@ -31,6 +31,7 @@ import type {
   WorkspaceRecord,
   EvidenceObject,
 } from "../src/domain/workspace-types.ts";
+import { CURRENT_PRODUCT_CAPABILITIES } from "../src/domain/product-capabilities.ts";
 import { download, Evidence } from "./workspace-ui.tsx";
 
 type Notice = (message: string) => void;
@@ -505,6 +506,21 @@ export default function OperationsWorkspace({
             </li>
           ))}
         </ul>
+        <details>
+          <summary>Current product capability manifest</summary>
+          <p className="hint">
+            This describes the active product, not the historical engine feature
+            flags retained for migration parity.
+          </p>
+          <ul className="health-list">
+            {CURRENT_PRODUCT_CAPABILITIES.map((capability) => (
+              <li key={capability.id}>
+                <strong>{capability.state} · {capability.label}</strong>
+                <span>{capability.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       </section>
 
       <section className="card">
