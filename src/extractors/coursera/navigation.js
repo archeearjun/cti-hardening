@@ -47,6 +47,115 @@ export function readingRouteForTargetV61311(fp, courseOrBranchId, template) {
   }
 
 export async function recoverReadingRouteV61311(fp, courseOrBranchId, template, options) {
+  options = options || {};
+  const route = readingRouteForTargetV61311(fp,courseOrBranchId,template);
+  const started = Date.now();
+  const waitBudget=scopedWaitBudgetV61321(45000,15000,options.deadline);
+  let deadline=Math.min(started+45000,options.deadline==null?Infinity:Number(options.deadline));
+  waitBudget.observe([0,0,0,0]);
+  const result = {id:String(fp && fp.id || ''),attempted:false,captured:false,route,reason:'NO_CERTIFIED_READING_ROUTE',dwellMs:0,samples:0};
+  if (!route) return result;
+  if(Date.now()>=deadline){result.reason='TIME_BUDGET_EXHAUSTED';return result;}
+  if (options.shouldStop && options.shouldStop()) {result.reason='STOP_REQUESTED';return result;}
+  result.attempted = true;
+  if ((!options.reuseMounted || !exactReadingEditorV61311(fp,courseOrBranchId)) && !safelyRestoreRoute(route)) {result.reason='ROUTE_DISPATCH_FAILED';return result;}
+  let previous = '', stable = 0, fieldSeen = false, fieldStarted = 0, observedRoot = null;
+  const networkCache=new WeakMap();let previousNetwork='',networkStable=0;
+  let attachmentState=null,stateSampleAt=-Infinity,assetRecovery=null;
+  while (Date.now() < deadline) {
+    result.samples++;
+    if (options.shouldStop && options.shouldStop()) {result.reason='STOP_REQUESTED';break;}
+    const current = authoringItemRouteV61311(location.href);
+    if (!current || current.courseId !== String(courseOrBranchId) || current.itemId !== String(fp.id) || current.typeName !== 'supplement') {
+      result.reason='ROUTE_CHANGED';break;
+    }
+    const surface = exactReadingEditorV61311(fp,courseOrBranchId);
+    if (!surface) {previous='';stable=0;observedRoot=null;}
+    else {
+      fieldSeen = true;
+      if (observedRoot !== surface.root) {observedRoot=surface.root;fieldStarted=Date.now();previous='';stable=0;attachmentState=null;stateSampleAt=-Infinity;assetRecovery=null;}
+      const snapshot = quickRootEvidenceSnapshot(surface.root,fp);
+      snapshot.loading = snapshot.loading || readingLoadingOnlyV61312(surface.root);
+      const network=readingNetworkRecordsV61323(fp,options.recorder,options.initialCount);
+      if(!attachmentState || Date.now()-stateSampleAt>=1200) {
+        attachmentState=readingAttachmentStateV61324(surface.root,fp,courseOrBranchId);stateSampleAt=Date.now();
+      }
+      const referenceIds=new Set(attachmentState.references.map(x=>x.assetId));
+      const scopedAssets=[...attachmentState.assets,...(assetRecovery && assetRecovery.assets || []).filter(a=>referenceIds.has(a.assetId))];
+      const assets=[...scopedAssets];
+      for(const rec of network.records) {
+        if(/\/authoringAtoms\.v2\//i.test(String(rec.url)) && !sessionAtomIsRelationPaired(rec,network.records))continue;
+        if(!networkCache.has(rec))networkCache.set(rec,evidenceFromCapturedRecord(rec));
+        const captured=networkCache.get(rec);
+        if(captured)assets.push(...(captured.assetDetails || []));
+      }
+      const attachments=readingAttachmentCoverageV61323(surface.root.innerText,assets);
+      waitBudget.observe([snapshot.textLength,snapshot.files,snapshot.links,snapshot.frames,network.processedResponses,attachments.resolvedLabelCount]);
+      deadline=waitBudget.extend(400);
+      const visibleText=String(surface.root.innerText || surface.root.textContent || '');
+      const signature = snapshot.signature + '|' + visibleText.length + '|' + visibleText.slice(0,320) + '|' + visibleText.slice(-320);
+      const networkSignature=network.processedResponses+'|'+network.pendingRequests;
+      networkStable=networkSignature===previousNetwork?networkStable+1:0;previousNetwork=networkSignature;
+      stable = previous && signature === previous && !snapshot.loading ? stable + 1 : 0;
+      previous = signature;
+      const meaningful = snapshot.textLength > 0 || snapshot.files > 0 || snapshot.links > 0 || snapshot.frames > 0;
+      const minimum = meaningful ? 2000 : 10000;
+      if(options.recorder && !assetRecovery && attachmentState.references.length && attachments.unresolvedLabels.length && !network.pendingRequests &&
+          Date.now()-fieldStarted>=minimum && stable>=3 && !snapshot.loading) {
+        assetRecovery=await recoverReadingAssetUrlsV61324(surface.root,fp,courseOrBranchId,attachmentState,{...options,deadline});
+        if(!assetRecovery.assets.length)stateSampleAt=-Infinity;
+        continue;
+      }
+      const waitingForAttachments=Boolean(options.recorder && (network.pendingRequests>0 || attachments.unresolvedLabels.length>0));
+      const atLimit=Date.now()+400>=deadline;
+      if (Date.now()-fieldStarted >= minimum && stable >= 3 && !snapshot.loading && ((!waitingForAttachments && networkStable>=2) || atLimit)) {
+        const evidence = collectDomEvidenceFromRoot(surface.root,'active-editor-surface',fp);
+        const frames = readingFrameEvidenceV61311(surface.root);
+        if(scopedAssets.length)mergeEvidence(evidence,{assetDetails:scopedAssets,files:scopedAssets.map(a=>a.url),links:scopedAssets.map(a=>a.url),assetEvidenceConfidence:.97},'exact-reading-attachment-state');
+        const {records:ignoredRecords,...networkReceipt}=network;
+        evidence.readingAttachmentEvidence={...readingAttachmentCoverageV61323(evidence.textSample,[...assets,...(evidence.assetDetails || [])]),
+          itemId:String(fp.id),courseId:String(courseOrBranchId),network:networkReceipt,
+          stateEvidence:attachmentState.diagnostics,
+          assetReferences:attachmentState.references,
+          requestRecovery:assetRecovery?{...assetRecovery,assets:undefined}:{attempted:0,reason:attachmentState.references.length?'NOT_NEEDED_OR_NETWORK_PENDING':'NO_ITEM_BOUND_ASSET_REFERENCES'},
+          networkDiagnostics:readingNetworkDiagnosticsV61324(fp,options.recorder,options.initialCount),
+          waitStopReason:waitingForAttachments?'ATTACHMENT_WAIT_LIMIT_REACHED':'SCOPED_NETWORK_SETTLED'};
+        if (exactReadingEditorV61311(fp,courseOrBranchId)?.root !== surface.root) {result.reason='EDITOR_CHANGED_DURING_CAPTURE';break;}
+        evidence.readingEditorEvidence = {
+          observedAt:new Date().toISOString(),courseId:String(courseOrBranchId),itemId:String(fp.id),route:location.href,
+          identity:'exact-course-plus-item-reading-content-field',fieldTestId:surface.root.getAttribute('data-testid'),
+          textScope:'Reading Content field; external frame text only where accessible',frames,
+          unreadFrameCount:frames.filter(x=>x.documentStatus!=='TEXT_CAPTURED').length,
+          externalPlaybackVerified:false,wholeCourseVerified:false
+        };
+        const exactObservedCharacters=Number(evidence.textCaptureEvidence && evidence.textCaptureEvidence.observedCharacters || 0);
+        const itemAssets=(evidence.assetDetails || []).length;
+        const scopedPayloadAbsent=Number(snapshot.files || 0)===0 && Number(snapshot.links || 0)===0 && Number(snapshot.frames || 0)===0 &&
+          attachmentState.references.length===0 && scopedAssets.length===0;
+        if(exactObservedCharacters===0 && itemAssets===0 && scopedPayloadAbsent && frames.length===0 &&
+           attachments.unresolvedLabels.length===0 && !network.pendingRequests && stable>=3 && networkStable>=2 && Date.now()-fieldStarted>=10000) {
+          evidence.emptyReadingEvidence={status:'OBSERVED_STABLE_EMPTY_READING',itemId:String(fp.id),courseId:String(courseOrBranchId),
+            scope:'EXACT_READING_FIELD',observedAt:new Date().toISOString(),stableSamples:stable,
+            dwellMs:Date.now()-started,networkStableSamples:networkStable,unresolvedAttachmentLabels:0,frameCount:0};
+        }
+        if (!/document-viewer|reading-loading-placeholder/.test(evidence.textScopeKind || '')) evidence.textScopeKind = 'reading-content-field';
+        if (evidence.readingEditorEvidence.unreadFrameCount) evidence.textEvidenceCompleteness = Math.min(0.72,Number(evidence.textEvidenceCompleteness || 0));
+        if (evidence._diagnostics) {
+          evidence._diagnostics.textScopeKind=evidence.textScopeKind;
+          evidence._diagnostics.textCompleteness=evidence.textEvidenceCompleteness;
+        }
+        result.captured=true;result.reason='EXACT_READING_EDITOR_CAPTURED';result.evidence=evidence;
+        break;
+      }
+    }
+    deadline=waitBudget.extend(400);
+    await sleepMs(Math.min(400,Math.max(0,deadline-Date.now())));
+  }
+  result.dwellMs=Date.now()-started;
+  result.waitBudget=waitBudget.snapshot();
+  if (!result.captured && result.reason === 'NO_CERTIFIED_READING_ROUTE') result.reason=fieldSeen?'READING_NOT_STABLE':'EXACT_READING_EDITOR_NOT_FOUND';
+  return result;
+}{
     options = options || {};
     const route = readingRouteForTargetV61311(fp,courseOrBranchId,template);
     const started = Date.now();
