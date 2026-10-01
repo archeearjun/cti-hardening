@@ -50,15 +50,18 @@ cleanup. Coursera helpers are grouped into assessment, asset, plugin, navigation
 retry, evidence and text/DOM modules. Brightspace separates reusable helpers from
 its bounded API/page traversal. Configuration literals are normal source code.
 
-The LMS console needs one self-contained script. `npm run generate` follows the
-explicit import graph and links the module declarations into that script. The
+The Coursera background Worker and retained regression checks need one
+self-contained browser bundle. `npm run generate` follows the explicit import
+graph and links the module declarations into that internal artifact. The
 restricted linker preserves function text used by targeted checks; it rejects
 aliases, unresolved exports, side-effectful initializers and imports outside the
-platform directory. This bundling is only for console delivery, not the app engine.
+platform directory. Operators do not copy or paste this bundle in the normal CTI
+workflow.
 
-Generated console scripts and delivery strings live under ignored `src/generated/`.
-Do not paste encoded strings or generated scripts back into source control. Run
-`npm run generate` after changing extractor modules, including during `npm run dev`.
+Generated standalone browser bundles and delivery strings live under ignored
+`src/generated/`. Do not paste encoded strings or generated scripts back into
+source control. Run `npm run generate` after changing extractor modules,
+including during `npm run dev`.
 
 ## Background browser extraction
 
