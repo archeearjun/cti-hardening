@@ -19,7 +19,7 @@ import {
   validateCourseWorkState,
   WORK_STATE_OPTIONS,
 } from "../src/domain/work-state";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import { runWorkflow } from "./workflow-client";
 import {
@@ -38,6 +38,12 @@ import type {
   WorkflowJob,
 } from "../src/domain/workspace-types";
 import type { PackageScan } from "../src/domain/package-types";
+import { readExternalRuntimeEvidenceFile } from "../src/domain/runtime-inventory";
+import { buildSystemHealth } from "../src/domain/system-health";
+import {
+  planDuplicateResolution,
+  restoreArchivedPackage,
+} from "../src/domain/duplicate-resolution";
 
 const steps = [
   ["sourceRescanned", "Original IMSCC rescanned"],
@@ -189,10 +195,27 @@ export default function FullWorkspace({
       !records.some((a) => a.kind === "audit" && a.id === r.data.sourceRunId),
   );
   const courses = records
-    .filter((r) => r.kind === "package")
+    .filter((r) => r.kind === "package" && r.data.archived !== true)
     .sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { numeric: true }),
     );
+  const archivedCourses = records
+    .filter((r) => r.kind === "package" && r.data.archived === true)
+    .sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { numeric: true }),
+    );
+  const systemHealth = useMemo(
+    () =>
+      buildSystemHealth(
+        records,
+        store?.mode === "team"
+          ? "team"
+          : store?.mode === "local"
+            ? "local"
+            : "unknown",
+      ),
+    [records, store?.mode],
+  );
   const audits = records
     .filter((r) => r.kind === "audit" && r.packageId === courseId)
     .sort(
