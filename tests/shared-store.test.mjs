@@ -660,6 +660,35 @@ test("admin migration import may preserve historical duplicates but editors cann
   db.sql.close();
 });
 
+test("simultaneous shared creates cannot claim the same semantic package identity", async () => {
+  const db = database(),
+    call = client(db);
+  const left = comparisonFixture().course;
+  left.data.partner = "NAIT";
+  left.title = "BORL113.imscc";
+  left.data.scan.fileName = left.title;
+
+  const right = structuredClone(left);
+  right.id = crypto.randomUUID();
+  right.title = "BORL113 (2).imscc";
+  right.data.scan.fileName = right.title;
+
+  const a = await upload(call, left);
+  const b = await upload(call, right);
+  await Promise.all([a.chunks(), b.chunks()]);
+  const responses = await Promise.all([a.commit(), b.commit()]);
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 409],
+  );
+  const list = await (await call("records")).json();
+  assert.equal(
+    list.records.filter((record) => record.kind === "package").length,
+    1,
+  );
+  db.sql.close();
+});
+
 test("shared API rejects a second active semantic package identity", async () => {
   const db = database(),
     call = client(db);
