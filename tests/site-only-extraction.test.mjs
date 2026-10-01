@@ -55,3 +55,16 @@ test("background extraction persists browser checkpoints for workflow restart", 
   assert.match(completion, /localStorage\.getItem\(key\)/);
   assert.match(completion, /CTI_CHECKPOINT_TTL_MS/);
 });
+
+
+test("background plugin evidence is passive and item-scoped", () => {
+  const background = read("workers/coursera-extractor/index.ts");
+  const entry = read("src/extractors/coursera/entry.js");
+  assert.match(entry, /__CTI_ACTIVE_ITEM_ID/);
+  assert.match(background, /collectExternalFramesForItem/);
+  assert.match(background, /page\.frames\(\)/);
+  assert.match(background, /PLAYWRIGHT_CROSS_ORIGIN_FRAME/);
+  assert.match(background, /interactionVerified:\s*false/);
+  assert.doesNotMatch(background, /\.play\s*\(/);
+  assert.doesNotMatch(background, /frame\.click\s*\(/);
+});
