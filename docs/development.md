@@ -50,25 +50,32 @@ cleanup. Coursera helpers are grouped into assessment, asset, plugin, navigation
 retry, evidence and text/DOM modules. Brightspace separates reusable helpers from
 its bounded API/page traversal. Configuration literals are normal source code.
 
-The Coursera background Worker and retained regression checks need one
-self-contained browser bundle. `npm run generate` follows the explicit import
-graph and links the module declarations into that internal artifact. The
+The local Chrome workflow, optional Coursera background Worker and retained
+regression checks need one self-contained browser bundle. `npm run generate`
+follows the explicit import graph and links the module declarations into that
+artifact. The
 restricted linker preserves function text used by targeted checks; it rejects
 aliases, unresolved exports, side-effectful initializers and imports outside the
-platform directory. Operators do not copy or paste this bundle in the normal CTI
-workflow.
+platform directory. The zero-cost operator flow can copy or download this current bundle from CTI
+and run it in the already authenticated Coursera authoring tab.
 
 Generated standalone browser bundles and delivery strings live under ignored
 `src/generated/`. Do not paste encoded strings or generated scripts back into
 source control. Run `npm run generate` after changing extractor modules,
 including during `npm run dev`.
 
-## Background browser extraction
+## Coursera browser extraction
 
-The normal Pages application remains the control plane. Background Coursera
-capture is a separate service-bound Worker because Browser Run and durable
-Workflows are Worker capabilities, not a reason to expose course records or LMS
-credentials from the Pages app.
+The normal zero-cost path executes the current extractor in the operator's
+already authenticated Chrome tab. The generated program keeps its item
+checkpoints in that browser and downloads the raw JSON locally. CTI independently
+evaluates the returned capture with the same strict completion contract before
+it can be labelled COMPLETE.
+
+The optional background path remains a separate service-bound Worker because
+Browser Run and durable Workflows are Worker capabilities. It is intended only
+for deployments that provision sufficient remote-browser quota; it is not a
+requirement for the Pages application or shared workspace.
 
 The Pages API authenticates the CTI user first and forwards only the verified
 email/role to the Worker. Coursera login occurs in a temporary remote Live View;
