@@ -96,7 +96,6 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       );
     if (
       typeof record.data.partner !== "string" ||
-      !record.data.partner.trim() ||
       record.data.partner.length > 200 ||
       typeof record.data.owner !== "string" ||
       record.data.owner.length > 300
