@@ -253,6 +253,135 @@ async function verifiedAuthoringPage(page: any, shellUrl: string, courseId: stri
   );
 }
 
+function organizationSsoLabel(urlValue: string) {
+  try {
+    const host = new URL(urlValue).hostname.toLowerCase();
+    if (/okta/.test(host)) return "Okta";
+    if (!/(^|\.)coursera\.org$/.test(host)) return "organization SSO";
+  } catch {}
+  return "Coursera organization SSO";
+}
+
+async function advanceToOrganizationSso(page: any) {
+  const attempts: Array<{ url: string; action: string }> = [];
+  const ssoPattern =
+    /(sign|log)\s*(in|up).*organization|organization.*(sign|log)\s*(in|up)|single\s*sign[- ]?on|\bsso\b|work\s*account|company\s*account/i;
+
+  for (let round = 0; round < 4; round++) {
+    const currentUrl = String(page.url() || "");
+    let currentHost = "";
+    try {
+      currentHost = new URL(currentUrl).hostname.toLowerCase();
+    } catch {}
+    if (currentHost && !/(^|\.)coursera\.org$/.test(currentHost))
+      return {
+        provider: organizationSsoLabel(currentUrl),
+        url: currentUrl,
+        attempts,
+      };
+
+    const candidates = page.locator("button,a,[role='button']");
+    const count = Math.min(await candidates.count(), 120);
+    let clicked = false;
+    for (let index = 0; index < count; index++) {
+      const candidate = candidates.nth(index);
+      let label = "";
+      try {
+        if (!(await candidate.isVisible())) continue;
+        label = String(await candidate.innerText()).replace(/\s+/g, " ").trim();
+      } catch {
+        continue;
+      }
+      if (!label || !ssoPattern.test(label)) continue;
+      attempts.push({ url: currentUrl, action: label.slice(0, 180) });
+      try {
+        await candidate.click({ timeout: 8_000 });
+        clicked = true;
+        await Promise.race([
+          page.waitForLoadState("domcontentloaded", { timeout: 8_000 }).catch(() => {}),
+          page.waitForTimeout(2_000),
+        ]);
+      } catch {}
+      break;
+    }
+    if (!clicked) break;
+  }
+
+  return {
+    provider: organizationSsoLabel(String(page.url() || "")),
+    url: String(page.url() || ""),
+    attempts,
+  };
+}
+
+async function completeInteractiveOrganizationSso(
+  env: Env,
+  status: CourseraExtractionStatus,
+  context: any,
+  page: any,
+  payload: Extract<WorkflowPayload, { kind: "extract" }>,
+) {
+  status = await writeStatus(env, status, {
+    state: "AWAITING_LOGIN",
+    phase: "Preparing Coursera organization SSO",
+    liveViewUrl: "",
+  });
+
+  const advance = await advanceToOrganizationSso(page);
+  const cdp = await context.newCDPSession(page);
+  const live = await (cdp as any).send("Cloudflare.getLiveView", {
+    mode: "tab",
+    expiresInMs: 15 * 60 * 1000,
+  });
+  const provider = organizationSsoLabel(String(page.url() || advance.url || ""));
+  status = await writeStatus(env, status, {
+    state: "AWAITING_LOGIN",
+    phase:
+      provider === "Okta"
+        ? "Complete Okta SSO/MFA — CTI will resume this extraction"
+        : "Complete your Coursera organization SSO/Okta sign-in — CTI will resume",
+    liveViewUrl: live.devtoolsFrontendUrl,
+  });
+
+  const completed = new Promise<any>((resolve) => {
+    (cdp as any).once("Cloudflare.handoffComplete", resolve);
+  });
+  await (cdp as any).send("Cloudflare.handoff", {
+    instructions:
+      "Use your normal Coursera work account through your organization's SSO/Okta flow. Do not create a personal Coursera account. Complete Okta and MFA if requested. When the Coursera authoring shell is visible, choose Done. CTI will save this authenticated browser session and continue the same extraction automatically.",
+    timeout: 15 * 60 * 1000,
+  });
+  const handoff = await completed;
+  if (!handoff?.success)
+    throw new Error(
+      `Organization SSO handoff did not complete: ${handoff?.reason || "unknown reason"}`,
+    );
+
+  status = await writeStatus(env, status, {
+    state: "RUNNING",
+    phase: "Verifying Coursera authoring access after SSO",
+    liveViewUrl: "",
+  });
+  if (!(await verifiedAuthoringPage(page, payload.shellUrl, payload.courseId)))
+    throw new Error(
+      "Okta/organization sign-in finished, but this account still could not open the requested Coursera authoring shell.",
+    );
+
+  const storageState = await context.storageState({ indexedDB: true });
+  await saveSession(
+    env,
+    payload.ownerHash,
+    storageState,
+    payload.shellUrl,
+    payload.courseId,
+  );
+  return writeStatus(env, status, {
+    state: "RUNNING",
+    phase: "SSO complete — starting background extraction",
+    liveViewUrl: "",
+  });
+}
+
 async function readCaptureJson(page: any) {
   const prepared = await page.evaluate(() => {
     const w = window as any;
@@ -638,37 +767,42 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
     statusKey(payload.id),
   ))!;
   const resumedStorageState = await loadRuntimeState(env, payload.id);
-  const storageState =
-    resumedStorageState || (await loadSession(env, payload.ownerHash));
-  if (!storageState)
-    throw new Error(
-      "Coursera is not connected for this CTI account. Connect Coursera before starting extraction.",
-    );
+  const savedStorageState = await loadSession(env, payload.ownerHash);
+  const storageState = resumedStorageState || savedStorageState || null;
 
   status = await writeStatus(env, status, {
     state: "RUNNING",
     phase: resumedStorageState
       ? "Resuming authenticated browser from saved item checkpoints"
-      : "Starting authenticated browser",
+      : savedStorageState
+        ? "Checking saved Coursera/Okta session"
+        : "Opening Coursera — organization SSO will appear only if needed",
     startedAt: status.startedAt || now(),
   });
 
   const browser = await launch(env.BROWSER, { keep_alive: 600_000 });
   try {
-    const context = await browser.newContext({
-        storageState,
-        bypassCSP: true,
-        acceptDownloads: true,
-      }),
+    const contextOptions: Record<string, unknown> = {
+      bypassCSP: true,
+      acceptDownloads: true,
+    };
+    if (storageState) contextOptions.storageState = storageState;
+    const context = await browser.newContext(contextOptions),
       page = await context.newPage();
 
     if (!(await verifiedAuthoringPage(page, payload.shellUrl, payload.courseId)))
-      throw new Error(
-        "Saved Coursera session is expired or no longer authorized for this shell. Reconnect Coursera and retry.",
+      status = await completeInteractiveOrganizationSso(
+        env,
+        status,
+        context,
+        page,
+        payload,
       );
 
     status = await writeStatus(env, status, {
+      state: "RUNNING",
       phase: `Running Coursera extractor ${CTI_RELEASE_REGISTRY_.courseraExtractor.version}`,
+      liveViewUrl: "",
     });
 
     const pageErrors: string[] = [];
@@ -762,6 +896,17 @@ async function runExtraction(env: Env, payload: Extract<WorkflowPayload, { kind:
     const exportName =
       (capture as any)?.meta?.exportFileName ||
       `CTI__COURSERA__${payload.courseId}__${payload.id}.json`;
+
+    try {
+      const refreshedSession = await context.storageState({ indexedDB: true });
+      await saveSession(
+        env,
+        payload.ownerHash,
+        refreshedSession,
+        payload.shellUrl,
+        payload.courseId,
+      );
+    } catch {}
 
     await writeStatus(env, status, {
       state: verdict.complete ? "COMPLETE" : "INCOMPLETE",
@@ -956,8 +1101,6 @@ export default {
           fail("Read-only CTI accounts cannot start extractions.", 403);
         const body = await readBody(request),
           target = parseCourseraShellUrl(String(body.url || ""));
-        if (!(await env.ARTIFACTS.head(sessionKey(hash))))
-          fail("Connect Coursera before starting a background extraction.", 409);
         const status = await createWorkflow(
           env,
           "extract",

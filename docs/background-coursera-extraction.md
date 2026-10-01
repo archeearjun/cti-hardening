@@ -38,10 +38,13 @@ was cleared.
 
 Do not store Coursera passwords in CTI.
 
-The first **Connect Coursera** operation opens a temporary Cloudflare Browser Run
-Live View. The user signs into Coursera using the normal authorised SSO/MFA flow
-inside that browser and chooses Done. The Worker then verifies that the requested
-authoring shell can be opened.
+There is no separate Coursera connection step in the normal operator flow.
+**Extract course** first tries the encrypted saved Coursera/organization-SSO
+browser state. If that state is absent or expired, the same extraction job opens
+a temporary Cloudflare Browser Run Live View, advances through Coursera's
+organization/SSO choice where possible, and pauses only for the user's normal
+Okta/MFA interaction. After the authoring shell is verified, the Worker saves the
+refreshed browser state and resumes the same extraction automatically.
 
 Playwright storage state is encrypted with AES-GCM before R2 storage. The
 encryption secret is a Worker secret and must never be committed. CTI stores only
@@ -134,12 +137,13 @@ the UI does not pretend background extraction exists.
 
 1. Open **Full CTI workspace → Extract**.
 2. Paste a Coursera URL containing /teach/<course>/<course-id>/content/....
-3. Choose **Connect Coursera** if this CTI identity has no saved Coursera
-   session.
-4. Open the temporary Coursera sign-in view, complete normal SSO/MFA, open the
-   authoring shell and choose Done.
-5. After CTI reports Coursera connected, choose **Extract course**.
-6. The job continues in the Worker/Workflow. Closing the CTI page does not
+3. Choose **Extract course**.
+4. CTI first tries the encrypted saved Coursera/Okta browser session. If it is
+   still valid, extraction begins without another sign-in.
+5. If SSO is required, CTI opens the temporary organization-SSO view and routes
+   toward Okta where possible. Complete the normal Okta/MFA step and choose Done
+   when the Coursera authoring shell is visible.
+6. The same extraction resumes automatically. Closing the CTI page does not
    cancel it.
 7. A completed raw JSON artifact is downloadable whether the strict verdict is
    COMPLETE or INCOMPLETE.

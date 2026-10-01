@@ -5,15 +5,12 @@ import {
   courseraCaptureFile,
   courseraConnection,
   disconnectCoursera,
-  readCourseraConnectionJob,
   readCourseraExtractionJob,
   recentCourseraExtractions,
-  startCourseraConnection,
   startCourseraExtraction,
   type CourseraConnectionSummary,
 } from "../src/domain/coursera-extraction-http.ts";
 
-const connectionKey = "cti-coursera-connection-job";
 const extractionKey = "cti-coursera-extraction-job";
 const running = (status: CourseraExtractionStatus | null) =>
   !!status &&
@@ -40,8 +37,6 @@ export default function CourseraExtractionWorkspace({
 }) {
   const [shellUrl, setShellUrl] = useState(initialUrl);
   const [session, setSession] = useState<CourseraConnectionSummary | null>(null);
-  const [connectionJob, setConnectionJob] =
-    useState<CourseraExtractionStatus | null>(null);
   const [extractionJob, setExtractionJob] =
     useState<CourseraExtractionStatus | null>(null);
   const [recentJobs, setRecentJobs] = useState<CourseraExtractionStatus[]>([]);
@@ -49,6 +44,8 @@ export default function CourseraExtractionWorkspace({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const mounted = useRef(true);
+  const authPopup = useRef<Window | null>(null);
+  const authPopupUrl = useRef("");
 
   useEffect(
     () => () => {
@@ -81,14 +78,6 @@ export default function CourseraExtractionWorkspace({
           if (!localStorage.getItem(extractionKey) && recent[0])
             setExtractionJob(recent[0]);
         }
-        const connectionId = localStorage.getItem(connectionKey);
-        if (connectionId) {
-          const status = await readCourseraConnectionJob(
-            connectionId,
-            controller.signal,
-          );
-          if (mounted.current) setConnectionJob(status);
-        }
         const extractionId = localStorage.getItem(extractionKey);
         if (extractionId) {
           const status = await readCourseraExtractionJob(
@@ -110,42 +99,6 @@ export default function CourseraExtractionWorkspace({
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled || !connectionJob || !running(connectionJob)) return;
-    const controller = new AbortController();
-    const poll = async () => {
-      try {
-        const status = await readCourseraConnectionJob(
-          connectionJob.id,
-          controller.signal,
-        );
-        if (!mounted.current) return;
-        setConnectionJob(status);
-        if (status.state === "CONNECTED") {
-          localStorage.removeItem(connectionKey);
-          await refreshSession(controller.signal);
-          setNotice("Coursera connection verified. You can run background extraction.");
-        } else if (status.state === "FAILED") {
-          localStorage.removeItem(connectionKey);
-          setError(status.error || "Coursera connection failed.");
-        }
-      } catch (e) {
-        if (
-          mounted.current &&
-          !controller.signal.aborted &&
-          e instanceof Error
-        )
-          setError(e.message);
-      }
-    };
-    const timer = setInterval(() => void poll(), 2500);
-    void poll();
-    return () => {
-      clearInterval(timer);
-      controller.abort();
-    };
-  }, [enabled, connectionJob?.id, connectionJob?.state]);
-
-  useEffect(() => {
     if (!enabled || !extractionJob || !running(extractionJob)) return;
     const controller = new AbortController();
     const poll = async () => {
@@ -156,9 +109,38 @@ export default function CourseraExtractionWorkspace({
         );
         if (!mounted.current) return;
         setExtractionJob(status);
+        if (
+          status.state === "AWAITING_LOGIN" &&
+          status.liveViewUrl &&
+          authPopup.current &&
+          !authPopup.current.closed &&
+          authPopupUrl.current !== status.liveViewUrl
+        ) {
+          try {
+            authPopup.current.location.replace(status.liveViewUrl);
+            authPopupUrl.current = status.liveViewUrl;
+          } catch {}
+        }
+        if (
+          status.state === "RUNNING" &&
+          authPopup.current &&
+          !authPopup.current.closed &&
+          authPopupUrl.current
+        ) {
+          try { authPopup.current.close(); } catch {}
+          authPopup.current = null;
+          authPopupUrl.current = "";
+        }
         if (terminal(status)) {
           localStorage.removeItem(extractionKey);
           try {
+            if (authPopup.current && !authPopup.current.closed)
+              authPopup.current.close();
+          } catch {}
+          authPopup.current = null;
+          authPopupUrl.current = "";
+          try {
+            await refreshSession(controller.signal);
             const recent = await recentCourseraExtractions(controller.signal);
             if (mounted.current) setRecentJobs(recent);
           } catch (_) {}
@@ -220,7 +202,6 @@ export default function CourseraExtractionWorkspace({
     );
 
   const locked = disabled || !!busy || !editable,
-    connectionActive = running(connectionJob),
     extractionActive = running(extractionJob);
 
   return (
@@ -229,13 +210,13 @@ export default function CourseraExtractionWorkspace({
         <div>
           <h2>Background Coursera extraction</h2>
           <p>
-            Paste an authoring-shell URL. CTI opens an authenticated background
-            browser, runs the Coursera evidence extractor, preserves the raw
-            capture, and reports Complete only after the no-miss gate passes.
+            Paste an authoring-shell URL and start extraction. CTI reuses your
+            saved Coursera/Okta session automatically. If SSO has expired, the
+            same extraction pauses at Okta/MFA and resumes after you finish it.
           </p>
         </div>
         <span className="badge">
-          {session?.connected ? "Coursera connected" : "Coursera not connected"}
+          {session?.connected ? "SSO session saved" : "Okta only if needed"}
         </span>
       </div>
 
@@ -252,9 +233,10 @@ export default function CourseraExtractionWorkspace({
         />
       </label>
       <p className="hint">
-        CTI accepts only www.coursera.org/teach/... authoring URLs. Your Coursera
-        password is never submitted to CTI; sign-in happens inside the remote
-        Coursera browser.
+        CTI accepts only www.coursera.org/teach/... authoring URLs. There is no
+        separate Coursera login setup: click Extract course. If authentication
+        is required, CTI routes the remote browser into your organization SSO
+        flow and asks you only for the Okta/MFA step.
       </p>
 
       {error && (
@@ -269,91 +251,67 @@ export default function CourseraExtractionWorkspace({
       )}
 
       <div className="context-actions">
-        {!session?.connected && (
+        <button
+          className="primary"
+          disabled={locked || !shellUrl.trim() || extractionActive}
+          onClick={() => {
+            if (!session?.connected) {
+              const popup = window.open(
+                "",
+                "cti-coursera-okta",
+                "popup=yes,width=1120,height=820",
+              );
+              if (popup) {
+                try {
+                  popup.document.title = "CTI · preparing Okta SSO";
+                  popup.document.body.innerHTML =
+                    "<main style='font-family:system-ui;padding:32px'><h2>CTI is checking your Coursera session…</h2><p>If Okta is required, this window will switch to the secure sign-in view automatically.</p></main>";
+                } catch {}
+                authPopup.current = popup;
+                authPopupUrl.current = "";
+              }
+            }
+            void act("Starting extraction", async () => {
+              const status = await startCourseraExtraction(shellUrl);
+              localStorage.setItem(extractionKey, status.id);
+              setExtractionJob(status);
+              setRecentJobs((current) => [
+                status,
+                ...current.filter((job) => job.id !== status.id),
+              ].slice(0, 20));
+            });
+          }}
+        >
+          {extractionActive ? "Extraction running…" : "Extract course"}
+        </button>
+        {session?.connected && (
           <button
-            className="secondary"
-            disabled={locked || !shellUrl.trim() || connectionActive}
+            className="text-button"
+            disabled={locked || extractionActive}
             onClick={() =>
-              void act("Starting Coursera sign-in", async () => {
-                const status = await startCourseraConnection(shellUrl);
-                localStorage.setItem(connectionKey, status.id);
-                setConnectionJob(status);
+              void act("Forgetting saved sign-in", async () => {
+                await disconnectCoursera();
+                setSession({
+                  connected: false,
+                  connectedAt: "",
+                  verifiedCourseId: "",
+                });
+                setNotice("Saved Coursera/Okta browser session removed.");
               })
             }
           >
-            {connectionActive ? "Connecting Coursera…" : "Connect Coursera"}
+            Forget saved sign-in
           </button>
-        )}
-        {session?.connected && (
-          <>
-            <button
-              className="primary"
-              disabled={locked || !shellUrl.trim() || extractionActive}
-              onClick={() =>
-                void act("Starting extraction", async () => {
-                  const status = await startCourseraExtraction(shellUrl);
-                  localStorage.setItem(extractionKey, status.id);
-                  setExtractionJob(status);
-                  setRecentJobs((current) => [
-                    status,
-                    ...current.filter((job) => job.id !== status.id),
-                  ].slice(0, 20));
-                })
-              }
-            >
-              {extractionActive ? "Extraction running…" : "Extract course"}
-            </button>
-            <button
-              className="text-button"
-              disabled={locked || extractionActive}
-              onClick={() =>
-                void act("Disconnecting Coursera", async () => {
-                  await disconnectCoursera();
-                  localStorage.removeItem(connectionKey);
-                  setConnectionJob(null);
-                  setSession({
-                    connected: false,
-                    connectedAt: "",
-                    verifiedCourseId: "",
-                  });
-                  setNotice("Coursera connection removed.");
-                })
-              }
-            >
-              Disconnect Coursera
-            </button>
-          </>
         )}
       </div>
 
       {session?.connected && (
         <p className="hint">
-          Connected {dateLabel(session.connectedAt)}
+          Encrypted Coursera/Okta browser session saved {dateLabel(session.connectedAt)}
           {session.verifiedCourseId
             ? " · last verified shell " + session.verifiedCourseId
             : ""}
         </p>
-      )}
-
-      {connectionJob && connectionJob.state !== "CONNECTED" && (
-        <div className="status workspace-progress" role="status">
-          <span className="pulse" />
-          <div>
-            <strong>{connectionJob.state.replaceAll("_", " ")}</strong>
-            <span>{connectionJob.phase || "Preparing Coursera sign-in"}</span>
-            <span>Updated {dateLabel(connectionJob.updatedAt)}</span>
-          </div>
-          {connectionJob.liveViewUrl && (
-            <a
-              className="primary"
-              href={connectionJob.liveViewUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Coursera sign-in
-            </a>
-          )}
-        </div>
       )}
 
       {extractionJob && (
@@ -375,6 +333,17 @@ export default function CourseraExtractionWorkspace({
                 {dateLabel(extractionJob.updatedAt)}
               </span>
             </div>
+            {extractionJob.state === "AWAITING_LOGIN" &&
+              extractionJob.liveViewUrl && (
+                <a
+                  className="primary"
+                  href={extractionJob.liveViewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Continue with Okta SSO
+                </a>
+              )}
           </div>
 
           {extractionJob.capture && (
@@ -513,8 +482,8 @@ export default function CourseraExtractionWorkspace({
 
       {!editable && (
         <p className="hint">
-          Your CTI account is read-only. An editor or administrator can connect
-          Coursera and start extraction jobs.
+          Your CTI account is read-only. An editor or administrator can start
+          background extraction jobs.
         </p>
       )}
     </section>
