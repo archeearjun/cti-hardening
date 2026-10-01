@@ -116,3 +116,20 @@ setting only; future work starts from `main`.
 `npm run export:gas` is optional recovery of the frozen Apps Script snapshot to
 ignored `dist-gas/`. It does not export current Cloudflare features back to Google.
 See `archive/apps-script/README.md` for the reference boundary.
+
+
+## Migrated operations
+
+Portable replacements for the legacy Apps Script operational layer live in
+`src/domain/operations.ts` and `web/OperationsWorkspace.tsx`. They own
+semantic package identity, metadata validation, preflight, manifest export,
+catalog/planner/runtime inputs, typed work-state, duplicate reconciliation,
+bulk rescan, lineage repair, system health and partner aggregates.
+
+`src/domain/product-capabilities.ts` is the truthful current product capability
+manifest. Do not use the historical `CTI_FEATURE_MANIFEST_` as evidence that a
+host feature is currently available.
+
+The normal zero-cost Coursera path is local Chrome. Browser Run code remains
+optional infrastructure and must never become a prerequisite for local capture
+or comparison.
