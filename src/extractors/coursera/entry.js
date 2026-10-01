@@ -3,13 +3,13 @@ import { downloadJson, absolute, getJson, courseId, normalizeType, normalizeName
 import { perceptualHashBuffer, ctiSafeFileToken, ctiLocalFileTimestamp, fileNameFromUrl, assetDescriptor, uniqueAssetDetails, canonicalRemoteAssetKeyV614, hashRemoteAsset, isCourseraUiAssetUrl, readingAssetRequestsV61324, recoverReadingAssetUrlsV61324, attachmentFileTypeFromText } from "./assets.js";
 import { harvestEvidence, textEvidenceSourcePriority, mergeEvidence, fingerprintsFromMaterial, collectCurrentDomEvidence, matchCurrentPageToFingerprint, fetchHtmlEvidence, mergeExactReadingEvidenceV61318, finalizeCapturedTextV61318, readingFrameEvidenceV61311, readingNetworkRecordsV61323, mergeReadingNetworkV61312 } from "./evidence.js";
 import { collectEmbeddedPageState, visiblePluginConfigurationV61316, clearTypedPluginChromeV61317, pluginReadinessV6147, collectPluginEvidenceV6139, mergePluginEvidenceV6139 } from "./plugins.js";
-import { sleepMs, readingLoadingOnlyV61312, exactReadingBodyV61318, choiceControlVisibilityV61320, unmarkedChoiceProbeV61320, choiceControlInVisiblePartV61319, choiceAncestryV61319, observedEmptyLayoutV61318, choiceDiagnosticsV61318, parseUnmarkedChoicesV61318, readingBodyGuardV61312, exactReadingEditorV61311, readingAttachmentLabelsV61323, readingAttachmentCoverageV61323, readingAttachmentStateV61324, readingNetworkDiagnosticsV61324, isRejectedItemNavigationUrl, elementTextKey, elementAttributeBlob, directElementTextKey, isExactVisibleTitleNode, isRejectedNavigationSeed, exactIdentityElements, isDocumentScrollRoot, scrollRootPosition, setScrollRootPosition, scrollRootMax, isPerItemNetworkNoise, isCourseWideNetworkResponse, waitForNetworkQuiet, hasVisibleLoadingIndicator, findCurrentEditorSurface } from "./text-and-dom-2.js";
+import { sleepMs, readingLoadingOnlyV61312, exactReadingBodyV61318, choiceControlVisibilityV61320, unmarkedChoiceProbeV61320, choiceControlInVisiblePartV61319, choiceAncestryV61319, observedEmptyLayoutV61318, choiceDiagnosticsV61318, parseUnmarkedChoicesV61318, readingBodyGuardV61312, exactReadingEditorV61311, readingAttachmentLabelsV61323, readingAttachmentCoverageV61323, readingAttachmentStateV61324, readingNetworkDiagnosticsV61324, isRejectedItemNavigationUrl, elementTextKey, elementAttributeBlob, directElementTextKey, isExactVisibleTitleNode, isRejectedNavigationSeed, exactIdentityElements, isDocumentScrollRoot, scrollRootPosition, setScrollRootPosition, scrollRootMax, isPerItemNetworkNoise, isCourseWideNetworkResponse, waitForNetworkQuiet, waitForVisibleV6154, hasVisibleLoadingIndicator, findCurrentEditorSurface } from "./text-and-dom-2.js";
 import { readingRouteTemplateV61312, authoringItemRouteV61311, certifiedReadingRouteV61311, readingRouteForTargetV61311, recoverReadingRouteV61311, canonicalOutlineUrl, isSafeCourseRoute, routeCandidateFromElement, findNavigationTargetInCurrentViewport, outlineScrollRoots, targetPathTokens, expandSafeOutlineDisclosures, expandAllSafeOutlineDisclosures, hydrateOutlineSurfaceForCrawl, findNavigationTargetForFingerprint } from "./navigation.js";
 import { isAssignmentTextBlockV61321, parseAssignmentTextBlockV61321, collectAssignmentTextBlocksV61321, assignmentTextBlockBodyV61321, assignmentOutlineLinksV61320, emptyAssessmentProbeV61320, observedAssignmentLayoutV61319, assessmentLayoutDiagnosticV61318, attachQuestionFailureEvidenceV61318, isStructuredAssessmentFingerprint, assessmentTypeKey, exactAssessmentBadgeElements, optionRowForBadge, splitOptionSemanticText, optionDomTextV6136, optionDomEvidenceV6136, optionSemanticPartsFromRow, stripCourseraOptionDecoration, recoverCollapsedBadgeOptions, parseCourseraAssessmentTextFallback } from "./assessments.js";
 import { assignmentBehaviorTextV61321, rubricRowForPoint, rubricLevelFromRow, rubricContainerForHeading, parseFlatRubricCandidate, parseCourseraRubricsFromText, mergeNativeRubricModels } from "./assessment-settings.js";
 import { retryDecisionV61318, retryReasonsForDiagnostic, retrySeverity, buildRetryPlan, attachRetryResults } from "./retries.js";
 import { mergeReadingRecoveryV61311, evidenceHasUsefulPayload, installReadOnlyNetworkRecorder, evidenceFromCapturedRecord, isHeavyHydrationFingerprint, quickRootEvidenceSnapshot, quickNetworkEvidenceSnapshot, isSessionScopedPayloadEndpoint, sanitizeSessionPayloadEvidence, startDomMutationCapture, genericSurfaceNeedsPayloadUpgrade, scoreSurfaceForFingerprint, isDiscussionFingerprintV6612, normalizeDiscussionBodyEvidenceV6612, mergeCourseraLearnerText, mergeTypedEditorRecoveryV61317, collectDomEvidenceFromRoot } from "./evidence-2.js";
-import { waitForRouteChange, isLikelyWholeOutlineSurface, findRouteScopedItemEditorSurface, interleaveCrawlTargetsV61313, typedEditorRouteTypeV61316, typedEditorRouteV61316, crawlTargetPriority, safelyRouteWithHistory, safelyRestoreRoute, isGenericCourseEditRoute, isItemSpecificCourseRoute, returnToOutlineV6142, recoveryCrawlBudgetV61326, activeCrawlBudgetMs, diagnosticNavigated, targetedItemPayloadProbes } from "./navigation-2.js";
+import { waitForRouteChange, isLikelyWholeOutlineSurface, findRouteScopedItemEditorSurface, interleaveCrawlTargetsV61313, typedEditorRouteTypeV61316, typedEditorRouteV61316, crawlTargetPriority, safelyRouteWithHistory, safelyRestoreRoute, isGenericCourseEditRoute, isItemSpecificCourseRoute, returnToOutlineV6142, recoveryCrawlBudgetV61326, activeCrawlBudgetMs, itemAttemptBudgetV6153, diagnosticNavigated, targetedItemPayloadProbes } from "./navigation-2.js";
 import { scopedWaitBudgetV61321, sessionEndpointContentKey, sessionAtomIsRelationPaired, isVisibleElement, surfaceRoleBonus, isGenericSmartIngestionName, editorSurfaceSignalScore, candidateSurfaceAncestors, snapshotOpenSurfaceRoots, findOpenedEditorSurface, estimateTextCompleteness, cleanDiscussionPromptTextV6612, collectSurfaceBodyText, textWithoutExactBadges, splitCarryDescriptionAndLabel, isObservedWrittenResponseV6138, parseWrittenResponsePartV6136, feedbackCoreV6611, stateSearchBudgetV61313, stateSearchStepV61313, ownStateValueV61313, ctiPlainTextV664, reactFiberForElementV664, findNamedValueV664 } from "./text-and-dom-3.js";
 import { assessmentPromptKey_, mergeCourseraAssessmentEvidence, isAssessmentLikeFingerprintV662, assessmentPartCountV8, assessmentDeclaredCountV662, assessmentEnvelopeRootV662, assessmentQuestionNavCandidatesV662, expandAssessmentContentShellV663, assessmentQuestionDetailRootV662, inferSelectedQuestionTypeV662, questionEvidenceReadyV6138, parseSelectedAssessmentQuestionV662, assessmentCycleKeyV613, mergeQuestionIntoCycleV662 } from "./assessments-2.js";
 import { mergeAssessmentModelIntoCycleV662, safeClickAssessmentQuestionV662, cleanAssignmentOptionFieldV6610, cleanAssignmentOptionAliasesV6610, ctiSeparateJoinedOptionFeedback_, ctiOptionLabelLooksLikeFeedback_, ctiOptionFeedbackRisk_, ctiGuardOptionEvidence_, ctiGuardAssessmentOptionEvidence_, normalizeAssignmentOptionRowsV6610, assignmentEntryTypeFromDomV6611, dropFeedbackPseudoOptionsV6611, parseAssignmentPartDomV665, assignmentPartEvidenceScoreV666, assessmentOutlinePromptAlignedV613, hydrateAssignmentPartV666 } from "./assessments-3.js";
@@ -18,36 +18,36 @@ import { objectTextV664, exactPointElements, cleanAttachmentDisplayName, collect
 import { nativeAssignmentSectionsFromText, trimCourseraAssignmentLearnerText, normalizeAssignmentMetadataV61325, collectCourseraNativeAssignment, retainAssessmentSurfaceEvidenceV6138, assessmentTextReceiptV6146, genericAssessmentTextHeuristicNotApplicableV6146 } from "./assessments-5.js";
 import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
-import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS } from "./config.js";
+import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS } from "./config.js";
+import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
 javascript:(async function () {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
-  const CTI_RUN_LOCK_MAX_AGE_MS = 30 * 60 * 1000;
+  const CTI_RUN_LOCK_STALE_MS = 45000;
   const existingRunLock = window[CTI_RUN_LOCK_KEY];
   const nowForLock = Date.now();
+  let CTI_WHOLE_RUN_DEADLINE=nowForLock+CTI_WHOLE_RUN_MAX_MS;
   if (existingRunLock && existingRunLock.running &&
-      (nowForLock - Number(existingRunLock.startedAt || 0)) < CTI_RUN_LOCK_MAX_AGE_MS) {
+      (nowForLock - Number(existingRunLock.lastHeartbeatAt || existingRunLock.startedAt || 0)) < CTI_RUN_LOCK_STALE_MS) {
     console.warn("CTI Item Fidelity Extractor is already running. Second invocation blocked.", existingRunLock);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true,
-    token: CTI_RUN_TOKEN,
-    startedAt: nowForLock,
-    version: "v6.14.7"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.4"
   };
+  const ctiRunHeartbeat=setInterval(()=>{
+    try{const current=window[CTI_RUN_LOCK_KEY];if(current && current.token===CTI_RUN_TOKEN && current.running)current.lastHeartbeatAt=Date.now();}catch(_){}
+  },10000);
   function releaseCtiRunLock() {
+    clearInterval(ctiRunHeartbeat);
     try {
       const current = window[CTI_RUN_LOCK_KEY];
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
-          running: false,
-          token: CTI_RUN_TOKEN,
-          startedAt: current.startedAt,
-          finishedAt: Date.now(),
-          version: "v6.14.7"
+          running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
+          finishedAt: Date.now(), version: "v6.15.4"
         };
       }
     } catch (e) {}
@@ -63,6 +63,7 @@ javascript:(async function () {
   // CTI_PROGRESS_END
 
   // CTI_PROGRESS_END
+  let ctiCheckpointManager=null;
   try {
 
   const MAX_OBSERVED_API_FETCHES = 80;
@@ -92,8 +93,8 @@ javascript:(async function () {
   const EVIDENCE_STABILITY_MIN_MS = 1600;
   const EVIDENCE_STABILITY_HEAVY_MIN_MS = 2600;
   const EVIDENCE_STABILITY_EMPTY_HEAVY_MIN_MS = 4600;
-  const EVIDENCE_STABILITY_MAX_MS = 8000;
-  const EVIDENCE_STABILITY_HEAVY_MAX_MS = 10000;
+  const EVIDENCE_STABILITY_MAX_MS = 12000;
+  const EVIDENCE_STABILITY_HEAVY_MAX_MS = 20000;
   // v6.4 self-healing retry pass: only weak targets are reopened, with a
   // longer bounded dwell and one extra stable sample before accepting capture.
   const MAX_RETRY_ITEMS = 12;
@@ -101,8 +102,8 @@ javascript:(async function () {
   const RETRY_STABILITY_MIN_MS = 2400;
   const RETRY_STABILITY_HEAVY_MIN_MS = 3600;
   const RETRY_STABILITY_EMPTY_HEAVY_MIN_MS = 6000;
-  const RETRY_STABILITY_MAX_MS = 12000;
-  const RETRY_STABILITY_HEAVY_MAX_MS = 15000;
+  const RETRY_STABILITY_MAX_MS = 18000;
+  const RETRY_STABILITY_HEAVY_MAX_MS = 30000;
   const ACTIVE_CRAWL_ROUTE_TIMEOUT_MS = 7000;
 
   // v6.14.7: a rendered course+item Reading Content field certifies identity.
@@ -112,9 +113,9 @@ javascript:(async function () {
     options=options || {};
     const retryMode=Boolean(options.retryMode),started=Date.now(),heavy=isHeavyHydrationFingerprint(fp);
     const plugin=/plugin|widget|lti/i.test(String(fp.type || '')+' '+String(fp.typeName || ''));
-    const configuredMaxMs=plugin?20000:retryMode ? (heavy?RETRY_STABILITY_HEAVY_MAX_MS:RETRY_STABILITY_MAX_MS) : (heavy?EVIDENCE_STABILITY_HEAVY_MAX_MS:EVIDENCE_STABILITY_MAX_MS);
+    const configuredMaxMs=plugin?(retryMode?CTI_PLUGIN_RETRY_MAX_MS:CTI_PLUGIN_PRIMARY_MAX_MS):retryMode ? (heavy?RETRY_STABILITY_HEAVY_MAX_MS:RETRY_STABILITY_MAX_MS) : (heavy?EVIDENCE_STABILITY_HEAVY_MAX_MS:EVIDENCE_STABILITY_MAX_MS);
     const deadline=options.deadline==null?Infinity:Number(options.deadline),remaining=Math.max(0,deadline-started);
-    const baseMaxMs=Math.min(configuredMaxMs,remaining),hardMaxMs=Math.min(configuredMaxMs+(heavy?20000:12000),remaining);
+    const baseMaxMs=Math.min(configuredMaxMs,remaining),hardMaxMs=Math.min(plugin?configuredMaxMs:configuredMaxMs+(heavy?20000:12000),remaining);
     let maxMs=baseMaxMs,minMs=retryMode?(heavy?RETRY_STABILITY_HEAVY_MIN_MS:RETRY_STABILITY_MIN_MS):(heavy?EVIDENCE_STABILITY_HEAVY_MIN_MS:EVIDENCE_STABILITY_MIN_MS);
     const requiredStableSamples=retryMode?RETRY_STABILITY_REQUIRED_SAMPLES:EVIDENCE_STABILITY_REQUIRED_SAMPLES;
     const sampleMs=retryMode?Math.max(450,EVIDENCE_STABILITY_SAMPLE_MS):EVIDENCE_STABILITY_SAMPLE_MS;
@@ -129,6 +130,7 @@ javascript:(async function () {
         pluginReadiness:pluginSnapshot?pluginReadinessV6147(pluginSnapshot):null,progressExtensions:extensions,meaning:'A stable observed editor is not proof of complete content or external-frame access.'};
     }
     while(Date.now()-started<maxMs) {
+      if(typeof document !== 'undefined' && document.visibilityState !== 'visible') return result('DOCUMENT_HIDDEN_DURING_STABILITY',true);
       if(!surface || !surface.root || !surface.root.isConnected || !isVisibleElement(surface.root)) {
         surface=findCurrentEditorSurface(fp,baselineOpenSurfaces,options.strongSessionIdentity===true);
       }
@@ -576,8 +578,9 @@ javascript:(async function () {
   async function recoverTypedEditorV61317(fp, courseId, template, options) {
     options=options || {};
     const started=Date.now(),route=typedEditorRouteV61316(fp,courseId,template);
-    const plugin=typedEditorRouteTypeV61316(fp)==='plugin',baseMs=plugin?20000:15000;
-    const waitBudget=scopedWaitBudgetV61321(baseMs,plugin?20000:16000,options.deadline);
+    const plugin=typedEditorRouteTypeV61316(fp)==='plugin',retryMode=Boolean(options.retryMode);
+    const baseMs=plugin?(retryMode?CTI_PLUGIN_RETRY_MAX_MS:CTI_PLUGIN_PRIMARY_MAX_MS):(retryMode?35000:25000);
+    const waitBudget=scopedWaitBudgetV61321(baseMs,plugin?0:16000,options.deadline);
     let deadline=Math.min(started+baseMs,options.deadline==null?Infinity:Number(options.deadline));
     waitBudget.observe([0]);
     const out={id:String(fp.id),route,attempted:false,captured:false,reason:'NO_TYPED_ROUTE',samples:0,dwellMs:0};
