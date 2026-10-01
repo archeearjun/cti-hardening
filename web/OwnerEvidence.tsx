@@ -28,6 +28,7 @@ export default function OwnerEvidence({
   records = [],
   store,
   onSaved,
+  onOpenExtraction,
 }: {
   result: EvidenceObject;
   report?: EvidenceObject;
@@ -36,6 +37,7 @@ export default function OwnerEvidence({
   records?: WorkspaceRecord[];
   store?: WorkspaceStore | null;
   onSaved?: () => Promise<void>;
+  onOpenExtraction?: (url?: string) => void;
 }) {
   const [query, setQuery] = useState(""),
     [status, setStatus] = useState(""),
@@ -244,6 +246,7 @@ export default function OwnerEvidence({
             onSaved={onSaved}
             context={sourceContext}
             courseLocation={location}
+            onOpenExtraction={onOpenExtraction}
           />
         </div>
       ))}
