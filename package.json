@@ -24,7 +24,8 @@
     "test:extractors": "npm run generate && node --test tests/extractor-runtime.test.mjs tests/assignment-identity.test.mjs tests/corpus-extraction.test.mjs tests/retry-evidence.test.mjs",
     "test:navigation": "npm run generate && node --test tests/owner-actions.test.mjs tests/source-plugin-followup.test.mjs",
     "worker:check": "npm run generate && npx --yes wrangler@4.143.0 deploy --dry-run --config workers/coursera-extractor/wrangler.jsonc",
-    "worker:deploy": "npm run generate && npx --yes wrangler@4.143.0 deploy --config workers/coursera-extractor/wrangler.jsonc"
+    "worker:deploy": "npm run generate && npx --yes wrangler@4.143.0 deploy --config workers/coursera-extractor/wrangler.jsonc",
+    "audit:extractor-changes": "npm run generate && node tools/extractor-review-manifest.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
