@@ -1,4 +1,4 @@
-import { launch } from "@cloudflare/playwright";
+import { launch, limits as playwrightLimits } from "@cloudflare/playwright";
 import { WorkflowEntrypoint } from "cloudflare:workers";
 import { courseraSource } from "../../src/generated/extractor-sources.js";
 import { CTI_RELEASE_REGISTRY_ } from "../../src/engine/release.js";
@@ -152,12 +152,24 @@ function browserRunRateLimited(error: unknown) {
 }
 
 async function browserRunLimits(env: Env): Promise<BrowserRunLimits | null> {
-  if (typeof env.BROWSER?.limits !== "function") return null;
   try {
-    return (await env.BROWSER.limits()) as BrowserRunLimits;
+    // @cloudflare/playwright exposes limits() as a package function that takes
+    // the browser binding. It is not a method on env.BROWSER.
+    return (await playwrightLimits(env.BROWSER)) as BrowserRunLimits;
   } catch {
     return null;
   }
+}
+
+function browserRunCapacitySummary(limits: BrowserRunLimits | null) {
+  if (!limits) return "limits unavailable";
+  const active = Array.isArray(limits.activeSessions)
+    ? limits.activeSessions.length
+    : 0;
+  const max = Number(limits.maxConcurrentSessions || 0);
+  const allowed = Number(limits.allowedBrowserAcquisitions || 0);
+  const next = Number(limits.timeUntilNextAllowedBrowserAcquisition || 0);
+  return `active=${active}/${max || "?"}, acquisitionAllowed=${allowed}, nextAcquisition=${next}`;
 }
 
 function browserRunHasCapacity(limits: BrowserRunLimits | null) {
@@ -185,7 +197,7 @@ function browserRunWaitMs(limits: BrowserRunLimits | null, fallbackMs = 25_000) 
 async function waitForBrowserRunCapacity(
   env: Env,
   payload: WorkflowPayload,
-  maxWaitMs = 4 * 60 * 1000,
+  maxWaitMs = 11 * 60 * 1000,
 ) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < maxWaitMs) {
@@ -214,8 +226,9 @@ async function waitForBrowserRunCapacity(
       });
     await sleep(Math.min(waitMs, maxWaitMs - (Date.now() - startedAt)));
   }
+  const finalLimits = await browserRunLimits(env);
   throw new Error(
-    "Cloudflare Browser Run has no browser capacity available yet. CTI waited for capacity without starting extraction; retry after current Browser Run sessions finish.",
+    `Cloudflare Browser Run has no browser capacity available after CTI waited for existing sessions to clear. No extraction work was started. Capacity: ${browserRunCapacitySummary(finalLimits)}.`,
   );
 }
 
@@ -237,6 +250,19 @@ async function launchBrowserWithRateLimitRecovery(
       if (attempt >= 3) break;
 
       const limits = await browserRunLimits(env);
+      if (limits && !browserRunHasCapacity(limits)) {
+        await waitForBrowserRunCapacity(
+          env,
+          {
+            kind: "extract",
+            id: status.id,
+            ownerHash: String((status as any).ownerHash || ""),
+            shellUrl: String(status.shellUrl || ""),
+            courseId: String(status.courseId || ""),
+          },
+          11 * 60 * 1000,
+        );
+      }
       const waitMs = browserRunWaitMs(limits);
       const current =
         (await getJson<CourseraExtractionStatus>(env, statusKey(status.id))) ||
@@ -249,8 +275,9 @@ async function launchBrowserWithRateLimitRecovery(
       await sleep(waitMs);
     }
   }
+  const finalLimits = await browserRunLimits(env);
   throw new Error(
-    `Cloudflare Browser Run is still rate-limiting new browser instances after CTI waited and retried. No extraction work was started. Last error: ${browserRunErrorMessage(lastError)}`,
+    `Cloudflare Browser Run is still rate-limiting new browser instances after CTI waited and retried. No extraction work was started. Capacity: ${browserRunCapacitySummary(finalLimits)}. Last error: ${browserRunErrorMessage(lastError)}`,
   );
 }
 
@@ -1171,7 +1198,7 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
               delay: "1 second",
               backoff: "constant",
             },
-            timeout: "5 minutes",
+            timeout: "12 minutes",
           },
           async () => {
             await waitForBrowserRunCapacity(this.env, payload);
@@ -1205,7 +1232,7 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
               delay: "1 second",
               backoff: "constant",
             },
-            timeout: "5 minutes",
+            timeout: "12 minutes",
           },
           async () => {
             await waitForBrowserRunCapacity(this.env, payload);
