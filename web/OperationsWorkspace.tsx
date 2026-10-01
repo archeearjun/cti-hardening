@@ -37,10 +37,6 @@ import { download, Evidence } from "./workspace-ui.tsx";
 type Notice = (message: string) => void;
 type Failure = (message: string) => void;
 
-const dateOnly = (value = "") =>
-  /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 async function workbookFromFile(file: File) {
   return readWorkbook(new Uint8Array(await file.arrayBuffer()), file.name);
@@ -764,7 +760,7 @@ export default function OperationsWorkspace({
                 <select
                   value={workState.scope}
                   onChange={(e) =>
-                    setWorkState({ ...workState, scope: e.target.value as any })
+                    setWorkState(normalizeWorkState({ ...workState, scope: e.target.value }))
                   }
                 >
                   <option>ACTIVE</option>
@@ -776,7 +772,7 @@ export default function OperationsWorkspace({
                 <select
                   value={workState.courseraRedo}
                   onChange={(e) =>
-                    setWorkState({ ...workState, courseraRedo: e.target.value as any })
+                    setWorkState(normalizeWorkState({ ...workState, courseraRedo: e.target.value }))
                   }
                 >
                   {["NOT_STARTED", "IN_PROGRESS", "DONE", "NOT_REQUIRED", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
@@ -787,7 +783,7 @@ export default function OperationsWorkspace({
                 <select
                   value={workState.courseOutline}
                   onChange={(e) =>
-                    setWorkState({ ...workState, courseOutline: e.target.value as any })
+                    setWorkState(normalizeWorkState({ ...workState, courseOutline: e.target.value }))
                   }
                 >
                   {["NOT_STARTED", "DRAFT", "SECURED", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
@@ -798,7 +794,7 @@ export default function OperationsWorkspace({
                 <select
                   value={workState.sourceAudit}
                   onChange={(e) =>
-                    setWorkState({ ...workState, sourceAudit: e.target.value as any })
+                    setWorkState(normalizeWorkState({ ...workState, sourceAudit: e.target.value }))
                   }
                 >
                   {["NOT_STARTED", "PASS", "REVIEW", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
@@ -809,7 +805,7 @@ export default function OperationsWorkspace({
                 <select
                   value={workState.specializationOutline}
                   onChange={(e) =>
-                    setWorkState({ ...workState, specializationOutline: e.target.value as any })
+                    setWorkState(normalizeWorkState({ ...workState, specializationOutline: e.target.value }))
                   }
                 >
                   {["NOT_STARTED", "DRAFT", "SECURED", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
@@ -820,7 +816,7 @@ export default function OperationsWorkspace({
                 <select
                   value={workState.contentMap}
                   onChange={(e) =>
-                    setWorkState({ ...workState, contentMap: e.target.value as any })
+                    setWorkState(normalizeWorkState({ ...workState, contentMap: e.target.value }))
                   }
                 >
                   {["NOT_STARTED", "IN_PROGRESS", "DONE", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
@@ -980,7 +976,7 @@ export default function OperationsWorkspace({
               </tr>
             </thead>
             <tbody>
-              {Object.entries(analytics.partners).map(([name, value]: [string, any]) => (
+              {Object.entries(analytics.partners).map(([name, value]) => (
                 <tr key={name}>
                   <td>{name}</td>
                   <td>{value.packageCount}</td>
