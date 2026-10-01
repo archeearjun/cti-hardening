@@ -8,20 +8,27 @@ const read = (path) =>
 test("normal CTI operator flow has no manual extractor delivery path", () => {
   const app = read("web/App.tsx");
   const workspace = read("web/FullWorkspace.tsx");
+  const ownerAction = read("web/OwnerActionCard.tsx");
   const worker = read("src/worker/evidence.worker.ts");
   const types = read("src/domain/types.ts");
 
   for (const [name, source] of [
     ["App", app],
     ["FullWorkspace", workspace],
+    ["OwnerActionCard", ownerAction],
   ]) {
     assert.doesNotMatch(source, /Get extractor scripts/i, name);
     assert.doesNotMatch(source, /Copy Script/i, name);
     assert.doesNotMatch(source, /Download Script/i, name);
     assert.doesNotMatch(source, /copyScript\s*\(/, name);
     assert.doesNotMatch(source, /navigator\.clipboard\.writeText\([^)]*extractor/i, name);
+    assert.doesNotMatch(source, /browser console/i, name);
+    assert.doesNotMatch(source, /Download item script/i, name);
+    assert.doesNotMatch(source, /Copy this item.?s check/i, name);
   }
 
+  assert.match(ownerAction, /Open background extraction/);
+  assert.doesNotMatch(ownerAction, /buildItemCheckScript/);
   assert.doesNotMatch(worker, /data\.kind\s*===\s*["']extractor["']/);
   assert.doesNotMatch(types, /kind:\s*["']extractor["']/);
 });
