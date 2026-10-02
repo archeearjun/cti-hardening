@@ -56,6 +56,20 @@ export const CURRENT_PRODUCT_CAPABILITIES: readonly ProductCapability[] =
         "Portable XLSX inputs replace hard-coded legacy Google Sheet IDs; state, duplicate and lineage workflows are versioned in the workspace.",
     },
     {
+      id: "migration.legacy-history",
+      label: "Apps Script operational-history migration",
+      state: "AVAILABLE",
+      detail:
+        "Migration restores package scan history and duplicate-archive rows as queryable operational history, retains catalog-map provenance, and preserves previous access settings for administrator review without changing Cloudflare Access automatically.",
+    },
+    {
+      id: "operations.manifest-export",
+      label: "Master Manifest export",
+      state: "AVAILABLE",
+      detail:
+        "Downloads the deterministic Master Manifest as XLSX. This is the portable replacement for the Apps Script-only direct Google Sheets creation action.",
+    },
+    {
       id: "legacy.apps-script",
       label: "Apps Script runtime",
       state: "REFERENCE_ONLY",
