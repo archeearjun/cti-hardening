@@ -13,9 +13,7 @@ export function qaCaptureInputsText_(res) {
       lines.push(recovery.meaning);
       (recovery.payloadGaps||[]).forEach(function(g){lines.push('  Recovered editor '+g.id+' | '+g.code+' | '+g.reason);});
     }
-    var currentBuild=String(CTI_RELEASE_REGISTRY_.courseraExtractor.build||'');
-    if(review.expectedVersion)lines.push('Current available Coursera extractor: '+review.expectedVersion+
-      (currentBuild?' | build='+currentBuild:'')+' | capture status='+review.status);
+    if(review.expectedVersion)lines.push('Current available Coursera extractor: '+review.expectedVersion+' | capture status='+review.status);
     if(review.olderCapture)lines.push('Version relationship: HISTORICAL_CAPTURE — this report remains anchored to '+captured+'; the current extractor does not retroactively change its evidence.');
     else if(review.status==='NEWER_CAPTURE')lines.push('Version relationship: CAPTURE_NEWER_THAN_APP — refresh CTI before interpreting version-sensitive checks.');
     else if(review.expectedVersion)lines.push('Version relationship: CURRENT_CAPTURE_VERSION.');
