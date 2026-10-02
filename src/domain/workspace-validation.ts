@@ -106,6 +106,9 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
         "planner",
         "runtime-inventory",
         "lineage-repair",
+        "legacy-scan-history",
+        "legacy-duplicate-archive",
+        "legacy-catalog-map",
       ].includes(type)
     )
       throw new Error("Invalid operations record type.");
