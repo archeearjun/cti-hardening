@@ -2810,7 +2810,7 @@
       "status": "adapted",
       "path": "src/engine/reporting/actions.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "PENDING_REVIEW_HASH",
+      "reviewedCurrentHash": "a505dff3e29c08b345ae3c7e7048d545ef32c4cbfd651b07828982973aa4254c",
       "note": "Source-only assessment answer gaps now tell owners to inspect source keys/applicability instead of recapturing already complete Coursera question positions."
     },
     {
