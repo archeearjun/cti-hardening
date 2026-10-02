@@ -53,6 +53,28 @@ export function collectAssignmentTextBlocksV61321(root,fp) {
         if(rails.length===1 && bodies.length===1 && /Assignment outline/i.test(rails[0].innerText || rails[0].textContent || ''))
           layout={root:node,sidebar:rails[0],content:bodies[0],method:'EXACT_ROUTE_COLLAPSED_TEXT_BLOCK_LAYOUT'};
       }
+
+      // Some Coursera assignment editors portal the visible outline and the
+      // collapsed content parts under different DOM branches whose first common
+      // ancestor is <body>. The v6.15.6 ancestor-only recovery therefore saw the
+      // text-block part in diagnostics but could not bind it to its outline.
+      // On an exact item route, bind a local assignment-part scope to the single
+      // visible outline whose fragment links reference those exact part IDs.
+      if(!layout) {
+        const localParts=[
+          ...(root.matches && root.matches('[data-testid^="assignment-part-"]')?[root]:[]),
+          ...root.querySelectorAll('[data-testid^="assignment-part-"]')
+        ].filter(part=>part && part.isConnected);
+        const localIds=new Set(localParts.map(part=>String(part.id || '')).filter(Boolean));
+        if(localIds.size) {
+          const rails=[...document.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(rail=>
+            isVisibleElement(rail) && /Assignment outline/i.test(rail.innerText || rail.textContent || ''));
+          const matchingRails=rails.filter(rail=>[...rail.querySelectorAll('a[href^="#"]')].some(a=>{
+            try{return localIds.has(decodeURIComponent(String(a.getAttribute('href') || '').slice(1)));}catch(_){return false;}
+          }));
+          if(matchingRails.length===1)layout={root,sidebar:matchingRails[0],content:root,method:'EXACT_ROUTE_PART_ANCHORED_TEXT_BLOCK_LAYOUT'};
+        }
+      }
     }
     if(!layout || hasVisibleLoadingIndicator(layout.root))return null;
     const parts=[...layout.content.querySelectorAll('[data-testid^="assignment-part-"]')];
