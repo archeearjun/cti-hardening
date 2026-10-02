@@ -171,6 +171,7 @@ try {
     .getByLabel("Selected source course")
     .selectOption(input.course.id);
   await waitIdle(second);
+  await tab("Catalogue", second);
   await tab("Catalogue");
   await page.getByLabel("Owner", { exact: true }).fill("First owner");
   await page.getByRole("button", { name: "Save course details" }).click();
