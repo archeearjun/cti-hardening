@@ -13,9 +13,13 @@ export function isAssignmentTextBlockV61321(part) {
   }
 
 export function parseAssignmentTextBlockV61321(part) {
-    if(!isAssignmentTextBlockV61321(part) || !part.isConnected || !isVisibleElement(part) || hasVisibleLoadingIndicator(part))return null;
+    if(!isAssignmentTextBlockV61321(part) || !part.isConnected || hasVisibleLoadingIndicator(part))return null;
+    const visible=isVisibleElement(part);
     const clean=value=>String(value || '').replace(/[\u200b-\u200d\ufeff]/g,'').replace(/\s+/g,' ').trim();
-    const flat=clean(part.innerText || part.textContent),fields=[...part.querySelectorAll('textarea,[contenteditable="true"],[contenteditable="plaintext-only"]')].filter(isVisibleElement);
+    // Coursera keeps collapsed assignment parts mounted in the exact item editor.
+    // Their DOM text is still authoritative item-scoped content even when the
+    // accordion panel itself is not currently visible.
+    const flat=clean((visible ? part.innerText : '') || part.textContent),fields=[...part.querySelectorAll('textarea,[contenteditable="true"],[contenteditable="plaintext-only"]')].filter(isVisibleElement);
     const labeled=fields.filter(el=>/^Content\s*\*?$/i.test(clean(el.getAttribute('aria-label'))));
     const boundary=flat.match(/^\d*\s*Text block\s+(.+?)\s+Title\s+(.+?)\s+Content\s+([\s\S]+)$/i);
     const repeatedTitle=!!(boundary && clean(boundary[1])===clean(boundary[2]));
@@ -23,18 +27,33 @@ export function parseAssignmentTextBlockV61321(part) {
     if(labeled.length===1) {
       text=clean(labeled[0].value || labeled[0].innerText || labeled[0].textContent);method='LABELED_TEXT_BLOCK_CONTENT_FIELD';
     } else if(!labeled.length && repeatedTitle) {
-      text=clean(boundary[3]);method='BOUNDED_TEXT_BLOCK_PART';
+      text=clean(boundary[3]);method=visible?'BOUNDED_TEXT_BLOCK_PART':'BOUNDED_COLLAPSED_TEXT_BLOCK_PART';
     }
     if(!text)return null;
     const limit=MAX_TEXT_SAMPLE,frames=[...part.querySelectorAll('iframe,embed,object')].length;
-    return {id:String(part.id),kind:'text-block',title,text:text.slice(0,limit),method,
+    return {id:String(part.id),kind:'text-block',title,text:text.slice(0,limit),method,visible,
       observedCharacters:text.length,capturedCharacters:Math.min(text.length,limit),limit,truncated:text.length>limit,
       embeddedFrameCount:frames,embeddedFrameTextIncluded:false,submissionBehavior:'NOT_INFERRED_FROM_INSTRUCTIONS'};
   }
 
 export function collectAssignmentTextBlocksV61321(root,fp) {
     if(!root || !fp || !isAssessmentLikeFingerprintV662(fp))return null;
-    const layout=exactAssessmentLayoutV61313(root,fp);
+    let layout=exactAssessmentLayoutV61313(root,fp);
+    // Text blocks may live in a collapsed body that Coursera keeps mounted
+    // outside the smaller editor surface returned by the generic surface finder.
+    // Recover only inside the exact item route and require one assignment outline
+    // plus one body containing item-bound assignment parts.
+    if(!layout && isItemSpecificCourseRoute(location.href,fp,courseId())) {
+      for(let node=root,depth=0;node && depth<16&&!layout;node=node.parentElement,depth++) {
+        if(node===document.body || node===document.documentElement)break;
+        if(!node.isConnected)continue;
+        const rails=[...node.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(isVisibleElement);
+        const bodies=[...node.querySelectorAll('[data-testid="item-layout-content"]')].filter(body=>
+          body && body.isConnected && body.querySelector('[data-testid^="assignment-part-"]'));
+        if(rails.length===1 && bodies.length===1 && /Assignment outline/i.test(rails[0].innerText || rails[0].textContent || ''))
+          layout={root:node,sidebar:rails[0],content:bodies[0],method:'EXACT_ROUTE_COLLAPSED_TEXT_BLOCK_LAYOUT'};
+      }
+    }
     if(!layout || hasVisibleLoadingIndicator(layout.root))return null;
     const parts=[...layout.content.querySelectorAll('[data-testid^="assignment-part-"]')];
     const textParts=parts.filter(isAssignmentTextBlockV61321);
