@@ -102,6 +102,121 @@ test("unavailable QA reports retain recovery metadata and all original evidence 
   assert.notEqual(recovery.id, "QA-missing-last");
 });
 
+test("migration restores legacy operational history and preserves access policy without applying it", () => {
+  const source = migration();
+  source.exportedAt = "2026-10-02T07:00:00.000Z";
+  source.externalRuntimeByPackage = {
+    [packageId]: { source: "legacy-runtime", riseCount: 2 },
+  };
+  source.accessPolicy = {
+    AUTHORIZED_DOMAIN: "Example.COM",
+    AUTHORIZED_EMAILS: "reader@example.com; second@example.com",
+    EDITOR_EMAILS: "Editor@Example.com,editor@example.com",
+  };
+  source.sheets.Package_Scan_History = [
+    [
+      "Scan ID",
+      "Timestamp",
+      "Package UUID",
+      "Action",
+      "File Name",
+      "Old Metrics JSON",
+      "New Metrics JSON",
+      "Gateway Release",
+    ],
+    [
+      "SCAN-1",
+      "2026-09-20T10:00:00Z",
+      packageId,
+      "RESCAN",
+      "Synthetic migration source",
+      '{"ifs":74}',
+      '{"ifs":53}',
+      "v8.0.0",
+    ],
+  ];
+  source.sheets.Duplicate_Archive = [
+    [
+      "Timestamp",
+      "University/Partner",
+      "File Name",
+      "UUID",
+      "Archived At",
+      "Survivor UUID",
+      "Duplicate Group",
+      "Archive Action",
+    ],
+    [
+      "2026-09-21T10:00:00Z",
+      "Partner A",
+      "Synthetic migration source (2).imscc",
+      "duplicate-id",
+      "2026-09-21T10:00:00Z",
+      packageId,
+      "partner-a|synthetic",
+      "DUPLICATE_REMOVED",
+    ],
+  ];
+  source.sheets.Catalog_Map = [
+    ["Match Key", "Real Title", "Assignment Owner"],
+    ["synthetic", "Synthetic migration source", "Owner A"],
+  ];
+
+  const plan = importLegacyWorkspace(source);
+  assert.deepEqual(plan.legacyAccessPolicy, {
+    authorizedDomain: "example.com",
+    authorizedEmails: ["reader@example.com", "second@example.com"],
+    editorEmails: ["editor@example.com"],
+  });
+  assert.deepEqual(
+    plan.records.find((r) => r.kind === "package").data.externalRuntimeEvidence,
+    { source: "legacy-runtime", riseCount: 2 },
+  );
+
+  const scanHistory = plan.records.find(
+    (r) => r.kind === "operations" && r.data.type === "legacy-scan-history",
+  );
+  assert(scanHistory);
+  assert.equal(scanHistory.packageId, packageId);
+  assert.equal(scanHistory.data.runId, "SCAN-1");
+  assert.equal(scanHistory.data.oldMetrics.ifs, 74);
+  assert.equal(scanHistory.data.newMetrics.ifs, 53);
+
+  const duplicateArchive = plan.records.find(
+    (r) =>
+      r.kind === "operations" && r.data.type === "legacy-duplicate-archive",
+  );
+  assert(duplicateArchive);
+  assert.equal(duplicateArchive.packageId, "duplicate-id");
+  assert.equal(duplicateArchive.data.survivorId, packageId);
+
+  const catalog = plan.records.find(
+    (r) => r.kind === "operations" && r.data.type === "legacy-catalog-map",
+  );
+  assert(catalog);
+  assert.equal(catalog.data.rows[0]["Assignment Owner"], "Owner A");
+
+  const policy = plan.records.find(
+    (r) =>
+      r.kind === "legacy-backup" &&
+      r.data.kind === "CTI_LEGACY_ACCESS_POLICY",
+  );
+  assert(policy);
+  assert.match(policy.data.mappingNote, /not automatically applied/i);
+  assert.deepEqual(recordSummary(policy).data, {
+    kind: "CTI_LEGACY_ACCESS_POLICY",
+    authorizedDomain: "example.com",
+    authorizedEmailCount: 2,
+    editorEmailCount: 1,
+  });
+  assert(
+    plan.warnings.some((warning) => /scan-history/.test(warning)),
+  );
+  assert(
+    plan.warnings.some((warning) => /Cloudflare Access roles were not changed/.test(warning)),
+  );
+});
+
 test("complete shuffled zero-based chunks and legacy missing counts decode exactly", () => {
   const encoded = encode({ unicode: "🧬 résumé", value: [1, 2, 3] });
   const rows = [
