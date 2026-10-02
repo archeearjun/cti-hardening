@@ -91,7 +91,7 @@ test('Downloadable report separates historical captured evidence from the curren
     capturedAt:'2026-09-23T11:36:06.301Z'
   },[]);
   assert.equal(readiness.olderCapture,true);
-  assert.equal(readiness.expectedVersion,'v6.15.6');
+  assert.equal(readiness.expectedVersion,'v6.15.7');
   const report=buildPostQaText_({
     success:true,
     stats:{extractorMeta:{buildId:'v6.13.27-memory-cleanup-20260922',capturedAt:'2026-09-23T11:36:06.301Z'}},
@@ -101,7 +101,28 @@ test('Downloadable report separates historical captured evidence from the curren
   });
   assert.match(report,/Report evidence source: uploaded Coursera capture JSON/);
   assert.match(report,/Coursera captured extractor: v6\.13\.27-memory-cleanup-20260922/);
-  assert.match(report,/Current available Coursera extractor: v6\.15\.6/);
+  assert.match(report,/Current available Coursera extractor: v6\.15\.7/);
   assert.match(report,/Version relationship: HISTORICAL_CAPTURE/);
   assert.match(report,/does not retroactively change its evidence/);
+});
+
+
+test('Source-only answer evidence never tells the owner to recapture already complete Coursera positions',()=>{
+  const sa={
+    status:'UNVERIFIED',
+    sourceQuestionCount:2,courseraQuestionCount:2,alignedQuestionCount:2,
+    sourceDeclaredQuestionCount:2,courseraDeclaredQuestionCount:2,
+    sourceAnswerableQuestionCount:2,sourceAnswerEvidenceQuestionCount:0,
+    courseraAnswerableQuestionCount:0,courseraAnswerEvidenceQuestionCount:0,
+    answerEvidenceApplicable:true,answerEvidenceCoverage:0,
+    unmatchedSourceQuestions:[],unmatchedCourseraQuestions:[],captureIssueQuestionNumbers:[],
+    hardMismatchCount:0,unknownTypeCount:0,fidelity:1,evidenceCoverage:.35,
+    declaredCaptureIncomplete:false,captureCoverageUnverified:false,definitionCoverageUnverified:false,
+    selectionPolicyStatus:'NOT_OBSERVED',sourceMediaQuestionNumbers:[],sourceAnswerRefreshRequired:false
+  };
+  const result={verdict:'PAYLOAD_UNVERIFIED',issues:['PAYLOAD_UNVERIFIED'],checks:{structuredAssessment:sa}};
+  const action=c.qaOwnerActionForResult_(result).action;
+  assert.match(action,/All 2\/2 destination question positions were captured/);
+  assert.match(action,/repeating the Coursera extraction will not recover missing source keys/);
+  assert.doesNotMatch(action,/capture the unobserved questions\/answers/);
 });
