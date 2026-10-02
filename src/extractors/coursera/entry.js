@@ -590,11 +590,21 @@ javascript:(async function () {
     options=options || {};
     const started=Date.now(),route=typedEditorRouteV61316(fp,courseId,template);
     const plugin=typedEditorRouteTypeV61316(fp)==='plugin',retryMode=Boolean(options.retryMode);
-    const baseMs=plugin?(retryMode?CTI_PLUGIN_RETRY_MAX_MS:CTI_PLUGIN_PRIMARY_MAX_MS):(retryMode?35000:25000);
-    const waitBudget=scopedWaitBudgetV61321(baseMs,plugin?0:16000,options.deadline);
+    // Direct discussion routing is an optimization, not the only capture path.
+    // Give it a short bounded chance, then fall back to the proven outline/button
+    // route instead of spending 25–35 seconds on a route shape Coursera may not mount.
+    const baseMs=plugin?(retryMode?CTI_PLUGIN_RETRY_MAX_MS:CTI_PLUGIN_PRIMARY_MAX_MS):(retryMode?12000:8000);
+    const waitBudget=scopedWaitBudgetV61321(baseMs,plugin?0:4000,options.deadline);
     let deadline=Math.min(started+baseMs,options.deadline==null?Infinity:Number(options.deadline));
     waitBudget.observe([0]);
     const out={id:String(fp.id),route,attempted:false,captured:false,reason:'NO_TYPED_ROUTE',samples:0,dwellMs:0};
+    const pluginMinimumSurfaceWaitMs=(readiness)=>{
+      const terminalUnreadable=Boolean(readiness && readiness.pending===false &&
+        readiness.status==='FRAME_CONTENT_UNREADABLE' &&
+        Number(readiness.unreadableFrames || 0)>0 &&
+        Number(readiness.readableFrames || 0)===0);
+      return terminalUnreadable?3000:10000;
+    };
     if(!route)return out;
     if(Date.now()>=deadline){out.reason='TIME_BUDGET_EXHAUSTED';return out;}
     const previousNameFields=options.previousNameFields || new Set(typedEditorNameFieldsV61317());
@@ -608,7 +618,7 @@ javascript:(async function () {
       if(plugin){
         clearTypedPluginChromeV61317(evidence);
         const readiness=pluginReadinessV6147(evidence.pluginEvidence);
-        out.pluginWait={...readiness,stopReason:reason,elapsedMs:Date.now()-started,minimumSurfaceWaitMs:10000};
+        out.pluginWait={...readiness,stopReason:reason,elapsedMs:Date.now()-started,minimumSurfaceWaitMs:pluginMinimumSurfaceWaitMs(readiness)};
         if(evidence.pluginEvidence)evidence.pluginEvidence.readiness=out.pluginWait;
       }
       evidence.typedEditorEvidence={observedAt:new Date().toISOString(),courseId:String(courseId),itemId:String(fp.id),route,
@@ -622,7 +632,13 @@ javascript:(async function () {
       const actual=authoringItemRouteV61311(location.href);
       if(!actual || actual.courseId!==String(courseId) || actual.itemId!==String(fp.id) || actual.typeName!==typedEditorRouteTypeV61316(fp)){out.reason='ROUTE_CHANGED';break;}
       const surface=typedEditorProductionSurfaceV61317(fp,courseId,previousNameFields);
-      if(!surface){previous='';stable=0;seenRoot=null;}
+      if(!surface){
+        previous='';stable=0;seenRoot=null;
+        if(!plugin && Date.now()-started>=6000 && !hasVisibleLoadingIndicator(document.body)){
+          out.reason='MATCHING_EDITOR_NOT_FOUND_FAST';
+          break;
+        }
+      }
       else {
         lastSurface=surface;
         if(seenRoot!==surface.root){seenRoot=surface.root;seenAt=Date.now();previous='';stable=0;}
@@ -640,7 +656,8 @@ javascript:(async function () {
         const loading=hasVisibleLoadingIndicator(surface.root);
         stable=previous && signature===previous && !loading?stable+1:0;previous=signature;
         const meaningful=fp.typeName==='discussionPrompt'?surface.fields.some(f=>String(f.value || f.innerText || f.textContent || '').trim()):urls.length>0 || visiblePluginConfigurationV61316(surface.root).values.length>0;
-        if(stable>=3 && Date.now()-seenAt>=(plugin?10000:meaningful?2000:5000) && !loading && (!plugin || !readiness.pending)){
+        const minimumSurfaceWaitMs=plugin?pluginMinimumSurfaceWaitMs(readiness):(meaningful?2000:5000);
+        if(stable>=3 && Date.now()-seenAt>=minimumSurfaceWaitMs && !loading && (!plugin || !readiness.pending)){
           capture(surface,plugin?'PLUGIN_READINESS_OBSERVED':'SCOPED_TYPED_EDITOR_CAPTURED');
           break;
         }
@@ -1835,7 +1852,12 @@ javascript:(async function () {
   const progressGaps = !accounting.complete || !result.fingerprints.length;
   ctiProgressUpdateV1({phase:progressGaps ? "Capture finished · review gaps" : "Capture finished"});
   ctiProgress.finish(progressGaps ? "review" : "success", retainCheckpoint ? (backgroundChunkMode ? "Background chunk checkpointed; CTI will continue automatically." : "Run limit reached. Item checkpoints were kept; rerun in this tab to continue.") : "JSON prepared; every inventory item has an explicit final capture state.",
-    Number(accounting.completeCount || 0) + "/" + Number(accounting.inventoryCount || 0) + " items complete · " + Number(accounting.unresolvedCount || 0) + " unresolved · " + Number(accounting.unvisitedCount || 0) + " unvisited");
+    Number(accounting.completeCount || 0) + "/" + Number(accounting.inventoryCount || 0) + " complete · " +
+    Number(accounting.sourceReviewCount || 0) + " source review · " +
+    Number(accounting.answerApplicabilityReviewCount || 0) + " answer review · " +
+    Number(accounting.externalContentUnverifiedCount || 0) + " external unverified · " +
+    Number(accounting.technicalUnresolvedCount || 0) + " technical unresolved · " +
+    Number(accounting.unvisitedCount || 0) + " unvisited");
   // CTI_PROGRESS_END
   } finally {
   // CTI_PROGRESS_BEGIN
