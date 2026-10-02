@@ -168,11 +168,11 @@ test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute time
   assert.match(entry, /cooperativePartialCapture/);
   assert.match(
     entry,
-    /targetedItemPayloadProbes\([^;]*backgroundProbeOptions\)/s,
+    /targetedItemPayloadProbes\([^;]*probeOptions\)/s,
   );
   assert.match(
     entry,
-    /automaticDeepVerify\([^;]*backgroundProbeOptions\)/s,
+    /automaticDeepVerify\([^;]*probeOptions\)/s,
   );
   assert.match(navigation, /hydrateOutlineSurfaceForCrawl\(options\)/);
   assert.match(navigation, /Date\.now\(\)>=deadline/);

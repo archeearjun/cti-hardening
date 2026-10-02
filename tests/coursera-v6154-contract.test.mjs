@@ -15,23 +15,23 @@ import {
   finalCaptureAccountingV6150,
 } from "../src/extractors/coursera/completion.js";
 
-test("v6.15.4 is the maintained Coursera extractor release", () => {
+test("v6.15.5 is the maintained Coursera extractor release", () => {
   assert.deepEqual(CTI_RELEASE_REGISTRY_.courseraExtractor, {
-    version: "v6.15.4",
+    version: "v6.15.5",
     schema: 35,
-    build: "v6.15.4-empty-reading-visibility-20261001",
+    build: "v6.15.5-direct-route-efficiency-20261002",
     delivery: "GENERATED_BROWSER_BUNDLE",
   });
   const script = bundleConsole(
     path.resolve("src/extractors/coursera/entry.js"),
   );
-  assert.match(script, /CTI Item Fidelity Extractor v6\.15\.4/);
+  assert.match(script, /CTI Item Fidelity Extractor v6\.15\.5/);
   assert.match(script, /schemaVersion:\s*35/);
   assert.match(script, /captureAccounting/);
-  assert.match(script, /v6\.15\.4_s35/);
+  assert.match(script, /v6\.15\.5_s35/);
 });
 
-test("v6.15.4 keeps bounded crawl and text ceilings explicit", () => {
+test("v6.15.5 keeps bounded crawl and text ceilings explicit", () => {
   assert.equal(ACTIVE_CRAWL_MAX_TOTAL_MS, 90 * 60 * 1000);
   assert.equal(CTI_WHOLE_RUN_MAX_MS, 120 * 60 * 1000);
   assert.equal(CTI_MAX_ITEM_ATTEMPTS, 2);
@@ -224,4 +224,33 @@ test("Playwright-observed external plugin body improves evidence but stays fail-
   const accounting = finalCaptureAccountingV6150([fp], { unvisitedTargetIds: [] });
   assert.equal(accounting.complete, false);
   assert.equal(accounting.externalContentUnverifiedCount, 1);
+});
+
+
+test("v6.15.5 uses certified direct-editor routing before outline fallback", () => {
+  const script = bundleConsole(
+    path.resolve("src/extractors/coursera/entry.js"),
+  );
+  assert.match(script, /const certifiedDirectRoute=/);
+  assert.match(script, /const directRouteFastPath=Boolean\(certifiedDirectRoute\)/);
+  assert.match(script, /directRouteFastPathAttempts/);
+  assert.match(script, /directRouteFastPathHits/);
+  assert.match(script, /directRouteFallbacks/);
+  assert.match(script, /outlineResetsAvoided/);
+  assert.match(
+    script,
+    /if\(directRouteFastPath\)\{[\s\S]{0,240}outlineResetsAvoided\+\+[\s\S]{0,240}\} else \{[\s\S]{0,240}returnToOutlineV6142\(startUrl\)/,
+  );
+  assert.match(
+    script,
+    /if\(directRecovery && !directRecovery\.captured\)\{[\s\S]{0,240}returnToOutlineV6142\(startUrl\)[\s\S]{0,240}directRouteFallbacks\+\+/,
+  );
+  assert.match(
+    script,
+    /meta\.completedTargets = \(meta\.targetDiagnostics \|\| \[\]\)\.filter\(d=>d\.completed===true\)\.length/,
+  );
+  assert.match(script, /const probeOptions=\{/);
+  assert.match(script, /needsEditor:\(fp\)=>captureContractV6150\(fp\)\.needsEditor===true/);
+  assert.match(script, /items that still need evidence/);
+  assert.doesNotMatch(script, /const backgroundProbeOptions=backgroundChunkMode/);
 });

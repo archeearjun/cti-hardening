@@ -45,7 +45,7 @@ javascript:(async function () {
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.4"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.5"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -55,7 +55,7 @@ javascript:(async function () {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.4"
+          finishedAt: Date.now(), version: "v6.15.5"
         };
       }
     } catch (e) {}
@@ -694,8 +694,8 @@ javascript:(async function () {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.4",
-      buildId: "v6.15.4-empty-reading-visibility-20261001",
+      version: "v6.15.5",
+      buildId: "v6.15.5-direct-route-efficiency-20261002",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -741,6 +741,10 @@ javascript:(async function () {
       directReactAttempts: 0,
       directReactSuccessSignals: 0,
       routeFailures: 0,
+      directRouteFastPathAttempts: 0,
+      directRouteFastPathHits: 0,
+      directRouteFallbacks: 0,
+      outlineResetsAvoided: 0,
       ignoredNoiseResponses: 0,
       ignoredCourseWideResponses: 0,
       viewportScanSteps: 0,
@@ -834,8 +838,19 @@ javascript:(async function () {
 
         console.log('CTI '+(retryPass?'recovery':'primary')+': item '+(index+1)+'/'+targets.length+'; '+Math.round((Date.now()-crawlStartedAt)/1000)+' seconds elapsed');
         const typedPreviousNameFields=new Set(typedEditorNameFieldsV61317());
-        await returnToOutlineV6142(startUrl);
-        await sleepMs(220);
+        const certifiedDirectRoute=fp.typeName==='supplement'
+          ? readingRouteForTargetV61311(fp,courseOrBranchId,readingRouteTemplate)
+          : typedEditorRouteTypeV61316(fp)
+            ? typedEditorRouteV61316(fp,courseOrBranchId,readingRouteTemplate)
+            : '';
+        const directRouteFastPath=Boolean(certifiedDirectRoute);
+        if(directRouteFastPath){
+          meta.directRouteFastPathAttempts++;
+          meta.outlineResetsAvoided++;
+        } else {
+          await returnToOutlineV6142(startUrl);
+          await sleepMs(220);
+        }
 
         const scanTrace = {deadline:Math.min(itemAttemptDeadline,Date.now()+30000)};
         const readingInitialRecords=recorder.takeFor(fp).length;
@@ -845,10 +860,15 @@ javascript:(async function () {
         const typedRecovery=typedEditorRouteTypeV61316(fp) && readingRouteTemplate ?
           await recoverTypedEditorV61317(fp,courseOrBranchId,readingRouteTemplate,{deadline:itemAttemptDeadline,previousNameFields:typedPreviousNameFields,retryMode:retryPass}) : null;
         recorder.setActive(null);
-        if (typedRecovery && !typedRecovery.captured) {await returnToOutlineV6142(startUrl);await sleepMs(600);}
-        if (readingRecovery && !readingRecovery.captured) {await returnToOutlineV6142(startUrl);await sleepMs(600);}
+        const directRecovery=typedRecovery || readingRecovery;
+        if(directRecovery && directRecovery.captured)meta.directRouteFastPathHits++;
+        if(directRecovery && !directRecovery.captured){
+          await returnToOutlineV6142(startUrl);
+          await sleepMs(600);
+          meta.directRouteFallbacks++;
+        }
         scanTrace.deadline=Math.min(itemAttemptDeadline,Date.now()+30000);
-        const found = (readingRecovery && readingRecovery.captured) || (typedRecovery && typedRecovery.captured) ? null : await findNavigationTargetForFingerprint(fp, courseOrBranchId, scanTrace);
+        const found = directRecovery && directRecovery.captured ? null : await findNavigationTargetForFingerprint(fp, courseOrBranchId, scanTrace);
         const diag = {
           id: String(fp.id || ""),
           name: String(fp.name || ""),
@@ -962,10 +982,11 @@ javascript:(async function () {
             meta.discoveredTargets++;meta.navigated++;meta.domCaptures++;meta.evidenceUpgrades++;
             meta.routeScopedSurfaceCaptures++;meta.launchUrlsFound+=diag.launchUrlsFound;
             if (diag.bodyScoped) meta.scopedBodyCaptures++;
-            await returnToOutlineV6142(startUrl);meta.returned++;
+            if(!directRouteFastPath){await returnToOutlineV6142(startUrl);meta.returned++;}
+            else meta.outlineResetsAvoided++;
           } else {
             meta.skippedNoTarget++;
-            if (recovery.attempted) {meta.routeFailures++;await returnToOutlineV6142(startUrl);}
+            if (recovery.attempted) meta.routeFailures++;
           }
           diag.networkRecorderRelease=recorder.releaseFor(fp);
           diag.elapsedMs=Date.now()-itemStartedAt;diag.navigationMs=diag.elapsedMs;
@@ -1427,7 +1448,7 @@ javascript:(async function () {
       meta.ignoredNoiseResponses += Number(recorderStats.ignoredNoise || 0);
       meta.ignoredCourseWideResponses += Number(recorderStats.ignoredCourseWide || 0);
       meta.crawlElapsedMs = Date.now() - crawlStartedAt;
-      meta.completedTargets = Number(meta.returned || 0);  // CTI_PROGRESS_BEGIN
+      meta.completedTargets = (meta.targetDiagnostics || []).filter(d=>d.completed===true).length;  // CTI_PROGRESS_BEGIN
       if (typeof ctiProgressUpdateV1 === "function") ctiProgressUpdateV1({completed:meta.targetDiagnostics.length,total:targets.length,
         count:meta.targetDiagnostics.length + "/" + targets.length + " visits attempted · " + meta.targetDiagnostics.filter(d => d.domCaptured || d.editorSurfaceCaptured).length + " editors observed"});
   // CTI_PROGRESS_END
@@ -1447,7 +1468,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.4", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.5", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1461,7 +1482,7 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.4", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.5", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1469,8 +1490,8 @@ javascript:(async function () {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.4",
-      buildId: "v6.15.4-empty-reading-visibility-20261001",
+      extractor: "CTI Item Fidelity Extractor v6.15.5",
+      buildId: "v6.15.5-direct-route-efficiency-20261002",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1583,18 +1604,19 @@ javascript:(async function () {
   const preCrawlDeadline=backgroundChunkMode
     ? Math.max(Date.now(),evidenceWorkDeadline())
     : Infinity;
-  const backgroundProbeOptions=backgroundChunkMode ? {
+  const probeOptions={
     deadline:preCrawlDeadline,
     needsEditor:(fp)=>captureContractV6150(fp).needsEditor===true
-  } : undefined;
+  };
+  const probeTargetCount=result.fingerprints.filter(fp=>probeOptions.needsEditor(fp)).length;
   // CTI_PROGRESS_BEGIN
-  ctiProgressUpdateV1({detail:"Reading item-specific payloads for " + result.fingerprints.length + " discovered items."});
+  ctiProgressUpdateV1({detail:"Reading item-specific payloads for " + probeTargetCount + " items that still need evidence."});
   // CTI_PROGRESS_END
-  result.meta.targetedProbe = await targetedItemPayloadProbes(result.fingerprints, knownResponses, id, backgroundProbeOptions);
+  result.meta.targetedProbe = await targetedItemPayloadProbes(result.fingerprints, knownResponses, id, probeOptions);
   // CTI_PROGRESS_BEGIN
-  ctiProgressUpdateV1({detail:"Checking additional content evidence."});
+  ctiProgressUpdateV1({detail:"Checking additional content evidence only where the completion contract still has a gap."});
   // CTI_PROGRESS_END
-  result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints, backgroundProbeOptions);
+  result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints, probeOptions);
   // v6.11 pre-hydrates/expands the authoring outline before exhaustive per-item traversal.
   // This is read-only and specifically addresses virtualized/collapsed outlines
   // where later assignment/rubric rows never entered the DOM in v6.8.

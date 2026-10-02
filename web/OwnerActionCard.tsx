@@ -125,7 +125,7 @@ export default function OwnerActionCard({
       try {
         await navigator.clipboard.writeText(text);
         setMessage(
-          "Current v6.15.4 item check copied. Open this exact Coursera item in your normal signed-in Chrome tab, run it in DevTools → Console, then import the downloaded JSON here.",
+          "Current v6.15.5 item check copied. Open this exact Coursera item in your normal signed-in Chrome tab, run it in DevTools → Console, then import the downloaded JSON here.",
         );
       } catch {
         setMessage(
