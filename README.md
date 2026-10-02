@@ -103,13 +103,15 @@ Course/specialization outline and content-map **state tracking** is restored; CT
 does not claim to author partner content artifacts that were external to the
 evidence workflow.
 
-Coursera extraction is **v6.15.5/schema 35** and Brightspace remains
-**v1.0.8/schema 2**. Coursera v6.15.5 keeps explicit no-silent-miss accounting, bounded slow-item waits,
-two-attempt recovery, strict assessment/plugin/empty-reading contracts and checkpointable
-browser traversal, while adding a certified direct-editor fast path that avoids redundant
-outline round-trips and falls back to outline discovery only when direct routing cannot prove the item.
-Pre-crawl payload probes and deep verification are also evidence-adaptive: items already satisfying
-the strict completion contract are skipped instead of being re-probed. The zero-cost normal workflow is
+Coursera extraction is **v6.15.6/schema 35** and Brightspace remains
+**v1.0.8/schema 2**. Coursera v6.15.6 keeps explicit no-silent-miss accounting, bounded slow-item waits,
+strict assessment/plugin/empty-reading contracts and checkpointable browser traversal. Certified
+direct-editor routing avoids redundant outline round-trips, while collapsed assignment text blocks are
+captured from their exact item-scoped DOM. Fully traversed Practice assessments with no observed
+correctness markers become explicit answer-applicability reviews instead of identical retries.
+Terminal cross-origin plugin states and failed direct Discussion routes short-circuit earlier without
+weakening their evidence status. Pre-crawl payload probes and deep verification remain evidence-adaptive:
+items already satisfying the strict completion contract are skipped instead of being re-probed. The zero-cost normal workflow is
 **Full CTI workspace → Extract → local Chrome**: run the current generated bundle
 inside the signed-in Coursera authoring tab, then return the downloaded JSON to CTI.
 CTI applies the same strict completion verifier locally before loading the capture

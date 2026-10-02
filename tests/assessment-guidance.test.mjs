@@ -83,3 +83,25 @@ test('Downloadable report names source answer gaps and preserves the overall rev
   assert.match(report,/source answer evidence incomplete; captured destination keys complete/);
   assert.doesNotMatch(report,/capture status=CAPTURE_INCOMPLETE/);
 });
+
+
+test('Downloadable report separates historical captured evidence from the current extractor release',()=>{
+  const readiness=c.qaCourseraCaptureReadiness_({
+    buildId:'v6.13.27-memory-cleanup-20260922',
+    capturedAt:'2026-09-23T11:36:06.301Z'
+  },[]);
+  assert.equal(readiness.olderCapture,true);
+  assert.equal(readiness.expectedVersion,'v6.15.6');
+  const report=buildPostQaText_({
+    success:true,
+    stats:{extractorMeta:{buildId:'v6.13.27-memory-cleanup-20260922',capturedAt:'2026-09-23T11:36:06.301Z'}},
+    captureReadiness:readiness,
+    summary:{headlineStatus:'REVIEW'},
+    itemResults:[],missing:[],injected:[]
+  });
+  assert.match(report,/Report evidence source: uploaded Coursera capture JSON/);
+  assert.match(report,/Coursera captured extractor: v6\.13\.27-memory-cleanup-20260922/);
+  assert.match(report,/Current available Coursera extractor: v6\.15\.6/);
+  assert.match(report,/Version relationship: HISTORICAL_CAPTURE/);
+  assert.match(report,/does not retroactively change its evidence/);
+});

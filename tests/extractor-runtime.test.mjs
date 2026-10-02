@@ -126,7 +126,8 @@ test('a late 18-second readable plugin is captured without applying the wait to 
 });
 test('cross-origin frames retain their target and an explicit unreadable status after the grace period',async()=>{
   const f=pluginWaitFixture({blocked:true,readyAt:8000}),r=await f.run();
-  assert(r.captured);assert(f.now()>=10000 && f.now()<13000);
+  assert(r.captured);assert(f.now()>=3000 && f.now()<6000);
+  assert.equal(r.pluginWait.minimumSurfaceWaitMs,3000);
   assert.equal(r.pluginWait.status,'FRAME_CONTENT_UNREADABLE');
   assert.equal(r.pluginWait.interactionVerified,false);
   assert.equal(r.evidence.pluginEvidence.readiness.status,'FRAME_CONTENT_UNREADABLE');

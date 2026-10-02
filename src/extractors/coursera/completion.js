@@ -261,6 +261,25 @@ export function captureContractV6150(fp) {
           nativeRubricContent ||
           nativeSubmissionBehavior),
     );
+    const questionPositionsComplete = Boolean(
+      declared > 0 &&
+        captured === declared &&
+        c.questionCoverageComplete === true &&
+        (!Array.isArray(c.missingQuestionOrdinals) ||
+          c.missingQuestionOrdinals.length === 0) &&
+        Array.isArray(a.questions) &&
+        a.questions.length === declared &&
+        a.questions.every((q) => q && q.questionOrdinalObserved === true),
+    );
+    const answerApplicabilityReview = Boolean(
+      attempts >= 1 &&
+        questionPositionsComplete &&
+        c.requiredAnswerCoverageComplete !== true &&
+        na &&
+        na.currentStateEvidence &&
+        na.currentStateEvidence.editorSurfaceObserved === true &&
+        /^Practice$/i.test(String((na.settings || {}).gradeSetting || "")),
+    );
     const empty = p.emptyEditorEvidence;
     const stableEmpty = Boolean(
       empty &&
@@ -292,6 +311,16 @@ export function captureContractV6150(fp) {
         needsEditor: false,
         retryable: false,
       });
+    if (answerApplicabilityReview) {
+      reasons.push("ASSESSMENT_ANSWER_APPLICABILITY_REQUIRES_REVIEW");
+      return Object.assign(result, {
+        complete: false,
+        accounted: true,
+        status: "UNRESOLVED_ANSWER_APPLICABILITY_REVIEW",
+        needsEditor: false,
+        retryable: false,
+      });
+    }
     if (stableEmpty) {
       reasons.push("OBSERVED_EMPTY_EDITOR_REQUIRES_SOURCE_REVIEW");
       return Object.assign(result, {
@@ -711,6 +740,21 @@ export function finalCaptureAccountingV6150(fingerprints, activeMeta) {
     ),
     settingsOnlyAssignmentCount: unresolved.filter((x) =>
       (x.reasons || []).includes("ASSIGNMENT_SETTINGS_ONLY_CONTENT_NOT_PROVEN"),
+    ).length,
+    sourceReviewCount: Number(statusCounts.UNRESOLVED_SOURCE_REVIEW || 0),
+    answerApplicabilityReviewCount: Number(
+      statusCounts.UNRESOLVED_ANSWER_APPLICABILITY_REVIEW || 0,
+    ),
+    retryableUnresolvedCount: unresolved.filter((x) => x.retryable).length,
+    technicalUnresolvedCount: unresolved.filter(
+      (x) =>
+        !x.retryable &&
+        ![
+          "UNRESOLVED_SOURCE_REVIEW",
+          "UNRESOLVED_ANSWER_APPLICABILITY_REVIEW",
+          "ACCOUNTED_EXTERNAL_TARGET_ONLY",
+          "ACCOUNTED_EXTERNAL_BODY_OBSERVED",
+        ].includes(x.status),
     ).length,
     unresolved: unresolved.slice(0, 500),
     unvisitedTargetIds: unvisited.slice(0, 500),
