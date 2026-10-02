@@ -149,8 +149,8 @@ const localCapture = {
   extractedAt: "2026-10-01T00:00:00.000Z",
   page: { courseId: "Course_id_123", title: "Synthetic Course" },
   meta: {
-    extractor: "CTI Item Fidelity Extractor v6.15.4",
-    buildId: "v6.15.4-empty-reading-visibility-20261001",
+    extractor: "CTI Item Fidelity Extractor v6.15.5",
+    buildId: "v6.15.5-direct-route-efficiency-20261002",
     baseFingerprintCount: 1,
     captureAccounting: {
       inventoryCount: 1,
