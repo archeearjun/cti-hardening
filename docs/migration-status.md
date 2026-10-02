@@ -1,60 +1,84 @@
 # CTI migration status
 
-As of 30 September 2026, the Cloudflare app uses native feature modules rather
-than a concatenated legacy engine. Extractor helpers, report text, source
-scanning and navigation are maintained independently. See the
-[development map](development.md). The original app is now a frozen reference
-in `archive/apps-script`; the data-reconciliation limits below still apply.
+As of 2 October 2026, the maintained CTI application runs from the
+React/TypeScript/Cloudflare/browser code on `main`. The original Apps Script
+application is frozen under `archive/apps-script` as migration and regression
+evidence; it is not an active runtime dependency.
 
-The migrated code supports the requested core workflow areas. On 28 September
-2026, the owner reported **430 prepared records imported** (308 saved earlier
-plus 122 on retry), with **six historical QA reports still unavailable** because
-the export did not contain their declared payload rows. The import retains
-recovery cases and available original data; it does not turn those entries into
-complete reports. Keep the original export and the Apps Script app available.
+The exhaustive [Code.gs audit](audits/code-gs-audit.md) now classifies every
+audited function group and declared historical capability as a current
+implementation, architecture-appropriate replacement, archive-only behavior or
+explicit retirement. There are no silent `gap` / `partial` group
+dispositions left in the machine-readable ledger.
 
-This is an owner-reported import result, not an independent live audit of every
-record or a completed multi-user acceptance test. The interface now follows the
-source → comparison → owner review workflow; see the
-[UX review and verification](workspace-ux-review.md).
+This migration closure does **not** mean every live external system has been
+validated. Private Coursera/Okta sessions, cross-origin plugins, real multi-user
+Cloudflare Access roles, every historical title, and missing historical payload
+bytes still require the evidence noted below.
 
-| Workflow                         | Implemented                                                                                             | Remaining verification                                                           |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Source/Coursera/XLSX comparisons | Complete retained engine, Brightspace enrichment, optional reading recovery, XLSX structural authority  | Accepted full course-set parity using original XLSX files                        |
-| Owner reports                    | Complete canonical report, copy/download, ordered Coursera item/action view, full evidence              | Owner review on retained course findings                                         |
-| Source scan and Explore          | Catalogue save/rescan, native XML/PDF scan, hashes, QTI, diagnostics                                    | Broader package corpus parity                                                    |
-| Catalogue and permissions        | Local records; shared signed Access JWT, viewer/editor/admin roles, concurrency                         | Verify live role enforcement and simultaneous edits with two real users          |
-| Work queue                       | Owner/status/deadline plus ten-step evidence checklist; old checklist linking                           | Reconcile imported work-state records                                            |
-| Before/after history             | Immutable audits, first-raw baseline, same-attempt lifecycle, separate cross-attempt observations       | Reconcile imported generations and original source identity                      |
-| Macmillan                        | Real XLSX master scan/split, inclusion triage, all three stage contracts, persisted validated workbooks | Replay accepted real master/stage set; import other owners' registered books     |
-| Portfolio analytics              | Canonical IFS, vectors, similarity, labor estimates; retained source diagnostics                        | Review populated shared catalogue                                                |
-| Existing Google data             | One-time private export, stable-ID import, original-sheet backup, existing-ID skip                      | Reconcile reported import counts and identities; recover six unavailable reports |
+## Current operator workflow
 
-Start in **Full CTI workspace → Scan** for a new source, or **Setup** to import
-existing records. Select a source course, then use **Compare** with its Coursera
-XLSX and capture JSON, attaching Brightspace and reading recovery when available.
-Save raw captures under the correct ingestion attempt. Increment the attempt
-only after a new ingestion, not a repeated export.
+| Workflow | Current implementation | Evidence boundary / remaining live verification |
+| --- | --- | --- |
+| Source scan | Local bounded IMSCC/ZIP/XML scan with hashes, QTI/PDF evidence, runtime diagnostics, deterministic preflight and Master Manifest XLSX | Broader private package corpus remains a live acceptance task |
+| Coursera capture | Current v6.15.4/schema 35 generated bundle runs in the operator’s signed-in Chrome; CTI validates course identity and strict completion before Compare | Cross-origin bodies that page JavaScript cannot verify remain INCOMPLETE |
+| Source → Coursera comparison | Coursera XLSX is structural authority; local capture JSON enriches observed content; Brightspace/runtime/recovery evidence remain optional inputs | Use evidence from the same course/stage; incoherent inputs fail closed |
+| Owner review | Ordered item/action view, exact item links where observed, item review status/notes and targeted checks | Manual review remains required where evidence is incomplete |
+| Before / after | Immutable snapshots, generation isolation, raw baseline, lifecycle guards, conservative repeated-export repair metadata | Repair confirmation never rewrites original audit evidence |
+| Planner / catalog operations | Portable Catalog + Master Planner XLSX inputs, partner/date/owner filtering, title-slot reconciliation, owner disambiguation and audit-existing-shell-first next actions | Portable inputs replace the old hard-coded Google Sheet IDs |
+| Work-state | Scope, Coursera Redo, Course Outline, Source Audit, Specialization Outline and Content Map state + notes | State tracking does not imply CTI authors external partner artifacts |
+| Runtime inventory | Portable RISE/Storyline XLSX input can be applied to matching courses with provenance | Missing inventory stays a warning, never an inferred zero |
+| Duplicate handling | Semantic identity guard, conflict-aware preview, stable survivor/newest scan merge, reversible soft archive | Multi-record reconciliation is lossless/rerunnable; shared writes still use per-record optimistic versions |
+| Bulk rescan | Updates only one unambiguous existing semantic match; missing/ambiguous files are reported | It never silently creates a new course from a bulk rescan |
+| System health / capability view | Active package/audit/migration/duplicate/metadata checks plus current product capability manifest | Historical engine feature flags are reference metadata, not current availability |
+| Macmillan | Real XLSX scan/split and retained stage contracts | Replay accepted private master/stage sets as needed |
+| Shared team workspace | Access JWT roles, D1 chunked/versioned records and immutable audits | Requires deployed Cloudflare Access/D1 configuration and real-user acceptance |
 
-Do not rerun all 15 titles simply because the hosting changed. First reuse one
-complete retained set and compare it against the accepted Apps Script report.
-Use differences to decide targeted follow-up. Coursera extraction now starts from **Full CTI workspace → Extract** and defaults
-to the current v6.15.4 extractor running in the operator's already authenticated
-Chrome tab. The downloaded schema-35 JSON is checked by CTI's strict completion
-gate before it enters Compare. This local path avoids a paid remote-browser
-dependency. The Cloudflare Browser Run workflow remains an optional advanced
-path for deployments with sufficient quota. Brightspace source capture remains a
-separate source-evidence workflow.
+## Zero-cost Coursera architecture
 
-## Retire Apps Script only after
+The default path is:
 
-1. The intended team can sign in with the correct roles, read shared records and
-   save without losing simultaneous edits.
-2. Catalogue IDs, owners, source trees, QA runs, generation history and checklist
-   records reconcile with the export; inaccessible Macmillan books are resolved.
-3. Full report parity is reviewed on the retained course evidence and Macmillan
-   output chain. Fixture parity alone is not a 15-title certification.
-4. Recovery exports and original evidence files are retained, and a live Pages
-   deployment completes the team's workflow.
+**Full CTI workspace → Extract → local signed-in Chrome → v6.15.4 capture →
+strict local CTI verification → Compare**
 
-[Dashboard setup and migration instructions](shared-workspace-setup.md)
+Cloudflare Browser Run remains optional advanced infrastructure. It is not
+required for the normal workflow and is not a realistic host for long Coursera
+captures on the Browser Run Free allowance.
+
+## Intentional retirements
+
+- The old visit-count / last-visit telemetry is retired because it does not
+  contribute to evidence integrity and unnecessarily tracks usage.
+- The old Gemini advisory-only triage path is retired to preserve the project’s
+  zero-cost architecture. Deterministic architecture diagnostics remain and are
+  explicitly non-evidentiary.
+- The historical `futureMlDataset` flag is not presented as a migrated ML
+  service because the archive contains metadata fields but no actual training
+  pipeline. Historical fields are retained.
+
+## Historical data
+
+The earlier owner-reported migration imported 430 prepared records, while six
+historical QA reports lacked their declared payload rows. Those entries remain
+recovery cases rather than fabricated audits. Code cannot reconstruct missing
+source bytes. Keep the original export/backup while those cases matter.
+
+## Verification before retiring the old deployment
+
+The code migration is closed, but retire an old operational deployment only
+after the intended team has verified:
+
+1. real Cloudflare Access roles and simultaneous shared edits;
+2. representative source scans and full comparisons against retained accepted
+   evidence;
+3. local v6.15.4 Coursera extraction on representative real shells, including
+   slow assessments/readings/plugins;
+4. required Macmillan private workbooks;
+5. recovery backups and the six unavailable historical report cases.
+
+The deterministic repository checks cover rule parity, migration boundaries,
+security/storage contracts, source/extractor regressions, build/typecheck and
+Worker dry-run. They do not substitute for those private-system acceptance
+checks.
+
+[Shared workspace setup](shared-workspace-setup.md)

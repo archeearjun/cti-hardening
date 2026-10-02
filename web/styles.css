@@ -1745,3 +1745,58 @@ fieldset:disabled {
     padding-left: 20px;
   }
 }
+
+
+/* Migrated operations use the same evidence-first hierarchy as the review workspace. */
+.operations-workspace {
+  display: grid;
+  gap: 18px;
+}
+.operations-workspace .card > h2:first-child,
+.operations-workspace .section-heading h2 {
+  margin-top: 0;
+}
+.health-list {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.health-list li {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid #dce6eb;
+  border-radius: 7px;
+  background: #fafcfd;
+}
+.health-list span {
+  color: #536d7b;
+  overflow-wrap: anywhere;
+}
+.operations-workspace details {
+  margin-top: 14px;
+}
+.operations-workspace details > summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.operations-workspace code {
+  overflow-wrap: anywhere;
+}
+.operations-workspace textarea {
+  min-height: 90px;
+  width: 100%;
+}
+@media (max-width: 760px) {
+  .health-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .operations-workspace .table-wrap {
+    margin-left: -4px;
+    margin-right: -4px;
+  }
+}

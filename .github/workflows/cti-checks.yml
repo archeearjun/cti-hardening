@@ -22,7 +22,7 @@ jobs:
 
   publish-pages-branch:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: deterministic
+    needs: [deterministic, browser]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -38,3 +38,35 @@ jobs:
           git fetch origin codex/typescript-pages-migration
           git merge-base --is-ancestor origin/codex/typescript-pages-migration HEAD
           git push origin HEAD:refs/heads/codex/typescript-pages-migration
+
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Verify package scanning in Chromium
+        run: npm run test:browser:package
+      - name: Verify workspace workflow in Chromium
+        run: npm run test:browser:workspace
+      - name: Verify full responsive UX in Chromium
+        run: npm run test:browser:ux
+      - name: Verify owner actions in Chromium
+        run: npm run test:browser:owner
+      - name: Preserve browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cti-browser-screenshots
+          if-no-files-found: ignore
+          path: |
+            /tmp/cti-ux-screenshots
+            /tmp/cti-owner-actions

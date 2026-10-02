@@ -7,7 +7,7 @@ import {
   prepareWorkspaceBackup,
   validateImportRecordSizes,
 } from "../src/domain/workspace-validation";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import { runWorkflow } from "./workflow-client";
 import {
@@ -18,8 +18,17 @@ import {
 } from "../src/domain/workspace-store";
 import { importLegacyWorkspace } from "../src/domain/legacy-import";
 import { download, json, inputFile, Evidence, FileField } from "./workspace-ui";
-import MacmillanWorkspace from "./MacmillanWorkspace";
-import CourseraExtractionWorkspace from "./CourseraExtractionWorkspace";
+const MacmillanWorkspace = lazy(() => import("./MacmillanWorkspace"));
+const CourseraExtractionWorkspace = lazy(
+  () => import("./CourseraExtractionWorkspace"),
+);
+const OperationsWorkspace = lazy(() => import("./OperationsWorkspace"));
+import {
+  applyLineageRepairs,
+  normalizePartnerName,
+  packageSemanticKey,
+  validateCourseMetadata,
+} from "../src/domain/operations.ts";
 import type {
   EvidenceObject,
   WorkspaceRecord,
@@ -54,7 +63,7 @@ const descriptions: Record<string, string> = {
   Explore: "Understand the source package before making an ingestion decision.",
   Scan: "Inspect a new package or save a fresh baseline for an existing course.",
   Extract:
-    "Paste a Coursera authoring-shell link and run strict evidence extraction in the background.",
+    "Run the current Coursera extractor in your signed-in Chrome at zero browser-service cost, then verify its capture in CTI.",
   Compare: "Compare source evidence with what was captured in Coursera.",
   History:
     "Review saved reports and compare ingestion attempts or manual corrections.",
@@ -64,6 +73,8 @@ const descriptions: Record<string, string> = {
     "Prepare source specializations and validate externally created workbooks.",
   Analytics:
     "Review portfolio structure and workload across saved source scans.",
+  Operations:
+    "Manage migrated planner/catalog inputs, preflight, runtime evidence, duplicates, lineage and operational workflow state.",
   Setup: "Manage your workspace connection, backups and migration recovery.",
 };
 const dateLabel = (value: string) =>
@@ -104,7 +115,9 @@ export default function FullWorkspace({
     [partner, setPartner] = useState("NAIT"),
     [owner, setOwner] = useState(""),
     [status, setStatus] = useState("In Queue"),
-    [deadline, setDeadline] = useState("");
+    [assignedDate, setAssignedDate] = useState(""),
+    [deadline, setDeadline] = useState(""),
+    [driveLink, setDriveLink] = useState("");
   const [scan, setScan] = useState<PackageScan | null>(null),
     [rescan, setRescan] = useState(false),
     [checklist, setChecklist] = useState<WorkspaceRecord | null>(null);
@@ -181,7 +194,7 @@ export default function FullWorkspace({
       !records.some((a) => a.kind === "audit" && a.id === r.data.sourceRunId),
   );
   const courses = records
-    .filter((r) => r.kind === "package")
+    .filter((r) => r.kind === "package" && r.data.archived !== true)
     .sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { numeric: true }),
     );
@@ -205,6 +218,26 @@ export default function FullWorkspace({
   const checklistCount = steps.filter(
     ([key]) => checklist?.data.evidence?.[key],
   ).length;
+  function assertUniquePackageIdentity(
+    candidatePartner: string,
+    candidateFileName: string,
+    excludeId = "",
+  ) {
+    const partnerKey = normalizePartnerName(candidatePartner);
+    const semanticKey = packageSemanticKey(candidateFileName);
+    if (!partnerKey || !semanticKey) return;
+    const match = courses.find(
+      (candidate) =>
+        candidate.id !== excludeId &&
+        normalizePartnerName(candidate.data.partner) === partnerKey &&
+        packageSemanticKey(candidate.data.scan?.fileName || candidate.title) ===
+          semanticKey,
+    );
+    if (match)
+      throw new Error(
+        `A course with this partner and semantic package identity already exists: ${match.title}. Select that course and rescan it, or review the duplicate group in Operations.`,
+      );
+  }
   function resetCourseInputs() {
     setExcel(null);
     setCapture(null);
@@ -299,7 +332,9 @@ export default function FullWorkspace({
       setPartner(r.data.partner || "");
       setOwner(r.data.owner || "");
       setStatus(r.data.status || "In Queue");
+      setAssignedDate(r.data.assignedDate || "");
       setDeadline(r.data.deadline || "");
+      setDriveLink(r.data.driveLink || "");
       const saved = records.find(
         (x) => x.kind === "checklist" && x.packageId === id,
       );
@@ -319,17 +354,25 @@ export default function FullWorkspace({
   async function saveCourseScan() {
     if (!store || !scan) return;
     await act("Saving source scan", async () => {
+      const metadata = validateCourseMetadata({
+        partner,
+        owner,
+        status: rescan && course ? course.data.status || "In Queue" : "In Queue",
+        assignedDate: rescan && course ? course.data.assignedDate || "" : "",
+        deadline: rescan && course ? course.data.deadline || "" : "",
+        driveLink: rescan && course ? course.data.driveLink || "" : "",
+      });
+      assertUniquePackageIdentity(
+        metadata.partner,
+        scan.fileName,
+        rescan && course ? course.id : "",
+      );
       const record =
         rescan && course
-          ? { ...course, data: { ...course.data, scan } }
+          ? { ...course, data: { ...course.data, ...metadata, scan } }
           : newRecord("package", scan.fileName, {
               scan,
-              partner,
-              owner,
-              status: "In Queue",
-              assignedDate: "",
-              deadline: "",
-              driveLink: "",
+              ...metadata,
             });
       const saved = await store.save(record);
       await refresh();
@@ -339,7 +382,9 @@ export default function FullWorkspace({
       setPartner(saved.data.partner || "");
       setOwner(saved.data.owner || "");
       setStatus(saved.data.status || "In Queue");
+      setAssignedDate(saved.data.assignedDate || "");
       setDeadline(saved.data.deadline || "");
+      setDriveLink(saved.data.driveLink || "");
       const savedChecklist = records.find(
         (r) => r.kind === "checklist" && r.packageId === saved.id,
       );
@@ -370,6 +415,16 @@ export default function FullWorkspace({
     await act("Comparing full source and Coursera evidence", async () => {
       setImportProgress("Loading saved audit history");
       const history = await Promise.all(audits.map((a) => store.get(a.id)));
+      const repairRefs = records.filter(
+        (record) =>
+          record.kind === "operations" &&
+          record.packageId === course.id &&
+          record.data.type === "lineage-repair",
+      );
+      const repairs = await Promise.all(
+        repairRefs.map((record) => store.get(record.id)),
+      );
+      const repairedHistory = applyLineageRepairs(history, repairs);
       setImportProgress("Reading the selected evidence files");
       const input = {
         course,
@@ -379,7 +434,7 @@ export default function FullWorkspace({
         recovery: await inputFile(recovery),
         mode,
         generation,
-        history,
+        history: repairedHistory,
         ingestionCapabilityStatus,
       };
       setImportProgress(
@@ -764,11 +819,28 @@ export default function FullWorkspace({
                       </select>
                     </label>
                     <label>
+                      Assigned date
+                      <input
+                        type="date"
+                        value={assignedDate.slice(0, 10)}
+                        onChange={(e) => setAssignedDate(e.target.value)}
+                      />
+                    </label>
+                    <label>
                       Deadline
                       <input
                         type="date"
                         value={deadline.slice(0, 10)}
                         onChange={(e) => setDeadline(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Drive / Docs link
+                      <input
+                        type="url"
+                        value={driveLink}
+                        placeholder="https://drive.google.com/..."
+                        onChange={(e) => setDriveLink(e.target.value)}
                       />
                     </label>
                   </div>
@@ -777,20 +849,40 @@ export default function FullWorkspace({
                     disabled={!editable || !!busy}
                     onClick={() =>
                       void act("Saving metadata", async () => {
-                        setCourse(
-                          await store!.save({
-                            ...course,
-                            data: {
-                              ...course.data,
-                              partner,
-                              owner,
-                              status,
-                              deadline,
-                            },
-                          }),
+                        const metadata = validateCourseMetadata({
+                          partner,
+                          owner,
+                          status: status as
+                            | "In Queue"
+                            | "In Progress"
+                            | "QA Review"
+                            | "Blocked"
+                            | "Completed",
+                          assignedDate,
+                          deadline,
+                          driveLink,
+                        });
+                        assertUniquePackageIdentity(
+                          metadata.partner,
+                          course.data.scan?.fileName || course.title,
+                          course.id,
                         );
+                        const saved = await store!.save({
+                          ...course,
+                          data: {
+                            ...course.data,
+                            ...metadata,
+                          },
+                        });
+                        setCourse(saved);
+                        setPartner(saved.data.partner || "");
+                        setOwner(saved.data.owner || "");
+                        setStatus(saved.data.status || "In Queue");
+                        setAssignedDate(saved.data.assignedDate || "");
+                        setDeadline(saved.data.deadline || "");
+                        setDriveLink(saved.data.driveLink || "");
                         await refresh();
-                        setNotice("Course details saved.");
+                        setNotice("Course details saved and validated.");
                       })
                     }
                   >
@@ -909,19 +1001,27 @@ export default function FullWorkspace({
           )}
         </div>
         {tab === "Extract" && (
-          <CourseraExtractionWorkspace
-            enabled={store?.mode === "team"}
-            editable={editable}
-            disabled={!!busy}
-            initialUrl={extractionPrefill}
-            onUseCapture={(file) => {
-              setCapture(file);
-              setTab("Compare");
-              setNotice(
-                "Background Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
-              );
-            }}
-          />
+          <Suspense
+            fallback={
+              <section className="card" role="status" aria-live="polite">
+                Loading extraction workspace…
+              </section>
+            }
+          >
+            <CourseraExtractionWorkspace
+              enabled={store?.mode === "team"}
+              editable={editable}
+              disabled={!!busy}
+              initialUrl={extractionPrefill}
+              onUseCapture={(file) => {
+                setCapture(file);
+                setTab("Compare");
+                setNotice(
+                  "Local Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
+                );
+              }}
+            />
+          </Suspense>
         )}
         {tab === "Compare" && (
           <section className="card">
@@ -1280,7 +1380,7 @@ export default function FullWorkspace({
                 setExtractionPrefill(url || "");
                 setTab("Extract");
                 setNotice(
-                  "Background extraction opened for this Coursera shell. Run it here; no console script is needed.",
+                  "Local Coursera extraction opened for this shell. Use the current extractor in your signed-in Chrome tab, then return its JSON here.",
                 );
               }}
             />
@@ -1455,18 +1555,26 @@ export default function FullWorkspace({
             )}
           </section>
         )}
-        <div hidden={tab !== "Macmillan"}>
-          <MacmillanWorkspace
-            store={store}
-            records={records}
-            editable={editable}
-            busy={busy}
-            act={act}
-            job={job}
-            refresh={refresh}
-            setNotice={setNotice}
-          />
-        </div>
+        {tab === "Macmillan" && (
+          <Suspense
+            fallback={
+              <section className="card" role="status" aria-live="polite">
+                Loading Macmillan workspace…
+              </section>
+            }
+          >
+            <MacmillanWorkspace
+              store={store}
+              records={records}
+              editable={editable}
+              busy={busy}
+              act={act}
+              job={job}
+              refresh={refresh}
+              setNotice={setNotice}
+            />
+          </Suspense>
+        )}
         {tab === "Analytics" && (
           <section className="card">
             <h2>Portfolio analytics</h2>
@@ -1580,6 +1688,38 @@ export default function FullWorkspace({
               </>
             )}
           </section>
+        )}
+        {tab === "Operations" && (
+          <Suspense
+            fallback={
+              <section className="card" role="status" aria-live="polite">
+                Loading operations…
+              </section>
+            }
+          >
+            <OperationsWorkspace
+              store={store}
+              records={records}
+              course={course}
+              editable={editable}
+              disabled={!!busy}
+              onRefresh={() => refresh()}
+              onCourseUpdate={(next) => {
+                setCourse(next);
+                setCourseId(next?.id || "");
+                if (next) {
+                  setPartner(next.data.partner || "");
+                  setOwner(next.data.owner || "");
+                  setStatus(next.data.status || "In Queue");
+                  setAssignedDate(next.data.assignedDate || "");
+                  setDeadline(next.data.deadline || "");
+                  setDriveLink(next.data.driveLink || "");
+                }
+              }}
+              onNotice={setNotice}
+              onError={setError}
+            />
+          </Suspense>
         )}
         {tab === "Setup" && (
           <section className="card">
@@ -1858,6 +1998,10 @@ export default function FullWorkspace({
                               signal: controller.current?.signal,
                               onProgress: (message) =>
                                 setImportProgress(`${position}: ${message}`),
+                              // Migration/backup restore must preserve historical
+                              // duplicate rows so Operations can reconcile them
+                              // losslessly. Normal package writes never set this.
+                              allowSemanticDuplicate: true,
                             },
                           );
                           existing.add(r.id);

@@ -70,10 +70,27 @@ test("every Code.gs function, constant, override and declared capability has an 
       assert(fs.existsSync(file), `Missing audit owner: ${file}`);
   assert.equal(
     ledger.verdict,
-    "NOT_FEATURE_COMPLETE",
-    "A complete inventory is not a feature-parity sign-off.",
+    "MIGRATION_CLOSED_WITH_INTENTIONAL_RETIREMENTS",
+    "The migration ledger must distinguish implemented replacements from explicit retirements.",
   );
-  assert(ledger.features.some((f) => f.status === "gap"));
+  assert.equal(
+    Object.entries(ledger.groups).filter(([, group]) =>
+      ["gap", "partial"].includes(group.status),
+    ).length,
+    0,
+    "No legacy function group may remain silently partial or unmapped.",
+  );
+  assert.equal(
+    ledger.features.filter((feature) => feature.status === "gap").length,
+    0,
+    "Every declared legacy capability must be implemented, replaced or explicitly retired.",
+  );
+  assert(
+    ledger.features.some((feature) =>
+      String(feature.status).startsWith("retired"),
+    ),
+    "Intentional retirements must remain visible rather than being described as implemented.",
+  );
   console.log(
     `Audit covers ${ledger.functions.length} functions, ${code.overrides.size} overrides, ${ledger.constants.length} constants and ${ledger.features.length} declared capabilities. Product verdict: ${ledger.verdict}.`,
   );

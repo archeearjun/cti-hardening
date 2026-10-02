@@ -89,6 +89,7 @@ export default function LocalCourseraExtraction({
           type="url"
           value={shellUrl}
           disabled={disabled || !!busy}
+          aria-invalid={!!shellUrl.trim() && !shellTarget}
           onChange={(event) => {
             const value = event.target.value;
             setShellUrl(value);
@@ -105,6 +106,13 @@ export default function LocalCourseraExtraction({
         Use the exact shell you intend to capture. CTI checks the downloaded
         JSON against this course ID before moving it into Compare.
       </p>
+      {!shellTarget && shellUrl.trim() && (
+        <p className="hint" role="alert">
+          Enter a valid Coursera authoring URL containing
+          <code> /teach/&lt;course&gt;/&lt;course-id&gt;/content </code>
+          before copying the extractor or selecting a capture.
+        </p>
+      )}
 
       <ol className="local-extraction-steps">
         <li>
@@ -149,7 +157,7 @@ export default function LocalCourseraExtraction({
         )}
         <button
           className="primary"
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
           onClick={() =>
             void act("Preparing local extractor", async () => {
               const current = await currentExtractor();
@@ -171,7 +179,7 @@ export default function LocalCourseraExtraction({
         </button>
         <button
           className="secondary"
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
           onClick={() =>
             void act("Preparing local extractor", async () => {
               const current = await currentExtractor();
@@ -222,10 +230,12 @@ export default function LocalCourseraExtraction({
               ? capture.name
               : "Choose the Coursera JSON downloaded by the extractor"}
           </strong>
-          <span>
+          <span id="local-coursera-capture-help">
             {capture
               ? (capture.size / 1024 / 1024).toFixed(2) + " MiB"
-              : "Inspection happens in this browser before the file enters Compare."}
+              : shellTarget
+                ? "Inspection happens in this browser before the file enters Compare."
+                : "Enter the matching Coursera authoring-shell URL first so CTI can verify course identity."}
           </span>
         </label>
         <input
@@ -233,7 +243,8 @@ export default function LocalCourseraExtraction({
           className="visually-hidden-file"
           type="file"
           accept=".json,application/json"
-          disabled={disabled || !!busy}
+          disabled={disabled || !!busy || !shellTarget}
+          aria-describedby="local-coursera-capture-help"
           onChange={(event) => {
             const file = event.target.files?.[0] || null;
             setCapture(file);
@@ -312,6 +323,13 @@ export default function LocalCourseraExtraction({
                 This is an older compatible schema. Existing evidence remains
                 usable, but only the current extractor can satisfy the newest
                 capture contract.
+              </p>
+            )}
+            {!inspection.currentVersion && (
+              <p className="hint" role="alert">
+                This capture was not produced by the current Coursera extractor
+                release. Keep the evidence, but rerun the current extractor when
+                you need a fresh certification attempt.
               </p>
             )}
             {!!reasons.length && (

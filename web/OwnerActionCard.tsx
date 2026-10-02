@@ -396,6 +396,7 @@ export default function OwnerActionCard({
                   Item-check JSON
                   <input
                     type="file"
+                    aria-label="Upload this item’s check JSON"
                     accept=".json,application/json"
                     disabled={!editable || !loaded || !!busy}
                     onChange={(e) => {

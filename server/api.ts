@@ -1,4 +1,8 @@
 import { validateRecord } from "../src/domain/workspace-validation.ts";
+import {
+  normalizePartnerName,
+  packageSemanticKey,
+} from "../src/domain/operations.ts";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
 interface Statement {
@@ -113,6 +117,84 @@ const sha = async (bytes: Uint8Array) =>
     ),
     (n) => n.toString(16).padStart(2, "0"),
   ).join("");
+
+const PACKAGE_IDENTITY_ACTOR = "__cti_package_identity__";
+const PACKAGE_IDENTITY_COMMITTED = 2;
+
+async function packageIdentityClaimId(
+  partnerKey: string,
+  semanticKey: string,
+) {
+  const digest = await sha(
+    new TextEncoder().encode(partnerKey + "\u0000" + semanticKey),
+  );
+  return "package_identity_" + digest;
+}
+
+async function readPackageIdentityClaim(
+  db: Database,
+  claimId: string,
+): Promise<{ document_id: string } | null> {
+  return db
+    .prepare(
+      "SELECT document_id FROM uploads WHERE id=? AND actor=? AND committed=?",
+    )
+    .bind(claimId, PACKAGE_IDENTITY_ACTOR, PACKAGE_IDENTITY_COMMITTED)
+    .first<{ document_id: string }>();
+}
+
+async function acquirePackageIdentityClaim(
+  db: Database,
+  documentId: string,
+  partnerKey: string,
+  semanticKey: string,
+): Promise<{ id: string; created: boolean; owner: string }> {
+  const claimId = await packageIdentityClaimId(partnerKey, semanticKey);
+  const created = await db
+    .prepare(
+      "INSERT OR IGNORE INTO uploads(id,document_id,expected_version,actor,created_at,committed,bytes,parts,sha256,metadata) VALUES(?,?,?,?,?,2,0,0,?,?)",
+    )
+    .bind(
+      claimId,
+      documentId,
+      0,
+      PACKAGE_IDENTITY_ACTOR,
+      new Date().toISOString(),
+      "0".repeat(64),
+      JSON.stringify({
+        kind: "CTI_INTERNAL_PACKAGE_IDENTITY",
+        partnerKey,
+        semanticKey,
+      }),
+    )
+    .run();
+  const claim = await readPackageIdentityClaim(db, claimId);
+  if (!claim)
+    fail("Package identity claim could not be verified.", 500);
+  return {
+    id: claimId,
+    created: created.meta.changes === 1,
+    owner: String(claim!.document_id || ""),
+  };
+}
+
+async function releasePackageIdentityClaim(
+  db: Database,
+  claimId: string,
+  documentId: string,
+) {
+  await db
+    .prepare(
+      "DELETE FROM uploads WHERE id=? AND document_id=? AND actor=? AND committed=?",
+    )
+    .bind(
+      claimId,
+      documentId,
+      PACKAGE_IDENTITY_ACTOR,
+      PACKAGE_IDENTITY_COMMITTED,
+    )
+    .run();
+}
 export async function handleApi(
   request: Request,
   env: Environment,
@@ -347,6 +429,30 @@ export async function handleAuthorized(
       return response({ success: true });
     }
     if (p[2] === "commit" && method === "POST") {
+      let commitOptions: { allowSemanticDuplicate?: boolean } = {};
+      const commitBody = await boundedBody(request, 2048);
+      if (commitBody.length) {
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(commitBody));
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+            fail("Invalid commit options.");
+          commitOptions = parsed;
+        } catch (error) {
+          if ((error as { status?: number }).status) throw error;
+          fail("Invalid commit options.");
+        }
+      }
+      const allowSemanticDuplicate =
+        commitOptions.allowSemanticDuplicate === true;
+      if (
+        allowSemanticDuplicate &&
+        (user.role !== "admin" || Number(u.expected_version) !== 0)
+      )
+        fail(
+          "Only an administrator may preserve historical duplicate package rows during a new-record migration import.",
+          403,
+        );
+
       const counts = await db
         .prepare(
           "SELECT COUNT(*) AS count,COALESCE(SUM(bytes),0) AS bytes FROM chunks WHERE upload_id=?",
@@ -355,7 +461,167 @@ export async function handleAuthorized(
         .first();
       if (counts.count !== u.parts || counts.bytes !== u.bytes)
         fail("Upload is incomplete. Nothing has been saved.", 409);
-      const r = JSON.parse(u.metadata);
+
+      // The prepare request contains only a bounded summary. Reconstruct and
+      // validate the complete payload at the trust boundary before committing
+      // it as a workspace record. Client-side validation is not authoritative.
+      const { results: storedChunks } = await db
+        .prepare(
+          "SELECT part,bytes,value FROM chunks WHERE upload_id=? ORDER BY part ASC",
+        )
+        .bind(u.id)
+        .all();
+      if (storedChunks.length !== u.parts)
+        fail("Upload is incomplete. Nothing has been saved.", 409);
+      const payloadBytes = new Uint8Array(u.bytes);
+      let payloadOffset = 0;
+      for (let index = 0; index < storedChunks.length; index++) {
+        const chunk = storedChunks[index] as any;
+        if (
+          Number(chunk.part) !== index ||
+          !Number.isInteger(Number(chunk.bytes)) ||
+          Number(chunk.bytes) < 1
+        )
+          fail("Uploaded evidence chunk ordering is invalid.", 409);
+        const value =
+          chunk.value instanceof ArrayBuffer
+            ? new Uint8Array(chunk.value)
+            : ArrayBuffer.isView(chunk.value)
+              ? new Uint8Array(
+                  chunk.value.buffer,
+                  chunk.value.byteOffset,
+                  chunk.value.byteLength,
+                )
+              : new Uint8Array(chunk.value || []);
+        if (value.length !== Number(chunk.bytes))
+          fail("Uploaded evidence chunk length is invalid.", 409);
+        payloadBytes.set(value, payloadOffset);
+        payloadOffset += value.length;
+      }
+      if (payloadOffset !== u.bytes || (await sha(payloadBytes)) !== u.sha256)
+        fail("Uploaded evidence checksum failed. Nothing has been saved.", 409);
+
+      let fullData: unknown;
+      try {
+        fullData = JSON.parse(new TextDecoder().decode(payloadBytes));
+      } catch {
+        fail("Uploaded evidence is not valid JSON. Nothing has been saved.", 400);
+      }
+      const r = JSON.parse(u.metadata) as WorkspaceRecord;
+      try {
+        validateRecord({ ...r, data: fullData as Record<string, unknown> });
+      } catch (error) {
+        fail(
+          error instanceof Error
+            ? error.message
+            : "Uploaded evidence does not satisfy the record contract.",
+          400,
+        );
+      }
+      let packageIdentity:
+        | {
+            desiredClaimId?: string;
+            desiredClaimCreated?: boolean;
+            priorClaimId?: string;
+          }
+        | undefined;
+      if (r.kind === "package" && !allowSemanticDuplicate) {
+        const data = fullData as Record<string, any>;
+        const currentPackage = await db
+          .prepare(
+            "SELECT title,summary FROM documents WHERE id=? AND kind='package'",
+          )
+          .bind(r.id)
+          .first<{ title: string; summary: string }>();
+        let currentSummary: Record<string, any> = {};
+        if (currentPackage) {
+          try {
+            currentSummary = JSON.parse(currentPackage.summary || "{}");
+          } catch {
+            // Full payload validation still protects the incoming record. A
+            // malformed old listing summary is surfaced through Operations
+            // health and must not be mistaken for a duplicate match.
+          }
+        }
+        const priorPartner = normalizePartnerName(currentSummary.partner);
+        const priorSemantic = currentPackage
+          ? packageSemanticKey(
+              currentSummary.scan?.fileName || currentPackage.title,
+            )
+          : "";
+        const partnerKey = normalizePartnerName(data.partner);
+        const semanticKey = packageSemanticKey(
+          data.scan?.fileName || r.title,
+        );
+        const activatesIdentity =
+          !currentPackage ||
+          currentSummary.archived === true ||
+          priorPartner !== partnerKey ||
+          priorSemantic !== semanticKey;
+
+        packageIdentity = {};
+        if (currentPackage && priorPartner && priorSemantic)
+          packageIdentity.priorClaimId = await packageIdentityClaimId(
+            priorPartner,
+            priorSemantic,
+          );
+
+        if (data.archived !== true && partnerKey && semanticKey) {
+          if (activatesIdentity) {
+            // The human-readable duplicate scan explains conflicts from
+            // historical rows. The identity claim below is the atomic race
+            // barrier for simultaneous new/restore/rename commits.
+            const { results: existingPackages } = await db
+              .prepare(
+                "SELECT id,title,summary FROM documents WHERE kind='package' AND id<>?",
+              )
+              .bind(r.id)
+              .all<{ id: string; title: string; summary: string }>();
+            for (const existing of existingPackages) {
+              let summary: Record<string, any> = {};
+              try {
+                summary = JSON.parse(existing.summary || "{}");
+              } catch {
+                // A malformed old summary is an operational health issue, not a
+                // reason to weaken duplicate protection for valid rows.
+              }
+              if (summary.archived === true) continue;
+              if (
+                normalizePartnerName(summary.partner) === partnerKey &&
+                packageSemanticKey(
+                  summary.scan?.fileName || existing.title,
+                ) === semanticKey
+              )
+                fail(
+                  "An active course with the same partner and semantic package identity already exists. Rescan that course or reconcile duplicates in Operations.",
+                  409,
+                );
+            }
+          }
+
+          const claim = await acquirePackageIdentityClaim(
+            db,
+            r.id,
+            partnerKey,
+            semanticKey,
+          );
+          packageIdentity.desiredClaimId = claim.id;
+          packageIdentity.desiredClaimCreated = claim.created;
+          if (claim.owner !== r.id) {
+            // Same-identity edits on historical duplicate rows must stay
+            // editable for reconciliation. Identity activation, however, is a
+            // new collision and is rejected.
+            if (activatesIdentity)
+              fail(
+                "An active course with the same partner and semantic package identity was committed concurrently. Refresh and reconcile duplicates in Operations.",
+                409,
+              );
+            packageIdentity.desiredClaimId = undefined;
+            packageIdentity.desiredClaimCreated = false;
+          }
+        }
+      }
+
       let q: Statement;
       if (u.expected_version === 0)
         q = db
@@ -388,19 +654,54 @@ export async function handleAuthorized(
             u.expected_version,
             r.kind,
           );
-      const results = await db.batch([
-        q,
-        db
-          .prepare(
-            "UPDATE uploads SET committed=1 WHERE id=? AND EXISTS(SELECT 1 FROM documents WHERE id=? AND revision=?)",
-          )
-          .bind(u.id, r.id, u.id),
-      ]);
-      if (results[0].meta.changes !== 1)
+      let results: Array<{ meta: { changes: number } }>;
+      try {
+        results = await db.batch([
+          q,
+          db
+            .prepare(
+              "UPDATE uploads SET committed=1 WHERE id=? AND EXISTS(SELECT 1 FROM documents WHERE id=? AND revision=?)",
+            )
+            .bind(u.id, r.id, u.id),
+        ]);
+      } catch (error) {
+        if (
+          packageIdentity?.desiredClaimCreated &&
+          packageIdentity.desiredClaimId
+        )
+          await releasePackageIdentityClaim(
+            db,
+            packageIdentity.desiredClaimId,
+            r.id,
+          );
+        throw error;
+      }
+      if (results[0].meta.changes !== 1) {
+        if (
+          packageIdentity?.desiredClaimCreated &&
+          packageIdentity.desiredClaimId
+        )
+          await releasePackageIdentityClaim(
+            db,
+            packageIdentity.desiredClaimId,
+            r.id,
+          );
         fail(
           "Another edit was committed first. Refresh before retrying; this upload did not replace it.",
           409,
         );
+      }
+
+      if (
+        packageIdentity?.priorClaimId &&
+        packageIdentity.priorClaimId !== packageIdentity.desiredClaimId
+      )
+        await releasePackageIdentityClaim(
+          db,
+          packageIdentity.priorClaimId,
+          r.id,
+        );
+
       return response({
         record: {
           ...r,

@@ -1,5 +1,6 @@
 import { createEngine } from "../engine/index.js";
 import build from "../release.json" with { type: "json" };
+import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import type {
   ExtractorDelivery,
@@ -197,10 +198,12 @@ export function reviewCapture(
     if (
       !Number.isInteger(Number(capture.schemaVersion)) ||
       Number(capture.schemaVersion) < 1 ||
-      Number(capture.schemaVersion) > 35
+      Number(capture.schemaVersion) > CTI_RELEASE_REGISTRY_.courseraExtractor.schema
     )
       throw new Error(
-        "This preview supports Coursera capture schemas 1–35. Use a compatible full CTI capture.",
+        "This preview supports Coursera capture schemas 1–" +
+          CTI_RELEASE_REGISTRY_.courseraExtractor.schema +
+          ". Use a compatible full CTI capture.",
       );
     if (capture.fingerprints.length > 20000)
       throw new Error(

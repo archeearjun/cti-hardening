@@ -69,17 +69,29 @@ async function waitIdle(p = page) {
   await p.locator(".full-workspace .status").waitFor({ state: "hidden" });
 }
 // Synthetic records only. This verifies navigation and input isolation, not course completeness.
-const courses = Array.from({ length: 62 }, (_, i) => ({
-  ...structuredClone(input.course),
-  id: crypto.randomUUID(),
-  title: `Course ${String(i + 1).padStart(3, "0")} · Source evidence (synthetic)`,
-  data: {
-    ...structuredClone(input.course.data),
-    partner: i % 2 ? "Partner B" : "Partner A",
-    owner: i % 3 ? "Review team" : "Assignment owner",
-    status: i % 4 ? "In Queue" : "QA Review",
-  },
-}));
+const courses = Array.from({ length: 62 }, (_, i) => {
+  const code = `COURSE${String(i + 1).padStart(3, "0")}`;
+  const cloned = structuredClone(input.course);
+  return {
+    ...cloned,
+    id: crypto.randomUUID(),
+    title: `Course ${String(i + 1).padStart(3, "0")} · Source evidence (synthetic)`,
+    data: {
+      ...cloned.data,
+      scan: {
+        ...cloned.data.scan,
+        fileName: code + ".imscc",
+        scannedAt: "2026-09-15T12:00:00.000Z",
+      },
+      partner: i % 2 ? "Partner B" : "Partner A",
+      owner: i % 3 ? "Review team" : "Assignment owner",
+      status: i % 4 ? "In Queue" : "QA Review",
+      assignedDate: "",
+      deadline: "",
+      driveLink: "",
+    },
+  };
+});
 const workflows = createWorkflows(workerXml);
 const audited = workflows.compare({ ...input, course: courses[0] });
 audited.result.ownerView.items[1].status = "EVIDENCE_NEEDED";
@@ -132,6 +144,42 @@ const afterAudit = {
   data: { ...structuredClone(audited), generation: 2 },
 };
 backup.records = [...courses, audit, afterAudit, ...books];
+const localCapture = {
+  schemaVersion: 35,
+  extractedAt: "2026-10-01T00:00:00.000Z",
+  page: { courseId: "Course_id_123", title: "Synthetic Course" },
+  meta: {
+    extractor: "CTI Item Fidelity Extractor v6.15.4",
+    buildId: "v6.15.4-empty-reading-visibility-20261001",
+    baseFingerprintCount: 1,
+    captureAccounting: {
+      inventoryCount: 1,
+      completeCount: 1,
+      unresolvedCount: 0,
+      unknownCount: 0,
+      unvisitedCount: 0,
+      externalContentUnverifiedCount: 0,
+      terminalAccountedIncompleteCount: 0,
+      allInventoryAccounted: true,
+      noSilentMisses: true,
+      complete: true,
+    },
+  },
+  fingerprints: [
+    {
+      id: "reading-1",
+      type: "Reading",
+      name: "Reading",
+      payload: {},
+      captureContract: {
+        complete: true,
+        accounted: true,
+        retryable: false,
+        status: "COMPLETE_READING",
+      },
+    },
+  ],
+};
 const capturePath = process.env.CTI_UX_SCREENSHOTS || "/tmp/cti-ux-screenshots";
 fs.mkdirSync(capturePath, { recursive: true });
 const shot = async (name) => {
@@ -191,6 +239,69 @@ try {
   await page.getByText("Full entry evidence", { exact: true }).click();
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("source-desktop");
+
+  await tab("Extract");
+  await page
+    .getByRole("heading", { name: "Extract Coursera in your own Chrome" })
+    .waitFor();
+  const shellInput = page.getByLabel("Coursera authoring-shell URL", {
+    exact: true,
+  });
+  await shellInput.fill("https://example.test/not-coursera");
+  assert(
+    await page
+      .getByRole("button", { name: "Copy current Coursera extractor" })
+      .isDisabled(),
+    "invalid shell must not enable local extraction",
+  );
+  await shellInput.fill(
+    "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
+  );
+  assert(
+    await page
+      .getByRole("button", { name: "Copy current Coursera extractor" })
+      .isEnabled(),
+  );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open Coursera authoring shell", exact: false })
+      .getAttribute("href"),
+    "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
+  );
+  const extractorDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download extractor", exact: true })
+    .click();
+  const extractorText = fs.readFileSync(
+    await (await extractorDownload).path(),
+    "utf8",
+  );
+  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.4/);
+  await page.locator("#local-coursera-capture").setInputFiles({
+    name: "local-schema-35.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(localCapture)),
+  });
+  await page
+    .getByText("COMPLETE — strict capture gate passed", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Use this capture in Compare" }).click();
+  await page
+    .getByText("Local Coursera capture loaded into Compare.", { exact: false })
+    .waitFor();
+  // Browsers do not permit application code to populate another native
+  // <input type=file>. CTI carries the validated File in React state and shows
+  // the selected-file indicator used by the comparison workflow.
+  await page
+    .getByText("Selected: local-schema-35.json", { exact: false })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByLabel("Coursera full capture JSON")
+      .evaluate((element) => element.files?.length || 0),
+    0,
+  );
+
   await tab("Compare");
   const file = {
     name: "old-course.xlsx",
@@ -350,15 +461,182 @@ try {
     0,
   );
   assert(await page.getByRole("button", { name: "Run stage QA" }).isDisabled());
+
+  await page.getByLabel("Selected source course").selectOption(courses[0].id);
+  await waitIdle();
+  await tab("Operations");
+  await page
+    .getByRole("heading", { name: "Operational readiness", exact: true })
+    .waitFor();
+  await page.getByText("PASS · Course metadata contract", { exact: true }).waitFor();
+  await page.getByText("Current product capability manifest", { exact: true }).click();
+  await page
+    .getByText("AVAILABLE · Coursera extraction · local Chrome", { exact: true })
+    .waitFor();
+
+  const catalogWorkbook = Buffer.from(
+    writeWorkbook({
+      name: "catalog.xlsx",
+      sheets: {
+        Catalog: {
+          values: [
+            [
+              "Title Code",
+              "Title",
+              "Coursera Product Type",
+              "Assignment Owner",
+              "Brightspace Access",
+              "CC Package Access",
+              "Import Status",
+            ],
+            [
+              "COURSE001",
+              "Synthetic Course 001",
+              "Course",
+              "Assignment owner",
+              "Complete",
+              "Complete",
+              "Complete",
+            ],
+          ],
+        },
+      },
+    }),
+  );
+  const plannerWorkbook = Buffer.from(
+    writeWorkbook({
+      name: "planner.xlsx",
+      sheets: {
+        Planner: {
+          values: [
+            [
+              "Assignment Date",
+              "Partner",
+              "Content Ingestion Method",
+              "Assignment Category",
+              "Assignment Owner",
+              "Total Title Count",
+              "Status",
+              "Assignment Owner Remarks",
+            ],
+            [
+              "2026-09-20",
+              "Partner A",
+              "Smart Ingestion",
+              "Import Only",
+              "Assignment owner",
+              1,
+              "Assigned",
+              "COURSE001",
+            ],
+          ],
+        },
+      },
+    }),
+  );
+  const runtimeWorkbook = Buffer.from(
+    writeWorkbook({
+      name: "runtime.xlsx",
+      sheets: {
+        Runtime: {
+          values: [
+            ["Coursecode", "Course Title", "RISE", "Storyline", "Link"],
+            ["COURSE001", "Synthetic Course 001", 1, 0, "source inventory"],
+          ],
+        },
+      },
+    }),
+  );
+
+  await page.getByLabel("Catalog partner", { exact: true }).fill("Partner A");
+  await page.getByLabel("Partner catalog XLSX", { exact: true }).setInputFiles({
+    name: "catalog.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: catalogWorkbook,
+  });
+  await page.getByText("Catalog imported: 1 normalized row(s)", { exact: false }).waitFor();
+  await page.getByLabel("Master Planner XLSX", { exact: true }).setInputFiles({
+    name: "planner.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: plannerWorkbook,
+  });
+  await page.getByText("Planner imported: 1 normalized row(s)", { exact: false }).waitFor();
+  await page
+    .getByLabel("Runtime / RISE / Storyline inventory XLSX", { exact: true })
+    .setInputFiles({
+      name: "runtime.xlsx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: runtimeWorkbook,
+    });
+  await page
+    .getByText("Runtime inventory imported: 1 normalized row(s)", {
+      exact: false,
+    })
+    .waitFor();
+
+  await page.getByLabel("Partner", { exact: true }).fill("Partner A");
+  await page.getByLabel("From", { exact: true }).fill("2026-09-01");
+  await page.getByLabel("To", { exact: true }).fill("2026-09-30");
+  await page.getByLabel("Rescan cutoff", { exact: true }).fill("2026-09-01");
+  await page.getByLabel("Owner filter", { exact: true }).fill("Assignment owner");
+  await page
+    .getByRole("button", { name: "Build queue from saved inputs", exact: true })
+    .click();
+  await page
+    .getByText("Planner queue rebuilt from saved inputs:", { exact: false })
+    .waitFor();
+  await page.getByText("COURSE001", { exact: true }).waitFor();
+
+  await page
+    .getByRole("button", {
+      name: "Apply latest runtime evidence to matching courses",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByText("Applied explicit runtime inventory evidence to 1 matching active course(s).", {
+      exact: true,
+    })
+    .waitFor();
+
+  await page.getByText("CLEARED TO INGEST", { exact: true }).waitFor();
+  const manifestDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download Master Manifest XLSX", exact: true })
+    .click();
+  const manifestPath = await (await manifestDownload).path();
+  assert(fs.statSync(manifestPath).size > 100, "manifest export should not be empty");
+
+  await page.getByLabel("Coursera redo", { exact: true }).selectOption("DONE");
+  await page
+    .getByLabel("Operational notes", { exact: true })
+    .fill("Synthetic browser verification of migrated work-state persistence.");
+  await page
+    .getByRole("button", { name: "Save workflow state", exact: true })
+    .click();
+  await page
+    .getByText("Operational workflow state saved with the course record.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot("operations-desktop");
+
   await page.setViewportSize({ width: 390, height: 844 });
   for (const name of [
     "Catalogue",
     "Explore",
+    "Scan",
+    "Extract",
     "Compare",
     "History",
     "Work queue",
     "Macmillan",
     "Analytics",
+    "Operations",
     "Setup",
   ]) {
     await tab(name);
@@ -381,13 +659,16 @@ try {
         checks: [
           "62-course pagination and combined filters",
           "source explorer with lazy evidence",
+          "zero-cost local Coursera extractor download and strict capture verification",
           "all comparison inputs reset across courses",
           "report focus and evidence-status filtering",
           "source-only actions participate in filters and downloads remain complete",
           "queue navigation and checklist isolation",
           "before/after owner actions and separate portfolio results",
           "workbook choices and output files reset across masters",
-          "390px layouts",
+          "portable planner/catalog/runtime operations and workflow state",
+          "Master Manifest XLSX export",
+          "390px layouts across Scan, Extract and Operations",
         ],
         screenshots: capturePath,
         pageErrors: errors,

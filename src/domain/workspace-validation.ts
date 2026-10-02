@@ -1,5 +1,6 @@
 import type { WorkspaceRecord } from "./workspace-types.ts";
 import { validateOwnerReview } from "./owner-actions.ts";
+import { validateCourseMetadata } from "./operations.ts";
 const kinds = [
   "package",
   "audit",
@@ -7,6 +8,7 @@ const kinds = [
   "checklist",
   "legacy-backup",
   "item-review",
+  "operations",
 ];
 export function validateRecord(record: WorkspaceRecord, full = true): void {
   if (
@@ -38,13 +40,38 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       throw new Error("Invalid item review.");
     validateOwnerReview(record.data.review);
   }
-  if (
-    record.kind === "package" &&
-    (!Array.isArray(record.data.scan?.courseTree) || !record.data.scan?.stats)
-  )
-    throw new Error(
-      "A source record must contain a complete source tree and scan statistics.",
-    );
+  if (record.kind === "package") {
+    if (!Array.isArray(record.data.scan?.courseTree) || !record.data.scan?.stats)
+      throw new Error(
+        "A source record must contain a complete source tree and scan statistics.",
+      );
+    const hasMetadata = [
+      "partner",
+      "owner",
+      "status",
+      "assignedDate",
+      "deadline",
+      "driveLink",
+    ].some((key) => Object.prototype.hasOwnProperty.call(record.data, key));
+    if (hasMetadata) {
+      // Historical workspace exports may legitimately have a blank partner.
+      // Preserve them on import, but validate every other supplied field. New
+      // CTI course creation still requires a partner in the active UI.
+      validateCourseMetadata({
+        partner: record.data.partner || "Legacy unassigned",
+        owner: record.data.owner,
+        status: record.data.status,
+        assignedDate: record.data.assignedDate,
+        deadline: record.data.deadline,
+        driveLink: record.data.driveLink,
+      });
+    }
+    if (
+      record.data.archived !== undefined &&
+      typeof record.data.archived !== "boolean"
+    )
+      throw new Error("Package archived state must be boolean.");
+  }
   if (
     record.kind === "audit" &&
     (!record.packageId ||
@@ -71,6 +98,30 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       !Object.values(record.data.evidence).every((v) => typeof v === "boolean"))
   )
     throw new Error("Invalid saved checklist.");
+  if (record.kind === "operations") {
+    const type = String(record.data.type || "");
+    if (
+      ![
+        "catalog",
+        "planner",
+        "runtime-inventory",
+        "lineage-repair",
+      ].includes(type)
+    )
+      throw new Error("Invalid operations record type.");
+    if (type === "lineage-repair") {
+      if (
+        !record.packageId ||
+        typeof record.data.runId !== "string" ||
+        !record.data.runId ||
+        !Number.isInteger(record.data.toGeneration) ||
+        record.data.toGeneration < 0
+      )
+        throw new Error("Invalid lineage repair record.");
+    } else if (!Array.isArray(record.data.rows)) {
+      throw new Error("Operations input records must contain normalized rows.");
+    }
+  }
 }
 export function prepareWorkspaceBackup(value: any): WorkspaceRecord[] {
   if (

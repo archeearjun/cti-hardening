@@ -261,9 +261,11 @@ try {
     sourceBytes,
   );
   await page
-    .getByRole("button", { name: "Copy this item’s check", exact: true })
+    .getByRole("button", { name: "Copy this item’s current check", exact: true })
     .click();
-  await page.getByText("Script copied.", { exact: false }).waitFor();
+  await page
+    .getByText("Current v6.15.4 item check copied.", { exact: false })
+    .waitFor();
   const script = await page.evaluate(() => navigator.clipboard.readText());
   assert(script.includes("owner-action-audit"));
   assert(script.includes("notForCourseAudit:true"));

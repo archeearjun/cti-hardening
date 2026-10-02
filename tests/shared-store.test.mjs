@@ -106,7 +106,7 @@ async function upload(call, record) {
           200,
         );
     },
-    commit: () => call(`uploads/${id}/commit`, "POST", "{}"),
+    commit: (body = "{}") => call(`uploads/${id}/commit`, "POST", body),
   };
 }
 test("deployed API fails closed without team configuration or verified identity", async () => {
@@ -191,11 +191,21 @@ test("chunk uploads are invisible until complete and checksummed data round-trip
 test("concurrent edits use compare-and-swap and retain saved versions", async () => {
   const db = database(),
     call = client(db);
-  const u = await upload(call, comparisonFixture().course);
+  const original = comparisonFixture().course;
+  const u = await upload(call, original);
   await u.chunks();
   const saved = (await (await u.commit()).json()).record;
-  const a = await upload(call, { ...saved, title: "Winner" }),
-    b = await upload(call, { ...saved, title: "Conflict" });
+  // Commit responses intentionally contain only a bounded summary. A real
+  // editor retains/loads the complete evidence payload before writing another
+  // version; never promote a list summary into the next full record.
+  const current = {
+    ...structuredClone(original),
+    version: saved.version,
+    updatedAt: saved.updatedAt,
+    updatedBy: saved.updatedBy,
+  };
+  const a = await upload(call, { ...current, title: "Winner" }),
+    b = await upload(call, { ...current, title: "Conflict" });
   await a.chunks();
   await b.chunks();
   assert.equal((await a.commit()).status, 200);
@@ -312,6 +322,11 @@ test("failed evidence upload leaves earlier records committed; retry skips them 
   const store = await teamStore();
   const first = comparisonFixture().course,
     second = comparisonFixture().course;
+  // This test is about interrupted multi-record import recovery, not duplicate
+  // identity handling. Give the second synthetic course a distinct semantic
+  // package identity so the restored duplicate guard is not the failure under test.
+  second.title = "Synthetic-Second.imscc";
+  second.data.scan.fileName = "Synthetic-Second.imscc";
   await store.save(first);
   failChunks = true;
   await assert.rejects(
@@ -517,4 +532,189 @@ test("extraction proxy fails closed when the service binding is absent and still
     (error) => error.status === 403,
   );
   db.sql.close();
+});
+
+
+test("server validates the reconstructed full payload before commit", async () => {
+  const db = database(),
+    call = client(db),
+    valid = comparisonFixture().course;
+  const malformed = {
+    ...valid,
+    data: {
+      ...valid.data,
+      scan: {
+        ...valid.data.scan,
+        courseTree: "not-an-array",
+      },
+    },
+  };
+  const u = await upload(call, malformed);
+  await u.chunks();
+  const response = await u.commit();
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /complete source tree/i);
+  assert.equal(
+    (await (await call("records")).json()).records.some((r) => r.id === malformed.id),
+    false,
+    "invalid payload must not become a committed document",
+  );
+});
+
+
+
+test("admin migration import may preserve historical duplicates but editors cannot bypass the guard", async () => {
+  const db = database(),
+    editorCall = client(db),
+    adminCall = client(db, { ...actor, role: "admin" });
+  const first = comparisonFixture().course;
+  first.data.partner = "NAIT";
+  first.data.scan.fileName = "BORL113.imscc";
+  first.title = first.data.scan.fileName;
+  const u = await upload(editorCall, first);
+  await u.chunks();
+  const firstCommit = await u.commit();
+  assert.equal(firstCommit.status, 200);
+  const firstSaved = (await firstCommit.json()).record;
+
+  const historicalDuplicate = structuredClone(first);
+  historicalDuplicate.id = crypto.randomUUID();
+  historicalDuplicate.version = 0;
+  historicalDuplicate.updatedAt = "";
+  historicalDuplicate.updatedBy = "";
+  historicalDuplicate.title = "BORL113 (2).imscc";
+  historicalDuplicate.data.scan.fileName = historicalDuplicate.title;
+  const imported = await upload(adminCall, historicalDuplicate);
+  await imported.chunks();
+  assert.equal(
+    (
+      await imported.commit(
+        JSON.stringify({ allowSemanticDuplicate: true }),
+      )
+    ).status,
+    200,
+  );
+  const listed = await (await adminCall("records")).json();
+  assert.equal(
+    listed.records.filter((record) => record.kind === "package").length,
+    2,
+    "migration must retain historical duplicate evidence for later reconciliation",
+  );
+
+  // Editing an already-active historical duplicate identity is allowed: the
+  // edit does not create the duplicate and is necessary for lossless
+  // reconciliation. Activating a new/restored duplicate remains blocked.
+  const sameIdentityEdit = {
+    ...structuredClone(first),
+    version: firstSaved.version,
+    data: { ...structuredClone(first.data), owner: "Reconciliation owner" },
+  };
+  const editUpload = await upload(editorCall, sameIdentityEdit);
+  await editUpload.chunks();
+  assert.equal((await editUpload.commit()).status, 200);
+
+  const archived = {
+    ...structuredClone(historicalDuplicate),
+    version: 1,
+    data: {
+      ...structuredClone(historicalDuplicate.data),
+      archived: true,
+      archivedAt: "2026-10-01T00:00:00.000Z",
+      archivedReason: "TEST",
+    },
+  };
+  const archiveUpload = await upload(editorCall, archived);
+  await archiveUpload.chunks();
+  const archiveCommit = await archiveUpload.commit();
+  assert.equal(archiveCommit.status, 200);
+  const archiveSaved = (await archiveCommit.json()).record;
+
+  const restored = {
+    ...structuredClone(historicalDuplicate),
+    version: archiveSaved.version,
+    data: {
+      ...structuredClone(historicalDuplicate.data),
+      archived: false,
+      archivedAt: "",
+      archivedReason: "",
+    },
+  };
+  const restoreUpload = await upload(editorCall, restored);
+  await restoreUpload.chunks();
+  assert.equal((await restoreUpload.commit()).status, 409);
+
+  const forbidden = structuredClone(historicalDuplicate);
+  forbidden.id = crypto.randomUUID();
+  forbidden.title = "BORL113 (3).imscc";
+  forbidden.data.scan.fileName = forbidden.title;
+  const blocked = await upload(editorCall, forbidden);
+  await blocked.chunks();
+  assert.equal(
+    (
+      await blocked.commit(
+        JSON.stringify({ allowSemanticDuplicate: true }),
+      )
+    ).status,
+    403,
+  );
+  db.sql.close();
+});
+
+test("simultaneous shared creates cannot claim the same semantic package identity", async () => {
+  const db = database(),
+    call = client(db);
+  const left = comparisonFixture().course;
+  left.data.partner = "NAIT";
+  left.title = "BORL113.imscc";
+  left.data.scan.fileName = left.title;
+
+  const right = structuredClone(left);
+  right.id = crypto.randomUUID();
+  right.title = "BORL113 (2).imscc";
+  right.data.scan.fileName = right.title;
+
+  const a = await upload(call, left);
+  const b = await upload(call, right);
+  await Promise.all([a.chunks(), b.chunks()]);
+  const responses = await Promise.all([a.commit(), b.commit()]);
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 409],
+  );
+  const list = await (await call("records")).json();
+  assert.equal(
+    list.records.filter((record) => record.kind === "package").length,
+    1,
+  );
+  db.sql.close();
+});
+
+test("shared API rejects a second active semantic package identity", async () => {
+  const db = database(),
+    call = client(db);
+  const first = comparisonFixture().course;
+  first.data.partner = "NAIT";
+  first.data.scan.fileName = "B0RL113 - Development (NCE) - CLXT.imscc";
+  first.title = first.data.scan.fileName;
+  const u = await upload(call, first);
+  await u.chunks();
+  assert.equal((await u.commit()).status, 200);
+
+  const second = structuredClone(first);
+  second.id = crypto.randomUUID();
+  second.version = 0;
+  second.updatedAt = "";
+  second.updatedBy = "";
+  second.title = "BORL113 (2).imscc";
+  second.data.scan.fileName = second.title;
+  const v = await upload(call, second);
+  await v.chunks();
+  const response = await v.commit();
+  assert.equal(response.status, 409);
+  assert.match(await response.text(), /semantic package identity/i);
+  const list = await (await call("records")).json();
+  assert.equal(
+    list.records.filter((record) => record.kind === "package").length,
+    1,
+  );
 });

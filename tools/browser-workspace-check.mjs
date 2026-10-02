@@ -174,7 +174,9 @@ try {
   await tab("Catalogue");
   await page.getByLabel("Owner", { exact: true }).fill("First owner");
   await page.getByRole("button", { name: "Save course details" }).click();
-  await page.getByText("Course details saved.", { exact: true }).waitFor();
+  await page
+    .getByText("Course details saved and validated.", { exact: true })
+    .waitFor();
   await second.getByLabel("Owner", { exact: true }).fill("Stale owner");
   await second.getByRole("button", { name: "Save course details" }).click();
   assert(
