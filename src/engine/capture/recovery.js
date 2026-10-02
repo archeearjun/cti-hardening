@@ -10,7 +10,6 @@ export function qaCourseraCaptureReadiness_(meta, itemResults) {
   var crawl=meta.activeSpaCrawl||{};
   var observed=String(crawl.buildId||meta.buildId||crawl.version||meta.extractor||'');
   var expected=CTI_RELEASE_REGISTRY_.courseraExtractor.version;
-  var expectedBuild=CTI_RELEASE_REGISTRY_.courseraExtractor.build;
   function version(value){var m=String(value||'').match(/\bv?(\d+)\.(\d+)\.(\d+)(?:\b|[-_])/);return m?m.slice(1).map(Number):null;}
   var actual=version(observed),latest=version(expected),order=0;
   if(actual) for(var i=0;i<3;i++){if(actual[i]!==latest[i]){order=actual[i]<latest[i]?-1:1;break;}}
@@ -43,10 +42,7 @@ export function qaCourseraCaptureReadiness_(meta, itemResults) {
   var traversal=qaCaptureTraversalSummary_(meta);
   if(traversal.excludedContainerCount)action+=(action?' ':'')+traversal.excludedContainerCount+' capture-queue entries are lesson/module containers confirmed by the matching XLSX export. They have been excluded from the item-editor denominator; the original traversal evidence is retained.';
   if(traversal.recorded&&!traversal.complete){status='EDITOR_TRAVERSAL_INCOMPLETE';action='Only '+traversal.visited+'/'+traversal.eligible+' item editors were observed; '+traversal.unresolvedCount+' remain unresolved. Recover or inspect those specific items before concluding that their payload is missing. Independently observed content defects still require correction. '+action;}
-  return {status:status,observedVersion:actual?'v'+actual.join('.'):'',observedBuild:observed,
-    expectedVersion:expected,expectedBuild:expectedBuild,traversal:traversal,olderCapture:!!actual&&order<0,
-    newerCapture:!!actual&&order>0,assessmentGaps:gaps,observedEmptySourceAssessments:observedEmpty,action:action,
-    versionMeaning:'This report is anchored to the uploaded capture build. The current available extractor is informational and never rewrites historical capture evidence.'};
+  return {status:status,observedVersion:actual?'v'+actual.join('.'):'',observedBuild:observed,expectedVersion:expected,traversal:traversal,olderCapture:!!actual&&order<0,assessmentGaps:gaps,observedEmptySourceAssessments:observedEmpty,action:action};
 }
 
 export function qaMergeCourseraPayload_(excelItem, liveItem) {
