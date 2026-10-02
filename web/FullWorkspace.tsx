@@ -1370,6 +1370,14 @@ export default function FullWorkspace({
                 Without a Coursera JSON capture, content evidence will be
                 limited.
               </p>
+              {capture && (
+                <p className="hint" data-testid="selected-coursera-capture">
+                  Selected Coursera capture: <strong>{capture.name}</strong>.
+                  The saved report is anchored to the extractor build embedded
+                  in this exact JSON; the current available extractor is shown
+                  separately and never rewrites historical evidence.
+                </p>
+              )}
               <h3>2. Add source and supplemental evidence</h3>
               <div className="settings">
                 <FileField
