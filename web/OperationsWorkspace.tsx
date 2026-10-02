@@ -100,6 +100,28 @@ export default function OperationsWorkspace({
   const duplicatePlan = useMemo(() => buildDuplicatePlan(records), [records]);
   const health = useMemo(() => systemHealth(records), [records]);
   const analytics = useMemo(() => partnerAnalytics(records), [records]);
+  const legacyOperationalRecords = useMemo(
+    () =>
+      records.filter(
+        (record) =>
+          record.kind === "operations" &&
+          [
+            "legacy-scan-history",
+            "legacy-duplicate-archive",
+            "legacy-catalog-map",
+          ].includes(String(record.data.type || "")),
+      ),
+    [records],
+  );
+  const legacyScanHistoryCount = legacyOperationalRecords.filter(
+    (record) => record.data.type === "legacy-scan-history",
+  ).length;
+  const legacyDuplicateArchiveCount = legacyOperationalRecords.filter(
+    (record) => record.data.type === "legacy-duplicate-archive",
+  ).length;
+  const legacyCatalogMapCount = legacyOperationalRecords.filter(
+    (record) => record.data.type === "legacy-catalog-map",
+  ).length;
   const preflight = course?.data.scan
     ? deterministicPreflight(course.data.scan)
     : null;
@@ -502,6 +524,53 @@ export default function OperationsWorkspace({
             </li>
           ))}
         </ul>
+        {!!legacyOperationalRecords.length && (
+          <details>
+            <summary>
+              Migrated Apps Script operational history (
+              {legacyOperationalRecords.length})
+            </summary>
+            <p className="hint">
+              These records are historical provenance from the old workspace.
+              They remain queryable and downloadable through workspace backups,
+              but current planner/catalog inputs still control new operational
+              decisions.
+            </p>
+            <div className="metric-grid">
+              <div>
+                <strong>{legacyScanHistoryCount}</strong>
+                <span>Source scan-history rows</span>
+              </div>
+              <div>
+                <strong>{legacyDuplicateArchiveCount}</strong>
+                <span>Duplicate-archive rows</span>
+              </div>
+              <div>
+                <strong>{legacyCatalogMapCount}</strong>
+                <span>Catalog-map snapshots</span>
+              </div>
+            </div>
+            {course && (
+              <ul className="health-list">
+                {legacyOperationalRecords
+                  .filter((record) => record.packageId === course.id)
+                  .slice(0, 20)
+                  .map((record) => (
+                    <li key={record.id}>
+                      <strong>
+                        {record.data.type} ·{" "}
+                        {record.data.runId || record.title}
+                      </strong>
+                      <span>
+                        {record.data.importedAt || "Date not recorded"} ·{" "}
+                        {record.title}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </details>
+        )}
         <details>
           <summary>Current product capability manifest</summary>
           <p className="hint">
