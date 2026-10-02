@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.15.4" ||
-    delivery.buildId !== "v6.15.4-empty-reading-visibility-20261001"
+    delivery.version !== "v6.15.5" ||
+    delivery.buildId !== "v6.15.5-direct-route-efficiency-20261002"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",
