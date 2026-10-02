@@ -249,4 +249,8 @@ test("v6.15.5 uses certified direct-editor routing before outline fallback", () 
     script,
     /meta\.completedTargets = \(meta\.targetDiagnostics \|\| \[\]\)\.filter\(d=>d\.completed===true\)\.length/,
   );
+  assert.match(script, /const probeOptions=\{/);
+  assert.match(script, /needsEditor:\(fp\)=>captureContractV6150\(fp\)\.needsEditor===true/);
+  assert.match(script, /items that still need evidence/);
+  assert.doesNotMatch(script, /const backgroundProbeOptions=backgroundChunkMode/);
 });
