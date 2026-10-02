@@ -16,10 +16,42 @@ export interface MigrationIssue {
   reason: string;
   chunks?: LegacyChunkDiagnostics;
 }
+export interface LegacyAccessPolicy {
+  authorizedDomain: string;
+  authorizedEmails: string[];
+  editorEmails: string[];
+}
+function splitLegacyAccessList(value: unknown): string[] {
+  return [...new Set(
+    String(value || "")
+      .split(/[;,\n]/)
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean),
+  )];
+}
+function legacyRowObject(headers: unknown[], row: unknown[]): EvidenceObject {
+  return Object.fromEntries(
+    headers
+      .map((header, index) => [String(header || "").trim(), row[index]])
+      .filter(([header]) => !!header),
+  );
+}
+function legacyJsonCell(value: unknown): EvidenceObject | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
 export function importLegacyWorkspace(value: EvidenceObject): {
   records: WorkspaceRecord[];
   warnings: string[];
   issues: MigrationIssue[];
+  legacyAccessPolicy: LegacyAccessPolicy | null;
 } {
   if (
     value.kind !== "CTI_WORKSPACE_MIGRATION" ||
@@ -36,6 +68,16 @@ export function importLegacyWorkspace(value: EvidenceObject): {
   const issues: MigrationIssue[] = [];
   const tables = value.sheets as Record<string, any[][]>;
   const decodeChunks = createLegacyChunkReader(tables);
+  const legacyPolicySource = value.accessPolicy || {};
+  const legacyAccessPolicy: LegacyAccessPolicy = {
+    authorizedDomain: String(legacyPolicySource.AUTHORIZED_DOMAIN || "").trim().toLowerCase(),
+    authorizedEmails: splitLegacyAccessList(legacyPolicySource.AUTHORIZED_EMAILS),
+    editorEmails: splitLegacyAccessList(legacyPolicySource.EDITOR_EMAILS),
+  };
+  const hasLegacyAccessPolicy =
+    !!legacyAccessPolicy.authorizedDomain ||
+    legacyAccessPolicy.authorizedEmails.length > 0 ||
+    legacyAccessPolicy.editorEmails.length > 0;
   for (const row of tables.Packages.slice(1)) {
     const id = String(row[18] || "");
     if (!id) {
@@ -241,6 +283,126 @@ export function importLegacyWorkspace(value: EvidenceObject): {
       id: stableId("checklist_", key),
     });
   }
+  const scanHistory = tables.Package_Scan_History || [];
+  if (scanHistory.length > 1) {
+    const historyHeaders = scanHistory[0] || [];
+    let imported = 0;
+    scanHistory.slice(1).forEach((row, index) => {
+      const legacy = legacyRowObject(historyHeaders, row);
+      if (!Object.values(legacy).some((cell) => cell !== "" && cell != null)) return;
+      const runId = String(legacy["Scan ID"] || `row-${index + 2}`);
+      const packageId = String(legacy["Package UUID"] || "");
+      const fileName = String(legacy["File Name"] || packageId || "Source package");
+      records.push({
+        ...newRecord(
+          "operations",
+          `Legacy source scan · ${fileName}`,
+          {
+            type: "legacy-scan-history",
+            sourceName: "Package_Scan_History",
+            importedAt: String(legacy.Timestamp || value.exportedAt || ""),
+            runId,
+            action: String(legacy.Action || ""),
+            gatewayRelease: String(legacy["Gateway Release"] || ""),
+            oldMetrics: legacyJsonCell(legacy["Old Metrics JSON"]),
+            newMetrics: legacyJsonCell(legacy["New Metrics JSON"]),
+            rows: [legacy],
+          },
+          packageId,
+        ),
+        id: stableId(
+          "legacy_scan_",
+          `${packageId}|${runId}|${index}|${JSON.stringify(legacy)}`,
+        ),
+      });
+      imported++;
+    });
+    if (imported)
+      warnings.push(
+        `Imported ${imported} legacy package scan-history entr${imported === 1 ? "y" : "ies"} as operational history.`,
+      );
+  }
+
+  const duplicateArchive = tables.Duplicate_Archive || [];
+  if (duplicateArchive.length > 1) {
+    const archiveHeaders = duplicateArchive[0] || [];
+    let imported = 0;
+    duplicateArchive.slice(1).forEach((row, index) => {
+      const legacy = legacyRowObject(archiveHeaders, row);
+      if (!Object.values(legacy).some((cell) => cell !== "" && cell != null)) return;
+      const packageId = String(legacy.UUID || "");
+      const fileName = String(legacy["File Name"] || packageId || "Archived duplicate");
+      const archivedAt = String(legacy["Archived At"] || legacy.Timestamp || value.exportedAt || "");
+      records.push({
+        ...newRecord(
+          "operations",
+          `Legacy duplicate archive · ${fileName}`,
+          {
+            type: "legacy-duplicate-archive",
+            partner: String(legacy["University/Partner"] || ""),
+            sourceName: "Duplicate_Archive",
+            importedAt: archivedAt,
+            survivorId: String(legacy["Survivor UUID"] || ""),
+            duplicateGroup: String(legacy["Duplicate Group"] || ""),
+            archiveAction: String(legacy["Archive Action"] || ""),
+            rows: [legacy],
+          },
+          packageId,
+        ),
+        id: stableId(
+          "legacy_duplicate_archive_",
+          `${packageId}|${archivedAt}|${index}|${JSON.stringify(legacy)}`,
+        ),
+      });
+      imported++;
+    });
+    if (imported)
+      warnings.push(
+        `Imported ${imported} legacy duplicate-archive entr${imported === 1 ? "y" : "ies"} as operational history.`,
+      );
+  }
+
+  const catalogMap = tables.Catalog_Map || [];
+  if (catalogMap.length > 1) {
+    const catalogHeaders = catalogMap[0] || [];
+    const rows = catalogMap
+      .slice(1)
+      .map((row) => legacyRowObject(catalogHeaders, row))
+      .filter((row) => Object.values(row).some((cell) => cell !== "" && cell != null));
+    if (rows.length) {
+      records.push({
+        ...newRecord("operations", "Legacy catalog map", {
+          type: "legacy-catalog-map",
+          sourceName: "Catalog_Map",
+          importedAt: String(value.exportedAt || ""),
+          rows,
+          note:
+            "Historical catalog mapping retained for provenance. Import a current portable catalog XLSX before using it for new operational decisions.",
+        }),
+        id: stableId("legacy_catalog_map_", JSON.stringify(rows)),
+      });
+      warnings.push(
+        `Imported the legacy catalog map (${rows.length} row${rows.length === 1 ? "" : "s"}) as reference provenance; current portable catalog inputs remain authoritative for new work.`,
+      );
+    }
+  }
+
+  if (hasLegacyAccessPolicy) {
+    records.push({
+      ...newRecord("legacy-backup", "Legacy Apps Script access policy", {
+        kind: "CTI_LEGACY_ACCESS_POLICY",
+        schemaVersion: 1,
+        ...legacyAccessPolicy,
+        mappingNote:
+          "These are the previous Apps Script authorization settings. They are retained for administrator review only and are not automatically applied to Cloudflare Access. Configure CTI_ADMINS / CTI_EDITORS and the Cloudflare Access policy explicitly.",
+      }),
+      id: stableId("legacy_access_policy_", JSON.stringify(legacyAccessPolicy)),
+    });
+    warnings.push(
+      "Legacy Apps Script access settings were retained for administrator review; Cloudflare Access roles were not changed automatically.",
+    );
+  }
+
   for (const entry of value.workbooks || []) {
     const book = {
       name: String(entry.name || "Imported master"),
@@ -276,5 +438,10 @@ export function importLegacyWorkspace(value: EvidenceObject): {
   warnings.push(...(value.warnings || []).map(String));
   records.push(...migrationBackupRecords(value));
   records.forEach((r) => validateRecord(r));
-  return { records, warnings, issues };
+  return {
+    records,
+    warnings,
+    issues,
+    legacyAccessPolicy: hasLegacyAccessPolicy ? legacyAccessPolicy : null,
+  };
 }

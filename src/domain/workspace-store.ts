@@ -117,7 +117,19 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             : record.kind === "legacy-backup" &&
                 d.kind === "CTI_MIGRATION_RECOVERY_CASE"
               ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
-              : {};
+              : record.kind === "legacy-backup" &&
+                  d.kind === "CTI_LEGACY_ACCESS_POLICY"
+                ? {
+                    kind: d.kind,
+                    authorizedDomain: d.authorizedDomain,
+                    authorizedEmailCount: Array.isArray(d.authorizedEmails)
+                      ? d.authorizedEmails.length
+                      : 0,
+                    editorEmailCount: Array.isArray(d.editorEmails)
+                      ? d.editorEmails.length
+                      : 0,
+                  }
+                : {};
   return { ...record, data };
 }
 export function newRecord(

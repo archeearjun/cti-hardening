@@ -59,6 +59,8 @@ const statuses = [
   "Completed",
 ];
 const descriptions: Record<string, string> = {
+  Overview:
+    "See what needs attention, resume the selected course, and jump into the next evidence task.",
   Catalogue: "Find a course, see its ownership, and pick up your review.",
   Explore: "Understand the source package before making an ingestion decision.",
   Scan: "Inspect a new package or save a fresh baseline for an existing course.",
@@ -77,6 +79,28 @@ const descriptions: Record<string, string> = {
     "Manage migrated planner/catalog inputs, preflight, runtime evidence, duplicates, lineage and operational workflow state.",
   Setup: "Manage your workspace connection, backups and migration recovery.",
 };
+const navGroups = [
+  { label: "Workspace", tabs: ["Overview", "Catalogue", "Work queue"] },
+  {
+    label: "Course evidence",
+    tabs: ["Explore", "Scan", "Extract", "Compare", "History"],
+  },
+  { label: "Tools & admin", tabs: ["Macmillan", "Analytics", "Operations", "Setup"] },
+] as const;
+const navGlyphs: Record<string, string> = {
+  Overview: "⌂",
+  Catalogue: "⌕",
+  "Work queue": "✓",
+  Explore: "≡",
+  Scan: "↑",
+  Extract: "↓",
+  Compare: "⇄",
+  History: "◷",
+  Macmillan: "M",
+  Analytics: "∿",
+  Operations: "⚙",
+  Setup: "•",
+};
 const dateLabel = (value: string) =>
   value && Number.isFinite(Date.parse(value))
     ? new Date(value).toLocaleString()
@@ -88,7 +112,7 @@ export default function FullWorkspace({
 }) {
   const [store, setStore] = useState<WorkspaceStore | null>(null),
     [records, setRecords] = useState<WorkspaceRecord[]>([]);
-  const [tab, setTab] = useState("Catalogue"),
+  const [tab, setTab] = useState("Overview"),
     [courseId, setCourseId] = useState(""),
     [course, setCourse] = useState<WorkspaceRecord | null>(null);
   const [busy, setBusy] = useState(""),
@@ -98,6 +122,8 @@ export default function FullWorkspace({
     [importProgress, setImportProgress] = useState("");
   const [portfolio, setPortfolio] = useState<EvidenceObject | null>(null);
   const [extractionPrefill, setExtractionPrefill] = useState("");
+  const [legacyPolicyDetails, setLegacyPolicyDetails] =
+    useState<EvidenceObject | null>(null);
   useEffect(() => setPortfolio(null), [records]);
   const [reportId, setReportId] = useState("");
   const [report, setReport] = useState<EvidenceObject | null>(null),
@@ -218,6 +244,54 @@ export default function FullWorkspace({
   const checklistCount = steps.filter(
     ([key]) => checklist?.data.evidence?.[key],
   ).length;
+  const today = new Date().toISOString().slice(0, 10);
+  const blockedCourses = courses.filter((r) => r.data.status === "Blocked");
+  const qaReviewCourses = courses.filter((r) => r.data.status === "QA Review");
+  const overdueCourses = courses.filter(
+    (r) =>
+      r.data.status !== "Completed" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(String(r.data.deadline || "")) &&
+      String(r.data.deadline).slice(0, 10) < today,
+  );
+  const unownedCourses = courses.filter(
+    (r) => r.data.status !== "Completed" && !String(r.data.owner || "").trim(),
+  );
+  const attentionCourses = [...courses]
+    .filter(
+      (r) =>
+        r.data.status === "Blocked" ||
+        r.data.status === "QA Review" ||
+        overdueCourses.some((overdue) => overdue.id === r.id),
+    )
+    .sort((a, b) => {
+      const score = (r: WorkspaceRecord) =>
+        (r.data.status === "Blocked" ? 4 : 0) +
+        (overdueCourses.some((overdue) => overdue.id === r.id) ? 2 : 0) +
+        (r.data.status === "QA Review" ? 1 : 0);
+      return (
+        score(b) - score(a) ||
+        String(a.data.deadline || "9999").localeCompare(
+          String(b.data.deadline || "9999"),
+        ) ||
+        a.title.localeCompare(b.title, undefined, { numeric: true })
+      );
+    })
+    .slice(0, 8);
+  const legacyPolicyRef = records.find(
+    (r) =>
+      r.kind === "legacy-backup" &&
+      r.data.kind === "CTI_LEGACY_ACCESS_POLICY",
+  );
+  const legacyScanHistoryCount = records.filter(
+    (r) => r.kind === "operations" && r.data.type === "legacy-scan-history",
+  ).length;
+  const legacyDuplicateArchiveCount = records.filter(
+    (r) =>
+      r.kind === "operations" && r.data.type === "legacy-duplicate-archive",
+  ).length;
+  const legacyCatalogMapCount = records.filter(
+    (r) => r.kind === "operations" && r.data.type === "legacy-catalog-map",
+  ).length;
   function assertUniquePackageIdentity(
     candidatePartner: string,
     candidateFileName: string,
@@ -262,6 +336,7 @@ export default function FullWorkspace({
     setChecklist(null);
     setImportPlan(null);
     setAcceptMigrationGaps(false);
+    setLegacyPolicyDetails(null);
     setPartnerFilter("");
     setStatusFilter("");
     setQuery("");
@@ -465,21 +540,26 @@ export default function FullWorkspace({
       <aside className="workspace-sidebar">
         <p className="eyebrow">WORKSPACE</p>
         <nav aria-label="CTI workflows">
-          {Object.keys(descriptions).map((t, i) => (
-            <button
-              key={t}
-              disabled={!!busy}
-              aria-current={tab === t ? "page" : undefined}
-              onClick={() => {
-                setTab(t);
-                setNotice("");
-              }}
-            >
-              <span className="nav-number" aria-hidden="true">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              {t}
-            </button>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group-label">{group.label}</span>
+              {group.tabs.map((t) => (
+                <button
+                  key={t}
+                  disabled={!!busy}
+                  aria-current={tab === t ? "page" : undefined}
+                  onClick={() => {
+                    setTab(t);
+                    setNotice("");
+                  }}
+                >
+                  <span className="nav-number" aria-hidden="true">
+                    {navGlyphs[t]}
+                  </span>
+                  {t}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="connection-state">
@@ -508,7 +588,13 @@ export default function FullWorkspace({
         <header className="workspace-heading">
           <div>
             <p className="eyebrow">CTI / {tab.toUpperCase()}</p>
-            <h1>{tab === "Catalogue" ? "Your course evidence" : tab}</h1>
+            <h1>
+              {tab === "Overview"
+                ? "Workspace overview"
+                : tab === "Catalogue"
+                  ? "Your course evidence"
+                  : tab}
+            </h1>
             <p>{descriptions[tab]}</p>
           </div>
         </header>
@@ -610,6 +696,223 @@ export default function FullWorkspace({
           <p role="status" className="success-notice">
             {notice}
           </p>
+        )}
+        {tab === "Overview" && (
+          <div className="workspace-overview">
+            <section className="card overview-hero">
+              <div>
+                <p className="eyebrow">TODAY'S WORKSPACE</p>
+                <h2>Move from evidence to the next clear action</h2>
+                <p>
+                  Use this page to find blockers, resume the selected course, or
+                  start the next evidence step. The planner-driven operational
+                  queue remains in Operations; the per-course collection
+                  checklist remains in Work queue.
+                </p>
+              </div>
+              <div className="overview-actions" aria-label="Quick actions">
+                <button
+                  className="primary"
+                  disabled={!!busy || !editable}
+                  onClick={() => setTab("Scan")}
+                >
+                  Scan source package
+                </button>
+                <button
+                  className="secondary"
+                  disabled={!!busy}
+                  onClick={() => setTab("Operations")}
+                >
+                  Open planner queue
+                </button>
+                <button
+                  className="secondary"
+                  disabled={!!busy}
+                  onClick={() => setTab("Catalogue")}
+                >
+                  Browse courses
+                </button>
+              </div>
+            </section>
+            <div className="overview-kpis" aria-label="Workspace status">
+              <button disabled={!!busy} onClick={() => setTab("Catalogue")}>
+                <strong>{courses.length}</strong>
+                <span>Active courses</span>
+                <small>Open catalogue →</small>
+              </button>
+              <button
+                disabled={!!busy}
+                onClick={() => {
+                  setStatusFilter("QA Review");
+                  setTab("Catalogue");
+                }}
+              >
+                <strong>{qaReviewCourses.length}</strong>
+                <span>In QA review</span>
+                <small>Filter catalogue →</small>
+              </button>
+              <button
+                className={blockedCourses.length ? "attention" : ""}
+                disabled={!!busy}
+                onClick={() => {
+                  setStatusFilter("Blocked");
+                  setTab("Catalogue");
+                }}
+              >
+                <strong>{blockedCourses.length}</strong>
+                <span>Blocked</span>
+                <small>Review blockers →</small>
+              </button>
+              <button
+                className={overdueCourses.length ? "attention" : ""}
+                disabled={!!busy}
+                onClick={() => setTab("Work queue")}
+              >
+                <strong>{overdueCourses.length}</strong>
+                <span>Past deadline</span>
+                <small>Open work queue →</small>
+              </button>
+              <button
+                className={migrationRecoveries.length ? "attention" : ""}
+                disabled={!!busy}
+                onClick={() => setTab("Setup")}
+              >
+                <strong>{migrationRecoveries.length}</strong>
+                <span>Reports to recover</span>
+                <small>Review migration →</small>
+              </button>
+            </div>
+            <div className="overview-columns">
+              <section className="card">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">PRIORITY</p>
+                    <h2>Needs attention</h2>
+                  </div>
+                  <button
+                    className="text-button"
+                    disabled={!!busy}
+                    onClick={() => setTab("Work queue")}
+                  >
+                    All active work →
+                  </button>
+                </div>
+                {attentionCourses.length ? (
+                  <ul className="attention-list">
+                    {attentionCourses.map((item) => {
+                      const overdue = overdueCourses.some(
+                        (candidate) => candidate.id === item.id,
+                      );
+                      return (
+                        <li key={item.id}>
+                          <button
+                            className="attention-course"
+                            disabled={!!busy}
+                            onClick={() => void openCourse(item.id, "Explore")}
+                          >
+                            <span>
+                              <strong>{item.title}</strong>
+                              <small>
+                                {item.data.partner || "Partner unassigned"} ·{" "}
+                                {item.data.owner || "Owner unassigned"}
+                              </small>
+                            </span>
+                            <span className="attention-meta">
+                              <span
+                                className={
+                                  item.data.status === "Blocked"
+                                    ? "status-pill blocked"
+                                    : "status-pill"
+                                }
+                              >
+                                {item.data.status}
+                              </span>
+                              {overdue && (
+                                <small className="deadline-overdue">
+                                  Due {item.data.deadline}
+                                </small>
+                              )}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="empty-state">
+                    No blocked, overdue, or QA-review courses are visible in
+                    this workspace.
+                  </p>
+                )}
+              </section>
+              <section className="card">
+                <p className="eyebrow">SELECTED COURSE</p>
+                {course ? (
+                  <>
+                    <h2>{course.title}</h2>
+                    <p>
+                      {course.data.partner || "Partner unassigned"} ·{" "}
+                      {course.data.owner || "Owner unassigned"}
+                    </p>
+                    <div className="selected-course-stats">
+                      <span>
+                        <strong>{audits.length}</strong> saved reports
+                      </span>
+                      <span>
+                        <strong>{checklistCount}</strong> / {steps.length} checklist
+                        steps
+                      </span>
+                    </div>
+                    <div className="overview-actions vertical">
+                      <button
+                        className="primary"
+                        disabled={!!busy}
+                        onClick={() => setTab("Compare")}
+                      >
+                        Continue comparison
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        onClick={() => setTab("Explore")}
+                      >
+                        Explore source
+                      </button>
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        onClick={() => setTab("Work queue")}
+                      >
+                        Open evidence checklist
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h2>Select a course to resume</h2>
+                    <p>
+                      Choose a saved source course above. CTI will keep that
+                      course in context while you move through Explore,
+                      Compare, History, and the checklist.
+                    </p>
+                    <button
+                      className="secondary"
+                      disabled={!!busy}
+                      onClick={() => setTab("Catalogue")}
+                    >
+                      Choose from catalogue
+                    </button>
+                  </>
+                )}
+                {!!unownedCourses.length && (
+                  <p className="overview-footnote">
+                    {unownedCourses.length} active course
+                    {unownedCourses.length === 1 ? "" : "s"} still need an owner.
+                  </p>
+                )}
+              </section>
+            </div>
+          </div>
         )}
         {tab === "Catalogue" && (
           <section className="card">
@@ -1407,6 +1710,20 @@ export default function FullWorkspace({
               Checklist ticks record work completed. They never alter evidence
               or QA verdicts.
             </p>
+            <div className="queue-scope-note">
+              <strong>This is the per-course evidence checklist.</strong>
+              <span>
+                For the Master Planner / catalog queue and CTI-generated next
+                actions, open Operations.
+              </span>
+              <button
+                className="text-button"
+                disabled={!!busy}
+                onClick={() => setTab("Operations")}
+              >
+                Open planner queue →
+              </button>
+            </div>
             {course && checklist && (
               <>
                 <h3 className="section-divider">{course.title}</h3>
@@ -1769,6 +2086,85 @@ export default function FullWorkspace({
             >
               Open shared setup instructions
             </a>
+            {(legacyPolicyRef ||
+              legacyScanHistoryCount ||
+              legacyDuplicateArchiveCount ||
+              legacyCatalogMapCount) && (
+              <div className="migration-continuity">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">MIGRATED APPS SCRIPT STATE</p>
+                    <h3>Legacy operational history retained</h3>
+                  </div>
+                </div>
+                <div className="migration-continuity-grid">
+                  <div>
+                    <strong>{legacyScanHistoryCount}</strong>
+                    <span>source scan-history entries</span>
+                  </div>
+                  <div>
+                    <strong>{legacyDuplicateArchiveCount}</strong>
+                    <span>duplicate-archive entries</span>
+                  </div>
+                  <div>
+                    <strong>{legacyCatalogMapCount}</strong>
+                    <span>legacy catalog maps</span>
+                  </div>
+                </div>
+                {legacyPolicyRef && (
+                  <div className="legacy-policy-summary">
+                    <strong>Previous Apps Script access rules are preserved.</strong>
+                    <p>
+                      Domain:{" "}
+                      <code>
+                        {legacyPolicyRef.data.authorizedDomain || "not set"}
+                      </code>{" "}
+                      · authorized-email entries:{" "}
+                      {legacyPolicyRef.data.authorizedEmailCount || 0} · editor
+                      entries: {legacyPolicyRef.data.editorEmailCount || 0}.
+                      These values are migration evidence only; they never
+                      modify Cloudflare Access automatically.
+                    </p>
+                    {store?.role === "admin" && (
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        onClick={() =>
+                          void act("Loading legacy access policy", async () => {
+                            const full = await store!.get(legacyPolicyRef.id);
+                            setLegacyPolicyDetails(full.data);
+                          })
+                        }
+                      >
+                        Review legacy access rules
+                      </button>
+                    )}
+                    {legacyPolicyDetails && (
+                      <div className="legacy-policy-details">
+                        <p>
+                          <strong>Authorized emails</strong>
+                          <br />
+                          {(legacyPolicyDetails.authorizedEmails || []).join(", ") ||
+                            "None recorded"}
+                        </p>
+                        <p>
+                          <strong>Editors</strong>
+                          <br />
+                          {(legacyPolicyDetails.editorEmails || []).join(", ") ||
+                            "None recorded"}
+                        </p>
+                        <p className="hint">
+                          Map editors deliberately into <code>CTI_EDITORS</code>
+                          and configure the Cloudflare Access allow policy
+                          separately. CTI does not infer administrator access
+                          from the old Apps Script list.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <h3>Export a recovery backup</h3>
             <button
               className="secondary"
@@ -1882,6 +2278,7 @@ export default function FullWorkspace({
                             records: prepareWorkspaceBackup(value),
                             warnings: [],
                             issues: [],
+                            legacyAccessPolicy: null,
                           }
                         : importLegacyWorkspace(value);
                     validateImportRecordSizes(plan.records);
@@ -1914,6 +2311,14 @@ export default function FullWorkspace({
                   }{" "}
                   workbooks · {importPlan.issues.length} unavailable QA reports.
                 </p>
+                {importPlan.legacyAccessPolicy && (
+                  <p className="scope">
+                    <strong>Legacy access policy found.</strong> CTI will retain
+                    it for administrator review, but will not change Cloudflare
+                    Access, <code>CTI_ADMINS</code>, or <code>CTI_EDITORS</code>
+                    automatically.
+                  </p>
+                )}
                 {importPlan.issues.length > 0 && (
                   <div className="migration-issues">
                     <h4>Some saved reports need recovery</h4>

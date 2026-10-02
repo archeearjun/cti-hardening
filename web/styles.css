@@ -625,6 +625,16 @@ footer {
     max-width: 95px;
     line-height: 1.25;
   }
+  .overview-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .attention-course {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .attention-meta {
+    justify-items: start;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .pulse {
@@ -892,6 +902,22 @@ main > .workspace-tabs {
   display: grid;
   gap: 5px;
 }
+.nav-group {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.nav-group:last-child {
+  margin-bottom: 0;
+}
+.nav-group-label {
+  padding: 2px 12px 5px;
+  color: #7a8d98;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+}
 .workspace-sidebar nav button {
   display: flex;
   gap: 12px;
@@ -965,6 +991,229 @@ main > .workspace-tabs {
   font-size: 13px;
   color: #536b79;
 }
+.workspace-overview {
+  display: grid;
+  gap: 18px;
+}
+.overview-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(230px, 0.7fr);
+  gap: 28px;
+  align-items: center;
+  background:
+    radial-gradient(circle at 100% 0%, #e8f4f2 0, transparent 36%),
+    linear-gradient(135deg, #ffffff 0%, #f8fbfc 100%);
+}
+.overview-hero h2 {
+  font-size: clamp(23px, 3vw, 32px);
+  line-height: 1.18;
+  letter-spacing: -0.6px;
+  max-width: 720px;
+}
+.overview-hero p:not(.eyebrow) {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: #526a79;
+}
+.overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.overview-actions.vertical {
+  display: grid;
+  align-items: stretch;
+}
+.overview-actions.vertical > * {
+  width: 100%;
+}
+.overview-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.overview-kpis button {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #dce5eb;
+  border-radius: 10px;
+  padding: 15px;
+  color: #183847;
+}
+.overview-kpis button:hover:enabled {
+  border-color: #91b7bd;
+  background: #f8fcfc;
+}
+.overview-kpis button.attention {
+  border-color: #e8d5af;
+  background: #fffbf4;
+}
+.overview-kpis strong {
+  font-size: 27px;
+  line-height: 1;
+  font-weight: 680;
+}
+.overview-kpis span {
+  font-size: 12px;
+  font-weight: 650;
+}
+.overview-kpis small {
+  color: #617987;
+  font-size: 10px;
+}
+.overview-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(270px, 0.72fr);
+  gap: 18px;
+}
+.attention-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.attention-list li + li {
+  border-top: 1px solid #e4ebef;
+}
+.attention-course {
+  width: 100%;
+  padding: 13px 4px;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  text-align: left;
+}
+.attention-course:hover:enabled {
+  background: #f7fafb;
+}
+.attention-course > span:first-child {
+  min-width: 0;
+}
+.attention-course strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.attention-course small {
+  margin-top: 4px;
+  color: #607785;
+}
+.attention-meta {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  background: #eef3f5;
+  color: #49616f;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.status-pill.blocked {
+  background: #fff0ed;
+  color: #9a3f36;
+}
+.deadline-overdue {
+  color: #9a3f36 !important;
+  font-weight: 650;
+}
+.selected-course-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 18px;
+  padding: 13px 0 18px;
+  color: #526a79;
+  font-size: 12px;
+}
+.selected-course-stats strong {
+  color: #173947;
+}
+.overview-footnote {
+  margin: 16px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid #e4ebef;
+  font-size: 12px !important;
+}
+.queue-scope-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  align-items: center;
+  margin: 16px 0 22px;
+  padding: 12px 14px;
+  border: 1px solid #cfe1e4;
+  border-radius: 8px;
+  background: #f5fafb;
+  font-size: 12px;
+  color: #4c6877;
+}
+.queue-scope-note strong {
+  color: #234a57;
+}
+.queue-scope-note .text-button {
+  white-space: nowrap;
+  padding: 0;
+}
+.migration-continuity {
+  margin: 26px 0;
+  padding: 18px;
+  border: 1px solid #d7e2e8;
+  border-radius: 10px;
+  background: #f9fbfc;
+}
+.migration-continuity .section-heading {
+  margin-bottom: 8px;
+}
+.migration-continuity h3 {
+  margin: 0;
+}
+.migration-continuity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.migration-continuity-grid > div {
+  padding: 12px;
+  border: 1px solid #e1e8ed;
+  border-radius: 8px;
+  background: #fff;
+}
+.migration-continuity-grid strong {
+  display: block;
+  font-size: 20px;
+}
+.migration-continuity-grid span {
+  display: block;
+  margin-top: 4px;
+  color: #5f7481;
+  font-size: 11px;
+}
+.legacy-policy-summary {
+  border-top: 1px solid #dfe8ec;
+  padding-top: 14px;
+}
+.legacy-policy-summary p {
+  color: #536d7b;
+  font-size: 12px;
+}
+.legacy-policy-details {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid #4a8994;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
 .full-workspace .course-context {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1397,6 +1646,12 @@ fieldset:disabled {
     flex-wrap: wrap;
     gap: 4px;
   }
+  .nav-group {
+    display: contents;
+  }
+  .nav-group-label {
+    display: none;
+  }
   .workspace-sidebar nav button {
     width: auto;
     font-size: 12px;
@@ -1447,6 +1702,22 @@ fieldset:disabled {
   }
   .report-overview {
     padding: 15px;
+  }
+  .overview-hero,
+  .overview-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .overview-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .queue-scope-note {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .queue-scope-note .text-button {
+    justify-self: start;
+  }
+  .migration-continuity-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .pagination button {
     padding: 8px;

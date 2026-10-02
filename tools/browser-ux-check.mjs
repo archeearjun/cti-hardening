@@ -199,6 +199,14 @@ try {
   await page.getByText("66 records prepared.", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 66 records;", { exact: false }).waitFor();
+  await tab("Overview");
+  await page
+    .getByRole("heading", { name: "Workspace overview", exact: true })
+    .waitFor();
+  await page
+    .getByRole("heading", { name: "Needs attention", exact: true })
+    .waitFor();
+  await shot("overview-desktop");
   await tab("Catalogue");
   assert.equal(await page.locator(".table-wrap tbody tr").count(), 25);
   await page.getByRole("button", { name: "Next page" }).click();
@@ -627,6 +635,7 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const name of [
+    "Overview",
     "Catalogue",
     "Explore",
     "Scan",
