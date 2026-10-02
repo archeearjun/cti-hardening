@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.15.6" ||
-    delivery.buildId !== "v6.15.6-terminal-evidence-efficiency-20261002"
+    delivery.version !== "v6.15.7" ||
+    delivery.buildId !== "v6.15.7-portalled-textblock-report-consistency-20261003"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",

@@ -64,7 +64,7 @@ for(const name of [...new Set([...archived.constants.keys(),...current.constants
 console.log(JSON.stringify({
   schemaVersion:1,
   baseline:"v6.14.7/schema34",
-  current:"v6.15.6/schema35",
+  current:"v6.15.7/schema35",
   changed,
   added,
   removed,

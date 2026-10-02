@@ -45,7 +45,7 @@ javascript:(async function () {
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.6"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.7"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -55,7 +55,7 @@ javascript:(async function () {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.6"
+          finishedAt: Date.now(), version: "v6.15.7"
         };
       }
     } catch (e) {}
@@ -711,8 +711,8 @@ javascript:(async function () {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.6",
-      buildId: "v6.15.6-terminal-evidence-efficiency-20261002",
+      version: "v6.15.7",
+      buildId: "v6.15.7-portalled-textblock-report-consistency-20261003",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1220,6 +1220,11 @@ javascript:(async function () {
               parsedType:probe.question?.type || '',parsedChoices:probe.question?.options.length || 0};
           });
           retainAssessmentSurfaceEvidenceV6138(openedSurface.root,fp);
+          // The assessment envelope can contain collapsed/portalled content
+          // parts that are outside the generic opened-surface subtree. Harvest
+          // it as a second item-scoped view so text-block evidence reaches the
+          // native-assignment payload instead of living only in diagnostics.
+          if(partRoot!==openedSurface.root)retainAssessmentSurfaceEvidenceV6138(partRoot,fp);
           const declaredForBudget=Math.max(assessmentDeclaredCountV662(openedSurface.root),Number(fp.payload?.structuredAssessment?.declaredQuestionCount || 0));
           if(declaredForBudget>0){
             const assessmentWork=Math.min(CTI_ASSESSMENT_MAX_MS,Math.max(45000,CTI_ASSESSMENT_BASE_MS+declaredForBudget*CTI_ASSESSMENT_PER_QUESTION_MS));
@@ -1485,7 +1490,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.6", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.7", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1499,7 +1504,7 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.6", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.7", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1507,8 +1512,8 @@ javascript:(async function () {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.6",
-      buildId: "v6.15.6-terminal-evidence-efficiency-20261002",
+      extractor: "CTI Item Fidelity Extractor v6.15.7",
+      buildId: "v6.15.7-portalled-textblock-report-consistency-20261003",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,

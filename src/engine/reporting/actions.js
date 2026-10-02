@@ -265,6 +265,16 @@ export function qaOwnerActionForResult_(result) {
             if(qaConfirmedEmptyComparison_(result)) {
                 if(severity==='NONE' || severity==='EVIDENCE')severity='REVIEW';
                 actions.push('This destination assignment is confirmed empty; the matched source contains '+sa.sourceQuestionCount+' question definitions. Check their intended placement and any approved exclusion, then restore them here only if required and not already preserved elsewhere. Repeating the same extraction is not needed to establish this empty state.');
+            } else if(Number(sa.courseraDeclaredQuestionCount)>0 &&
+                Number(sa.courseraQuestionCount)===Number(sa.courseraDeclaredQuestionCount) &&
+                Number(sa.sourceQuestionCount)>0 &&
+                Number(sa.sourceQuestionCount)===Number(sa.courseraQuestionCount) &&
+                Number(sa.alignedQuestionCount)===Number(sa.sourceQuestionCount) &&
+                !(sa.unmatchedSourceQuestions||[]).length && !(sa.unmatchedCourseraQuestions||[]).length &&
+                !(sa.captureIssueQuestionNumbers||[]).length &&
+                qaAssessmentAnswerEvidenceSide_(sa,'source')==='INCOMPLETE' &&
+                qaAssessmentAnswerEvidenceSide_(sa,'coursera')==='COMPLETE') {
+                actions.push('All '+sa.courseraQuestionCount+'/'+sa.courseraDeclaredQuestionCount+' destination question positions were captured and align to the source. The remaining gap is source answer evidence or answer-key applicability; repeating the Coursera extraction will not recover missing source keys. Inspect the original source answer evidence and record whether correct answers apply before approval.');
             } else if(qaAssessmentAnswerOnlyGap_(sa)) {
                 actions.push('All '+sa.sourceQuestionCount+' question prompts align and their captured choices show no material mismatch. Confirm whether an answer key is required for this activity. If required, obtain the missing source and/or destination answer evidence; if no correct answers apply, record that decision explicitly. The title alone does not establish this, and no missing question positions are identified by this comparison.');
             } else if(qaAssessmentMediaOnlyGap_(sa)) {
