@@ -2807,9 +2807,11 @@
     {
       "name": "qaOwnerActionForResult_",
       "line": 10324,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/reporting/actions.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "PENDING_REVIEW_HASH",
+      "note": "Source-only assessment answer gaps now tell owners to inspect source keys/applicability instead of recapturing already complete Coursera question positions."
     },
     {
       "name": "workApplyPolicyAwareOperatorGuidance_",
@@ -3024,7 +3026,7 @@
       "path": "src/engine/release.js",
       "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "10df4522f1728cf20d9d5c4dc9f18492ea1036107990af2f96eb9c67c1b81a27"
+      "reviewedCurrentHash": "a574a845bbbf2a5143947d4a9f9b7f8ad47ea51c6dc94c5f31d566df1d5087a9"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4232,8 +4234,8 @@
       "name": "qaCaptureInputsText_",
       "path": "src/reporting/capture-summary.js",
       "status": "adapted",
-      "reviewedCurrentHash": "fc266f98d1973f020e64cbb9e9588655451be17f2446b03d0eba217817e9de7e",
-      "note": "Report-only provenance wording now distinguishes the uploaded Coursera capture build from the currently available extractor without changing QA verdict semantics."
+      "reviewedCurrentHash": "2a7764f46d2b379f1640b855b5a1fd87e79048cc6868aeaff740b35ac99e2a01",
+      "note": "Report provenance wording distinguishes historical/current capture versions and now separates editor reachability from capture-contract review categories."
     },
     {
       "name": "qaCapturedExtractorLabel_",
@@ -4285,7 +4287,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "3a539ebc4a53c4fb8f012fcee19e0204d9f1291055fe26efc2bf689da2a81468"
+          "reviewedCurrentHash": "bb8f75c205aa6ece316765688e17ee40f83794ec2711ee46a0463ff60b198812"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4315,7 +4317,7 @@
         {
           "name": "collectAssignmentTextBlocksV61321",
           "archivedHash": "a8bfed9ce0b5ca37f17acac109be97c4487b7c3a059d576756696cc004ef4fa7",
-          "reviewedCurrentHash": "0524127f06d178026c9e9802bd6ef500c079a2b82308f5569cacf67b81ab94a6"
+          "reviewedCurrentHash": "9277d61bfb1ccacf00689080e56b1c13c3d6c2069268684d55b9eb5b86337723"
         },
         {
           "name": "collectPluginEvidenceV6139",
@@ -4325,7 +4327,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "f89bae5b53949bad76df3428b7c26d6ead12839d090200ced94af53d31bd3c8f"
+          "reviewedCurrentHash": "9811d6904f464ac8bcf39e4d7f4089e1b0a3c1c4ebdc0d7c0fda06dd2413b7c4"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4370,7 +4372,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "faf44bcdd063bd5edb2e6cbcc6d506f5c448f1cb2615bba8e724785ad549d96d"
+          "reviewedCurrentHash": "6506c822106ee925b260baa65507436be3bbe4e0e4b2df5bfad3de2cde1927d5"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4580,7 +4582,7 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "5af8679f48a9f6e3f8177420647843181684d1ee5542632edb7422574bb46e8a"
+        "reviewedCurrentHash": "659d1b1f1896842fb699bfcac6a277f87eac0f3467b5f0ad08a43168c6f54923"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
