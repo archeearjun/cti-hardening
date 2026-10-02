@@ -1220,6 +1220,11 @@ javascript:(async function () {
               parsedType:probe.question?.type || '',parsedChoices:probe.question?.options.length || 0};
           });
           retainAssessmentSurfaceEvidenceV6138(openedSurface.root,fp);
+          // The assessment envelope can contain collapsed/portalled content
+          // parts that are outside the generic opened-surface subtree. Harvest
+          // it as a second item-scoped view so text-block evidence reaches the
+          // native-assignment payload instead of living only in diagnostics.
+          if(partRoot!==openedSurface.root)retainAssessmentSurfaceEvidenceV6138(partRoot,fp);
           const declaredForBudget=Math.max(assessmentDeclaredCountV662(openedSurface.root),Number(fp.payload?.structuredAssessment?.declaredQuestionCount || 0));
           if(declaredForBudget>0){
             const assessmentWork=Math.min(CTI_ASSESSMENT_MAX_MS,Math.max(45000,CTI_ASSESSMENT_BASE_MS+declaredForBudget*CTI_ASSESSMENT_PER_QUESTION_MS));
