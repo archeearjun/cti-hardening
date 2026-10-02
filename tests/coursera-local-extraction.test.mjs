@@ -17,8 +17,8 @@ function completeCapture(id = courseId) {
     extractedAt: "2026-10-01T00:00:00.000Z",
     page: { courseId: id, title: "Course" },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.5",
-      buildId: "v6.15.5-direct-route-efficiency-20261002",
+      extractor: "CTI Item Fidelity Extractor v6.15.6",
+      buildId: "v6.15.6-terminal-evidence-efficiency-20261002",
       baseFingerprintCount: 1,
       captureAccounting: {
         inventoryCount: 1,
