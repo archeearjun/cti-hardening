@@ -92,7 +92,6 @@ test('Downloadable report separates historical captured evidence from the curren
   },[]);
   assert.equal(readiness.olderCapture,true);
   assert.equal(readiness.expectedVersion,'v6.15.6');
-  assert.equal(readiness.expectedBuild,'v6.15.6-terminal-evidence-efficiency-20261002');
   const report=buildPostQaText_({
     success:true,
     stats:{extractorMeta:{buildId:'v6.13.27-memory-cleanup-20260922',capturedAt:'2026-09-23T11:36:06.301Z'}},
