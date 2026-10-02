@@ -198,6 +198,7 @@ try {
   );
   await page.setViewportSize({ width: 390, height: 844 });
   for (const name of [
+    "Overview",
     "Catalogue",
     "Compare",
     "History",
