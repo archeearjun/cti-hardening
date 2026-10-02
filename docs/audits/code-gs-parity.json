@@ -4231,7 +4231,9 @@
     {
       "name": "qaCaptureInputsText_",
       "path": "src/reporting/capture-summary.js",
-      "status": "preserved"
+      "status": "adapted",
+      "reviewedCurrentHash": "PENDING_REVIEW_HASH",
+      "note": "Report-only provenance wording now distinguishes the uploaded Coursera capture build from the currently available extractor without changing QA verdict semantics."
     },
     {
       "name": "qaCapturedExtractorLabel_",
@@ -4309,6 +4311,11 @@
           "name": "buildRetryPlan",
           "archivedHash": "a6a2d23b9795e9e33c7a9a8be642a6cf2e70aef5aa0725881652aa85c18ca628",
           "reviewedCurrentHash": "881ebf9b110ed9c8329d4a7a40791471f1c822200c08609fbd178731dc7841d4"
+        },
+        {
+          "name": "collectAssignmentTextBlocksV61321",
+          "archivedHash": "a8bfed9ce0b5ca37f17acac109be97c4487b7c3a059d576756696cc004ef4fa7",
+          "reviewedCurrentHash": "0524127f06d178026c9e9802bd6ef500c079a2b82308f5569cacf67b81ab94a6"
         },
         {
           "name": "collectPluginEvidenceV6139",
