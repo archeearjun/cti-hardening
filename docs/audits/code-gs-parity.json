@@ -4232,7 +4232,7 @@
       "name": "qaCaptureInputsText_",
       "path": "src/reporting/capture-summary.js",
       "status": "adapted",
-      "reviewedCurrentHash": "PENDING_REVIEW_HASH",
+      "reviewedCurrentHash": "fc266f98d1973f020e64cbb9e9588655451be17f2446b03d0eba217817e9de7e",
       "note": "Report-only provenance wording now distinguishes the uploaded Coursera capture build from the currently available extractor without changing QA verdict semantics."
     },
     {
