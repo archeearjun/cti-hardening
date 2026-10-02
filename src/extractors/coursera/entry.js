@@ -1604,18 +1604,19 @@ javascript:(async function () {
   const preCrawlDeadline=backgroundChunkMode
     ? Math.max(Date.now(),evidenceWorkDeadline())
     : Infinity;
-  const backgroundProbeOptions=backgroundChunkMode ? {
+  const probeOptions={
     deadline:preCrawlDeadline,
     needsEditor:(fp)=>captureContractV6150(fp).needsEditor===true
-  } : undefined;
+  };
+  const probeTargetCount=result.fingerprints.filter(fp=>probeOptions.needsEditor(fp)).length;
   // CTI_PROGRESS_BEGIN
-  ctiProgressUpdateV1({detail:"Reading item-specific payloads for " + result.fingerprints.length + " discovered items."});
+  ctiProgressUpdateV1({detail:"Reading item-specific payloads for " + probeTargetCount + " items that still need evidence."});
   // CTI_PROGRESS_END
-  result.meta.targetedProbe = await targetedItemPayloadProbes(result.fingerprints, knownResponses, id, backgroundProbeOptions);
+  result.meta.targetedProbe = await targetedItemPayloadProbes(result.fingerprints, knownResponses, id, probeOptions);
   // CTI_PROGRESS_BEGIN
-  ctiProgressUpdateV1({detail:"Checking additional content evidence."});
+  ctiProgressUpdateV1({detail:"Checking additional content evidence only where the completion contract still has a gap."});
   // CTI_PROGRESS_END
-  result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints, backgroundProbeOptions);
+  result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints, probeOptions);
   // v6.11 pre-hydrates/expands the authoring outline before exhaustive per-item traversal.
   // This is read-only and specifically addresses virtualized/collapsed outlines
   // where later assignment/rubric rows never entered the DOM in v6.8.
