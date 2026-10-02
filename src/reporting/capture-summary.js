@@ -13,12 +13,13 @@ export function qaCaptureInputsText_(res) {
       lines.push(recovery.meaning);
       (recovery.payloadGaps||[]).forEach(function(g){lines.push('  Recovered editor '+g.id+' | '+g.code+' | '+g.reason);});
     }
+    var currentBuild=String(CTI_RELEASE_REGISTRY_.courseraExtractor.build||'');
     if(review.expectedVersion)lines.push('Current available Coursera extractor: '+review.expectedVersion+
-      (review.expectedBuild?' | build='+review.expectedBuild:'')+' | capture status='+review.status);
+      (currentBuild?' | build='+currentBuild:'')+' | capture status='+review.status);
     if(review.olderCapture)lines.push('Version relationship: HISTORICAL_CAPTURE — this report remains anchored to '+captured+'; the current extractor does not retroactively change its evidence.');
-    else if(review.newerCapture)lines.push('Version relationship: CAPTURE_NEWER_THAN_APP — refresh CTI before interpreting version-sensitive checks.');
+    else if(review.status==='NEWER_CAPTURE')lines.push('Version relationship: CAPTURE_NEWER_THAN_APP — refresh CTI before interpreting version-sensitive checks.');
     else if(review.expectedVersion)lines.push('Version relationship: CURRENT_CAPTURE_VERSION.');
-    if(review.versionMeaning)lines.push('Version meaning: '+review.versionMeaning);
+    lines.push('Version meaning: This report is anchored to the uploaded capture build. The current available extractor is informational and never rewrites historical capture evidence.');
     if(review.action)lines.push('ACTION: '+review.action);
     if(review.traversal&&review.traversal.recorded)lines.push('Item editors observed: '+review.traversal.visited+'/'+review.traversal.eligible+' | unresolved='+review.traversal.unresolvedCount+(review.traversal.unresolvedItemIds.length?' | unresolved IDs: '+review.traversal.unresolvedItemIds.join(', '):''));
     (review.observedEmptySourceAssessments||[]).forEach(function(q){lines.push('  '+q.name+(q.id?' ['+q.id+']':'')+': destination editor confirmed empty | matched source questions='+q.sourceQuestions+' | review content and intended placement');});
