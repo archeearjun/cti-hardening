@@ -3024,7 +3024,7 @@
       "path": "src/engine/release.js",
       "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "552f65e6c59d2bfd97b9fba597f9a827ea67c8e57da945c180da575b08e54b6f"
+      "reviewedCurrentHash": "1c778f296bc6a947d262623e8ee8f7723d04c09938f7533dd4382d9da2ef652a"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4283,7 +4283,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "99ffcde47902911fc0b026691cad2f679b4ca7a355175b6f5ae654ffc3f63a57"
+          "reviewedCurrentHash": "db659f2b7ea3a3b8b8f58c4de42e95187477bb21babf418ff437cf95d0a20791"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4318,7 +4318,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "3dd47d30aae4bdcf8effaa12ac9c483d0cf3df9b2baea0faf4ac42d3d2357bbe"
+          "reviewedCurrentHash": "0b231faeb997552779d5c092726a05cd06cb1d7a3bc67d92e6c060a6b525a1e4"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4363,7 +4363,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "881f2bf94c53f7c31614ffd8af9a4610df463a56306c92079cf4285ed6c3df26"
+          "reviewedCurrentHash": "c66c8497739cf70544684dff39463aa45489d2cd66374a336a7c4e390119b38e"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4573,7 +4573,7 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "fe4fab04fb2806da288d3a124946e1a3debce0147cd7a6586ba4d79657e7d801"
+        "reviewedCurrentHash": "9dcc68e436a53ce0b90d80f7ff373c3b32ca38394842e242ffb9aacd7ca946af"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
