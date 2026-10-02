@@ -3,7 +3,8 @@
 export function qaCaptureInputsText_(res) {
     res=res||{};
     var meta=(res.stats&&res.stats.extractorMeta)||{},review=res.captureReadiness||{};
-    var lines=['CAPTURE INPUTS','Coursera captured extractor: '+qaCapturedExtractorLabel_(res)];
+    var captured=qaCapturedExtractorLabel_(res);
+    var lines=['CAPTURE INPUTS','Report evidence source: uploaded Coursera capture JSON','Coursera captured extractor: '+captured];
     if(meta.capturedAt)lines.push('Coursera capture time: '+meta.capturedAt);
     var recovery=meta.supplementalReadingRecovery;
     if(recovery){
@@ -12,7 +13,12 @@ export function qaCaptureInputsText_(res) {
       lines.push(recovery.meaning);
       (recovery.payloadGaps||[]).forEach(function(g){lines.push('  Recovered editor '+g.id+' | '+g.code+' | '+g.reason);});
     }
-    if(review.expectedVersion)lines.push('Available Coursera extractor: '+review.expectedVersion+' | capture status='+review.status);
+    if(review.expectedVersion)lines.push('Current available Coursera extractor: '+review.expectedVersion+
+      (review.expectedBuild?' | build='+review.expectedBuild:'')+' | capture status='+review.status);
+    if(review.olderCapture)lines.push('Version relationship: HISTORICAL_CAPTURE — this report remains anchored to '+captured+'; the current extractor does not retroactively change its evidence.');
+    else if(review.newerCapture)lines.push('Version relationship: CAPTURE_NEWER_THAN_APP — refresh CTI before interpreting version-sensitive checks.');
+    else if(review.expectedVersion)lines.push('Version relationship: CURRENT_CAPTURE_VERSION.');
+    if(review.versionMeaning)lines.push('Version meaning: '+review.versionMeaning);
     if(review.action)lines.push('ACTION: '+review.action);
     if(review.traversal&&review.traversal.recorded)lines.push('Item editors observed: '+review.traversal.visited+'/'+review.traversal.eligible+' | unresolved='+review.traversal.unresolvedCount+(review.traversal.unresolvedItemIds.length?' | unresolved IDs: '+review.traversal.unresolvedItemIds.join(', '):''));
     (review.observedEmptySourceAssessments||[]).forEach(function(q){lines.push('  '+q.name+(q.id?' ['+q.id+']':'')+': destination editor confirmed empty | matched source questions='+q.sourceQuestions+' | review content and intended placement');});
