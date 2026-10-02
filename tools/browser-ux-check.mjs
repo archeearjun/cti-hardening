@@ -149,8 +149,8 @@ const localCapture = {
   extractedAt: "2026-10-01T00:00:00.000Z",
   page: { courseId: "Course_id_123", title: "Synthetic Course" },
   meta: {
-    extractor: "CTI Item Fidelity Extractor v6.15.6",
-    buildId: "v6.15.6-terminal-evidence-efficiency-20261002",
+    extractor: "CTI Item Fidelity Extractor v6.15.7",
+    buildId: "v6.15.7-portalled-textblock-report-consistency-20261003",
     baseFingerprintCount: 1,
     captureAccounting: {
       inventoryCount: 1,
