@@ -284,7 +284,7 @@ try {
     await (await extractorDownload).path(),
     "utf8",
   );
-  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.4/);
+  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.5/);
   await page.locator("#local-coursera-capture").setInputFiles({
     name: "local-schema-35.json",
     mimeType: "application/json",
