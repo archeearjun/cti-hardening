@@ -1,6 +1,53 @@
 # Survey choice capture, 2026-10-04
 
-Coursera release: **v6.15.8 / schema 35**
+Coursera release: **v6.15.9 / schema 35**
+
+## Live acceptance follow-up
+
+The focused v6.15.8 check completed in 26.411 seconds on 2026-10-04. Both
+question prompts were clean and all seven choice controls passed the visibility
+chain, but both probes failed with `OPTION_LABEL_BOUNDARY_NOT_PROVEN`. The
+questions therefore still had unknown types and empty option arrays. **v6.15.8
+did not finish the live capture fix.** Its fixture had a boxless question part
+but an ordinary option row, so its passing result did not cover this second
+layout boundary.
+
+v6.15.9 replaces the option-row rectangle requirement with bounded rendered-text
+range evidence. It retains a label only within a container owning one observed
+choice control, excludes hidden feedback and controls, preserves split inline
+text, and stops before any ancestor containing multiple choices. A label can be
+a sibling of the control's decorative row. Hidden labels, absent labels,
+oversized labels and ambiguous rows remain uncaptured. No check state is
+converted into an answer key. Exact current live CSS remains unobserved; the
+boxless and zero-height row fixtures exercise concrete code failure paths.
+
+The Chromium regression now covers ordinary, boxless, zero-height and sibling
+label layouts, nested inline text, hidden feedback, missing/hidden labels,
+oversized text, ambiguous rows and full question traversal. The expanded fixture
+failed on v6.15.8 before the parser change. Bounded label diagnostics now retain
+row layout, node/character counts and rejection reasons, without label text.
+
+The capture contract also no longer calls unknown question types or uncaptured
+choices an answer-applicability-only review. Those remain technical capture gaps
+with the existing two-attempt ceiling. A Practice item reaches the separate
+answer-applicability review only after question content is actually captured.
+Re-evaluating the supplied v6.15.8 JSON now produces `RETRY_REQUIRED` with
+`ASSESSMENT_QUESTION_CONTENT_INCOMPLETE`; no raw evidence was edited.
+
+The tests that claimed to represent a fully observed Practice question previously
+supplied only its prompt. They now supply an observed type and distinct options,
+and explicitly verify unknown types, absent options and unreliable options on
+both the retryable and exhausted paths. The original review assertions remain.
+
+Live confirmation of v6.15.9 still requires a new focused item capture. Neither
+this parser change nor replaying old JSON reconstructs the missing option fields.
+
+v6.15.9 local verification: all 231 Node tests and retained legacy checks pass;
+the expanded real-browser choice regression, production build/typecheck, Worker
+dry run and owner-action browser suite also pass. The browser fixture is checked
+in; the supplied course capture and screenshots are not.
+
+## Original v6.15.8 investigation
 
 The supplied TRDE120 capture declared and captured two survey question positions,
 but returned unknown types and no options. Both unmarked-choice probes reported

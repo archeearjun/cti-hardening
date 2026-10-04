@@ -3038,7 +3038,7 @@
       "path": "src/engine/release.js",
       "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "f50bccb67f58d8570ebb72944c32ae3e60b847a5e7b5333daa06f0e424b52124"
+      "reviewedCurrentHash": "71a20a4d860f5c07eaac60bc157b219a98d6ff32084289cbf04199bab1edc0d7"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4296,7 +4296,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.8/schema35",
+      "current": "v6.15.9/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4306,7 +4306,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "cbd2e8b885ba8bfc24c7517d2f008c6c87ed99914c37613a497f50034637bc73"
+          "reviewedCurrentHash": "d82fcf34d6a4f16c74a268d6fc31208ce84e9d838cc99934004e825b897fe240"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4351,7 +4351,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "8fc96751f7c7ec74bb6be5ae3b48332eceef6938da918eb3ed6f86cb4f3277ee"
+          "reviewedCurrentHash": "c1b73148800f773026341f62d71b4f8d018f094cc8b6330b65ca29e550dc784e"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4406,7 +4406,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "36ed2e51f2ff2f627ff3d417e2419ac75887c63dfb947adb702b478a2b45fcaa"
+          "reviewedCurrentHash": "c7cc79d905148636664553a17750437acc598d5d217b014d2e4755804d591940"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4416,7 +4416,7 @@
         {
           "name": "unmarkedChoiceProbeV61320",
           "archivedHash": "f0d4971865f75705e599da45b643908bf3af0f0d3728be456e72b76c4473390a",
-          "reviewedCurrentHash": "1a3295b336dfd308d515361f4dc8dc5f3993cfd1a514acee88355554d6bc7e87"
+          "reviewedCurrentHash": "6ef6891d608c8e2d27fcfa1758c34326751bd6a6c4907b72b3684a0db71d7b2c"
         },
         {
           "name": "waitForItemEvidenceStability",
@@ -4436,7 +4436,7 @@
         },
         {
           "name": "captureContractV6150",
-          "reviewedCurrentHash": "b9ffc8b6fa6642fc311149f19263138383b08a00956df7e8d53fa45f02d48c64"
+          "reviewedCurrentHash": "1a994c7884ac759cfd17673a60473e85987d69f4fe3d63d8d7442c4b99f96e0e"
         },
         {
           "name": "checkpointSessionIdV6150",
@@ -4444,7 +4444,7 @@
         },
         {
           "name": "compactDiagnosticV6150",
-          "reviewedCurrentHash": "1d328262f246fea740ad29979a33598ec9f6f7da5e56557d290a436e60b5b292"
+          "reviewedCurrentHash": "7f7615563627f76670c0959810a0cdfe30193724b201d3ee1c77ec0525c54962"
         },
         {
           "name": "createCheckpointManagerV6150",
@@ -4465,6 +4465,10 @@
         {
           "name": "openCheckpointDbV6150",
           "reviewedCurrentHash": "8345a3d8d7aa0f3ffad8aa42cd92e3053feda6813b0c780ba9f744d83cd349af"
+        },
+        {
+          "name": "renderedChoiceLabelV6159",
+          "reviewedCurrentHash": "d526eeb3e8920859aca89719c3b7eb4c77691aa9c85e36cf50842c4185f1aa22"
         },
         {
           "name": "waitForVisibleV6154",
@@ -4621,11 +4625,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "ec7ea6e565baa7443416c3676822537c9c2de98dabd84937a12dd5417054d8ad"
+        "reviewedCurrentHash": "722c6e261a70dd3ef8ee09697ce90375f7decd914e92e111ec28f1fdf823c84e"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "f50bccb67f58d8570ebb72944c32ae3e60b847a5e7b5333daa06f0e424b52124"
+        "reviewedCurrentHash": "71a20a4d860f5c07eaac60bc157b219a98d6ff32084289cbf04199bab1edc0d7"
       }
     }
   }

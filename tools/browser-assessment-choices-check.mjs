@@ -28,6 +28,7 @@ try {
       for (const label of labels) {
         const row = document.createElement('div');
         row.className = 'rc-AssignmentAuthoringOptionsEditor__optionRow';
+        row.style.display='contents';
         const control = document.createElement('span');
         control.className = `cds-choiceinput-root cds-choiceinput-checked cds-choiceinput-disabled cds-${kind}input-disabled`;
         control.style.cssText = 'display:inline-block;width:20px;height:20px;';
@@ -39,7 +40,9 @@ try {
           control.append(input);
         }
         const text = document.createElement('span'); text.textContent=label;
-        row.append(control,text); part.append(row);
+        const hiddenText=document.createElement('span');
+        hiddenText.textContent='Hidden authoring feedback'; hiddenText.style.display='none';
+        row.append(control,text,hiddenText); part.append(row);
       }
       part.insertAdjacentHTML('beforeend','<button>Add Variant</button>');
       editor.replaceChildren(part);
@@ -51,6 +54,30 @@ try {
     const radio = parse(radioPart);
     const checkboxPart = card('checkbox',['Lecture','Video','Reading'],true);
     const checkbox = parse(checkboxPart);
+    const labelCases={};
+    for(const layout of ['normal','boxless','zero-height','sibling-label','split-inline','missing-label','hidden-label','long-label','ambiguous-row']) {
+      const part=card('checkbox',['Independent study','Online'],true);
+      for(const row of part.querySelectorAll('.rc-AssignmentAuthoringOptionsEditor__optionRow')) {
+        const label=row.children[1];
+        if(layout==='normal')row.style.display='flex';
+        if(layout==='zero-height')row.style.cssText='display:block;height:0;overflow:visible';
+        if(layout==='sibling-label'){
+          const option=document.createElement('div'); option.setAttribute('data-testid','option');
+          row.before(option); option.append(row,label);
+        }
+        if(layout==='split-inline' && label.textContent==='Independent study')label.innerHTML='<span>Inde</span><span>pendent</span> <b>study</b>';
+        if(layout==='missing-label')label.remove();
+        if(layout==='hidden-label')label.style.visibility='hidden';
+        if(layout==='long-label')label.textContent='x'.repeat(2500);
+      }
+      if(layout==='ambiguous-row'){
+        const rows=[...part.querySelectorAll('.rc-AssignmentAuthoringOptionsEditor__optionRow')];
+        rows[1].children[0].remove();
+        rows[0].append(document.createElement('input'));
+        rows[0].lastElementChild.type='checkbox';
+      }
+      labelCases[layout]=unmarkedChoiceProbeV61320(part,fp,1);
+    }
     const hidden = [];
     for (const mode of ['display','visibility','opacity','aria-hidden']) {
       const part=card('radio',['First','Second']);
@@ -89,7 +116,7 @@ try {
       ...unmarkedChoiceProbeV61320(first,fp,1),
       controls:Array.from({length:80},()=>({type:'radio',accepted:false,reason:'HIDDEN_CONTAINER',depth:5,privateText:'do not retain'})),
     }]},fp);
-    return {partRect:{width:partRect.width,height:partRect.height},radio,checkbox,hidden,mixed,missing,prose,cycle,contract,compact};
+    return {partRect:{width:partRect.width,height:partRect.height},radio,checkbox,labelCases,hidden,mixed,missing,prose,cycle,contract,compact};
   });
   assert.equal(result.partRect.width,0);
   assert.equal(result.partRect.height,0);
@@ -114,6 +141,13 @@ try {
   assert.equal(result.missing.type,'unknown');
   assert.equal(result.missing.prompt,'Choose a learning method.');
   assert.equal(result.prose.prompt,'Which Answers belong in the response?');
+  for(const layout of ['normal','boxless','zero-height','sibling-label','split-inline']) {
+    assert.equal(result.labelCases[layout].status,'CHOICES_CAPTURED',layout);
+    assert.deepEqual(result.labelCases[layout].question.options.map(o=>o.text),['Independent study','Online'],layout);
+  }
+  for(const layout of ['missing-label','hidden-label','long-label','ambiguous-row'])
+    assert.equal(result.labelCases[layout].question,null,layout);
+  assert.equal(result.labelCases['long-label'].labels[0].reason,'LABEL_SCAN_LIMIT');
   assert.equal(result.cycle.questionCount,2);
   assert.deepEqual(result.cycle.assessment.questions.map(q=>q.options.length),[4,3]);
   assert(result.cycle.assessment.questions.every(q=>q.questionOrdinalObserved && q.options.every(o=>o.correct===null)));
@@ -124,6 +158,7 @@ try {
   const diagnostics=result.compact.unmarkedChoiceProbes[0].controls;
   assert.equal(diagnostics.length,16);
   assert(diagnostics.every(d=>d.reason==='HIDDEN_CONTAINER' && !('privateText' in d)));
+  assert(result.compact.unmarkedChoiceProbes[0].labels.every(d=>d.reason==='RENDERED_OPTION_TEXT' && !('text' in d)));
   console.log('PASS: real-browser boxless question containers, disabled radio/checkbox choices, unknown keys, zero points, hidden ancestry, mixed controls, prompt boundaries, full outline traversal, strict completion, and bounded diagnostics.');
 } finally {
   await browser.close();

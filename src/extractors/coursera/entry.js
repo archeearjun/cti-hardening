@@ -45,7 +45,7 @@ javascript:(async function () {
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.8"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.9"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -55,7 +55,7 @@ javascript:(async function () {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.8"
+          finishedAt: Date.now(), version: "v6.15.9"
         };
       }
     } catch (e) {}
@@ -711,8 +711,8 @@ javascript:(async function () {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.8",
-      buildId: "v6.15.8-visible-survey-choices-20261004",
+      version: "v6.15.9",
+      buildId: "v6.15.9-rendered-choice-labels-20261004",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1216,7 +1216,7 @@ javascript:(async function () {
           const partRoot=assessmentEnvelopeRootV662(openedSurface.root,fp) || openedSurface.root;
           diag.unmarkedChoiceProbes=[...partRoot.querySelectorAll('[data-testid^="assignment-part-"]')].slice(0,12).map((part,i)=>{
             const probe=unmarkedChoiceProbeV61320(part,fp,i+1);
-            return {partId:part.id,status:probe.status,reason:probe.reason,controls:probe.controls,
+            return {partId:part.id,status:probe.status,reason:probe.reason,controls:probe.controls,labels:probe.labels,
               parsedType:probe.question?.type || '',parsedChoices:probe.question?.options.length || 0};
           });
           retainAssessmentSurfaceEvidenceV6138(openedSurface.root,fp);
@@ -1490,7 +1490,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.8", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.9", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1504,7 +1504,7 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.8", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.9", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1512,8 +1512,8 @@ javascript:(async function () {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.8",
-      buildId: "v6.15.8-visible-survey-choices-20261004",
+      extractor: "CTI Item Fidelity Extractor v6.15.9",
+      buildId: "v6.15.9-rendered-choice-labels-20261004",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,

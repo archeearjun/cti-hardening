@@ -212,7 +212,7 @@ export function ctiCourseraExportName(courseIdValue, suffix = "ITEM_FINGERPRINT"
   const label = ctiSafeFileToken(ctiCourseraCourseLabel(), 110);
   const idToken = ctiSafeFileToken(courseIdValue || "UNKNOWN", 80);
   const stamp = ctiLocalFileTimestamp(new Date());
-  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.8_s35__${suffix}.json`;
+  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.9_s35__${suffix}.json`;
 }
 
 export function inferPublished(obj) {
