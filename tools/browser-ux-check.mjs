@@ -183,6 +183,25 @@ const localCapture = {
 const capturePath = process.env.CTI_UX_SCREENSHOTS || "/tmp/cti-ux-screenshots";
 fs.mkdirSync(capturePath, { recursive: true });
 const shot = async (name) => {
+  const unnamed = await page
+    .locator("input, select, textarea, progress")
+    .evaluateAll((elements) =>
+      elements
+        .filter(
+          (e) =>
+            e.getClientRects().length &&
+            !e.closest("[hidden]") &&
+            !e.getAttribute("aria-label") &&
+            !e.getAttribute("aria-labelledby") &&
+            !Array.from(e.labels || []).some((l) => l.textContent.trim()),
+        )
+        .map((e) => e.outerHTML.slice(0, 100)),
+    );
+  assert.deepEqual(
+    unnamed,
+    [],
+    `${name}: visible controls need accessible labels`,
+  );
   await page.screenshot({
     path: path.join(capturePath, `${name}.png`),
     fullPage: false,
@@ -190,6 +209,18 @@ const shot = async (name) => {
 };
 try {
   await page.goto(base);
+  await page.keyboard.press("Tab");
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Skip to main content" })
+      .evaluate((e) => e === document.activeElement),
+    true,
+  );
+  await page.keyboard.press("Enter");
+  assert.equal(
+    await page.locator("#main").evaluate((e) => e === document.activeElement),
+    true,
+  );
   await tab("Setup");
   await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
     name: "synthetic-ux.json",
@@ -208,19 +239,50 @@ try {
     .waitFor();
   await shot("overview-desktop");
   await tab("Catalogue");
+  const courseSearch = page.getByLabel("Search selected source course", {
+    exact: true,
+  });
+  const courseSelect = page.getByLabel("Selected source course", {
+    exact: true,
+  });
+  await courseSearch.fill("COURSE062.imscc");
+  assert.equal(await courseSelect.locator("option").count(), 2);
+  await courseSearch.press("Tab");
+  assert.equal(
+    await courseSelect.evaluate((e) => e === document.activeElement),
+    true,
+  );
+  await courseSelect.press("ArrowDown");
+  await courseSelect.press("Enter");
+  await waitIdle();
+  assert.equal(await courseSelect.inputValue(), courses[61].id);
+  await courseSearch.fill("No such course");
+  assert.equal(
+    await courseSelect.inputValue(),
+    courses[61].id,
+    "search must preserve selected course",
+  );
+  await page
+    .getByText("No matching options. Clear search to see all.", {
+      exact: false,
+    })
+    .waitFor();
+  await courseSearch.press("Escape");
+  assert.equal(await courseSearch.inputValue(), "");
+  assert.equal(await courseSelect.locator("option").count(), 63);
   assert.equal(await page.locator(".table-wrap tbody tr").count(), 25);
   await page.getByRole("button", { name: "Next page" }).click();
   await page.getByText("Page 2 of 3", { exact: true }).waitFor();
   await page.getByLabel("Find a course", { exact: true }).fill("Course 062");
   assert.equal(await page.locator(".table-wrap tbody tr").count(), 1);
   await page.getByLabel("Find a course", { exact: true }).fill("");
-  await page.getByLabel("Filter by partner").selectOption("Partner B");
+  await page.getByRole("combobox", { name: "Filter by partner", exact: true }).selectOption("Partner B");
   await page.getByText("31 of 62 courses", { exact: true }).waitFor();
   await page.getByLabel("Filter by status").selectOption("QA Review");
   await page
     .getByText("No courses match your filters.", { exact: false })
     .waitFor();
-  await page.getByLabel("Filter by partner").selectOption("");
+  await page.getByRole("combobox", { name: "Filter by partner", exact: true }).selectOption("");
   await page.getByLabel("Filter by status").selectOption("");
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("catalogue-desktop");
@@ -272,7 +334,10 @@ try {
   );
   assert.equal(
     await page
-      .getByRole("link", { name: "Open Coursera authoring shell", exact: false })
+      .getByRole("link", {
+        name: "Open Coursera authoring shell",
+        exact: false,
+      })
       .getAttribute("href"),
     "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
   );
@@ -293,7 +358,9 @@ try {
   await page
     .getByText("COMPLETE — strict capture gate passed", { exact: true })
     .waitFor();
-  await page.getByRole("button", { name: "Use this capture in Compare" }).click();
+  await page
+    .getByRole("button", { name: "Use this capture in Compare" })
+    .click();
   await page
     .getByText("Local Coursera capture loaded into Compare.", { exact: false })
     .waitFor();
@@ -334,7 +401,7 @@ try {
   await page
     .getByLabel("Smart Ingestion capability")
     .selectOption("LATEST_APPLIED");
-  await page.getByLabel("Selected source course").selectOption(courses[1].id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[1].id);
   await waitIdle();
   assert.equal(
     await page
@@ -360,7 +427,7 @@ try {
     await page.getByLabel("Smart Ingestion capability").inputValue(),
     "UNKNOWN",
   );
-  await page.getByLabel("Selected source course").selectOption(courses[0].id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[0].id);
   await waitIdle();
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
@@ -442,7 +509,7 @@ try {
     .click();
   await waitIdle();
   assert.equal(
-    await page.getByLabel("Selected source course").inputValue(),
+    await page.getByRole("combobox", { name: "Selected source course", exact: true }).inputValue(),
     courses[1].id,
   );
   assert.equal(
@@ -450,12 +517,12 @@ try {
     false,
   );
   await tab("Macmillan");
-  await page.getByLabel("Resume saved workbook").selectOption(books[0].id);
+  await page.getByRole("combobox", { name: "Resume saved workbook", exact: true }).selectOption(books[0].id);
   await waitIdle();
   await page.getByLabel("Row 4: Ch 1: Quantities").check();
   await page.getByLabel(/^Stage/).selectOption("Merged");
   await page.getByLabel("Output XLSX to validate").setInputFiles(file);
-  await page.getByLabel("Resume saved workbook").selectOption(books[1].id);
+  await page.getByRole("combobox", { name: "Resume saved workbook", exact: true }).selectOption(books[1].id);
   await waitIdle();
   assert.equal(
     await page.getByLabel("Row 4: Ch 1: Quantities").isChecked(),
@@ -470,16 +537,22 @@ try {
   );
   assert(await page.getByRole("button", { name: "Run stage QA" }).isDisabled());
 
-  await page.getByLabel("Selected source course").selectOption(courses[0].id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[0].id);
   await waitIdle();
   await tab("Operations");
   await page
     .getByRole("heading", { name: "Operational readiness", exact: true })
     .waitFor();
-  await page.getByText("PASS · Course metadata contract", { exact: true }).waitFor();
-  await page.getByText("Current product capability manifest", { exact: true }).click();
   await page
-    .getByText("AVAILABLE · Coursera extraction · local Chrome", { exact: true })
+    .getByText("PASS · Course metadata contract", { exact: true })
+    .waitFor();
+  await page
+    .getByText("Current product capability manifest", { exact: true })
+    .click();
+  await page
+    .getByText("AVAILABLE · Coursera extraction · local Chrome", {
+      exact: true,
+    })
     .waitFor();
 
   const catalogWorkbook = Buffer.from(
@@ -563,14 +636,28 @@ try {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: catalogWorkbook,
   });
-  await page.getByText("Catalog imported: 1 normalized row(s)", { exact: false }).waitFor();
+  await page
+    .getByRole("heading", { name: "Review catalogue import" })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Save reviewed import", exact: true })
+    .click();
+  await page
+    .getByText("Catalog imported: 1 reviewed row(s)", { exact: false })
+    .waitFor();
   await page.getByLabel("Master Planner XLSX", { exact: true }).setInputFiles({
     name: "planner.xlsx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: plannerWorkbook,
   });
-  await page.getByText("Planner imported: 1 normalized row(s)", { exact: false }).waitFor();
+  await page.getByRole("heading", { name: "Review planner import" }).waitFor();
+  await page
+    .getByRole("button", { name: "Save reviewed import", exact: true })
+    .click();
+  await page
+    .getByText("Planner imported: 1 reviewed row(s)", { exact: false })
+    .waitFor();
   await page
     .getByLabel("Runtime / RISE / Storyline inventory XLSX", { exact: true })
     .setInputFiles({
@@ -589,7 +676,9 @@ try {
   await page.getByLabel("From", { exact: true }).fill("2026-09-01");
   await page.getByLabel("To", { exact: true }).fill("2026-09-30");
   await page.getByLabel("Rescan cutoff", { exact: true }).fill("2026-09-01");
-  await page.getByLabel("Owner filter", { exact: true }).fill("Assignment owner");
+  await page
+    .getByLabel("Owner filter", { exact: true })
+    .fill("Assignment owner");
   await page
     .getByRole("button", { name: "Build queue from saved inputs", exact: true })
     .click();
@@ -605,9 +694,12 @@ try {
     })
     .click();
   await page
-    .getByText("Applied explicit runtime inventory evidence to 1 matching active course(s).", {
-      exact: true,
-    })
+    .getByText(
+      "Applied explicit runtime inventory evidence to 1 matching active course(s).",
+      {
+        exact: true,
+      },
+    )
     .waitFor();
 
   await page.getByText("CLEARED TO INGEST", { exact: true }).waitFor();
@@ -616,7 +708,10 @@ try {
     .getByRole("button", { name: "Download Master Manifest XLSX", exact: true })
     .click();
   const manifestPath = await (await manifestDownload).path();
-  assert(fs.statSync(manifestPath).size > 100, "manifest export should not be empty");
+  assert(
+    fs.statSync(manifestPath).size > 100,
+    "manifest export should not be empty",
+  );
 
   await page.getByLabel("Coursera redo", { exact: true }).selectOption("DONE");
   await page

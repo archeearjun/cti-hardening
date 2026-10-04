@@ -92,8 +92,9 @@ export default function OwnerEvidence({
         result,
         sourceMatches ? course?.data.scan?.courseTree || [] : [],
         courseUrl,
+        contentState.snapshot?.coursera,
       ),
-    [result, course, sourceMatches, courseUrl],
+    [result, course, sourceMatches, courseUrl, contentState.snapshot],
   );
   const location = ownerCourseLocation(result, courseUrl);
   const sourceContext = useMemo(

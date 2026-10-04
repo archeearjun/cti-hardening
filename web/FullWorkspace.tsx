@@ -1,3 +1,4 @@
+import SearchableSelect, { matchesSearch } from "./SearchableSelect";
 import OwnerEvidence from "./OwnerEvidence";
 import SourceExplorer from "./SourceExplorer";
 import EvidenceDetails from "./EvidenceDetails";
@@ -86,7 +87,10 @@ const navGroups = [
     label: "Course evidence",
     tabs: ["Explore", "Scan", "Extract", "Compare", "History"],
   },
-  { label: "Tools & admin", tabs: ["Macmillan", "Analytics", "Operations", "Setup"] },
+  {
+    label: "Tools & admin",
+    tabs: ["Macmillan", "Analytics", "Operations", "Setup"],
+  },
 ] as const;
 const navGlyphs: Record<string, string> = {
   Overview: "⌂",
@@ -138,6 +142,7 @@ export default function FullWorkspace({
     [generation, setGeneration] = useState(0),
     [before, setBefore] = useState(""),
     [after, setAfter] = useState("");
+  const [historyQuery, setHistoryQuery] = useState("");
   const [query, setQuery] = useState(""),
     [partner, setPartner] = useState("NAIT"),
     [owner, setOwner] = useState(""),
@@ -234,9 +239,13 @@ export default function FullWorkspace({
     );
   const filteredCourses = courses.filter(
     (r) =>
-      `${r.title} ${r.data.partner || ""} ${r.data.owner || ""}`
-        .toLowerCase()
-        .includes(query.toLowerCase()) &&
+      matchesSearch(
+        query,
+        r.title,
+        r.data.partner,
+        r.data.owner,
+        r.data.scan?.fileName,
+      ) &&
       (!partnerFilter || r.data.partner === partnerFilter) &&
       (!statusFilter || r.data.status === statusFilter),
   );
@@ -280,8 +289,7 @@ export default function FullWorkspace({
     .slice(0, 8);
   const legacyPolicyRef = records.find(
     (r) =>
-      r.kind === "legacy-backup" &&
-      r.data.kind === "CTI_LEGACY_ACCESS_POLICY",
+      r.kind === "legacy-backup" && r.data.kind === "CTI_LEGACY_ACCESS_POLICY",
   );
   const legacyScanHistoryCount = records.filter(
     (r) => r.kind === "operations" && r.data.type === "legacy-scan-history",
@@ -459,7 +467,8 @@ export default function FullWorkspace({
       const metadata = validateCourseMetadata({
         partner,
         owner,
-        status: rescan && course ? course.data.status || "In Queue" : "In Queue",
+        status:
+          rescan && course ? course.data.status || "In Queue" : "In Queue",
         assignedDate: rescan && course ? course.data.assignedDate || "" : "",
         deadline: rescan && course ? course.data.deadline || "" : "",
         driveLink: rescan && course ? course.data.driveLink || "" : "",
@@ -639,22 +648,18 @@ export default function FullWorkspace({
           </p>
         )}
         <div className="card course-context">
-          <label>
-            Selected source course
-            <select
-              aria-label="Selected source course"
-              disabled={!!busy}
-              value={courseId}
-              onChange={(e) => void selectCourse(e.target.value)}
-            >
-              <option value="">Choose a saved course</option>
-              {courses.map((r) => (
-                <option value={r.id} key={r.id}>
-                  {r.title} · {r.data.partner}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SearchableSelect
+            label="Selected source course"
+            disabled={!!busy}
+            value={courseId}
+            onChange={(value) => void selectCourse(value)}
+            emptyLabel="Choose a saved course"
+            options={courses.map((r) => ({
+              value: r.id,
+              label: `${r.title} · ${r.data.partner}`,
+              searchText: [r.data.owner, r.data.scan?.fileName].join(" "),
+            }))}
+          />
           {course ? (
             <div className="course-context-detail">
               <strong>{course.title}</strong>
@@ -886,8 +891,8 @@ export default function FullWorkspace({
                         <strong>{audits.length}</strong> saved reports
                       </span>
                       <span>
-                        <strong>{checklistCount}</strong> / {steps.length} checklist
-                        steps
+                        <strong>{checklistCount}</strong> / {steps.length}{" "}
+                        checklist steps
                       </span>
                     </div>
                     <div className="overview-actions vertical">
@@ -919,8 +924,8 @@ export default function FullWorkspace({
                     <h2>Select a course to resume</h2>
                     <p>
                       Choose a saved source course above. CTI will keep that
-                      course in context while you move through Explore,
-                      Compare, History, and the checklist.
+                      course in context while you move through Explore, Compare,
+                      History, and the checklist.
                     </p>
                     <button
                       className="secondary"
@@ -934,7 +939,8 @@ export default function FullWorkspace({
                 {!!unownedCourses.length && (
                   <p className="overview-footnote">
                     {unownedCourses.length} active course
-                    {unownedCourses.length === 1 ? "" : "s"} still need an owner.
+                    {unownedCourses.length === 1 ? "" : "s"} still need an
+                    owner.
                   </p>
                 )}
               </section>
@@ -985,27 +991,24 @@ export default function FullWorkspace({
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Title, partner or owner"
+                  placeholder="Title, filename, partner or owner"
                 />
               </label>
-              <label>
-                Filter by partner
-                <select
-                  value={partnerFilter}
-                  onChange={(e) => setPartnerFilter(e.target.value)}
-                >
-                  <option value="">All partners</option>
-                  {[
-                    ...new Set(
-                      courses.map((r) => r.data.partner).filter(Boolean),
-                    ),
-                  ]
-                    .sort()
-                    .map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
-                </select>
-              </label>
+              <SearchableSelect
+                label="Filter by partner"
+                value={partnerFilter}
+                onChange={setPartnerFilter}
+                emptyLabel="All partners"
+                options={[
+                  ...new Set(
+                    courses
+                      .map((r) => String(r.data.partner || ""))
+                      .filter(Boolean),
+                  ),
+                ]
+                  .sort()
+                  .map((value) => ({ value, label: value }))}
+              />
               <label>
                 Filter by status
                 <select
@@ -1022,15 +1025,20 @@ export default function FullWorkspace({
             <p className="hint" role="status">
               {filteredCourses.length} of {courses.length} courses
             </p>
-            <div className="table-wrap">
+            <div
+              className="table-wrap"
+              tabIndex={0}
+              role="region"
+              aria-label="Scrollable data table"
+            >
               <table>
                 <thead>
                   <tr>
-                    <th>Course</th>
-                    <th>Partner / owner</th>
-                    <th>Status</th>
-                    <th>Deadline</th>
-                    <th>Evidence</th>
+                    <th scope="col">Course</th>
+                    <th scope="col">Partner / owner</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Deadline</th>
+                    <th scope="col">Evidence</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1515,66 +1523,100 @@ export default function FullWorkspace({
                   : "Choose a course above to see its saved reports."}
               </p>
             )}
+            <label>
+              Search saved reports
+              <input
+                type="search"
+                value={historyQuery}
+                onChange={(e) => setHistoryQuery(e.target.value)}
+              />
+            </label>
+            <p role="status">
+              {
+                audits.filter((r) =>
+                  matchesSearch(
+                    historyQuery,
+                    r.title,
+                    r.updatedAt,
+                    r.data.stage,
+                    r.data.generation,
+                  ),
+                ).length
+              }{" "}
+              of {audits.length} reports
+            </p>
             <ul className="history-list">
-              {audits.map((r) => (
-                <li key={r.id}>
-                  <button
-                    className="text-button"
-                    disabled={!!busy}
-                    onClick={() =>
-                      void act("Opening full saved report", async () => {
-                        setReport((await store!.get(r.id)).data);
-                        setReportId(r.id);
-                      })
-                    }
-                  >
-                    {r.title}
-                  </button>{" "}
-                  <small>
-                    {dateLabel(r.updatedAt)} · Generation{" "}
-                    {r.data.generation ?? "not recorded"} ·{" "}
-                    {r.data.stage || "Stage in full report"}
-                  </small>
-                </li>
-              ))}
+              {audits
+                .filter((r) =>
+                  matchesSearch(
+                    historyQuery,
+                    r.title,
+                    r.updatedAt,
+                    r.data.stage,
+                    r.data.generation,
+                  ),
+                )
+                .map((r) => (
+                  <li key={r.id}>
+                    <button
+                      className="text-button"
+                      disabled={!!busy}
+                      onClick={() =>
+                        void act("Opening full saved report", async () => {
+                          setReport((await store!.get(r.id)).data);
+                          setReportId(r.id);
+                        })
+                      }
+                    >
+                      {r.title}
+                    </button>{" "}
+                    <small>
+                      {dateLabel(r.updatedAt)} · Generation{" "}
+                      {r.data.generation ?? "not recorded"} ·{" "}
+                      {r.data.stage || "Stage in full report"}
+                    </small>
+                  </li>
+                ))}
             </ul>
             <div className="settings">
-              <label>
-                Before
-                <select
-                  disabled={!!busy}
-                  value={before}
-                  onChange={(e) => {
-                    setBefore(e.target.value);
-                    setAnalysis(null);
-                  }}
-                >
-                  <option value="">Choose before report</option>
-                  {audits.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                After
-                <select
-                  disabled={!!busy}
-                  value={after}
-                  onChange={(e) => {
-                    setAfter(e.target.value);
-                    setAnalysis(null);
-                  }}
-                >
-                  <option value="">Choose after report</option>
-                  {audits.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SearchableSelect
+                label="Before"
+                disabled={!!busy}
+                value={before}
+                onChange={(value) => {
+                  setBefore(value);
+                  setAnalysis(null);
+                }}
+                emptyLabel="Choose before report"
+                options={audits.map((r) => ({
+                  value: r.id,
+                  label: r.title,
+                  searchText: [
+                    r.updatedAt,
+                    r.data.stage,
+                    r.data.generation,
+                  ].join(" "),
+                }))}
+              />
+              <SearchableSelect
+                label="After"
+                disabled={!!busy}
+                value={after}
+                onChange={(value) => {
+                  setAfter(value);
+                  setAnalysis(null);
+                }}
+                emptyLabel="Choose after report"
+                options={audits.map((r) => ({
+                  value: r.id,
+                  label: r.title,
+                  searchText: [
+                    r.updatedAt,
+                    r.data.stage,
+                    r.data.generation,
+                  ].join(" "),
+                }))}
+              />
             </div>
             <button
               className="primary"
@@ -1608,14 +1650,19 @@ export default function FullWorkspace({
                     "Review the observed changes below against the saved reports."}
                 </p>
                 {analysis.lifecycleItems && (
-                  <div className="table-wrap">
+                  <div
+                    className="table-wrap"
+                    tabIndex={0}
+                    role="region"
+                    aria-label="Scrollable data table"
+                  >
                     <table>
                       <thead>
                         <tr>
-                          <th>Source item</th>
-                          <th>Before</th>
-                          <th>After</th>
-                          <th>Current action</th>
+                          <th scope="col">Source item</th>
+                          <th scope="col">Before</th>
+                          <th scope="col">After</th>
+                          <th scope="col">Current action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1834,14 +1881,19 @@ export default function FullWorkspace({
                 placeholder="Course, partner or owner"
               />
             </label>
-            <div className="table-wrap">
+            <div
+              className="table-wrap"
+              tabIndex={0}
+              role="region"
+              aria-label="Scrollable data table"
+            >
               <table>
                 <thead>
                   <tr>
-                    <th>Course</th>
-                    <th>Owner</th>
-                    <th>Status</th>
-                    <th>Deadline</th>
+                    <th scope="col">Course</th>
+                    <th scope="col">Owner</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Deadline</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1849,9 +1901,13 @@ export default function FullWorkspace({
                     .filter(
                       (r) =>
                         r.data.status !== "Completed" &&
-                        `${r.title} ${r.data.owner || ""} ${r.data.partner || ""}`
-                          .toLowerCase()
-                          .includes(query.toLowerCase()),
+                        matchesSearch(
+                          query,
+                          r.title,
+                          r.data.owner,
+                          r.data.partner,
+                          r.data.scan?.fileName,
+                        ),
                     )
                     .map((r) => (
                       <tr key={r.id}>
@@ -1948,16 +2004,21 @@ export default function FullWorkspace({
               Analyse saved courses
             </button>
             {portfolio?.profiles && (
-              <div className="table-wrap">
+              <div
+                className="table-wrap"
+                tabIndex={0}
+                role="region"
+                aria-label="Scrollable data table"
+              >
                 <table>
                   <thead>
                     <tr>
-                      <th>Course</th>
-                      <th>Owner</th>
-                      <th>Status</th>
-                      <th>Source items</th>
-                      <th>IFS workload</th>
-                      <th>Estimated hours</th>
+                      <th scope="col">Course</th>
+                      <th scope="col">Owner</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Source items</th>
+                      <th scope="col">IFS workload</th>
+                      <th scope="col">Estimated hours</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1997,13 +2058,18 @@ export default function FullWorkspace({
                       Top 20 pairs. The download includes all pairs retained by
                       the portfolio engine.
                     </p>
-                    <div className="table-wrap">
+                    <div
+                      className="table-wrap"
+                      tabIndex={0}
+                      role="region"
+                      aria-label="Scrollable data table"
+                    >
                       <table>
                         <thead>
                           <tr>
-                            <th>Course</th>
-                            <th>Compared with</th>
-                            <th>Similarity</th>
+                            <th scope="col">Course</th>
+                            <th scope="col">Compared with</th>
+                            <th scope="col">Similarity</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2147,7 +2213,9 @@ export default function FullWorkspace({
                 </div>
                 {legacyPolicyRef && (
                   <div className="legacy-policy-summary">
-                    <strong>Previous Apps Script access rules are preserved.</strong>
+                    <strong>
+                      Previous Apps Script access rules are preserved.
+                    </strong>
                     <p>
                       Domain:{" "}
                       <code>

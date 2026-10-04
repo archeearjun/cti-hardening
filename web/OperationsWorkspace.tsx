@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import OperationalImport, { OperationalRows } from "./OperationalImport";
+import { matchesSearch } from "./SearchableSelect";
+import type { BookData } from "../src/adapters/workbook";
+import type {
+  ImportSelection,
+  OperationalPreview,
+} from "../src/domain/operational-import";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { readWorkbook, writeWorkbook } from "../src/adapters/workbook.ts";
 import { scanPackage } from "../src/domain/package-scan.ts";
 import {
@@ -7,8 +14,6 @@ import {
   buildPortableWorkQueue,
   deepArchitectureDiagnostics,
   deterministicPreflight,
-  importCatalogWorkbook,
-  importPlannerWorkbook,
   importRuntimeWorkbook,
   mergeDuplicateGroup,
   normalizePartnerName,
@@ -19,6 +24,7 @@ import {
   sourceManifestBook,
   systemHealth,
   validateCourseMetadata,
+  validateDriveLink,
   type CatalogRow,
   type PlannerRow,
   type RuntimeInventoryRow,
@@ -36,10 +42,12 @@ import { download, Evidence } from "./workspace-ui.tsx";
 
 type Notice = (message: string) => void;
 type Failure = (message: string) => void;
-
-
-async function workbookFromFile(file: File) {
-  return readWorkbook(new Uint8Array(await file.arrayBuffer()), file.name);
+function originalSheetUrl(value: unknown) {
+  try {
+    return validateDriveLink(value);
+  } catch {
+    return "";
+  }
 }
 
 export default function OperationsWorkspace({
@@ -63,9 +71,25 @@ export default function OperationsWorkspace({
   onNotice: Notice;
   onError: Failure;
 }) {
+  const importSaving = useRef(false);
+  const [pendingImport, setPendingImport] = useState<{
+    book: BookData;
+    type: "catalog" | "planner";
+    partner: string;
+    sourceHash: string;
+  } | null>(null);
+  const [inputQuery, setInputQuery] = useState("");
+  const [queueQuery, setQueueQuery] = useState("");
+  const [archiveQuery, setArchiveQuery] = useState("");
+  const [duplicateQuery, setDuplicateQuery] = useState("");
+  const [inspectedInput, setInspectedInput] = useState<WorkspaceRecord | null>(
+    null,
+  );
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState("");
-  const [queue, setQueue] = useState<ReturnType<typeof buildPortableWorkQueue> | null>(null);
+  const [queue, setQueue] = useState<ReturnType<
+    typeof buildPortableWorkQueue
+  > | null>(null);
   const [partner, setPartner] = useState(course?.data.partner || "NAIT");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -150,17 +174,27 @@ export default function OperationsWorkspace({
     inputPartner = "",
   ) {
     await act("Importing operational input", async () => {
-      const book = await workbookFromFile(file);
-      let rows: CatalogRow[] | PlannerRow[] | RuntimeInventoryRow[];
-      if (type === "catalog") {
-        if (!inputPartner.trim())
-          throw new Error("Enter the catalog partner before importing.");
-        rows = importCatalogWorkbook(book, inputPartner.trim());
-      } else if (type === "planner") {
-        rows = importPlannerWorkbook(book);
-      } else {
-        rows = importRuntimeWorkbook(book);
+      if (file.size > 25 * 1024 * 1024)
+        throw Error("Workbook exceeds the 25 MiB limit.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const book = readWorkbook(bytes, file.name);
+      if (type !== "runtime-inventory") {
+        if (type === "catalog" && !inputPartner.trim())
+          throw Error("Enter the catalogue partner before importing.");
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        const sourceHash = Array.from(new Uint8Array(digest), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("");
+        setPendingImport({
+          book,
+          type,
+          partner: inputPartner.trim(),
+          sourceHash,
+        });
+        onNotice("Workbook loaded for review. No rows have been saved yet.");
+        return;
       }
+      const rows = importRuntimeWorkbook(book);
       if (!rows.length)
         throw new Error("The workbook contained no usable operational rows.");
       const saved = await store!.save(
@@ -174,9 +208,50 @@ export default function OperationsWorkspace({
       );
       await onRefresh();
       onNotice(
-        `${type === "catalog" ? "Catalog" : type === "planner" ? "Planner" : "Runtime inventory"} imported: ${rows.length} normalized row(s) · ${saved.id}.`,
+        `Runtime inventory imported: ${rows.length} normalized row(s) · ${saved.id}.`,
       );
     });
+  }
+
+  async function saveReviewedImport(
+    selection: ImportSelection,
+    preview: OperationalPreview,
+    sourceUrl: string,
+  ) {
+    if (!pendingImport || !editable || importSaving.current) return;
+    importSaving.current = true;
+    try {
+      await act("Saving reviewed operational input", async () => {
+        const { book, type, partner: inputPartner, sourceHash } = pendingImport;
+        const url = validateDriveLink(sourceUrl);
+        await store!.save(
+          newRecord("operations", book.name, {
+            type,
+            partner: inputPartner,
+            sourceName: book.name,
+            sourceSheet: selection.sheet,
+            sourceUrl: url,
+            sourceHash,
+            headerRow: selection.headerRow,
+            columnMapping: selection.columns,
+            importedAt: new Date().toISOString(),
+            rows: preview.rows,
+            importReview: {
+              inputRows: preview.inputRows,
+              skippedRows: preview.issues,
+              warnings: preview.warnings,
+            },
+          }),
+        );
+        setPendingImport(null);
+        await onRefresh();
+        onNotice(
+          `${type === "catalog" ? "Catalog" : "Planner"} imported: ${preview.rows.length} reviewed row(s).`,
+        );
+      });
+    } finally {
+      importSaving.current = false;
+    }
   }
 
   async function latestOperations(type: string, inputPartner = "") {
@@ -218,8 +293,7 @@ export default function OperationsWorkspace({
       );
       const operations = records.filter(
         (record) =>
-          record.kind === "operations" &&
-          record.data.type === "lineage-repair",
+          record.kind === "operations" && record.data.type === "lineage-repair",
       );
       const fullRepairs = await Promise.all(
         operations.map((record) => store!.get(record.id)),
@@ -257,7 +331,10 @@ export default function OperationsWorkspace({
     });
   }
 
-  async function reconcileDuplicate(groupId: string, expectedPlanToken: string) {
+  async function reconcileDuplicate(
+    groupId: string,
+    expectedPlanToken: string,
+  ) {
     await act("Reconciling duplicate package records", async () => {
       const freshSummaries = await store!.list();
       const freshPlan = buildDuplicatePlan(freshSummaries);
@@ -265,7 +342,9 @@ export default function OperationsWorkspace({
         throw new Error(
           "The package catalogue changed after this duplicate preview loaded. Review duplicates again.",
         );
-      const summaryGroup = freshPlan.groups.find((group) => group.id === groupId);
+      const summaryGroup = freshPlan.groups.find(
+        (group) => group.id === groupId,
+      );
       if (!summaryGroup)
         throw new Error("This duplicate group no longer exists.");
       if (!summaryGroup.safeToArchive)
@@ -319,7 +398,10 @@ export default function OperationsWorkspace({
 
   async function applyRuntimeEvidence() {
     await act("Applying runtime inventory evidence", async () => {
-      const runtimeRecord = await latestOperations("runtime-inventory", partner);
+      const runtimeRecord = await latestOperations(
+        "runtime-inventory",
+        partner,
+      );
       if (!runtimeRecord)
         throw new Error("Import a runtime inventory for this partner first.");
       const rows = runtimeRecord.data.rows as RuntimeInventoryRow[];
@@ -328,12 +410,16 @@ export default function OperationsWorkspace({
         (record) =>
           normalizePartnerName(record.data.partner) ===
             normalizePartnerName(partner) &&
-          byKey.has(packageSemanticKey(record.data.scan?.fileName || record.title)),
+          byKey.has(
+            packageSemanticKey(record.data.scan?.fileName || record.title),
+          ),
       );
       let savedCount = 0;
       for (const summary of matches) {
         const fresh = await store!.get(summary.id);
-        const key = packageSemanticKey(fresh.data.scan?.fileName || fresh.title);
+        const key = packageSemanticKey(
+          fresh.data.scan?.fileName || fresh.title,
+        );
         const row = byKey.get(key)!;
         await store!.save({
           ...fresh,
@@ -482,14 +568,20 @@ export default function OperationsWorkspace({
     return (
       <section className="card">
         <h2>Operations</h2>
-        <p className="empty-state">Connect a workspace before using operations.</p>
+        <p className="empty-state">
+          Connect a workspace before using operations.
+        </p>
       </section>
     );
 
   return (
     <div className="operations-workspace">
       {(busy || progress) && (
-        <div className="status workspace-progress" role="status" aria-live="polite">
+        <div
+          className="status workspace-progress"
+          role="status"
+          aria-live="polite"
+        >
           <span className="pulse" />
           <div>
             <strong>{busy}</strong>
@@ -511,15 +603,29 @@ export default function OperationsWorkspace({
           frozen Apps Script files are reference evidence, not runtime code.
         </p>
         <div className="metric-grid">
-          <div><strong>{activePackages.length}</strong><span>Active courses</span></div>
-          <div><strong>{archivedPackages.length}</strong><span>Archived courses</span></div>
-          <div><strong>{duplicatePlan.groups.length}</strong><span>Duplicate groups</span></div>
-          <div><strong>{records.filter((r) => r.kind === "audit").length}</strong><span>Immutable audits</span></div>
+          <div>
+            <strong>{activePackages.length}</strong>
+            <span>Active courses</span>
+          </div>
+          <div>
+            <strong>{archivedPackages.length}</strong>
+            <span>Archived courses</span>
+          </div>
+          <div>
+            <strong>{duplicatePlan.groups.length}</strong>
+            <span>Duplicate groups</span>
+          </div>
+          <div>
+            <strong>{records.filter((r) => r.kind === "audit").length}</strong>
+            <span>Immutable audits</span>
+          </div>
         </div>
         <ul className="health-list">
           {health.checks.map((check) => (
             <li key={check.name}>
-              <strong>{check.status} · {check.name}</strong>
+              <strong>
+                {check.status} · {check.name}
+              </strong>
               <span>{check.detail}</span>
             </li>
           ))}
@@ -558,8 +664,7 @@ export default function OperationsWorkspace({
                   .map((record) => (
                     <li key={record.id}>
                       <strong>
-                        {record.data.type} ·{" "}
-                        {record.data.runId || record.title}
+                        {record.data.type} · {record.data.runId || record.title}
                       </strong>
                       <span>
                         {record.data.importedAt || "Date not recorded"} ·{" "}
@@ -580,7 +685,9 @@ export default function OperationsWorkspace({
           <ul className="health-list">
             {CURRENT_PRODUCT_CAPABILITIES.map((capability) => (
               <li key={capability.id}>
-                <strong>{capability.state} · {capability.label}</strong>
+                <strong>
+                  {capability.state} · {capability.label}
+                </strong>
                 <span>{capability.detail}</span>
               </li>
             ))}
@@ -591,20 +698,26 @@ export default function OperationsWorkspace({
       <section className="card">
         <h2>Portable operational inputs</h2>
         <p>
-          Import local XLSX exports instead of depending on the old hard-coded
-          Google Sheets. Inputs are normalized, versioned workspace records.
+          Export the official catalogue or daily planner as XLSX, then review
+          its worksheet and column mapping here. Imports are dated snapshots in
+          this workspace; they do not change or automatically sync the original
+          Sheet. Catalogue owners and comments remain separate from daily
+          planner assignments.
         </p>
         <div className="settings">
           <label>
             Catalog partner
-            <input value={partner} onChange={(e) => setPartner(e.target.value)} />
+            <input
+              value={partner}
+              onChange={(e) => setPartner(e.target.value)}
+            />
           </label>
           <label>
             Partner catalog XLSX
             <input
               type="file"
               accept=".xlsx"
-              disabled={!editable || disabled || !!busy}
+              disabled={!editable || disabled || !!busy || !!pendingImport}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void importOperationFile(file, "catalog", partner);
@@ -617,7 +730,7 @@ export default function OperationsWorkspace({
             <input
               type="file"
               accept=".xlsx"
-              disabled={!editable || disabled || !!busy}
+              disabled={!editable || disabled || !!busy || !!pendingImport}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void importOperationFile(file, "planner");
@@ -630,7 +743,7 @@ export default function OperationsWorkspace({
             <input
               type="file"
               accept=".xlsx"
-              disabled={!editable || disabled || !!busy}
+              disabled={!editable || disabled || !!busy || !!pendingImport}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file)
@@ -640,6 +753,16 @@ export default function OperationsWorkspace({
             />
           </label>
         </div>
+        {pendingImport && (
+          <OperationalImport
+            book={pendingImport.book}
+            kind={pendingImport.type}
+            partner={pendingImport.partner}
+            disabled={disabled || !!busy || !editable}
+            onCancel={() => setPendingImport(null)}
+            onSave={saveReviewedImport}
+          />
+        )}
         <button
           className="secondary"
           disabled={!editable || disabled || !!busy}
@@ -649,19 +772,80 @@ export default function OperationsWorkspace({
         </button>
         <details>
           <summary>Saved operational inputs</summary>
+          <label>
+            Search saved operational inputs
+            <input
+              type="search"
+              value={inputQuery}
+              onChange={(e) => setInputQuery(e.target.value)}
+              placeholder="File, partner, worksheet or input type"
+            />
+          </label>
           <ul>
             {records
-              .filter((record) => record.kind === "operations")
-              .slice(0, 50)
+              .filter(
+                (record) =>
+                  record.kind === "operations" &&
+                  matchesSearch(
+                    inputQuery,
+                    record.title,
+                    record.data.type,
+                    record.data.partner,
+                    record.data.sourceSheet,
+                  ),
+              )
               .map((record) => (
                 <li key={record.id}>
                   <strong>{record.data.type}</strong> · {record.title} ·{" "}
                   {record.data.rowCount ?? "metadata"} row(s) ·{" "}
                   {record.updatedAt || "not yet timestamped"}
+                  {["catalog", "planner"].includes(record.data.type) && (
+                    <button
+                      className="text-button"
+                      disabled={!!busy}
+                      onClick={() =>
+                        void act("Opening imported rows", async () =>
+                          setInspectedInput(await store!.get(record.id)),
+                        )
+                      }
+                    >
+                      Inspect {record.title}
+                    </button>
+                  )}
                 </li>
               ))}
           </ul>
         </details>
+        {inspectedInput && (
+          <section aria-label="Saved input details">
+            <h3>{inspectedInput.title}</h3>
+            <p>
+              Imported{" "}
+              {inspectedInput.data.importedAt || inspectedInput.updatedAt}. This
+              is a saved snapshot.
+            </p>
+            {originalSheetUrl(inspectedInput.data.sourceUrl) && (
+              <a
+                href={originalSheetUrl(inspectedInput.data.sourceUrl)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open original sheet ↗
+              </a>
+            )}
+            <OperationalRows
+              key={inspectedInput.id}
+              label="saved input"
+              rows={inspectedInput.data.rows || []}
+            />
+            <button
+              className="secondary"
+              onClick={() => setInspectedInput(null)}
+            >
+              Close saved input
+            </button>
+          </section>
+        )}
       </section>
 
       <section className="card">
@@ -669,15 +853,26 @@ export default function OperationsWorkspace({
         <div className="settings">
           <label>
             Partner
-            <input value={partner} onChange={(e) => setPartner(e.target.value)} />
+            <input
+              value={partner}
+              onChange={(e) => setPartner(e.target.value)}
+            />
           </label>
           <label>
             From
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+            />
           </label>
           <label>
             To
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
           </label>
           <label>
             Rescan cutoff
@@ -713,6 +908,13 @@ export default function OperationsWorkspace({
                 </div>
               ))}
             </div>
+            {!!queue.summary.plannerUnknownTitleCounts && (
+              <p className="scope" role="status">
+                Some planner title counts are unknown. The expected-assignment
+                total includes only recorded counts and cannot prove that all
+                assigned courses were identified.
+              </p>
+            )}
             {queue.unresolvedGroups.length > 0 && (
               <div className="migration-issues" role="status">
                 <strong>Planner title slots remain unresolved</strong>
@@ -727,48 +929,113 @@ export default function OperationsWorkspace({
                 </ul>
               </div>
             )}
-            <div className="table-wrap">
+            <label>
+              Search planner queue
+              <input
+                type="search"
+                value={queueQuery}
+                onChange={(e) => setQueueQuery(e.target.value)}
+                placeholder="Course, filename, owner, comments or next action"
+              />
+            </label>
+            <p role="status">
+              {
+                queue.items.filter((item) =>
+                  matchesSearch(
+                    queueQuery,
+                    item.title,
+                    item.displayCode,
+                    item.expectedFileName,
+                    item.owner,
+                    item.catalogOwner,
+                    item.catalogComments,
+                    item.nextAction.label,
+                  ),
+                ).length
+              }{" "}
+              of {queue.items.length} queue items
+            </p>
+            <div
+              className="table-wrap"
+              tabIndex={0}
+              role="region"
+              aria-label="Scrollable data table"
+            >
               <table>
                 <thead>
                   <tr>
-                    <th>Title</th>
-                    <th>Owner</th>
-                    <th>CTI source</th>
-                    <th>Raw QA</th>
-                    <th>Next action</th>
+                    <th scope="col">Title</th>
+                    <th scope="col">Owner</th>
+                    <th scope="col">CTI source</th>
+                    <th scope="col">Raw QA</th>
+                    <th scope="col">Next action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {queue.items.map((item) => (
-                    <tr key={item.titleKey}>
-                      <td>
-                        <strong>{item.displayCode}</strong>
-                        <br />
-                        <small>{item.title}</small>
-                      </td>
-                      <td>{item.owner}</td>
-                      <td>
-                        {item.ctiMatchStatus}
-                        {item.ctiCandidateCount > 1
-                          ? ` · ${item.ctiCandidateCount} candidates`
-                          : ""}
-                      </td>
-                      <td>
-                        {item.rawQaFresh
-                          ? item.rawQaRecommendation.code
-                          : "No fresh raw audit"}
-                      </td>
-                      <td>
-                        <strong>{item.nextAction.label}</strong>
-                        {item.ctiUuid && (
-                          <>
-                            <br />
-                            <code>{item.ctiUuid}</code>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {queue.items
+                    .filter((item) =>
+                      matchesSearch(
+                        queueQuery,
+                        item.title,
+                        item.displayCode,
+                        item.expectedFileName,
+                        item.owner,
+                        item.catalogOwner,
+                        item.catalogComments,
+                        item.nextAction.label,
+                      ),
+                    )
+                    .map((item) => (
+                      <tr key={item.titleKey}>
+                        <td>
+                          <strong>{item.displayCode}</strong>
+                          <br />
+                          <small>{item.title}</small>
+                          <small>{item.expectedFileName}</small>
+                          {item.catalogComments && (
+                            <p className="preserve-lines">
+                              Catalogue comments: {item.catalogComments}
+                            </p>
+                          )}
+                          <small>
+                            {item.catalogSourceRow
+                              ? `${item.catalogSourceSheet || "Catalogue"} · row ${item.catalogSourceRow}`
+                              : "Catalogue row unresolved"}
+                          </small>
+                        </td>
+                        <td>
+                          Planner: {item.owner}
+                          <small>
+                            Catalogue: {item.catalogOwner || "Unassigned"}
+                          </small>
+                          {item.catalogOwner &&
+                            item.owner.trim().toLowerCase() !==
+                              item.catalogOwner.trim().toLowerCase() && (
+                              <small>Owners differ — review assignment</small>
+                            )}
+                        </td>
+                        <td>
+                          {item.ctiMatchStatus}
+                          {item.ctiCandidateCount > 1
+                            ? ` · ${item.ctiCandidateCount} candidates`
+                            : ""}
+                        </td>
+                        <td>
+                          {item.rawQaFresh
+                            ? item.rawQaRecommendation.code
+                            : "No fresh raw audit"}
+                        </td>
+                        <td>
+                          <strong>{item.nextAction.label}</strong>
+                          {item.ctiUuid && (
+                            <>
+                              <br />
+                              <code>{item.ctiUuid}</code>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -800,7 +1067,11 @@ export default function OperationsWorkspace({
               </div>
             )}
             <div className="action-links">
-              <button className="secondary" disabled={!!busy} onClick={downloadManifest}>
+              <button
+                className="secondary"
+                disabled={!!busy}
+                onClick={downloadManifest}
+              >
                 Download Master Manifest XLSX
               </button>
               <button
@@ -830,7 +1101,12 @@ export default function OperationsWorkspace({
                   aria-label="Scope"
                   value={workState.scope}
                   onChange={(e) =>
-                    setWorkState(normalizeWorkState({ ...workState, scope: e.target.value }))
+                    setWorkState(
+                      normalizeWorkState({
+                        ...workState,
+                        scope: e.target.value,
+                      }),
+                    )
                   }
                 >
                   <option>ACTIVE</option>
@@ -843,10 +1119,23 @@ export default function OperationsWorkspace({
                   aria-label="Coursera redo"
                   value={workState.courseraRedo}
                   onChange={(e) =>
-                    setWorkState(normalizeWorkState({ ...workState, courseraRedo: e.target.value }))
+                    setWorkState(
+                      normalizeWorkState({
+                        ...workState,
+                        courseraRedo: e.target.value,
+                      }),
+                    )
                   }
                 >
-                  {["NOT_STARTED", "IN_PROGRESS", "DONE", "NOT_REQUIRED", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
+                  {[
+                    "NOT_STARTED",
+                    "IN_PROGRESS",
+                    "DONE",
+                    "NOT_REQUIRED",
+                    "BLOCKED",
+                  ].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -855,10 +1144,17 @@ export default function OperationsWorkspace({
                   aria-label="Course outline"
                   value={workState.courseOutline}
                   onChange={(e) =>
-                    setWorkState(normalizeWorkState({ ...workState, courseOutline: e.target.value }))
+                    setWorkState(
+                      normalizeWorkState({
+                        ...workState,
+                        courseOutline: e.target.value,
+                      }),
+                    )
                   }
                 >
-                  {["NOT_STARTED", "DRAFT", "SECURED", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
+                  {["NOT_STARTED", "DRAFT", "SECURED", "BLOCKED"].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -867,10 +1163,17 @@ export default function OperationsWorkspace({
                   aria-label="Source audit"
                   value={workState.sourceAudit}
                   onChange={(e) =>
-                    setWorkState(normalizeWorkState({ ...workState, sourceAudit: e.target.value }))
+                    setWorkState(
+                      normalizeWorkState({
+                        ...workState,
+                        sourceAudit: e.target.value,
+                      }),
+                    )
                   }
                 >
-                  {["NOT_STARTED", "PASS", "REVIEW", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
+                  {["NOT_STARTED", "PASS", "REVIEW", "BLOCKED"].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -879,10 +1182,17 @@ export default function OperationsWorkspace({
                   aria-label="Specialization outline"
                   value={workState.specializationOutline}
                   onChange={(e) =>
-                    setWorkState(normalizeWorkState({ ...workState, specializationOutline: e.target.value }))
+                    setWorkState(
+                      normalizeWorkState({
+                        ...workState,
+                        specializationOutline: e.target.value,
+                      }),
+                    )
                   }
                 >
-                  {["NOT_STARTED", "DRAFT", "SECURED", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
+                  {["NOT_STARTED", "DRAFT", "SECURED", "BLOCKED"].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -891,10 +1201,19 @@ export default function OperationsWorkspace({
                   aria-label="Content map"
                   value={workState.contentMap}
                   onChange={(e) =>
-                    setWorkState(normalizeWorkState({ ...workState, contentMap: e.target.value }))
+                    setWorkState(
+                      normalizeWorkState({
+                        ...workState,
+                        contentMap: e.target.value,
+                      }),
+                    )
                   }
                 >
-                  {["NOT_STARTED", "IN_PROGRESS", "DONE", "BLOCKED"].map((v) => <option key={v}>{v}</option>)}
+                  {["NOT_STARTED", "IN_PROGRESS", "DONE", "BLOCKED"].map(
+                    (v) => (
+                      <option key={v}>{v}</option>
+                    ),
+                  )}
                 </select>
               </label>
             </div>
@@ -904,7 +1223,9 @@ export default function OperationsWorkspace({
                 aria-label="Operational notes"
                 maxLength={4000}
                 value={workState.notes}
-                onChange={(e) => setWorkState({ ...workState, notes: e.target.value })}
+                onChange={(e) =>
+                  setWorkState({ ...workState, notes: e.target.value })
+                }
               />
             </label>
             <button
@@ -956,56 +1277,90 @@ export default function OperationsWorkspace({
           filename rules. Reconciliation is previewed, version checked and
           lossless: duplicates are soft-archived rather than deleted.
         </p>
+        <label>
+          Search duplicate groups
+          <input
+            type="search"
+            value={duplicateQuery}
+            onChange={(e) => setDuplicateQuery(e.target.value)}
+          />
+        </label>
         {!duplicatePlan.groups.length ? (
-          <p className="success-notice">No active semantic duplicate groups found.</p>
+          <p className="success-notice">
+            No active semantic duplicate groups found.
+          </p>
         ) : (
-          duplicatePlan.groups.map((group) => (
-            <details key={group.id}>
-              <summary>
-                {group.partner} · {group.canonicalName} ·{" "}
-                {group.duplicates.length + 1} records
-              </summary>
-              <p>
-                Survivor: <code>{group.survivor.id}</code> · latest scan:{" "}
-                <code>{group.latestScan.id}</code>
-              </p>
-              <p>
-                Scan evidence differs: {group.scanDataDiffers ? "yes" : "no"}.
-              </p>
-              {group.conflictFields.length > 0 && (
-                <p role="alert">
-                  Metadata conflicts: {group.conflictFields.join(", ")}. Resolve
-                  these before reconciliation.
+          duplicatePlan.groups
+            .filter((group) =>
+              matchesSearch(duplicateQuery, group.partner, group.canonicalName),
+            )
+            .map((group) => (
+              <details key={group.id}>
+                <summary>
+                  {group.partner} · {group.canonicalName} ·{" "}
+                  {group.duplicates.length + 1} records
+                </summary>
+                <p>
+                  Survivor: <code>{group.survivor.id}</code> · latest scan:{" "}
+                  <code>{group.latestScan.id}</code>
                 </p>
-              )}
-              <button
-                className="secondary"
-                disabled={!editable || !!busy || !group.safeToArchive}
-                onClick={() =>
-                  void reconcileDuplicate(group.id, duplicatePlan.planToken)
-                }
-              >
-                Preserve survivor and archive duplicates
-              </button>
-            </details>
-          ))
+                <p>
+                  Scan evidence differs: {group.scanDataDiffers ? "yes" : "no"}.
+                </p>
+                {group.conflictFields.length > 0 && (
+                  <p role="alert">
+                    Metadata conflicts: {group.conflictFields.join(", ")}.
+                    Resolve these before reconciliation.
+                  </p>
+                )}
+                <button
+                  className="secondary"
+                  disabled={!editable || !!busy || !group.safeToArchive}
+                  onClick={() =>
+                    void reconcileDuplicate(group.id, duplicatePlan.planToken)
+                  }
+                >
+                  Preserve survivor and archive duplicates
+                </button>
+              </details>
+            ))
         )}
         {archivedPackages.length > 0 && (
           <details>
-            <summary>{archivedPackages.length} archived course record(s)</summary>
+            <summary>
+              {archivedPackages.length} archived course record(s)
+            </summary>
+            <label>
+              Search archived courses
+              <input
+                type="search"
+                value={archiveQuery}
+                onChange={(e) => setArchiveQuery(e.target.value)}
+              />
+            </label>
             <ul>
-              {archivedPackages.map((record) => (
-                <li key={record.id}>
-                  {record.title} · <code>{record.id}</code>{" "}
-                  <button
-                    className="text-button"
-                    disabled={!editable || !!busy}
-                    onClick={() => void setArchived(record, false)}
-                  >
-                    Restore
-                  </button>
-                </li>
-              ))}
+              {archivedPackages
+                .filter((record) =>
+                  matchesSearch(
+                    archiveQuery,
+                    record.title,
+                    record.id,
+                    record.data.partner,
+                    record.data.owner,
+                  ),
+                )
+                .map((record) => (
+                  <li key={record.id}>
+                    {record.title} · <code>{record.id}</code>{" "}
+                    <button
+                      className="text-button"
+                      disabled={!editable || !!busy}
+                      onClick={() => void setArchived(record, false)}
+                    >
+                      Restore {record.title}
+                    </button>
+                  </li>
+                ))}
             </ul>
           </details>
         )}
@@ -1018,37 +1373,57 @@ export default function OperationsWorkspace({
           unambiguous active semantic course match; missing or ambiguous files
           are reported and never create or overwrite a course automatically.
         </p>
-        <input
-          type="file"
-          multiple
-          accept=".imscc,.zip,.xml"
-          disabled={!editable || disabled || !!busy}
-          onChange={(e) => {
-            const files = Array.from(e.target.files || []);
-            if (files.length) void bulkRescan(files);
-            e.currentTarget.value = "";
-          }}
-        />
+        <label>
+          Source packages to rescan
+          <input
+            type="file"
+            multiple
+            accept=".imscc,.zip,.xml"
+            disabled={!editable || disabled || !!busy}
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              if (files.length) void bulkRescan(files);
+              e.currentTarget.value = "";
+            }}
+          />
+        </label>
       </section>
 
       <section className="card">
         <h2>Partner portfolio</h2>
         <div className="metric-grid">
-          <div><strong>{analytics.totalPackages}</strong><span>Active packages</span></div>
-          <div><strong>{analytics.duplicateSummary.groupCount}</strong><span>Duplicate groups</span></div>
-          <div><strong>{analytics.duplicateSummary.duplicateEntryCount}</strong><span>Duplicate records</span></div>
-          <div><strong>{analytics.owners.length}</strong><span>Owners</span></div>
+          <div>
+            <strong>{analytics.totalPackages}</strong>
+            <span>Active packages</span>
+          </div>
+          <div>
+            <strong>{analytics.duplicateSummary.groupCount}</strong>
+            <span>Duplicate groups</span>
+          </div>
+          <div>
+            <strong>{analytics.duplicateSummary.duplicateEntryCount}</strong>
+            <span>Duplicate records</span>
+          </div>
+          <div>
+            <strong>{analytics.owners.length}</strong>
+            <span>Owners</span>
+          </div>
         </div>
-        <div className="table-wrap">
+        <div
+          className="table-wrap"
+          tabIndex={0}
+          role="region"
+          aria-label="Scrollable data table"
+        >
           <table>
             <thead>
               <tr>
-                <th>Partner</th>
-                <th>Packages</th>
-                <th>Items</th>
-                <th>Assessments</th>
-                <th>LTI</th>
-                <th>Avg IFS</th>
+                <th scope="col">Partner</th>
+                <th scope="col">Packages</th>
+                <th scope="col">Items</th>
+                <th scope="col">Assessments</th>
+                <th scope="col">LTI</th>
+                <th scope="col">Avg IFS</th>
               </tr>
             </thead>
             <tbody>

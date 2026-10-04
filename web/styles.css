@@ -2099,3 +2099,27 @@ fieldset:disabled {
 .captured-content summary { cursor: pointer; }
 .reading-text { max-height: 36rem; overflow: auto; }
 @media (max-width: 850px) { .content-comparison-columns { grid-template-columns: 1fr; } }
+
+/* Search remains keyboard-native; long course titles cannot force page overflow. */
+.searchable-select { min-width: 0; display: grid; gap: 5px; }
+.searchable-select select, .searchable-select input { width: 100%; min-width: 0; max-width: 100%; }
+.searchable-select > label { margin: 0; }
+.searchable-select small { color: #465d6b; font-size: 12px; }
+.skip-link { position: fixed; top: 8px; left: 8px; z-index: 100; padding: 12px 18px; background: white; color: #152b3b; transform: translateY(-160%); border: 2px solid #0f5d69; }
+.skip-link:focus { transform: none; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-color: #006b7b; }
+.table-wrap:focus-visible, .table-scroll:focus-visible { outline: 3px solid #006b7b; outline-offset: 2px; }
+button, .button-link, summary { min-height: 28px; }
+@media (pointer: coarse) { button, .button-link, summary, input:not([type="checkbox"]), select { min-height: 44px; } }
+
+.mapping-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 18px; margin: 16px 0; }
+.import-preview { border: 2px solid #8cacb6; border-radius: 8px; padding: 18px; margin-block: 20px; }
+.preserve-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
+caption { text-align: left; font-weight: 650; padding: 10px 0; }
+
+/* Secondary text remains readable on white and the existing pale surfaces. */
+.step, .file-picker > span:last-child, .import-card > input[type="file"], .metrics span,
+.muted, .finding small, th, td small, footer, .nav-group-label, .nav-number { color: #465d6b; }
+.finding small, td small, th, footer, .nav-group-label { font-size: 12px; }
+::placeholder { color: #536675; opacity: 1; }
+.expand { color: #536675; }

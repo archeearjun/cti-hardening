@@ -144,7 +144,7 @@ const tab = async (name) =>
     .getByRole("button", { name, exact: true })
     .click();
 const openAudit = async () => {
-  await page.getByLabel("Selected source course").selectOption(input.course.id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(input.course.id);
   await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
@@ -235,7 +235,7 @@ try {
     await page
       .getByRole("link", { name: "Open item", exact: false })
       .getAttribute("href"),
-    /itemId=reading/,
+    /content\/item\/supplement\/reading$/,
   );
   await page.locator(".action-card > summary").click();
   assert.equal(

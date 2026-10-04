@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
 import {
@@ -75,9 +74,9 @@ export default function LocalCourseraExtraction({
           <p className="eyebrow">ZERO-COST CAPTURE</p>
           <h2>Extract Coursera in your own Chrome</h2>
           <p>
-            CTI runs the current v6.15.4/schema 35 extractor inside the
-            Coursera tab where you are already signed in. Your computer supplies
-            the browser runtime; Cloudflare Browser Run is not required.
+            CTI runs the current extractor inside the Coursera
+            tab where you are already signed in. Your computer supplies the
+            browser runtime; Cloudflare Browser Run is not required.
           </p>
         </div>
         <span className="badge">No paid browser service</span>
@@ -206,8 +205,8 @@ export default function LocalCourseraExtraction({
         <details className="scope">
           <summary>Manual-copy fallback</summary>
           <p className="hint">
-            This is the same generated v6.15.4 program. Use this only when
-            clipboard permissions block the Copy button.
+            This is the same generated {extractor.version} program. Use this
+            only when clipboard permissions block the Copy button.
           </p>
           <textarea
             className="extractor-source"

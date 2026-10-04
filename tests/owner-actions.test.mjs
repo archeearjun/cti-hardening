@@ -80,10 +80,7 @@ test("item URLs require an exact Coursera host and match the course and item", (
     },
   };
   assert.equal(courseraItemUrl(r, "itemA"), url);
-  assert.equal(
-    courseraItemUrl(r, "other"),
-    "https://www.coursera.org/teach/example/courseA/content/edit?itemId=other",
-  );
+  assert.equal(courseraItemUrl(r, "other"), "");
   assert.equal(courseraItemUrl(r, "../bad"), "");
   assert.equal(
     courseraItemUrl(
@@ -398,6 +395,72 @@ test("ambiguous org units and unsafe URLs do not produce guessed course links", 
         },
       ],
     }).sourceCourseUrl,
+    "",
+  );
+});
+
+test("typed editor recoveries outrank shell query routes across item types", () => {
+  const base = "https://www.coursera.org/teach/example/courseA/content";
+  for (const kind of [
+    "supplement",
+    "project",
+    "plugin",
+    "discussionPrompt",
+    "quiz",
+    "lecture",
+    "peer",
+    "futureEditor",
+  ]) {
+    const r = {
+      stats: {
+        extractorMeta: {
+          page: { url: base + "/edit" },
+          activeSpaCrawl: {
+            targetDiagnostics: [
+              {
+                id: "itemA",
+                route: base + "/edit?itemId=itemA",
+                typedEditorRecovery: {
+                  route: base + "/item/" + kind + "/itemA",
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    assert.equal(
+      courseraItemUrl(r, "itemA"),
+      base + "/item/" + kind + "/itemA",
+    );
+  }
+});
+test("old reports use known route families and leave unknown editor types unresolved", () => {
+  const base = "https://www.coursera.org/teach/example/courseA/content";
+  const r = { stats: { extractorMeta: { page: { url: base + "/edit" } } } };
+  for (const [type, route] of [
+    ["Reading", "supplement"],
+    ["Plugin", "plugin"],
+    ["Discussion", "discussionPrompt"],
+  ]) {
+    assert.equal(
+      courseraItemUrl(r, "itemA", "", { type }),
+      base + "/item/" + route + "/itemA",
+    );
+  }
+  assert.equal(
+    courseraItemUrl(r, "itemA", "", { typeName: "ungradedAssignment" }),
+    base + "/item/project/itemA",
+  );
+  assert.equal(courseraItemUrl(r, "itemA", "", { type: "Assignment" }), "");
+  assert.equal(
+    courseraItemUrl(r, "itemA", "", { url: base + "/item/project/wrong" }),
+    "",
+  );
+  assert.equal(
+    courseraItemUrl(r, "itemA", "", {
+      url: base.replace("courseA", "wrong") + "/item/project/itemA",
+    }),
     "",
   );
 });

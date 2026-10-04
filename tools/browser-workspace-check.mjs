@@ -79,7 +79,7 @@ try {
   await page.getByText("1 records prepared.", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 1 records;", { exact: false }).waitFor();
-  await page.getByLabel("Selected source course").selectOption(input.course.id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(input.course.id);
   await waitIdle();
   await tab("Compare");
   await page.getByLabel("Coursera XLSX (required)").setInputFiles({
@@ -119,7 +119,7 @@ try {
     .click();
   await page.getByText("Checklist saved.", { exact: true }).waitFor();
   await page.reload();
-  await page.getByLabel("Selected source course").selectOption(input.course.id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(input.course.id);
   await waitIdle();
   await tab("Work queue");
   assert(await page.getByLabel("Original IMSCC rescanned").isChecked());
@@ -168,7 +168,7 @@ try {
   const second = await context.newPage();
   await second.goto(base);
   await second
-    .getByLabel("Selected source course")
+    .getByRole("combobox", { name: "Selected source course", exact: true })
     .selectOption(input.course.id);
   await waitIdle(second);
   await tab("Catalogue", second);
@@ -281,7 +281,7 @@ try {
     .getByText("Imported 0 records; skipped 2", { exact: false })
     .waitFor();
   await page
-    .getByLabel("Selected source course")
+    .getByRole("combobox", { name: "Selected source course", exact: true })
     .selectOption(migrationRow[18]);
   await waitIdle();
   // Partial legacy history requires acknowledgement and remains visible after reload.
@@ -342,7 +342,7 @@ try {
     .getByText("1 saved QA reports still need recovery", { exact: true })
     .waitFor();
   await page
-    .getByLabel("Selected source course")
+    .getByRole("combobox", { name: "Selected source course", exact: true })
     .selectOption(migrationRow[18]);
   await waitIdle();
   await tab("History");

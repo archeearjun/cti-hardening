@@ -163,6 +163,9 @@ export default function App() {
   );
   return (
     <>
+      <a className="skip-link" href="#main">
+        Skip to main content
+      </a>
       <header className="topbar">
         <a className="brand" href="#main">
           <span className="brand-icon">CTI</span>
@@ -170,7 +173,7 @@ export default function App() {
         </a>
         <span className="badge">Source → ingestion → review</span>
       </header>
-      <main id="main">
+      <main id="main" tabIndex={-1}>
         <nav className="workspace-tabs" aria-label="Choose a workspace">
           <button
             className={workspace === "full" ? "primary" : "secondary"}
@@ -580,14 +583,19 @@ export default function App() {
                   Captured item inventory{" "}
                   <span className="muted">{result.items.length} items</span>
                 </summary>
-                <div className="table-scroll">
+                <div
+                  className="table-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Scrollable data table"
+                >
                   <table>
                     <thead>
                       <tr>
-                        <th>Item / ID</th>
-                        <th>Type</th>
-                        <th>Path</th>
-                        <th>Question definitions</th>
+                        <th scope="col">Item / ID</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Path</th>
+                        <th scope="col">Question definitions</th>
                       </tr>
                     </thead>
                     <tbody>
