@@ -61,6 +61,8 @@ jobs:
         run: npm run test:browser:ux
       - name: Verify owner actions in Chromium
         run: npm run test:browser:owner
+      - name: Verify assessment choice layout in Chromium
+        run: npm run test:browser:choices
       - name: Preserve browser screenshots
         if: always()
         uses: actions/upload-artifact@v4

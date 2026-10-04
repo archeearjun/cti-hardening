@@ -18,6 +18,7 @@
     "test:browser:workspace": "node tools/browser-workspace-check.mjs",
     "test:browser:ux": "node tools/browser-ux-check.mjs",
     "test:browser:owner": "node tools/browser-owner-actions-check.mjs",
+    "test:browser:choices": "node tools/browser-assessment-choices-check.mjs",
     "check:modules": "node tools/check-modules.mjs",
     "audit:parity": "npm run generate && node --test tests/code-gs-parity.test.mjs",
     "test:engine": "npm run generate && node --test tests/modular-engine.test.mjs tests/workflows.test.mjs tests/assessment-guidance.test.mjs tests/brightspace-definition-coverage.test.mjs tests/field-evidence.test.mjs",

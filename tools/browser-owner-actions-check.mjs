@@ -264,7 +264,7 @@ try {
     .getByRole("button", { name: "Copy this item’s current check", exact: true })
     .click();
   await page
-    .getByText("Current v6.15.7 item check copied.", { exact: false })
+    .getByText("Current v6.15.8 item check copied.", { exact: false })
     .waitFor();
   const script = await page.evaluate(() => navigator.clipboard.readText());
   assert(script.includes("owner-action-audit"));

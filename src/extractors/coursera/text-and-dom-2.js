@@ -55,22 +55,28 @@ export function exactReadingBodyV61318(root, fp) {
 
 export function choiceControlVisibilityV61320(control,part) {
     const out={accepted:false,reason:'OUTSIDE_PART',depth:0};
-    if(!control || !part || !part.contains(control) || !control.isConnected || !isVisibleElement(part))return out;
+    if(!control || !part || !part.contains(control) || !control.isConnected || !part.isConnected)return out;
     const native=String(control.tagName || '').toLowerCase()==='input' && /^(radio|checkbox)$/.test(control.getAttribute('type') || '');
-    if(!native && !isVisibleElement(control)){out.reason='INVISIBLE_NON_NATIVE_CONTROL';return out;}
-    // Walk the actual containing part, not a short guess about wrapper depth.
-    // The native control alone may be transparent; its visible label is checked later.
+    // A structural part can have no layout box (e.g. display:contents) while
+    // its choices are rendered. Check the control and its visible label, and
+    // reject hidden ancestry through the document, including above the part.
+    // Only the native input itself may be transparent for a styled control.
+    let reachedPart=false;
     for(let node=control,depth=0;node && depth<128;node=node.parentElement,depth++) {
       out.depth=depth;
       try {
         const style=getComputedStyle(node);
         const hidden=node.getAttribute('hidden')!==null || node.getAttribute('aria-hidden')==='true';
         if(hidden || style.display==='none' || style.visibility==='hidden' || style.visibility==='collapse' ||
-          (node!==control && Number(style.opacity || 1)===0)) {
+          (!(native && node===control) && Number(style.opacity || 1)===0)) {
           out.reason='HIDDEN_CONTAINER';out.blockedTag=node.tagName;out.blockedTestId=node.getAttribute('data-testid') || '';return out;
         }
       } catch(_){out.reason='STYLE_UNAVAILABLE';return out;}
-      if(node===part){out.accepted=true;out.reason='VISIBLE_PART_CHAIN';return out;}
+      if(node===part)reachedPart=true;
+      if(!node.parentElement && reachedPart){
+        if(!native && !isVisibleElement(control)){out.reason='INVISIBLE_NON_NATIVE_CONTROL';return out;}
+        out.accepted=true;out.reason='VISIBLE_PART_CHAIN';return out;
+      }
     }
     out.reason='PART_CHAIN_LIMIT';return out;
   }
@@ -121,8 +127,9 @@ export function unmarkedChoiceProbeV61320(part,fp,ordinal) {
     }
     if(types.size!==1){out.reason='MIXED_CHOICE_CONTROLS';return out;}
     const type=types.has('checkbox')?'multiple-select':'single-select';
+    const points=flat.match(/\b([0-9]+(?:\.[0-9]+)?)\s*points?\b/i);
     out.question={id:String(ordinal || 1),type,rawType:type,prompt:boundary[1].trim(),options:rows,
-      correctAnswers:[],points:Number((flat.match(/\b([0-9]+(?:\.[0-9]+)?)\s*points?\b/i) || [])[1]) || null,
+      correctAnswers:[],points:points?Number(points[1]):null,
       optionTextReliable:true,answerTextReliable:false,parserConfidence:0.90,
       promptBoundaryEvidence:{method:'EXPLICIT_REQUIRED_FIELD',boundary:boundary[2]+' *'},
       responseTypeEvidence:{method:'OBSERVED_CHOICE_CONTROLS',controlType:[...types][0]},

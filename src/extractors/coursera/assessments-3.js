@@ -217,7 +217,7 @@ export function parseAssignmentPartDomV665(part, fp, ordinal, navLabel) {
     const text = rawText.replace(/\s+/g, ' ').trim();
     if (!text || !/\bPrompt\b/i.test(text)) return shallow && shallow.prompt ? shallow : null;
 
-    const pm = text.match(/\bPrompt\s*\*?\s*(.+?)(?=\s+Options\s*\*?|\s+Correct Answers?\b|\s+Incorrect Answers?\b|\s+Explanation\b|\s+Export Settings\b|$)/i);
+    const pm = text.match(/\bPrompt\s*\*?\s*(.+?)(?=\s+Options\s*\*?|\s+Answers\s*\*|\s+Correct Answers?\b|\s+Incorrect Answers?\b|\s+Explanation\b|\s+Export Settings\b|$)/i);
     const prompt = pm && pm[1] ? String(pm[1]).replace(/\s+/g, ' ').trim() : '';
     if (!prompt || prompt.length < 8) return shallow && shallow.prompt ? shallow : null;
 

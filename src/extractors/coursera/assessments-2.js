@@ -379,7 +379,7 @@ export function parseSelectedAssessmentQuestionV662(surfaceRoot, fp, ordinal, na
     const tm = text.match(/\bQuestion\s*Type\s+(.+?)\s+Prompt\b/i);
     if (tm && tm[1]) rawType = String(tm[1]).trim();
 
-    const promptMatch = text.match(/\bPrompt\s*\*?\s*(.+?)(?=\s+Options\s*\*?|\s+Correct Answers?\b|\s+Incorrect Answers?\b|\s+Explanation\b|\s+Export Settings\b|\s+Question\s*Type\b|$)/i);
+    const promptMatch = text.match(/\bPrompt\s*\*?\s*(.+?)(?=\s+Options\s*\*?|\s+Answers\s*\*|\s+Correct Answers?\b|\s+Incorrect Answers?\b|\s+Explanation\b|\s+Export Settings\b|\s+Question\s*Type\b|$)/i);
     let prompt = promptMatch && promptMatch[1] ? String(promptMatch[1]).replace(/\s+/g, " ").trim() : "";
     if (!prompt || prompt.length < 8) return null;
 
