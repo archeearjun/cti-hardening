@@ -1,3 +1,4 @@
+import { fetchSourceQuestions } from "../server/source-questions.ts";
 import fs from "node:fs";
 import http from "node:http";
 import assert from "node:assert/strict";
@@ -117,6 +118,9 @@ item.actions = [
 ];
 output.result.itemResults[0].checks.links.missing = [
   "https://example.test/guide",
+];
+output.result.itemResults[0].checks.links.expected = [
+  "https://opentextbc.ca/synthetic/chapter/quiz/",
 ];
 const audit = {
   ...input.course,
@@ -339,6 +343,73 @@ try {
   await page
     .getByText("8 fewer native question positions", { exact: false })
     .waitFor();
+  const sourceRow = buildOwnerTasks(
+    output.result,
+    input.course.data.scan.courseTree,
+  )[0].questionComparisons[0];
+  const sourceCapture = await fetchSourceQuestions(
+    sourceRow.sourceKey,
+    sourceRow.sourceUrls[0],
+    async () =>
+      new Response(
+        "<script>H5PIntegration = " +
+          JSON.stringify({
+            contents: {
+              "cid-1": {
+                library: "H5P.QuestionSet 1.17",
+                jsonContent: JSON.stringify({
+                  questions: Array.from({ length: 10 }, (_, i) => ({
+                    library: "H5P.MultiChoice 1.16",
+                    params: { question: "Source question " + (i + 1) },
+                  })),
+                }),
+              },
+            },
+          }) +
+          ";</script>",
+        { headers: { "Content-Type": "text/html" } },
+      ),
+  );
+  let fetchFails = false;
+  await page.route("**/api/source-questions", async (route) => {
+    const request = route.request().postDataJSON();
+    assert.equal(request.sourceKey, sourceRow.sourceKey);
+    assert.equal(request.targetUrl, sourceRow.sourceUrls[0]);
+    await route.fulfill({
+      status: fetchFails ? 403 : 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        fetchFails ? { error: "Source permission denied" } : sourceCapture,
+      ),
+    });
+  });
+  await page
+    .getByRole("button", { name: "Fetch source questions", exact: true })
+    .click();
+  await page
+    .getByText("Source questions fetched and saved: 10.", { exact: false })
+    .waitFor();
+  await page
+    .getByText("Automatically read source definitions", { exact: false })
+    .waitFor();
+  assert.match(
+    await page.locator(".question-count-values dd").first().innerText(),
+    /^10 — Automatically captured H5P question-bank definitions[\s\S]*Original audit capture: Unverified/,
+    "The current automatic bank must be primary while the original unknown capture stays distinct",
+  );
+  fetchFails = true;
+  await page
+    .getByRole("button", { name: "Refresh source questions", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Source permission denied" })
+    .waitFor();
+  assert(
+    await page
+      .getByText("Automatically read source definitions", { exact: false })
+      .count(),
+  );
   await page.getByLabel("Item outcome").selectOption("checked");
   await page.getByRole("button", { name: "Save item outcome" }).click();
   await page.getByRole("alert").filter({ hasText: "short note" }).waitFor();
@@ -385,6 +456,11 @@ try {
   );
   assert.equal(data.followUp.reviews.length, 1);
   assert.equal(data.followUp.reviews[0].sourceCounts[0].count, 10);
+  assert.equal(data.followUp.reviews[0].sourceCaptures[0].bank.count, 10);
+  assert.equal(
+    data.followUp.questionComparisons[0].questionComparisons[0].source.count,
+    10,
+  );
   assert.equal(
     data.followUp.questionComparisons[0].questionComparisons[0].coursera.count,
     2,
@@ -409,6 +485,7 @@ try {
     /Confirmed source guide opens in the learner preview/,
   );
   assert.match(exportedText, /Reviewed source reference: 10/);
+  assert.match(exportedText, /Automatic source capture:/);
   assert.match(exportedText, /8 fewer native question positions/);
   assert(exportedText.endsWith(output.report));
   await page.getByRole("button", { name: "Copy report", exact: true }).click();
@@ -471,6 +548,7 @@ try {
           "text, clipboard and JSON exports include saved follow-ups after reload",
           "exports explicitly identify reports without follow-ups",
           "source count reference validation, persistence, scoped counts and exports",
+          "automatic source fetch, failed refresh preserving previous source evidence, and exported bank count",
           "390px layout",
         ],
         screenshots: shots,

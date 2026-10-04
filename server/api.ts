@@ -1,3 +1,4 @@
+import { fetchSourceQuestions } from "./source-questions.ts";
 import { validateRecord } from "../src/domain/workspace-validation.ts";
 import {
   normalizePartnerName,
@@ -236,6 +237,36 @@ export async function handleAuthorized(
       fail("Cross-origin writes are not allowed.", 403);
     if (!["admin", "editor"].includes(user.role))
       fail("Your account has read-only access.", 403);
+  }
+  if (p[0] === "source-questions" && p.length === 1 && method === "POST") {
+    const bytes = await boundedBody(request, 12000);
+    let input: unknown;
+    try {
+      input = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      fail("Invalid source question request.");
+    }
+    if (
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      !("sourceKey" in input) ||
+      !("targetUrl" in input) ||
+      typeof input.sourceKey !== "string" ||
+      typeof input.targetUrl !== "string"
+    )
+      return response(
+        { error: "An exact source identity and URL are required." },
+        400,
+      );
+    return response(
+      await fetchSourceQuestions(
+        input.sourceKey,
+        input.targetUrl,
+        fetch,
+        request.signal,
+      ),
+    );
   }
   if (p[0] === "extraction") {
     if (!extractor)

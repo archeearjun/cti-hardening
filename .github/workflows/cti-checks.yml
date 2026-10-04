@@ -19,6 +19,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run worker:check
+      - name: Probe public source definitions (diagnostic, no credentials)
+        run: node tools/check-public-source-questions.mjs
 
   publish-pages-branch:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

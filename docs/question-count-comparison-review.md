@@ -48,13 +48,18 @@ destinations. Their source evidence consists of external wrapper URLs.
 
 ## Limits and operation
 
-This change does not automatically crawl cross-origin quiz banks or infer counts
-from titles, screenshots or generic page text. It does not insert course-specific
-counts into code. The separately researched publisher lists (10 Percentage,
-11 Decimals, 9 Units questions) must be recorded as reviewed references to appear
-as source expectations; they are not verified live H5P bank captures. Existing
+The initial count-presentation change did not automatically crawl external quiz
+banks. The subsequent [automatic source fetch](automatic-source-questions.md)
+now reads supported public BCcampus H5P definitions from the recorded source URL.
+Counts are never inferred from titles, screenshots or generic page text. It does not insert course-specific
+counts into code. The initial publisher-list research established 10 Percentage, 11 Decimals and
+9 Units questions. The later automatic-source probe independently read these
+H5P banks and also observed that Decimals selects 10 from its bank of 11. Saved
+automatic source captures can now supply these expectations; the earlier
+research alone remains separate from the original saved audit. Existing
 saved reports can be opened and exported without a full-course recrawl. Users
-can save reviewed references on the affected item card. A working embedded
+can fetch supported source definitions from the item card; reviewed references
+remain a fallback for unsupported sources. A working embedded
 activity remains a legitimate way to preserve questions without native question
 records. No deployment configuration, database migration, or extractor version
 change is required.
