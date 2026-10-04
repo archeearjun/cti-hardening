@@ -12,7 +12,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Source item links, captured topic identity, course URLs | `src/domain/source-navigation.ts`, `owner-urls.ts` | `npm run test:navigation` |
 | Owner tasks, manual review | `src/domain/owner-actions.ts`, `web/OwnerActionCard.tsx` | `npm run test:navigation` |
 | Focused item/plugin checks | `src/domain/item-check.ts`, `plugin-check.ts` | `npm run test:navigation` |
-| Coursera capture | `src/extractors/coursera/` | `npm run test:extractors` |
+| Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |
 | Brightspace capture | `src/extractors/brightspace/` | `npm run test:extractors` |
 | Source topic matching and source assessment definitions | `src/engine/source/brightspace-matching.js`, `brightspace-assessment.js` | `npm run test:engine` |
 | Assessment questions, answers, behaviour, rubrics | `src/engine/assessment/` | `npm run test:engine` |

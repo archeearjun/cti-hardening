@@ -465,6 +465,13 @@ export function compactDiagnosticV6150(diag, fp) {
       reason: String(x.reason || ""),
       parsedType: String(x.parsedType || ""),
       parsedChoices: Number(x.parsedChoices || 0),
+      // Preserve bounded rejection reasons, without option text or DOM dumps.
+      controls: (x.controls || []).slice(0, 16).map((control) => ({
+        type: String(control.type || ""),
+        accepted: control.accepted === true,
+        reason: String(control.reason || ""),
+        depth: Number(control.depth || 0),
+      })),
     }));
   diag.controlAttempts = (diag.controlAttempts || []).slice(-12);
   diag.responseSummaries = (diag.responseSummaries || []).slice(-5);

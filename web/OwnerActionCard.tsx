@@ -120,12 +120,13 @@ export default function OwnerActionCard({
     if (!spec) return;
     await act("Preparing this item’s check…", async () => {
       const { getExtractor } = await import("../src/domain/capture-review.ts");
-      const text = buildItemCheckScript(getExtractor("coursera"), spec);
+      const delivery = getExtractor("coursera");
+      const text = buildItemCheckScript(delivery, spec);
       setScript(text);
       try {
         await navigator.clipboard.writeText(text);
         setMessage(
-          "Current v6.15.7 item check copied. Open this exact Coursera item in your normal signed-in Chrome tab, run it in DevTools → Console, then import the downloaded JSON here.",
+          `Current ${delivery.version} item check copied. Open this exact Coursera item in your normal signed-in Chrome tab, run it in DevTools → Console, then import the downloaded JSON here.`,
         );
       } catch {
         setMessage(
