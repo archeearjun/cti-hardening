@@ -1,4 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { loadReportContent } from "../src/domain/report-content-store";
+import OriginalContentImport from "./OriginalContentImport";
+import {
+  validateContentSnapshot,
+  type ContentSnapshot,
+} from "../src/domain/content-evidence";
 import OwnerActionCard from "./OwnerActionCard";
 import {
   buildOwnerTasks,
@@ -44,6 +50,39 @@ export default function OwnerEvidence({
     [show, setShow] = useState("attention"),
     [limit, setLimit] = useState(40);
   const [courseUrl, setCourseUrl] = useState("");
+  const [contentState, setContentState] = useState<{
+    snapshot?: ContentSnapshot;
+    error: string;
+  }>({ error: "" });
+  useEffect(() => {
+    let alive = true;
+    const read = async () => {
+      try {
+        const snapshot =
+          store && auditId && course
+            ? await loadReportContent(
+                report,
+                auditId,
+                course.id,
+                store,
+                records,
+              )
+            : report.contentEvidence;
+        if (snapshot) validateContentSnapshot(snapshot);
+        if (alive) setContentState({ snapshot, error: "" });
+      } catch (e) {
+        if (alive)
+          setContentState((previous) => ({
+            ...previous,
+            error: e instanceof Error ? e.message : String(e),
+          }));
+      }
+    };
+    void read();
+    return () => {
+      alive = false;
+    };
+  }, [report, auditId, course?.id, store, records]);
   const sourceMatches =
     !report.sourceScanSha256 ||
     report.sourceScanSha256 === course?.data.scan?.fileSha256;
@@ -168,6 +207,18 @@ export default function OwnerEvidence({
           </small>
         </label>
       )}
+      {contentState.error && (
+        <p role="alert">
+          {contentState.error} Invalid content has not been shown as verified
+          evidence.
+        </p>
+      )}
+      <OriginalContentImport
+        report={report}
+        auditId={auditId}
+        store={store}
+        onSaved={onSaved}
+      />
       {!sourceMatches && (
         <p className="scope">
           The saved source scan has changed since this report. Its newer content
@@ -247,6 +298,7 @@ export default function OwnerEvidence({
             context={sourceContext}
             courseLocation={location}
             onOpenExtraction={onOpenExtraction}
+            contentSnapshot={contentState.snapshot}
           />
         </div>
       ))}

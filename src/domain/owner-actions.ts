@@ -4,6 +4,8 @@ import {
 } from "./external-source-questions.ts";
 import {
   questionComparison,
+  sourceContentTarget,
+  type SourceContentTarget,
   validateReviewedSourceCounts,
   type QuestionComparison,
   type ReviewedSourceCount,
@@ -41,6 +43,7 @@ export interface OwnerTask {
   url: string;
   questionSummary: string[];
   questionComparisons: QuestionComparison[];
+  sourceTargets: SourceContentTarget[];
   checks: ItemExpectation[];
   sourceOnly: boolean;
   pluginTargets: string[];
@@ -208,6 +211,13 @@ export function buildOwnerTasks(
       .map((r) => questionComparison(r, sourceFor(r, nodes), { ...item, id }))
       .filter((row): row is QuestionComparison => row !== null);
     return {
+      sourceTargets: findings
+        .map((r) => sourceContentTarget(r, sourceFor(r, nodes)))
+        .filter(
+          (r, i, all) =>
+            r.sourceKey &&
+            all.findIndex((x) => x.sourceKey === r.sourceKey) === i,
+        ),
       questionComparisons,
       key: sourceOnly
         ? `source:${index}:${item.path}:${item.name}`

@@ -1,4 +1,5 @@
 import { safeWebUrl } from "./owner-urls.ts";
+import { contentText } from "./content-evidence.ts";
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj =>
@@ -8,6 +9,11 @@ export interface SourceQuestionDefinition {
   id: string;
   library: string;
   prompt: string;
+  promptTruncated?: boolean;
+  options?: { id: string; text: string }[];
+  optionTextReliable?: boolean;
+  mediaRefs?: string[];
+  mediaTruncated?: boolean;
 }
 export interface SourceQuestionBank {
   id: string;
@@ -23,9 +29,16 @@ export interface SourceQuestionCapture {
   sourceKey: string;
   targetUrl: string;
   capturedAt: string;
-  status: "CAPTURED" | "UNVERIFIED";
+  status: "CAPTURED" | "PARTIAL" | "UNVERIFIED";
   reason: string;
   bank: SourceQuestionBank | null;
+  pages?: {
+    url: string;
+    text: string;
+    observedCharacters: number;
+    truncated: boolean;
+  }[];
+  observedBanks?: SourceQuestionBank[];
   documents: { url: string; sha256: string; bytes: number }[];
   sourceLinkBasis: "RECORDED_SOURCE_LINK";
   automatedResolution: false;
@@ -74,25 +87,50 @@ export function samePublicBook(value: unknown, initial: string): string {
     ? valid
     : "";
 }
-function plain(value: unknown): string {
-  return str(value)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(
-      /&(?:nbsp|amp|lt|gt|quot|#39);/g,
-      (v) =>
-        ({
-          "&nbsp;": " ",
-          "&amp;": "&",
-          "&lt;": "<",
-          "&gt;": ">",
-          "&quot;": '"',
-          "&#39;": "'",
-        })[v] || v,
-    )
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 6000);
+export function publicPageText(html: string, url: string) {
+  // An identified document body is useful partial evidence, never proof that
+  // embedded or dynamically loaded screens were read. Do not collect site chrome.
+  const main =
+    html.match(/<main\b[^>]*>([\s\S]*?)<\/main\s*>/i) ||
+    html.match(/<article\b[^>]*>([\s\S]*?)<\/article\s*>/i);
+  if (!main) return null;
+  const text = contentText(main[1])
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n/g, "\n\n");
+  return {
+    url,
+    text: text.slice(0, 48000),
+    observedCharacters: text.length,
+    truncated: text.length > 48000,
+  };
+}
+function questionMedia(value: unknown) {
+  const refs = new Set<string>();
+  let visited = 0,
+    truncated = false;
+  function walk(v: unknown, depth: number, key = "") {
+    if (++visited > 1000 || depth > 8) {
+      truncated = true;
+      return;
+    }
+    if (typeof v === "string") {
+      if (["path", "url", "src"].includes(key) && v && v.length < 4000)
+        refs.add(v);
+      for (const m of v.matchAll(
+        /<(?:img|video|audio|source|iframe)\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1/gi,
+      ))
+        if (m[2].length < 4000) refs.add(m[2].replace(/&amp;/g, "&"));
+    } else if (v && typeof v === "object")
+      for (const [k, x] of Object.entries(v)) {
+        if (visited > 1000) break;
+        walk(x, depth + 1, k);
+      }
+  }
+  walk(value, 0);
+  return {
+    mediaRefs: [...refs].slice(0, 200),
+    mediaTruncated: truncated || refs.size > 200,
+  };
 }
 function jsonObjectAt(source: string, offset: number): unknown {
   if (source[offset] !== "{") throw Error("H5P definition is not JSON.");
@@ -159,12 +197,28 @@ export function readH5PQuestionSets(html: string): {
                 lib = str(v.library).split(" ")[0];
               if (!/^H5P\.[A-Za-z0-9]+$/.test(lib))
                 throw Error("Question library missing.");
+              const prompt = contentText(
+                p.question || p.text || p.taskDescription || p.introduction,
+              );
+              const answers = Array.isArray(p.answers) ? p.answers : [];
               return {
+                ...questionMedia(p),
                 id: str(v.subContentId) || String(index + 1),
                 library: lib,
-                prompt: plain(
-                  p.question || p.text || p.taskDescription || p.introduction,
-                ),
+                prompt: prompt.slice(0, 48000),
+                promptTruncated: prompt.length > 48000,
+                options: answers.slice(0, 200).map((v, i) => ({
+                  id: String(i + 1),
+                  text: contentText(obj(v).text).slice(0, 48000),
+                })),
+                optionTextReliable:
+                  answers.length > 0 &&
+                  answers.length <= 200 &&
+                  answers.every(
+                    (v) =>
+                      typeof obj(v).text === "string" &&
+                      contentText(obj(v).text).length <= 48000,
+                  ),
               };
             },
           );
@@ -241,7 +295,7 @@ export function validateSourceQuestionCapture(
     str(v.sourceKey).length > 4000 ||
     !publicSourceUrl(v.targetUrl) ||
     !Number.isFinite(Date.parse(str(v.capturedAt))) ||
-    !["CAPTURED", "UNVERIFIED"].includes(str(v.status)) ||
+    !["CAPTURED", "PARTIAL", "UNVERIFIED"].includes(str(v.status)) ||
     str(v.reason).length > 2000 ||
     !Array.isArray(v.documents) ||
     v.documents.length > 6 ||
@@ -260,14 +314,50 @@ export function validateSourceQuestionCapture(
     )
       throw Error("Invalid source document receipt.");
   }
-  if (v.status === "UNVERIFIED") {
+  if (v.pages !== undefined) {
+    if (!Array.isArray(v.pages) || v.pages.length > 6)
+      throw Error("Invalid source page evidence.");
+    for (const page of v.pages) {
+      const p = obj(page);
+      if (
+        !samePublicBook(p.url, str(v.targetUrl)) ||
+        typeof p.text !== "string" ||
+        p.text.length > 48000 ||
+        !Number.isSafeInteger(p.observedCharacters) ||
+        Number(p.observedCharacters) < p.text.length ||
+        typeof p.truncated !== "boolean" ||
+        p.truncated !== Number(p.observedCharacters) > p.text.length
+      )
+        throw Error("Invalid source page text.");
+    }
+  }
+  if (v.observedBanks !== undefined) {
+    if (!Array.isArray(v.observedBanks) || v.observedBanks.length > 50)
+      throw Error("Invalid observed source banks.");
+    for (const bank of v.observedBanks) validateBank(bank);
+  }
+  if (v.status !== "CAPTURED") {
     if (v.bank !== null)
       throw Error("Unverified evidence cannot declare a complete source bank.");
+    if (
+      v.status === "PARTIAL" &&
+      (!v.documents.length ||
+        !(
+          (Array.isArray(v.pages) && v.pages.some((p) => str(obj(p).text))) ||
+          (Array.isArray(v.observedBanks) && v.observedBanks.length)
+        ))
+    )
+      throw Error(
+        "Partial source evidence needs retained content and source receipts.",
+      );
     return;
   }
-  const b = obj(v.bank);
+  if (!v.documents.length) throw Error("Source document receipt missing.");
+  validateBank(v.bank);
+}
+function validateBank(value: unknown) {
+  const b = obj(value);
   if (
-    !v.documents.length ||
     b.library !== "H5P.QuestionSet" ||
     !str(b.id) ||
     !Array.isArray(b.questions) ||
@@ -286,7 +376,28 @@ export function validateSourceQuestionCapture(
       !str(question.id) ||
       !/^H5P\.[A-Za-z0-9]+$/.test(str(question.library)) ||
       typeof question.prompt !== "string" ||
-      question.prompt.length > 6000
+      question.prompt.length > 48000 ||
+      (question.promptTruncated !== undefined &&
+        typeof question.promptTruncated !== "boolean") ||
+      (question.optionTextReliable !== undefined &&
+        typeof question.optionTextReliable !== "boolean") ||
+      (question.mediaTruncated !== undefined &&
+        typeof question.mediaTruncated !== "boolean") ||
+      (question.mediaRefs !== undefined &&
+        (!Array.isArray(question.mediaRefs) ||
+          question.mediaRefs.length > 200 ||
+          question.mediaRefs.some(
+            (r) => typeof r !== "string" || r.length > 4000,
+          ))) ||
+      (question.options !== undefined &&
+        (!Array.isArray(question.options) ||
+          question.options.length > 200 ||
+          question.options.some(
+            (v) =>
+              typeof obj(v).id !== "string" ||
+              typeof obj(v).text !== "string" ||
+              str(obj(v).text).length > 48000,
+          )))
     )
       throw Error("Source question definitions are invalid.");
   }
