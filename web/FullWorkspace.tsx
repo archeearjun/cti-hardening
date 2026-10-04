@@ -245,7 +245,6 @@ export default function FullWorkspace({
         r.data.partner,
         r.data.owner,
         r.data.scan?.fileName,
-        r.id,
       ) &&
       (!partnerFilter || r.data.partner === partnerFilter) &&
       (!statusFilter || r.data.status === statusFilter),
@@ -658,7 +657,7 @@ export default function FullWorkspace({
             options={courses.map((r) => ({
               value: r.id,
               label: `${r.title} · ${r.data.partner}`,
-              searchText: [r.id, r.data.owner, r.data.scan?.fileName].join(" "),
+              searchText: [r.data.owner, r.data.scan?.fileName].join(" "),
             }))}
           />
           {course ? (
@@ -1908,7 +1907,6 @@ export default function FullWorkspace({
                           r.data.owner,
                           r.data.partner,
                           r.data.scan?.fileName,
-                          r.id,
                         ),
                     )
                     .map((r) => (

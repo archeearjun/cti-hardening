@@ -33,8 +33,10 @@ export default function SearchableSelect({
 }) {
   const id = useId();
   const [query, setQuery] = useState("");
-  const matches = options.filter((option) =>
-    matchesSearch(query, option.label, option.searchText),
+  const matches = options.filter(
+    (option) =>
+      query.trim().toLowerCase() === option.value.toLowerCase() ||
+      matchesSearch(query, option.label, option.searchText),
   );
   const selected = options.find((option) => option.value === value);
   const retained =
