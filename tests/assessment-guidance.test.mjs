@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {buildPostQaText_} from '../src/reporting/owner-report.js';
+import {qaAssessmentAnswerEvidenceText_} from '../src/reporting/assessment-evidence.js';
+import {qaEvidenceDimensionsV8_} from '../src/engine/hardening.js';
 const c=createRequire(import.meta.url)('../tools/check.cjs');
 
 function comparison({media=false,sourceGap=false}={}) {
@@ -14,6 +16,68 @@ function comparison({media=false,sourceGap=false}={}) {
 }
 function result(q){return {courseraId:'exam',courseraName:'Test exam',sourceName:'Source exam',verdict:'PAYLOAD_UNVERIFIED',issues:['PAYLOAD_UNVERIFIED'],checks:{structuredAssessment:q}};}
 function readiness(q,version=c.CTI_RELEASE_REGISTRY_.courseraExtractor.version){return c.qaCourseraCaptureReadiness_({buildId:version},[result(q)]);}
+
+// Reproduces the live survey's shape without publishing private course content:
+// declared/captured positions agree, while types and options were not captured.
+function unknownDestinationComparison(sourceKeys=false) {
+  const sourceQuestions=['one','two'].map((id)=>({id,type:'single-select',prompt:'Choose the route to station '+id,
+    options:[{text:'North',correct:sourceKeys?true:null},{text:'South',correct:sourceKeys?false:null}],
+    correctAnswers:sourceKeys?['North']:[],answerTextReliable:sourceKeys}));
+  const assessment=(questions)=>({parser:'ims-qti-dom-v4',parserConfidence:.95,declaredQuestionCount:2,questions});
+  const destination=assessment(sourceQuestions.map(({id,prompt})=>({id,prompt,type:'unknown',options:[],correctAnswers:[],optionTextReliable:false,answerTextReliable:false})));
+  destination.captureCompleteness={declared:2,captured:2,questionCoverageComplete:true,requiredAnswerCoverageComplete:false,missingQuestionOrdinals:[],missingRequiredAnswerOrdinals:[1,2]};
+  return c.qaStructuredAssessmentComparison_({isStructuredAssessment:true,structuredAssessment:assessment(sourceQuestions)},{structuredAssessment:destination});
+}
+
+test('Unknown destination types cannot turn zero answerable questions into complete keys',()=>{
+  const q=unknownDestinationComparison();
+  assert.equal(q.unknownTypeCount,2);
+  assert.equal(q.courseraAnswerableQuestionCount,0);
+  assert.equal(q.courseraAnswerEvidenceQuestionCount,0);
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_(q,'source'),'INCOMPLETE');
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_(q,'coursera'),'UNKNOWN');
+  const r=readiness(q);
+  assert.equal(r.status,'ASSESSMENT_EVIDENCE_REVIEW');
+  assert.equal(r.assessmentGaps[0].sourceEvidenceOnly,false);
+  assert.equal(r.assessmentGaps[0].unknownQuestionTypeCount,2);
+  assert.match(r.action,/question types, options, and applicable answer keys/);
+  const action=c.qaOwnerActionForResult_(result(q)).action;
+  assert.match(action,/2 source\/destination question type\(s\) remain unknown/);
+  assert.match(action,/focused item check or manual inspection/);
+  assert.doesNotMatch(action,/remaining gap is source answer evidence|capture the unobserved questions/);
+  const report=buildPostQaText_({success:true,captureReadiness:r,summary:{headlineStatus:'REVIEW'},itemResults:[],missing:[],injected:[]});
+  assert.match(report,/unknown\/unsupported question types=2/);
+  assert.doesNotMatch(report,/captured destination keys complete|SOURCE_ASSESSMENT_EVIDENCE_REVIEW/);
+});
+
+test('Unknown destination fields remain visible even when source keys are complete',()=>{
+  const q=unknownDestinationComparison(true);
+  assert.equal(q.answerEvidenceCoverage,null);
+  assert.match(qaAssessmentAnswerEvidenceText_(q),/not established.*unknown/);
+  assert.equal(qaEvidenceDimensionsV8_({isStructuredAssessment:true},{},result(q)).answers.status,'UNVERIFIED');
+  assert.equal(q.status,'UNVERIFIED');
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_(q,'source'),'COMPLETE');
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_(q,'coursera'),'UNKNOWN');
+  assert.equal(readiness(q).status,'ASSESSMENT_EVIDENCE_REVIEW');
+  assert.equal(readiness(q).assessmentGaps.length,1);
+});
+
+test('Explicit incomplete key capture and unknown unmatched types cannot receive complete evidence advice',()=>{
+  const q=comparison();
+  q.courseraCaptureCompleteness={requiredAnswerCoverageComplete:false};
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_(q,'coursera'),'INCOMPLETE');
+  q.questionResults=[];q.unknownTypeCount=1;
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_(q,'coursera'),'UNKNOWN');
+  assert.equal(c.qaAssessmentAnswerEvidenceSide_({...q,answerEvidenceApplicable:false},'coursera'),'NOT_APPLICABLE');
+});
+
+test('Unknown types do not hide missing positions or independently confirmed course failures',()=>{
+  const q=unknownDestinationComparison();q.courseraDeclaredQuestionCount=3;
+  assert.equal(readiness(q).status,'CAPTURE_INCOMPLETE');
+  assert.match(c.qaOwnerActionForResult_(result(q)).action,/capture the unobserved/);
+  const r=result(q);r.verdict='INGESTION_FAILURE';r.issues.push('INGESTION_FAILURE');r.checks.ingestionFailure={codes:['QUESTION_IMAGE_CREATION_ERROR']};
+  assert.equal(c.qaOwnerActionForResult_(r).severity,'CRITICAL');
+});
 
 test('Media-only review retains the image check without inventing missing questions',()=>{
   const q=comparison({media:true}),original=JSON.stringify(q);

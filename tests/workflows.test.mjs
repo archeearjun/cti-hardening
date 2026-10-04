@@ -331,7 +331,7 @@ test(
     delete actual.workspaceWarnings;
     // This unchanged fixture must preserve every evidence decision. Explicitly
     // assert the distinct release identities before comparing its behavior.
-    assert.equal(actual.engineBuildId, "v8.0.0-corpus-convergence-20261004");
+    assert.equal(actual.engineBuildId, "v8.0.0-unknown-assessment-evidence-20261004");
     assert.equal(expected.engineBuildId, "v8.0.0-source-item-evidence-20260930");
     delete actual.engineBuildId;
     delete expected.engineBuildId;

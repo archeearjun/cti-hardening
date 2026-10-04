@@ -265,6 +265,9 @@ export function qaOwnerActionForResult_(result) {
             if(qaConfirmedEmptyComparison_(result)) {
                 if(severity==='NONE' || severity==='EVIDENCE')severity='REVIEW';
                 actions.push('This destination assignment is confirmed empty; the matched source contains '+sa.sourceQuestionCount+' question definitions. Check their intended placement and any approved exclusion, then restore them here only if required and not already preserved elsewhere. Repeating the same extraction is not needed to establish this empty state.');
+            } else if(Number(sa.unknownTypeCount)>0 && Number(sa.courseraDeclaredQuestionCount)>0 &&
+                Number(sa.courseraQuestionCount)===Number(sa.courseraDeclaredQuestionCount) && sa.captureCoverageUnverified!==true) {
+                actions.push('Captured '+sa.courseraQuestionCount+' destination question positions; '+sa.unknownTypeCount+' source/destination question type(s) remain unknown or unsupported. Inspect the affected question types, options, and applicable answer keys before approval. Matching prompts do not verify these fields. Use a focused item check or manual inspection; this evidence alone does not justify another full-course crawl.');
             } else if(Number(sa.courseraDeclaredQuestionCount)>0 &&
                 Number(sa.courseraQuestionCount)===Number(sa.courseraDeclaredQuestionCount) &&
                 Number(sa.sourceQuestionCount)>0 &&

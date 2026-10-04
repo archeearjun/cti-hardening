@@ -10,6 +10,7 @@ export function qaAssessmentScoreLabel_(a) {
 
 export function qaAssessmentAnswerEvidenceText_(sa) {
    if(sa.answerEvidenceApplicable===false)return 'N/A (written-response questions; grading still requires review)';
+   if(Number(sa.unknownTypeCount)>0)return 'not established (unknown/unsupported question types)';
    return sa.answerEvidenceCoverage==null?'not recorded':Math.round(Number(sa.answerEvidenceCoverage||0)*100)+'%';
  }
 
