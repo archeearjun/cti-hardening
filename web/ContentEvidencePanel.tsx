@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ContentEvidence } from "../src/domain/content-evidence";
 import type { ItemContentView } from "../src/domain/owner-content";
 import { safeWebUrl } from "../src/domain/owner-urls";
+import PublicContentFetch from "./PublicContentFetch";
 const labels = {
   COMPLETE: "Complete captured field",
   PARTIAL: "Partial / coverage unverified",
@@ -131,8 +132,11 @@ function Evidence({
       )}
       <details open={!!content.text}>
         <summary>
-          Reading / surrounding text · {labels[content.textCoverage]} ·{" "}
-          {content.text.length} retained characters
+          Reading / surrounding text ·{" "}
+          {content.textCoverage === "EMPTY"
+            ? "Empty captured text field"
+            : labels[content.textCoverage]}{" "}
+          · {content.text.length} retained characters
         </summary>
         <p className="hint">{content.textReason}</p>
         {content.text && (
@@ -173,10 +177,12 @@ export default function ContentEvidencePanel({
   view,
   onCapture,
   disabled,
+  onFetchLinked,
 }: {
   view: ItemContentView;
   onCapture?: () => void;
   disabled: boolean;
+  onFetchLinked?: (url: string, signal: AbortSignal) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   return (
@@ -219,7 +225,59 @@ export default function ContentEvidencePanel({
         </section>
         <section aria-label="Coursera captured content">
           <h5>Coursera content</h5>
+          {!!view.courseraTargets.length && (
+            <div className="scope">
+              <p>
+                This Coursera item contains recorded public links. Fetch their
+                text and questions separately; this does not verify that they
+                load inside Coursera.
+              </p>
+              {view.courseraTargets.map((url) => (
+                <div key={url}>
+                  <p>
+                    <a href={url} target="_blank" rel="noopener noreferrer">
+                      {url}
+                    </a>
+                  </p>
+                  {onFetchLinked && (
+                    <PublicContentFetch
+                      sourceKey="coursera-linked-page"
+                      url={url}
+                      disabled={disabled}
+                      label="Fetch linked Coursera page"
+                      cancelLabel="Cancel Coursera page fetch"
+                      onFetch={(_, target, signal) =>
+                        onFetchLinked(target, signal)
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {view.coursera.basis === "Older report excerpt" &&
+            !view.courseraTargets.length && (
+              <p className="hint">
+                To recover this item’s captured text and embedded links, use
+                “Load original extraction content into an older report” above
+                the item list. Upload the original Coursera extraction JSON used
+                for this report.
+              </p>
+            )}
+          {view.linkedCoursera.map((c, i) => (
+            <Evidence key={i} content={c} query={query} />
+          ))}
           <Evidence content={view.coursera} query={query} />
+          {!!view.previousLinkedCoursera.length && (
+            <details>
+              <summary>
+                Previous linked-page content — current reference unverified
+              </summary>
+              {view.previousLinkedCoursera.map((c, i) => (
+                <Evidence key={i} content={c} query={query} />
+              ))}
+            </details>
+          )}
           {view.previousCoursera && (
             <details>
               <summary>Previous Coursera observation (kept separately)</summary>

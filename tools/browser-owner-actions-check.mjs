@@ -1,3 +1,4 @@
+import { courseraPageKey } from "../src/domain/coursera-linked-content.ts";
 import { fetchSourceQuestions } from "../server/source-questions.ts";
 import fs from "node:fs";
 import http from "node:http";
@@ -175,7 +176,10 @@ const capture = {
       ],
       captureCompleteness: { declared: 2, questionCoverageComplete: true },
     },
-    links: ["https://example.test/guide"],
+    links: [
+      "https://example.test/guide",
+      "https://opentextbc.ca/synthetic/chapter/destination/",
+    ],
   },
 };
 const shots = process.env.CTI_OWNER_SCREENSHOTS || "/tmp/cti-owner-actions";
@@ -399,9 +403,39 @@ try {
         { headers: { "Content-Type": "text/html" } },
       ),
   );
+  const destinationUrl = "https://opentextbc.ca/synthetic/chapter/destination/";
+  const destinationCapture = await fetchSourceQuestions(
+    courseraPageKey("reading", destinationUrl),
+    destinationUrl,
+    async () =>
+      new Response(
+        "<main>Destination embedded lesson: Area = side × side.</main>",
+        { headers: { "Content-Type": "text/html" } },
+      ),
+  );
+  let destinationFails = false,
+    destinationWait = false,
+    releaseDestination;
   let fetchFails = false;
   await page.route("**/api/source-questions", async (route) => {
     const request = route.request().postDataJSON();
+    if (request.sourceKey === courseraPageKey("reading", destinationUrl)) {
+      assert.equal(request.targetUrl, destinationUrl);
+      if (destinationWait)
+        await new Promise((resolve) => {
+          releaseDestination = resolve;
+        });
+      await route.fulfill({
+        status: destinationFails ? 403 : 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          destinationFails
+            ? { error: "Destination permission denied" }
+            : destinationCapture,
+        ),
+      });
+      return;
+    }
     assert.equal(request.sourceKey, sourceRow.sourceKey);
     assert.equal(request.targetUrl, sourceRow.sourceUrls[0]);
     await route.fulfill({
@@ -443,6 +477,56 @@ try {
     await destinationContent.locator(".captured-questions > li").count(),
     2,
   );
+  await destinationContent
+    .getByRole("button", { name: "Fetch linked Coursera page", exact: true })
+    .click();
+  await page
+    .getByText("Coursera linked-page content fetched and saved.", {
+      exact: false,
+    })
+    .waitFor();
+  await destinationContent
+    .getByText("Destination embedded lesson: Area = side × side.", {
+      exact: true,
+    })
+    .waitFor();
+  // Reading an external page does not increase native Coursera question counts.
+  assert.equal(
+    await destinationContent.locator(".captured-questions > li").count(),
+    2,
+  );
+  destinationFails = true;
+  await destinationContent
+    .getByRole("button", { name: "Fetch linked Coursera page", exact: true })
+    .click();
+  await destinationContent
+    .getByRole("alert")
+    .filter({ hasText: "Destination permission denied" })
+    .waitFor();
+  await destinationContent
+    .getByText("Destination embedded lesson: Area = side × side.", {
+      exact: true,
+    })
+    .waitFor();
+  destinationFails = false;
+  destinationWait = true;
+  await destinationContent
+    .getByRole("button", { name: "Fetch linked Coursera page", exact: true })
+    .click();
+  await destinationContent
+    .getByRole("button", { name: "Cancel Coursera page fetch", exact: true })
+    .click();
+  await destinationContent
+    .getByRole("alert")
+    .filter({ hasText: "Previous evidence was preserved" })
+    .waitFor();
+  releaseDestination?.();
+  destinationWait = false;
+  await destinationContent
+    .getByText("Destination embedded lesson: Area = side × side.", {
+      exact: true,
+    })
+    .waitFor();
   await page
     .getByLabel("Find captured question text", { exact: true })
     .fill("Source question 10");
@@ -522,6 +606,14 @@ try {
   assert.equal(data.followUp.reviews.length, 1);
   assert.equal(data.followUp.reviews[0].sourceCounts[0].count, 10);
   assert.equal(data.followUp.reviews[0].sourceCaptures[0].bank.count, 10);
+  assert.equal(
+    data.followUp.reviews[0].courseraLinkedCaptures[0].courseLaunchVerified,
+    false,
+  );
+  assert.equal(
+    data.followUp.contentComparisons[0].view.linkedCoursera[0].text,
+    "Destination embedded lesson: Area = side × side.",
+  );
   assert.equal(
     data.followUp.contentEvidence.coursera[0].content.text,
     JSON.parse(new TextDecoder().decode(input.json.bytes)).fingerprints[0]

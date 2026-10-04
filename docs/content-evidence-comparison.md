@@ -71,3 +71,38 @@ display 100,000; body text 300,000; 5,000 question records and 200 choices per
 question. Cuts are labeled, never treated as complete. Existing workspace record
 size limits remain in force. No extractor version change, schema migration,
 paid service or authentication change is required.
+
+## Coursera linked pages (Area follow-up)
+
+The supplied TRDE120 Coursera extraction records Area (`ReprH`) with zero
+editor-field text characters and an unread external frame at
+`https://opentextbc.ca/mathfortrades2/?p=179/#main`. The screenshot shows 17,896
+characters fetched from the source, while the old destination report has no
+retained excerpt. These observations do not establish that the lesson is empty.
+
+The Coursera column now offers **Fetch linked Coursera page** for supported
+public URLs recorded in the original destination extraction, a focused observed
+editor, or the report's recorded destination plugin targets. Source expectations
+never supply destination URLs. Older reports may first need their original
+Coursera JSON loaded through the existing hash-checked supplement control.
+
+The existing bounded, authenticated public fetch is reused without expanding
+its host allowlist, redirect scope, timeout or byte limits. Saved destination
+observations have a separate `CTI_COURSERA_LINKED_PAGE` wrapper bound to the item
+and canonical URL, and remain separate from native Coursera question counts and
+source evidence. The nested `fetch` is the existing source-fetch transport
+receipt; the wrapper's `RECORDED_COURSERA_LINK` identifies its destination use.
+They are retained in full exports; item/record mismatches are rejected at save
+and export boundaries. Up to 12 distinct linked-page captures are retained per
+item. A newer editor capture supersedes old references; content from an older
+link remains separately labeled as historical when its current reference cannot
+be confirmed. Failures and cancellation preserve previously saved evidence.
+
+Regression checks cover unread-frame references, source-only URL rejection,
+canonicalization, wrong-item and duplicate captures, changed destination links,
+old-report recovery, successful browser fetching, denied/cancelled refreshes,
+native count preservation, reload and export. A direct live probe of the Area
+page timed out at the bounded limit during this follow-up; it is not evidence of
+successful live destination retrieval. Fetching an external page never certifies
+that it loads within Coursera or that learner interaction works. The app's
+signed-in production LMS workflow remains unverified here.

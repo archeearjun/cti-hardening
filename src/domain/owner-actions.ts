@@ -11,6 +11,10 @@ import {
   type ReviewedSourceCount,
 } from "./question-counts.ts";
 import { cleanOwnerText as clean } from "./owner-text.ts";
+import {
+  validateCourseraLinkedCaptures,
+  type CourseraLinkedCapture,
+} from "./coursera-linked-content.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
 
 export type OwnerProgress =
@@ -28,6 +32,7 @@ export interface OwnerReview {
   pluginCaptures?: EvidenceObject[];
   sourceCounts?: ReviewedSourceCount[];
   sourceCaptures?: SourceQuestionCapture[];
+  courseraLinkedCaptures?: CourseraLinkedCapture[];
 }
 export interface OwnerTask {
   key: string;
@@ -276,6 +281,8 @@ export function needsOwnerAction(task: OwnerTask) {
   );
 }
 export function validateOwnerReview(review: OwnerReview) {
+  if (review.courseraLinkedCaptures != null)
+    validateCourseraLinkedCaptures(review.courseraLinkedCaptures);
   if (review.sourceCaptures != null) {
     if (
       !Array.isArray(review.sourceCaptures) ||

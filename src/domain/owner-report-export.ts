@@ -1,4 +1,8 @@
 import { loadReportContent } from "./report-content-store.ts";
+import {
+  validateCourseraLinkedCaptures,
+  type CourseraLinkedCapture,
+} from "./coursera-linked-content.ts";
 import type { SourceQuestionCapture } from "./external-source-questions.ts";
 import { validateContentSnapshot } from "./content-evidence.ts";
 import { itemContentView, itemContentText } from "./owner-content.ts";
@@ -31,6 +35,7 @@ export interface ExportedOwnerReview {
   pluginCaptures: EvidenceObject[];
   sourceCounts: ReviewedSourceCount[];
   sourceCaptures: SourceQuestionCapture[];
+  courseraLinkedCaptures: CourseraLinkedCapture[];
 }
 
 const text = (value: unknown) =>
@@ -161,6 +166,8 @@ export async function prepareOwnerReportExport(
       });
       const sourceCounts = review.sourceCounts || [];
       const sourceCaptures = review.sourceCaptures || [];
+      const courseraLinkedCaptures = review.courseraLinkedCaptures || [];
+      validateCourseraLinkedCaptures(courseraLinkedCaptures, task?.id || "");
       validateSourceCaptureTargets(task?.sourceTargets || [], sourceCaptures);
       // Also bind reviewed source references to this audit's exact source mapping.
       withQuestionFollowUp(
@@ -174,6 +181,7 @@ export async function prepareOwnerReportExport(
       reviews.push({
         sourceCounts,
         sourceCaptures,
+        courseraLinkedCaptures,
         recordId: r.id,
         itemKey: r.data.itemKey,
         title: task?.name || r.title,
@@ -220,6 +228,7 @@ export async function prepareOwnerReportExport(
         reviews.find((r) => r.itemKey === task.key)?.capture,
         reviews.find((r) => r.itemKey === task.key)?.sourceCaptures,
         reviews.find((r) => r.itemKey === task.key)?.pluginCaptures,
+        reviews.find((r) => r.itemKey === task.key)?.courseraLinkedCaptures,
       ),
     })),
     questionComparisons,

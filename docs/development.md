@@ -10,6 +10,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Change | Maintained source | Focused check |
 | --- | --- | --- |
 | Source/Coursera content view and original-input supplements | `src/domain/content-evidence.ts`, `owner-content.ts`, `report-content-store.ts`, `web/ContentEvidencePanel.tsx` | `tests/content-evidence.test.mjs`; `npm run test:browser:owner` |
+| Recorded Coursera public links and separate fetched page observations | `src/domain/coursera-linked-content.ts`, `owner-content.ts`, `web/OwnerActionCard.tsx` | `tests/coursera-linked-content.test.mjs`; `npm run test:browser:owner` |
 | Automatic public source question definitions | `src/domain/external-source-questions.ts`, `server/source-questions.ts` | `tests/external-source-questions.test.mjs`; `npm run test:browser:owner` |
 | Source versus Coursera question counts and reviewed references | `src/domain/question-counts.ts`, `web/QuestionCountPanel.tsx` | `tests/question-counts.test.mjs`; `npm run test:browser:owner` |
 | Source item links, captured topic identity, course URLs | `src/domain/source-navigation.ts`, `owner-urls.ts` | `npm run test:navigation` |
