@@ -1,4 +1,6 @@
 import { isAssessmentLikeFingerprintV662 } from "./assessments-2.js";
+import { assessmentTypeKey } from "./assessments.js";
+import { isObservedWrittenResponseV6138 } from "./text-and-dom-3.js";
 import { uniqueAssetDetails } from "./assets.js";
 import {
   CTI_CHECKPOINT_DB,
@@ -271,9 +273,18 @@ export function captureContractV6150(fp) {
         a.questions.length === declared &&
         a.questions.every((q) => q && q.questionOrdinalObserved === true),
     );
+    const questionContentComplete = questionPositionsComplete && a.questions.every((q) => {
+          if (!String(q.prompt || "").trim() || q.optionCaptureIssue) return false;
+          if (isObservedWrittenResponseV6138(q)) return true;
+          const type = assessmentTypeKey(q.type || q.rawType);
+          if (/^(regex|text-entry)$/.test(type)) return true;
+          return /^(single-select|multiple-select|true-false)$/.test(type) &&
+            q.optionTextReliable === true && Array.isArray(q.options) &&
+            q.options.length >= 2 && q.options.every((o) => o && String(o.text || o.label || "").trim());
+        });
     const answerApplicabilityReview = Boolean(
       attempts >= 1 &&
-        questionPositionsComplete &&
+        questionContentComplete &&
         c.requiredAnswerCoverageComplete !== true &&
         na &&
         na.currentStateEvidence &&
@@ -343,6 +354,8 @@ export function captureContractV6150(fp) {
     if (!declared) reasons.push("ASSESSMENT_DECLARED_COUNT_NOT_ESTABLISHED");
     if (declared && captured !== declared)
       reasons.push("ASSESSMENT_QUESTION_COVERAGE_INCOMPLETE");
+    if (questionPositionsComplete && !questionContentComplete)
+      reasons.push("ASSESSMENT_QUESTION_CONTENT_INCOMPLETE");
     if (
       c.questionCoverageComplete === true &&
       c.requiredAnswerCoverageComplete !== true
@@ -471,6 +484,17 @@ export function compactDiagnosticV6150(diag, fp) {
         accepted: control.accepted === true,
         reason: String(control.reason || ""),
         depth: Number(control.depth || 0),
+      })),
+      labels: (x.labels || []).slice(0, 16).map((label) => ({
+        controlType: String(label.controlType || ""),
+        rowTag: String(label.rowTag || ""),
+        rowHasBox: label.rowHasBox === true,
+        display: String(label.display || ""),
+        contentVisibility: String(label.contentVisibility || ""),
+        reason: String(label.reason || ""),
+        scannedNodes: Number(label.scannedNodes || 0),
+        renderedTextNodes: Number(label.renderedTextNodes || 0),
+        capturedCharacters: Number(label.capturedCharacters || 0),
       })),
     }));
   diag.controlAttempts = (diag.controlAttempts || []).slice(-12);

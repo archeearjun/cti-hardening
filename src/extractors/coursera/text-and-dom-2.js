@@ -81,8 +81,42 @@ export function choiceControlVisibilityV61320(control,part) {
     out.reason='PART_CHAIN_LIMIT';return out;
   }
 
+export function renderedChoiceLabelV6159(row,part) {
+    const out={text:'',reason:'NO_RENDERED_LABEL',scannedNodes:0,renderedTextNodes:0};
+    if(!row || !part || row===part || !part.contains(row) || !row.isConnected)return out;
+    const pieces=[];
+    let limited=false,characters=0;
+    function visit(node) {
+      if(limited)return;
+      if(++out.scannedNodes>512){limited=true;return;}
+      if(node.nodeType===3){
+        const value=String(node.nodeValue || '');
+        if(!value.trim()){pieces.push(value);return;}
+        const range=document.createRange();range.selectNodeContents(node);
+        if(![...range.getClientRects()].some(rect=>rect.width>0 && rect.height>0))return;
+        characters+=value.length;
+        if(characters>2400){limited=true;return;}
+        pieces.push(value);out.renderedTextNodes++;return;
+      }
+      if(node.nodeType!==1 || /^(?:SCRIPT|STYLE|TEMPLATE|SVG|BUTTON|INPUT|SELECT|TEXTAREA)$/.test(node.tagName))return;
+      const style=getComputedStyle(node);
+      if(node.getAttribute('hidden')!==null || node.getAttribute('aria-hidden')==='true' ||
+        style.display==='none' || /^(hidden|collapse)$/.test(style.visibility) ||
+        style.contentVisibility==='hidden' || Number(style.opacity || 1)===0)return;
+      const block=/^(?:block|flex|grid|table|list-item|flow-root)/.test(style.display);
+      if(block || node.tagName==='BR')pieces.push(' ');
+      for(const child of node.childNodes)visit(child);
+      if(block)pieces.push(' ');
+    }
+    try {visit(row);}catch(_){out.reason='LABEL_LAYOUT_UNAVAILABLE';return out;}
+    if(limited){out.reason='LABEL_SCAN_LIMIT';return out;}
+    if(!out.renderedTextNodes)return out;
+    out.text=cleanAssignmentOptionFieldV6610(pieces.join(''));
+    out.reason=out.text?'RENDERED_OPTION_TEXT':'NO_RENDERED_LABEL';return out;
+  }
+
 export function unmarkedChoiceProbeV61320(part,fp,ordinal) {
-    const out={status:'NOT_PARSED',reason:'NOT_ASSIGNMENT_PART',controls:[],question:null};
+    const out={status:'NOT_PARSED',reason:'NOT_ASSIGNMENT_PART',controls:[],labels:[],question:null};
     if(!part || !isAssessmentLikeFingerprintV662(fp) || !/^assignment-part-\d+$/.test(part.getAttribute('data-testid') || ''))return out;
     if(exactAssessmentBadgeElements(part).length){out.reason='EXPLICIT_BADGE_PARSER_REQUIRED';return out;}
     const flat=String(part.innerText || part.textContent || '').replace(/\s+/g,' ').trim();
@@ -109,21 +143,33 @@ export function unmarkedChoiceProbeV61320(part,fp,ordinal) {
       if(!row || !part.contains(row))row=null;
       if(!row)row=control.closest('[data-testid="option"]');
       if(row && (!part.contains(row) || controls.filter(c=>row.contains(c)).length!==1))row=null;
-      let label='',method='OBSERVED_OPTION_ROW';
-      if(row && isVisibleElement(row))label=cleanAssignmentOptionFieldV6610(String(row.innerText || row.textContent || ''));
-      if(!row) {
+      let label='',method='OBSERVED_OPTION_ROW',labelProbe=null;
+      // The row can be boxless too. Prove its text with layout ranges instead
+      // of accepting hidden textContent or requiring a box on every wrapper.
+      if(row){labelProbe=renderedChoiceLabelV6159(row,part);label=labelProbe.text;}
+      if(!label && labelProbe?.reason!=='LABEL_SCAN_LIMIT') {
         method='OBSERVED_CHOICE_CONTROL_ROW';
         for(let node=control,depth=0;node && node!==part && depth<128;node=node.parentElement,depth++) {
           if(controls.filter(c=>node===c || node.contains(c)).length!==1)break;
-          const text=cleanAssignmentOptionFieldV6610(String(node.innerText || node.textContent || ''));
-          if(text && text.length<=1200 && isVisibleElement(node) && !/\b(?:Prompt|Options|Answers)\s*\*|^(?:Correct|Incorrect)\.?$|\bfeedback\b/i.test(text)){label=text;row=node;break;}
+          if(!String(node.textContent || '').trim())continue;
+          const probe=renderedChoiceLabelV6159(node,part),text=probe.text;
+          labelProbe=probe;
+          if(probe.reason==='LABEL_SCAN_LIMIT')break;
+          if(text && text.length<=1200 && !/\b(?:Prompt|Options|Answers)\s*\*|^(?:Correct|Incorrect)\.?$|\bfeedback\b/i.test(text)){label=text;row=node;break;}
         }
       }
+      let geometry={};
+      try {const rect=row?.getBoundingClientRect(),style=row && getComputedStyle(row);
+        geometry={rowTag:row?.tagName || '',rowHasBox:Boolean(rect && rect.width>2 && rect.height>2),
+          display:style?.display || '',contentVisibility:style?.contentVisibility || ''};}catch(_){}
+      out.labels.push({controlType:type,...geometry,reason:labelProbe?.reason || 'ROW_NOT_IDENTIFIED',
+        scannedNodes:labelProbe?.scannedNodes || 0,renderedTextNodes:labelProbe?.renderedTextNodes || 0,
+        capturedCharacters:label.length});
       if(!row || !label || label.length>1200 || /\b(?:Prompt|Options|Answers)\s*\*|\bfeedback\b/i.test(label) || rows.some(o=>o.label===label)) {
         out.reason='OPTION_LABEL_BOUNDARY_NOT_PROVEN';return out;
       }
       rows.push({id:String(rows.length+1),label,text:label,correct:null,
-        optionDomEvidence:{method,controlType:type,correctness:'NOT_OBSERVED'}});
+        optionDomEvidence:{method,controlType:type,labelEvidence:'RENDERED_TEXT_RANGES',correctness:'NOT_OBSERVED'}});
     }
     if(types.size!==1){out.reason='MIXED_CHOICE_CONTROLS';return out;}
     const type=types.has('checkbox')?'multiple-select':'single-select';

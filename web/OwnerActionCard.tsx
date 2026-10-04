@@ -337,7 +337,7 @@ export default function OwnerActionCard({
               <p className="eyebrow">3 · NEED MORE EVIDENCE?</p>
               <h4>Check this item in your signed-in Chrome</h4>
               <p>
-                Use the current v6.15.4 targeted check in the exact Coursera item
+                Use this item’s current targeted check in the exact Coursera item
                 above. It collects fresh evidence for this item only and never
                 clears a finding automatically.
               </p>

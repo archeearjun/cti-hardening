@@ -103,8 +103,8 @@ Course/specialization outline and content-map **state tracking** is restored; CT
 does not claim to author partner content artifacts that were external to the
 evidence workflow.
 
-Coursera extraction is **v6.15.8/schema 35** and Brightspace remains
-**v1.0.8/schema 2**. Coursera v6.15.8 captures visible choices in boxless question containers without inferring answer keys. It keeps explicit no-silent-miss accounting, bounded slow-item waits,
+Coursera extraction is **v6.15.9/schema 35** and Brightspace remains
+**v1.0.8/schema 2**. Coursera v6.15.9 reads rendered choice labels across boxless question and option containers without inferring answer keys. Uncaptured choices remain technical capture gaps. It keeps explicit no-silent-miss accounting, bounded slow-item waits,
 strict assessment/plugin/empty-reading contracts and checkpointable browser traversal. Certified
 direct-editor routing avoids redundant outline round-trips. Collapsed assignment text blocks are bound
 to their exact visible assignment outline by fragment identity even when Coursera portals the outline
