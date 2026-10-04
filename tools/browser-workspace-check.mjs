@@ -99,7 +99,7 @@ try {
     .click();
   await page.getByText("Full report saved (", { exact: false }).waitFor();
   await page
-    .getByText("Complete report and technical evidence", { exact: true })
+    .getByText("Original audit and technical evidence (before follow-ups)", { exact: true })
     .click();
   assert(
     (await page.locator(".owner-report").innerText()).includes(
@@ -134,7 +134,7 @@ try {
     .getByRole("heading", { name: "Assignment owner report" })
     .waitFor();
   await page
-    .getByText("Complete report and technical evidence", { exact: true })
+    .getByText("Original audit and technical evidence (before follow-ups)", { exact: true })
     .click();
   assert((await page.locator(".owner-report").innerText()).includes("Reading"));
   await tab("Macmillan");
