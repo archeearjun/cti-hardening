@@ -1845,10 +1845,12 @@
     {
       "name": "qaParseSmartIngestionIntelligence_",
       "line": 5443,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/provenance/claims.js",
       "effectiveOverride": true,
-      "basePath": "src/engine/provenance/claims.js"
+      "basePath": "src/engine/provenance/claims.js",
+      "reviewedCurrentHash": "245f7b6c6948b0d0f96e9960ca959e3de05d3f2d4daa645c7dec082e5dd9a83e",
+      "note": "Corpus regression: explicit null/unspecified grading and timing estimates no longer produce generated-behavior warnings. Concrete grading changes remain reviewable. Verified by tests/corpus-provenance-regression.test.mjs; base parser remains archive-identical."
     },
     {
       "name": "qaIngestionAssetEventKind_",
@@ -1860,9 +1862,11 @@
     {
       "name": "qaNormalizeIngestionClaimScope_",
       "line": 5601,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/provenance/claims.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "817c69956db4608ed4fcb069a60a220a23eaaafdbd4a1171f467db99fd40bfd9",
+      "note": "Corpus regression: preserve explicit absent-threshold provenance as informational SOURCE_GRADING_UNSPECIFIED instead of invented grading. Raw claims remain unchanged. Verified by tests/corpus-provenance-regression.test.mjs."
     },
     {
       "name": "qaClaimQuestionScope_",
@@ -1881,9 +1885,11 @@
     {
       "name": "qaLocalizeNamedIngestionClaims_",
       "line": 5698,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/provenance/claims.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "1cd5da2b1f113af1e4c2d0df813662fc204ef50ba27c67b1b43269130e63816c",
+      "note": "Corpus regression: bind a uniquely named item in its named module to source identity before substring fallback can contaminate a shorter sibling title. Quoted-question scope is preserved. Verified by corpus-provenance, field-evidence and source-plugin-followup tests."
     },
     {
       "name": "qaExplicitExclusionClaimForSource_",
@@ -3175,8 +3181,11 @@
     },
     {
       "name": "CTI_QA_ENGINE_BUILD_ID_",
-      "status": "preserved",
-      "path": "src/engine/matching/text.js"
+      "status": "adapted-metadata",
+      "path": "src/engine/matching/text.js",
+      "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
+      "reviewedCurrentHash": "2c40a1806f6a922375d9bf90d2ffb3b4f6ec830599efd39a5b81a40f8cb59e36",
+      "note": "Distinct QA build provenance for reviewed corpus claim corrections on 2026-10-04; extractor versions and schemas unchanged."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",
