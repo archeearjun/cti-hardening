@@ -1,3 +1,9 @@
+import {
+  validateSourceQuestionCapture,
+  type SourceQuestionCapture,
+} from "../src/domain/external-source-questions";
+import { withQuestionFollowUp } from "../src/domain/question-counts";
+import { workspaceRequest } from "../src/domain/workspace-http";
 import QuestionCountPanel from "./QuestionCountPanel";
 import type { ReviewedSourceCount } from "../src/domain/question-counts";
 import { useEffect, useState } from "react";
@@ -71,6 +77,9 @@ export default function OwnerActionCard({
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [script, setScript] = useState("");
+  const [sourceCaptures, setSourceCaptures] = useState<SourceQuestionCapture[]>(
+    [],
+  );
   const [sourceCounts, setSourceCounts] = useState<ReviewedSourceCount[]>([]);
   const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
@@ -88,6 +97,7 @@ export default function OwnerActionCard({
         setCapture(r.data.review.capture);
         setPluginCaptures(r.data.review.pluginCaptures || []);
         setSourceCounts(r.data.review.sourceCounts || []);
+        setSourceCaptures(r.data.review.sourceCaptures || []);
         setLoaded(true);
       })
       .catch((e) => {
@@ -145,6 +155,7 @@ export default function OwnerActionCard({
     nextStatus = status,
     nextPlugins = pluginCaptures,
     nextSourceCounts = sourceCounts,
+    nextSourceCaptures = sourceCaptures,
   ) {
     if (!editable || !store || !course || !loaded) return;
     const review: OwnerReview = {
@@ -155,6 +166,7 @@ export default function OwnerActionCard({
       ...(nextCapture ? { capture: nextCapture } : {}),
       pluginCaptures: nextPlugins,
       sourceCounts: nextSourceCounts,
+      sourceCaptures: nextSourceCaptures,
     };
     validateOwnerReview(review);
     const id = `item-review-${await digest(new TextEncoder().encode(JSON.stringify([auditId, task.key])))}`;
@@ -170,6 +182,7 @@ export default function OwnerActionCard({
     setCapture(nextCapture);
     setPluginCaptures(nextPlugins);
     setSourceCounts(nextSourceCounts);
+    setSourceCaptures(nextSourceCaptures);
     setStatus(nextStatus);
     await onSaved?.();
     setMessage("Item work saved. The original report is unchanged.");
@@ -236,6 +249,48 @@ export default function OwnerActionCard({
               rows={task.questionComparisons}
               capture={capture}
               references={sourceCounts}
+              sourceCaptures={sourceCaptures}
+              onFetch={async (sourceKey, targetUrl, signal) => {
+                setBusy("Fetching source questions…");
+                setError("");
+                setMessage("");
+                try {
+                  const value: unknown = await workspaceRequest(
+                    "source-questions",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({ sourceKey, targetUrl }),
+                    },
+                    { signal, context: "Source question capture" },
+                  );
+                  validateSourceQuestionCapture(value);
+                  signal.throwIfAborted();
+                  if (value.status !== "CAPTURED")
+                    throw new Error(value.reason);
+                  const next = [
+                    ...sourceCaptures.filter((c) => c.sourceKey !== sourceKey),
+                    value,
+                  ];
+                  withQuestionFollowUp(
+                    task.questionComparisons,
+                    capture,
+                    sourceCounts,
+                    next,
+                  );
+                  await persist(
+                    capture,
+                    status === "checked" ? "in_progress" : status,
+                    pluginCaptures,
+                    sourceCounts,
+                    next,
+                  );
+                  setMessage(
+                    `Source questions fetched and saved: ${value.bank?.count}. Original audit unchanged.`,
+                  );
+                } finally {
+                  setBusy("");
+                }
+              }}
               editable={editable && !busy}
               onSave={async (next) => {
                 setBusy("Saving source count…");

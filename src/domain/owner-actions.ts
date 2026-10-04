@@ -1,4 +1,8 @@
 import {
+  validateSourceQuestionCapture,
+  type SourceQuestionCapture,
+} from "./external-source-questions.ts";
+import {
   questionComparison,
   validateReviewedSourceCounts,
   type QuestionComparison,
@@ -21,6 +25,7 @@ export interface OwnerReview {
   capture?: EvidenceObject;
   pluginCaptures?: EvidenceObject[];
   sourceCounts?: ReviewedSourceCount[];
+  sourceCaptures?: SourceQuestionCapture[];
 }
 export interface OwnerTask {
   key: string;
@@ -261,6 +266,20 @@ export function needsOwnerAction(task: OwnerTask) {
   );
 }
 export function validateOwnerReview(review: OwnerReview) {
+  if (review.sourceCaptures != null) {
+    if (
+      !Array.isArray(review.sourceCaptures) ||
+      review.sourceCaptures.length > 100
+    )
+      throw new Error("Invalid source captures.");
+    const seen = new Set<string>();
+    for (const capture of review.sourceCaptures) {
+      validateSourceQuestionCapture(capture);
+      if (seen.has(capture.sourceKey))
+        throw new Error("Duplicate source capture.");
+      seen.add(capture.sourceKey);
+    }
+  }
   if (review.sourceCounts != null)
     validateReviewedSourceCounts(review.sourceCounts);
   if (

@@ -1,3 +1,4 @@
+import type { SourceQuestionCapture } from "./external-source-questions.ts";
 import {
   withQuestionFollowUp,
   questionComparisonsText,
@@ -24,6 +25,7 @@ export interface ExportedOwnerReview {
   capture?: EvidenceObject;
   pluginCaptures: EvidenceObject[];
   sourceCounts: ReviewedSourceCount[];
+  sourceCaptures: SourceQuestionCapture[];
 }
 
 const text = (value: unknown) =>
@@ -144,14 +146,17 @@ export async function prepareOwnerReportExport(
         };
       });
       const sourceCounts = review.sourceCounts || [];
+      const sourceCaptures = review.sourceCaptures || [];
       // Also bind reviewed source references to this audit's exact source mapping.
       withQuestionFollowUp(
         task?.questionComparisons || [],
         capture,
         sourceCounts,
+        sourceCaptures,
       );
       reviews.push({
         sourceCounts,
+        sourceCaptures,
         recordId: r.id,
         itemKey: r.data.itemKey,
         title: task?.name || r.title,
@@ -179,6 +184,7 @@ export async function prepareOwnerReportExport(
           task.questionComparisons,
           review?.capture,
           review?.sourceCounts,
+          review?.sourceCaptures,
         ),
       };
     })

@@ -1,3 +1,8 @@
+import {
+  validateSourceQuestionCapture,
+  publicSourceUrl,
+  type SourceQuestionCapture,
+} from "./external-source-questions.ts";
 import { safeWebUrl } from "./owner-urls.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 
@@ -43,6 +48,8 @@ export interface QuestionComparison {
   directMatch: boolean;
   reference?: ReviewedSourceCount;
   destinationObservation?: string;
+  automaticSource?: SourceQuestionCapture;
+  originalSource?: QuestionCountSide;
 }
 const unknownSide = (basis: string): QuestionCountSide => ({
   count: null,
@@ -215,6 +222,7 @@ export function withQuestionFollowUp(
   rows: QuestionComparison[],
   capture?: ObjectValue,
   references: ReviewedSourceCount[] = [],
+  sourceCaptures: SourceQuestionCapture[] = [],
 ): QuestionComparison[] {
   validateReviewedSourceCounts(references);
   if (
@@ -223,7 +231,41 @@ export function withQuestionFollowUp(
     throw new Error(
       "Saved source count does not match this report's source item.",
     );
+  for (const capture of sourceCaptures) {
+    validateSourceQuestionCapture(capture);
+    if (
+      !rows.some(
+        (row) =>
+          row.sourceKey === capture.sourceKey &&
+          row.sourceUrls.some(
+            (url) =>
+              publicSourceUrl(url) === publicSourceUrl(capture.targetUrl),
+          ),
+      )
+    )
+      throw new Error(
+        "Automatic source evidence does not match this report's recorded source link.",
+      );
+  }
   return rows.map((row) => {
+    const automaticSource = sourceCaptures.find(
+      (c) => c.sourceKey === row.sourceKey && c.status === "CAPTURED",
+    );
+    const bank = automaticSource?.bank;
+    const source: QuestionCountSide = bank
+      ? {
+          count: bank.count,
+          declared: bank.count,
+          complete: true,
+          basis: "Automatically captured H5P question-bank definitions",
+          poolSize: bank.count,
+          selectCount:
+            bank.selectedPerAttempt !== null &&
+            bank.selectedPerAttempt < bank.count
+              ? bank.selectedPerAttempt
+              : null,
+        }
+      : row.source;
     let coursera = row.coursera;
     if (capture) {
       const p = object(capture.payload),
@@ -269,6 +311,10 @@ export function withQuestionFollowUp(
     }
     return {
       ...row,
+      source,
+      ...(automaticSource
+        ? { automaticSource, originalSource: row.source, aligned: null }
+        : {}),
       coursera,
       reference: references.find((r) => r.sourceKey === row.sourceKey),
       ...(capture
@@ -280,6 +326,13 @@ export function withQuestionFollowUp(
 export function questionDifference(row: QuestionComparison): string {
   if (!row.directMatch)
     return "No direct source-to-destination assessment mapping; shared carriers must be checked separately.";
+  if (
+    row.automaticSource &&
+    row.originalSource?.count !== null &&
+    row.originalSource?.count !== undefined &&
+    row.originalSource.count !== row.source.count
+  )
+    return "Current external source count differs from the original source capture; reconcile source versions before deciding what to restore.";
   const expected = row.reference?.count ?? row.source.count,
     actual = row.coursera.count;
   if (expected === null)
@@ -323,6 +376,10 @@ export function questionComparisonsText(
         `${group.name} [${group.id || "source only"}] ← ${row.sourceName} (${row.sourcePath})`,
         `  Expected source: ${questionSideLabel(row.source)}`,
       );
+      if (row.automaticSource)
+        lines.push(
+          `  Automatic source capture: ${row.automaticSource.targetUrl} | captured ${row.automaticSource.capturedAt} | H5P.QuestionSet bank | ${row.automaticSource.documents.length} hashed source document(s). Learner launch and interactions remain unverified.`,
+        );
       if (row.reference)
         lines.push(
           `  Reviewed source reference: ${row.reference.count} — ${sourceCountBases[row.reference.basis]} | checked ${row.reference.checkedAt} | ${row.reference.referenceUrl}`,
