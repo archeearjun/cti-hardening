@@ -4,11 +4,15 @@ export default function PublicContentFetch({
   sourceKey,
   disabled,
   onFetch,
+  label = "Fetch source text and questions",
+  cancelLabel = "Cancel source fetch",
 }: {
   url: string;
   sourceKey: string;
   disabled: boolean;
   onFetch: (key: string, url: string, signal: AbortSignal) => Promise<void>;
+  label?: string;
+  cancelLabel?: string;
 }) {
   const control = useRef<AbortController | null>(null),
     [busy, setBusy] = useState(false),
@@ -43,16 +47,16 @@ export default function PublicContentFetch({
           }
         }}
       >
-        Fetch source text and questions
+        {label}
       </button>
       {busy && (
         <p role="status">
-          Fetching… {seconds}s. Source fetch limit: 20 seconds.{" "}
+          Fetching… {seconds}s. Public page fetch limit: 20 seconds.{" "}
           <button
             className="secondary"
             onClick={() => control.current?.abort()}
           >
-            Cancel source fetch
+            {cancelLabel}
           </button>
         </p>
       )}

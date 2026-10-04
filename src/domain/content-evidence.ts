@@ -309,6 +309,9 @@ export function capturedContent(
       [
         ...array(p.links),
         ...array(p.embeddedRefs),
+        ...array(contentObject(p.readingEditorEvidence).frames).map(
+          (v) => contentObject(v).url,
+        ),
         ...array(p.images),
         ...array(p.files).map((v) =>
           typeof v === "string" ? v : contentObject(v).path,
@@ -316,6 +319,13 @@ export function capturedContent(
       ].filter((v): v is string => typeof v === "string"),
     ),
   ];
+  const unreadFrames = array(
+    contentObject(p.readingEditorEvidence).frames,
+  ).filter((v) => contentObject(v).documentStatus === "NOT_READABLE").length;
+  if (unreadFrames)
+    limitations.push(
+      `${unreadFrames} embedded page(s) could not be read inside Coursera. An empty editor text field does not establish an empty lesson. Recorded public links can be fetched separately; course loading remains unverified.`,
+    );
   if (references.length || questions.some((q) => q.media.length))
     limitations.push(
       "References are listed; linked files, images, embedded screens and learner interactions are not verified by the text view.",
@@ -335,7 +345,9 @@ export function capturedContent(
           : full
             ? "Captured text is shown in full, but whole-field coverage was not established."
             : textCoverage === "EMPTY"
-              ? "The exact text field was observed empty."
+              ? unreadFrames
+                ? "The editor text field was empty, but embedded page content could not be read. The lesson is not confirmed empty."
+                : "The exact text field was observed empty."
               : "Text was not captured. This does not establish an empty source or destination.",
     questions,
     questionCoverage,

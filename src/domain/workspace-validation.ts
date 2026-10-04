@@ -42,6 +42,14 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
     )
       throw new Error("Invalid item review.");
     validateOwnerReview(record.data.review);
+    if (
+      record.data.review.courseraLinkedCaptures?.some(
+        (c: { itemId: string }) => record.data.itemKey !== `item:${c.itemId}`,
+      )
+    )
+      throw new Error(
+        "Coursera linked-page evidence belongs to a different item.",
+      );
   }
   if (record.kind === "package") {
     if (

@@ -9,12 +9,18 @@ import {
   type ItemContentView,
 } from "../src/domain/owner-content";
 import type { ContentSnapshot } from "../src/domain/content-evidence";
+import {
+  courseraLinkedTargets,
+  courseraPageKey,
+  bindCourseraLinkedCapture,
+  type CourseraLinkedCapture,
+} from "../src/domain/coursera-linked-content";
 import ContentEvidencePanel from "./ContentEvidencePanel";
 import PublicContentFetch from "./PublicContentFetch";
 import { workspaceRequest } from "../src/domain/workspace-http";
 import QuestionCountPanel from "./QuestionCountPanel";
 import type { ReviewedSourceCount } from "../src/domain/question-counts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   safeWebUrl,
   resolveSourceTopic,
@@ -91,6 +97,10 @@ export default function OwnerActionCard({
     [],
   );
   const [sourceCounts, setSourceCounts] = useState<ReviewedSourceCount[]>([]);
+  const [courseraLinkedCaptures, setCourseraLinkedCaptures] = useState<
+    CourseraLinkedCapture[]
+  >([]);
+  const fetchLock = useRef(false);
   const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
   useEffect(() => {
@@ -108,6 +118,7 @@ export default function OwnerActionCard({
         setPluginCaptures(r.data.review.pluginCaptures || []);
         setSourceCounts(r.data.review.sourceCounts || []);
         setSourceCaptures(r.data.review.sourceCaptures || []);
+        setCourseraLinkedCaptures(r.data.review.courseraLinkedCaptures || []);
         setLoaded(true);
       })
       .catch((e) => {
@@ -165,6 +176,9 @@ export default function OwnerActionCard({
     targetUrl: string,
     signal: AbortSignal,
   ) {
+    if (fetchLock.current)
+      throw Error("Another page fetch is already running.");
+    fetchLock.current = true;
     setBusy("Fetching source content…");
     setError("");
     setMessage("");
@@ -205,6 +219,62 @@ export default function OwnerActionCard({
           : "Partial source content saved. Whole-source question coverage remains unverified; original audit unchanged.",
       );
     } finally {
+      fetchLock.current = false;
+      setBusy("");
+    }
+  }
+  async function fetchCourseraPage(targetUrl: string, signal: AbortSignal) {
+    if (fetchLock.current)
+      throw Error("Another page fetch is already running.");
+    fetchLock.current = true;
+    setBusy("Fetching Coursera linked page…");
+    setError("");
+    setMessage("");
+    try {
+      const targets = courseraLinkedTargets(task, contentSnapshot, capture);
+      if (!targets.includes(publicSourceUrl(targetUrl)))
+        throw Error("This URL is not recorded in the Coursera item.");
+      const value: unknown = await workspaceRequest(
+        "source-questions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            sourceKey: courseraPageKey(task.id, targetUrl),
+            targetUrl,
+          }),
+        },
+        { signal, context: "Coursera linked-page capture" },
+      );
+      signal.throwIfAborted();
+      const bound = bindCourseraLinkedCapture(task.id, targets, value);
+      if (bound.fetch.status === "UNVERIFIED") throw Error(bound.fetch.reason);
+      const key = bound.fetch.sourceKey;
+      if (
+        bound.fetch.status === "PARTIAL" &&
+        courseraLinkedCaptures.some(
+          (c) => c.fetch.sourceKey === key && c.fetch.status === "CAPTURED",
+        )
+      )
+        throw Error(
+          "The new page read was partial. The previously captured bank has been retained. " +
+            bound.fetch.reason,
+        );
+      await persist(
+        capture,
+        status === "checked" ? "in_progress" : status,
+        pluginCaptures,
+        sourceCounts,
+        sourceCaptures,
+        [
+          ...courseraLinkedCaptures.filter((c) => c.fetch.sourceKey !== key),
+          bound,
+        ],
+      );
+      setMessage(
+        "Coursera linked-page content fetched and saved. Loading inside Coursera remains unverified; native question counts and the original audit are unchanged.",
+      );
+    } finally {
+      fetchLock.current = false;
       setBusy("");
     }
   }
@@ -214,8 +284,12 @@ export default function OwnerActionCard({
     nextPlugins = pluginCaptures,
     nextSourceCounts = sourceCounts,
     nextSourceCaptures = sourceCaptures,
+    nextCourseraLinkedCaptures = courseraLinkedCaptures,
   ) {
-    if (!editable || !store || !course || !loaded) return;
+    if (!editable || !store || !course || !loaded)
+      throw Error(
+        "Item evidence is not ready to save. Reopen this item and retry; previous evidence has been preserved.",
+      );
     const review: OwnerReview = {
       status: nextStatus,
       note,
@@ -225,6 +299,7 @@ export default function OwnerActionCard({
       pluginCaptures: nextPlugins,
       sourceCounts: nextSourceCounts,
       sourceCaptures: nextSourceCaptures,
+      courseraLinkedCaptures: nextCourseraLinkedCaptures,
     };
     validateOwnerReview(review);
     const id = `item-review-${await digest(new TextEncoder().encode(JSON.stringify([auditId, task.key])))}`;
@@ -241,6 +316,7 @@ export default function OwnerActionCard({
     setPluginCaptures(nextPlugins);
     setSourceCounts(nextSourceCounts);
     setSourceCaptures(nextSourceCaptures);
+    setCourseraLinkedCaptures(nextCourseraLinkedCaptures);
     setStatus(nextStatus);
     await onSaved?.();
     setMessage("Item work saved. The original report is unchanged.");
@@ -283,6 +359,7 @@ export default function OwnerActionCard({
         capture,
         sourceCaptures,
         pluginCaptures,
+        courseraLinkedCaptures,
       );
     } catch (e) {
       contentError = e instanceof Error ? e.message : String(e);
@@ -373,6 +450,7 @@ export default function OwnerActionCard({
                   view={contentView}
                   onCapture={spec ? () => void copyCheck() : undefined}
                   disabled={!editable || !!busy}
+                  onFetchLinked={fetchCourseraPage}
                 />
               ) : (
                 <p role="alert">
