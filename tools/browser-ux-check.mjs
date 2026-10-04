@@ -276,13 +276,13 @@ try {
   await page.getByLabel("Find a course", { exact: true }).fill("Course 062");
   assert.equal(await page.locator(".table-wrap tbody tr").count(), 1);
   await page.getByLabel("Find a course", { exact: true }).fill("");
-  await page.getByLabel("Filter by partner").selectOption("Partner B");
+  await page.getByRole("combobox", { name: "Filter by partner", exact: true }).selectOption("Partner B");
   await page.getByText("31 of 62 courses", { exact: true }).waitFor();
   await page.getByLabel("Filter by status").selectOption("QA Review");
   await page
     .getByText("No courses match your filters.", { exact: false })
     .waitFor();
-  await page.getByLabel("Filter by partner").selectOption("");
+  await page.getByRole("combobox", { name: "Filter by partner", exact: true }).selectOption("");
   await page.getByLabel("Filter by status").selectOption("");
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("catalogue-desktop");
@@ -401,7 +401,7 @@ try {
   await page
     .getByLabel("Smart Ingestion capability")
     .selectOption("LATEST_APPLIED");
-  await page.getByLabel("Selected source course").selectOption(courses[1].id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[1].id);
   await waitIdle();
   assert.equal(
     await page
@@ -427,7 +427,7 @@ try {
     await page.getByLabel("Smart Ingestion capability").inputValue(),
     "UNKNOWN",
   );
-  await page.getByLabel("Selected source course").selectOption(courses[0].id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[0].id);
   await waitIdle();
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
@@ -509,7 +509,7 @@ try {
     .click();
   await waitIdle();
   assert.equal(
-    await page.getByLabel("Selected source course").inputValue(),
+    await page.getByRole("combobox", { name: "Selected source course", exact: true }).inputValue(),
     courses[1].id,
   );
   assert.equal(
@@ -517,12 +517,12 @@ try {
     false,
   );
   await tab("Macmillan");
-  await page.getByLabel("Resume saved workbook").selectOption(books[0].id);
+  await page.getByRole("combobox", { name: "Resume saved workbook", exact: true }).selectOption(books[0].id);
   await waitIdle();
   await page.getByLabel("Row 4: Ch 1: Quantities").check();
   await page.getByLabel(/^Stage/).selectOption("Merged");
   await page.getByLabel("Output XLSX to validate").setInputFiles(file);
-  await page.getByLabel("Resume saved workbook").selectOption(books[1].id);
+  await page.getByRole("combobox", { name: "Resume saved workbook", exact: true }).selectOption(books[1].id);
   await waitIdle();
   assert.equal(
     await page.getByLabel("Row 4: Ch 1: Quantities").isChecked(),
@@ -537,7 +537,7 @@ try {
   );
   assert(await page.getByRole("button", { name: "Run stage QA" }).isDisabled());
 
-  await page.getByLabel("Selected source course").selectOption(courses[0].id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[0].id);
   await waitIdle();
   await tab("Operations");
   await page

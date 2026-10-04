@@ -144,7 +144,7 @@ const tab = async (name) =>
     .getByRole("button", { name, exact: true })
     .click();
 const openAudit = async () => {
-  await page.getByLabel("Selected source course").selectOption(input.course.id);
+  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(input.course.id);
   await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
