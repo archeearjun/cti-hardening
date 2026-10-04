@@ -1,0 +1,233 @@
+import {
+  buildOwnerTasks,
+  courseraLocation,
+  ownerCourseLocation,
+  validateOwnerReview,
+  type OwnerReview,
+} from "./owner-actions.ts";
+import { validateItemCheck } from "./item-check.ts";
+import type { WorkspaceStore } from "./workspace-store.ts";
+import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
+
+export interface ExportedOwnerReview {
+  recordId: string;
+  itemKey: string;
+  title: string;
+  status: OwnerReview["status"];
+  note: string;
+  updatedAt: string;
+  capture?: EvidenceObject;
+  pluginCaptures: EvidenceObject[];
+}
+
+const text = (value: unknown) =>
+  typeof value === "string" ? value : "not recorded";
+const line = (value: unknown) => text(value).replace(/[\r\n]+/g, " ");
+
+/** Read full records at export time: list() deliberately omits capture bodies.
+ * Follow-ups belong to one saved audit, never just the most recent course run.
+ * A failed/stale read must fail the export rather than silently omit evidence. */
+export async function prepareOwnerReportExport(
+  report: EvidenceObject,
+  auditId: string,
+  course: WorkspaceRecord,
+  store: Pick<WorkspaceStore, "list" | "get">,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  if (
+    !auditId ||
+    !course.id ||
+    (report.packageId && report.packageId !== course.id)
+  )
+    throw new Error("Open the saved report for this course before exporting.");
+  const summaries = (await store.list()).filter(
+    (r) =>
+      r.kind === "item-review" &&
+      r.packageId === course.id &&
+      r.data.auditId === auditId,
+  );
+  signal?.throwIfAborted();
+  const tasks = buildOwnerTasks(report.result || {});
+  const location = ownerCourseLocation(report.result || {});
+  const reviews: ExportedOwnerReview[] = [];
+  // Bounded reads also work with the authenticated, chunked team store.
+  for (let offset = 0; offset < summaries.length; offset += 4) {
+    const batch = summaries.slice(offset, offset + 4);
+    const loaded = await Promise.all(batch.map((r) => store.get(r.id)));
+    signal?.throwIfAborted();
+    for (let i = 0; i < loaded.length; i++) {
+      const r = loaded[i],
+        summary = batch[i];
+      if (
+        r.id !== summary.id ||
+        r.kind !== "item-review" ||
+        r.packageId !== course.id ||
+        r.data.auditId !== auditId ||
+        r.data.itemKey !== summary.data.itemKey ||
+        r.version !== summary.version
+      )
+        throw new Error(
+          "Saved item work changed or does not match this report. Retry the export.",
+        );
+      const review: OwnerReview = r.data.review;
+      if (
+        !review ||
+        typeof review.note !== "string" ||
+        typeof r.data.itemKey !== "string"
+      )
+        throw new Error("Saved item work is invalid. No report was exported.");
+      validateOwnerReview(review);
+      const task = tasks.find((t) => t.key === r.data.itemKey);
+      let capture: EvidenceObject | undefined;
+      if (review.capture) {
+        const c = review.capture;
+        const route = courseraLocation(c.openedUrl);
+        if (
+          !task?.id ||
+          !route ||
+          (location && route.courseId !== location.courseId) ||
+          !Array.isArray(c.expectations) ||
+          c.expectations.some(
+            (e) =>
+              !e ||
+              !["url", "file", "prompt"].includes(e.kind) ||
+              typeof e.value !== "string" ||
+              typeof e.label !== "string",
+          )
+        )
+          throw new Error(
+            "Saved item evidence does not identify this report's item. No report was exported.",
+          );
+        // Expectations are retained from the original import, not rebuilt from
+        // a potentially replaced source scan. Recompute observational claims.
+        capture = validateItemCheck(c, {
+          auditId,
+          itemId: task.id,
+          courseId: location?.courseId || route.courseId,
+          url: route.url,
+          name: task.name,
+          checks: c.expectations,
+        });
+      }
+      const pluginCaptures = (review.pluginCaptures || []).map((p) => {
+        const expectedCourse = location?.courseId || capture?.courseId;
+        if (
+          !task?.id ||
+          p.auditId !== auditId ||
+          p.itemId !== task.id ||
+          (expectedCourse && p.courseId !== expectedCourse)
+        )
+          throw new Error(
+            "Saved plugin evidence does not match this report. No report was exported.",
+          );
+        // Historical evidence remains usable; this is not a new import or a
+        // claim that old plugin observations are still true today.
+        return {
+          ...p,
+          wholePluginVerified: false,
+          courseLaunchVerified: false,
+          interactionVerified: false,
+          binaryContentVerified: false,
+        };
+      });
+      reviews.push({
+        recordId: r.id,
+        itemKey: r.data.itemKey,
+        title: task?.name || r.title,
+        status: review.status,
+        note: review.note,
+        updatedAt: review.updatedAt,
+        ...(capture ? { capture } : {}),
+        pluginCaptures,
+      });
+    }
+  }
+  reviews.sort(
+    (a, b) =>
+      a.itemKey.localeCompare(b.itemKey) ||
+      a.recordId.localeCompare(b.recordId),
+  );
+  const followUp = {
+    schemaVersion: 1,
+    auditId,
+    packageId: course.id,
+    exportedAt: new Date().toISOString(),
+    originalAuditUnchanged: true,
+    automatedResolution: false,
+    reviews,
+  };
+  const lines = [
+    "SAVED FOLLOW-UP EVIDENCE",
+    `Saved report: ${line(auditId)} | exported: ${followUp.exportedAt}`,
+    `Saved item reviews: ${reviews.length} | focused item checks: ${reviews.filter((r) => r.capture).length} | plugin-page checks: ${reviews.reduce((n, r) => n + r.pluginCaptures.length, 0)}`,
+    "These later observations and manual notes supplement the original audit below. Its scores, findings and ingestion status are unchanged. No finding is automatically cleared; this is not publication approval.",
+    "Only work saved against this exact report is included. Unsaved notes and checks attached to other reports are not included.",
+  ];
+  if (!reviews.length)
+    lines.push(
+      "NO SAVED FOLLOW-UP EVIDENCE FOR THIS REPORT. Import the item-check JSON into the same saved report that generated its script, then export that report. A new comparison is not required.",
+    );
+  for (const r of reviews) {
+    lines.push(
+      "",
+      `${line(r.title)} [${line(r.itemKey)}]`,
+      `  Recorded owner outcome: ${r.status} | saved: ${line(r.updatedAt)}`,
+    );
+    if (r.note) lines.push(`  Owner note: ${r.note.replace(/\n/g, "\n    ")}`);
+    if (r.capture) {
+      const c = r.capture,
+        evaluation = c.evaluation;
+      lines.push(
+        `  Focused capture: ${line(c.extractorVersion)} | build: ${line(c.extractorBuild)} | captured: ${line(c.finishedAt)}`,
+        `  Item: ${line(c.itemId)} | course: ${line(c.courseId)} | editor observed: ${evaluation.editorObserved ? "yes" : "no"}`,
+        `  Captured question positions: ${evaluation.questionCount} | question coverage: ${evaluation.questionCoverageComplete ? "reported complete" : "not established"} | required answer-key coverage: ${evaluation.answerCoverageComplete ? "reported complete" : "not established"}`,
+      );
+      if (!location)
+        lines.push(
+          "  Course identity comes from the saved check; the original audit has no usable course URL.",
+        );
+      const questions: EvidenceObject[] =
+        c.payload.structuredAssessment?.questions || [];
+      questions.forEach((q, index) => {
+        const options: EvidenceObject[] = Array.isArray(q.options)
+          ? q.options
+          : [];
+        lines.push(
+          `  Q${index + 1} [${line(q.id)}]: captured type=${line(q.type)} | options=${options.length} | option text reliable=${q.optionTextReliable === true ? "yes" : "not established"} | answer evidence=${line(q.answerEvidenceStatus)}`,
+          `    Prompt: ${line(q.prompt)}`,
+        );
+        options.forEach((o, n) =>
+          lines.push(`    Option ${n + 1}: ${line(o.text)}`),
+        );
+      });
+      for (const finding of evaluation.findings)
+        lines.push(
+          `  ${line(finding.status)}: ${line(finding.label)} — ${line(finding.value)}`,
+          `    ${line(finding.meaning)}`,
+        );
+      if (evaluation.pluginReadiness)
+        lines.push(
+          `  Embedded-page readiness: ${line(evaluation.pluginReadiness.status)}`,
+        );
+      lines.push(
+        "  A captured prompt, type or option does not establish source fidelity, correct answers, learner access or working interactions. Review outstanding answer applicability and behavior separately.",
+      );
+    }
+    for (const p of r.pluginCaptures)
+      lines.push(
+        `  Plugin-page capture: ${line(p.targetUrl)} | captured: ${line(p.finishedAt)} | status: ${line(p.status)}`,
+        `    Captured text characters: ${typeof p.text === "string" ? p.text.length : 0}. Visible-screen evidence only; hidden screens, interaction, course launch and binary content remain unverified.`,
+      );
+  }
+  const original =
+    typeof report.report === "string"
+      ? report.report
+      : JSON.stringify(report.result, null, 2);
+  lines.push("", "ORIGINAL AUDIT — UNCHANGED", original);
+  return {
+    text: lines.join("\n"),
+    evidence: { ...report, followUp },
+    followUp,
+  };
+}

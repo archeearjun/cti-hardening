@@ -177,6 +177,14 @@ try {
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 2 records;", { exact: false }).waitFor();
   await openAudit();
+  const emptyExportEvent = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download complete report", exact: true })
+    .click();
+  assert.match(
+    fs.readFileSync(await (await emptyExportEvent).path(), "utf8"),
+    /NO SAVED FOLLOW-UP EVIDENCE FOR THIS REPORT/,
+  );
   assert.equal(await page.locator(".action-card").count(), 1);
   assert.match(
     await page
@@ -261,7 +269,10 @@ try {
     sourceBytes,
   );
   await page
-    .getByRole("button", { name: "Copy this item’s current check", exact: true })
+    .getByRole("button", {
+      name: "Copy this item’s current check",
+      exact: true,
+    })
     .click();
   await page
     .getByText("Current v6.15.9 item check copied.", { exact: false })
@@ -336,6 +347,37 @@ try {
     output.result,
     "Item work must never rewrite the original QA result",
   );
+  assert.equal(data.followUp.reviews.length, 1);
+  assert.equal(
+    data.followUp.reviews[0].capture.payload.textSample,
+    "Fresh reading content",
+  );
+  assert.equal(data.followUp.reviews[0].pluginCaptures.length, 1);
+  assert.equal(data.followUp.automatedResolution, false);
+  const reportEvent = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download complete report", exact: true })
+    .click();
+  const exportedText = fs.readFileSync(
+    await (await reportEvent).path(),
+    "utf8",
+  );
+  assert.match(exportedText, /focused item checks: 1 \| plugin-page checks: 1/);
+  assert.match(
+    exportedText,
+    /Confirmed source guide opens in the learner preview/,
+  );
+  assert(exportedText.endsWith(output.report));
+  await page.getByRole("button", { name: "Copy report", exact: true }).click();
+  await page
+    .getByText("Report copied with 1 saved item follow-up(s).", {
+      exact: false,
+    })
+    .waitFor();
+  assert.match(
+    await page.evaluate(() => navigator.clipboard.readText()),
+    /focused item checks: 1/,
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   assert(
     await page.evaluate(
@@ -364,6 +406,8 @@ try {
           "completion note required",
           "outcomes and payload survive reload",
           "original audit immutable",
+          "text, clipboard and JSON exports include saved follow-ups after reload",
+          "exports explicitly identify reports without follow-ups",
           "390px layout",
         ],
         screenshots: shots,

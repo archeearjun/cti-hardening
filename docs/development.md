@@ -20,6 +20,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Ingestion claims and current-state resolution | `src/engine/provenance/` | `npm run test:engine` |
 | Comparison orchestration and lifecycle | `src/engine/comparison/`, `lifecycle/`, `src/domain/workflows.ts` | `npm run test:engine` |
 | Owner report text | `src/reporting/` | `npm run test:engine` |
+| Saved item work in report exports | `src/domain/owner-report-export.ts`, `web/FullWorkspace.tsx` | `tests/owner-report-export.test.mjs`; `npm run test:browser:owner` |
 | Source ZIP, XML, QTI and PDF scanning | `src/source/`, `src/domain/package-scan.ts` | `npm run test:browser:package` |
 | Workbook/Macmillan checks | `src/engine/workbook/`, `src/adapters/workbook.ts` | `npm run test:engine` |
 | Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |

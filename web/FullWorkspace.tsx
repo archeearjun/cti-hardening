@@ -3,6 +3,7 @@ import SourceExplorer from "./SourceExplorer";
 import EvidenceDetails from "./EvidenceDetails";
 import ReportOverview from "./ReportOverview";
 import { readMigrationFiles } from "../src/domain/migration-files";
+import { prepareOwnerReportExport } from "../src/domain/owner-report-export";
 import {
   prepareWorkspaceBackup,
   validateImportRecordSizes,
@@ -347,6 +348,32 @@ export default function FullWorkspace({
   }
   async function refresh(s = store) {
     if (s) setRecords(await s.list());
+  }
+  async function exportOwnerReport(format: "text" | "json" | "clipboard") {
+    if (!report || !reportId || !course || !store) return;
+    await act("Loading saved report follow-ups…", async () => {
+      const exported = await prepareOwnerReportExport(
+        report,
+        reportId,
+        course,
+        store,
+        controller.current?.signal,
+      );
+      if (format === "clipboard") {
+        try {
+          await navigator.clipboard.writeText(exported.text);
+        } catch {
+          throw new Error("Copy unavailable. Download the text report.");
+        }
+      } else if (format === "json") {
+        download("CTI_QA_result.json", json(exported.evidence));
+      } else {
+        download("CTI_owner_report.txt", exported.text, "text/plain");
+      }
+      setNotice(
+        `Report ${format === "clipboard" ? "copied" : "exported"} with ${exported.followUp.reviews.length} saved item follow-up(s). The original audit is unchanged.`,
+      );
+    });
   }
   async function act(label: string, fn: () => Promise<void>) {
     setError("");
@@ -1648,36 +1675,33 @@ export default function FullWorkspace({
             <div className="workspace-tabs">
               <button
                 className="secondary"
-                onClick={() =>
-                  download(
-                    "CTI_owner_report.txt",
-                    String(report.report || json(report.result)),
-                    "text/plain",
-                  )
-                }
+                disabled={!store || !reportId || !!busy}
+                onClick={() => void exportOwnerReport("text")}
               >
                 Download complete report
               </button>
               <button
                 className="secondary"
-                onClick={() => download("CTI_QA_result.json", json(report))}
+                disabled={!store || !reportId || !!busy}
+                onClick={() => void exportOwnerReport("json")}
               >
                 Download full evidence
               </button>
               <button
                 className="secondary"
-                onClick={() =>
-                  void navigator.clipboard
-                    .writeText(String(report.report || json(report.result)))
-                    .then(() => setNotice("Report copied."))
-                    .catch(() =>
-                      setError("Copy unavailable. Download the text report."),
-                    )
-                }
+                disabled={!store || !reportId || !!busy}
+                onClick={() => void exportOwnerReport("clipboard")}
               >
                 Copy report
               </button>
             </div>
+            <p className="hint">
+              Exports include item checks, plugin checks and notes saved against
+              this report. Import checks into the same saved report that
+              generated their script; a new comparison does not carry them over.
+              Unsaved notes are not included. Original scores and findings stay
+              unchanged.
+            </p>
             <OwnerEvidence
               key={reportId || json(report.hashes || {})}
               result={report.result || {}}
@@ -1700,7 +1724,9 @@ export default function FullWorkspace({
               <ReportOverview result={report.result || {}} />
             </details>
             <details>
-              <summary>Complete report and technical evidence</summary>
+              <summary>
+                Original audit and technical evidence (before follow-ups)
+              </summary>
               <pre className="owner-report">
                 {report.report || json(report.result)}
               </pre>
@@ -2152,14 +2178,16 @@ export default function FullWorkspace({
                         <p>
                           <strong>Authorized emails</strong>
                           <br />
-                          {(legacyPolicyDetails.authorizedEmails || []).join(", ") ||
-                            "None recorded"}
+                          {(legacyPolicyDetails.authorizedEmails || []).join(
+                            ", ",
+                          ) || "None recorded"}
                         </p>
                         <p>
                           <strong>Editors</strong>
                           <br />
-                          {(legacyPolicyDetails.editorEmails || []).join(", ") ||
-                            "None recorded"}
+                          {(legacyPolicyDetails.editorEmails || []).join(
+                            ", ",
+                          ) || "None recorded"}
                         </p>
                         <p className="hint">
                           Map editors deliberately into <code>CTI_EDITORS</code>
