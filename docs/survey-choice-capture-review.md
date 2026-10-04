@@ -18,8 +18,9 @@ choice control, excludes hidden feedback and controls, preserves split inline
 text, and stops before any ancestor containing multiple choices. A label can be
 a sibling of the control's decorative row. Hidden labels, absent labels,
 oversized labels and ambiguous rows remain uncaptured. No check state is
-converted into an answer key. Exact current live CSS remains unobserved; the
-boxless and zero-height row fixtures exercise concrete code failure paths.
+converted into an answer key. The subsequent live v6.15.9 diagnostics identify
+`DIV` option rows with `display:flex`, no row box and rendered child text; the
+range-based reader successfully captures those labels.
 
 The Chromium regression now covers ordinary, boxless, zero-height and sibling
 label layouts, nested inline text, hidden feedback, missing/hidden labels,
@@ -39,8 +40,13 @@ supplied only its prompt. They now supply an observed type and distinct options,
 and explicitly verify unknown types, absent options and unreliable options on
 both the retryable and exhausted paths. The original review assertions remain.
 
-Live confirmation of v6.15.9 still requires a new focused item capture. Neither
-this parser change nor replaying old JSON reconstructs the missing option fields.
+Live v6.15.9 acceptance passed on 2026-10-04 at 14:14:01Z. The fresh focused
+check took 31.093 seconds and captured both stable question IDs, clean prompts,
+single-select/multiple-select types, and all four/three option texts matching the
+supplied screenshots. Both probes report `CHOICES_CAPTURED`; all seven labels
+have rendered-text-range evidence. Correctness stays unknown, and the capture
+contract remains `UNRESOLVED_ANSWER_APPLICABILITY_REVIEW`. This verifies the
+survey choice-capture fix, not answer-key applicability or the whole course.
 
 v6.15.9 local verification: all 231 Node tests and retained legacy checks pass;
 the expanded real-browser choice regression, production build/typecheck, Worker
@@ -93,8 +99,8 @@ functions, diagnostic compaction, export filename, run lock, crawl version
 metadata, entry metadata and release registry. The frozen Apps Script reference
 and historical captures remain unchanged.
 
-Existing captures cannot supply options they never recorded. Live acceptance
-still needs a fresh focused check of the affected survey with v6.15.8, then an
-inspection of its two question types, four/three options, clean prompts and
-remaining answer-key uncertainty. Screenshots and synthetic browser fixtures are
-not a new authenticated Coursera extraction.
+Existing captures cannot supply options they never recorded. The authenticated
+v6.15.9 focused capture supplies new evidence for this survey only; the older
+full-course snapshot stays unchanged. See
+[owner-report follow-up exports](owner-report-follow-up-review.md) for how saved
+item evidence accompanies that original audit without silently changing it.
