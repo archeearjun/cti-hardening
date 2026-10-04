@@ -1,3 +1,4 @@
+import { questionComparisonsText } from "./question-counts.ts";
 import { createEngine } from "../engine/index.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import {
@@ -6,7 +7,7 @@ import {
   type BookData,
 } from "../adapters/workbook.ts";
 import { buildPostQaText_ } from "../reporting/owner-report.js";
-import { buildOwnerContext } from "./owner-actions.ts";
+import { buildOwnerContext, buildOwnerTasks } from "./owner-actions.ts";
 import type {
   ComparisonInput,
   ComparisonOutput,
@@ -230,6 +231,9 @@ export function createWorkflows(xmlService: unknown) {
         "The external SCORM/Rise inventory is not loaded for this course. Source-package and Brightspace runtime evidence are still evaluated.",
       );
     result.workspaceWarnings = warnings;
+    const questionCountText = questionComparisonsText(
+      buildOwnerTasks(result, course.scan.courseTree),
+    );
     return {
       result,
       ownerContext: buildOwnerContext(
@@ -239,7 +243,9 @@ export function createWorkflows(xmlService: unknown) {
       report:
         (warnings.length
           ? "WORKSPACE EVIDENCE NOTE\n" + warnings.join("\n") + "\n\n"
-          : "") + buildPostQaText_(result),
+          : "") +
+        questionCountText +
+        buildPostQaText_(result),
       hashes: {
         excel: hash(input.excel.bytes),
         json: hash(input.json?.bytes),

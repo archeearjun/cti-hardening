@@ -105,6 +105,7 @@ output.ownerContext = buildOwnerContext(
   ),
 );
 const item = output.result.ownerView.items[0];
+item.type = "Assignment";
 item.pluginTargets = ["https://external.example/course/#/"];
 item.status = "EVIDENCE_NEEDED";
 item.actions = [
@@ -161,6 +162,13 @@ const capture = {
   editorObserved: true,
   payload: {
     textSample: "Fresh reading content",
+    structuredAssessment: {
+      questions: [
+        { id: "q1", prompt: "First question" },
+        { id: "q2", prompt: "Second question" },
+      ],
+      captureCompleteness: { declared: 2, questionCoverageComplete: true },
+    },
     links: ["https://example.test/guide"],
   },
 };
@@ -228,13 +236,11 @@ try {
     captureContext: "DIRECT_PAGE",
     status: "VISIBLE_SCREEN_OBSERVED",
   };
-  await page
-    .getByLabel("Upload plugin-page check JSON")
-    .setInputFiles({
-      name: "plugin.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(pluginCheck)),
-    });
+  await page.getByLabel("Upload plugin-page check JSON").setInputFiles({
+    name: "plugin.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(pluginCheck)),
+  });
   await page
     .getByText("Page evidence saved with this item.", { exact: false })
     .waitFor();
@@ -303,6 +309,36 @@ try {
       .getByText("Observed: Source link not observed", { exact: false })
       .count(),
   );
+  await page
+    .getByText("Add or update a reviewed source count", { exact: true })
+    .click();
+  await page
+    .getByLabel("Expected source question count", { exact: true })
+    .fill("10");
+  await page
+    .getByLabel("Source count reference URL", { exact: true })
+    .fill("javascript:alert(1)");
+  await page
+    .getByLabel("Source count evidence note", { exact: true })
+    .fill(
+      "Exact published quiz section, ten numbered question stems. Live bank unverified.",
+    );
+  await page
+    .getByRole("button", { name: "Save source count evidence", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "safe reference URL" })
+    .waitFor();
+  await page
+    .getByLabel("Source count reference URL", { exact: true })
+    .fill("https://publisher.example/appendix#quiz");
+  await page
+    .getByRole("button", { name: "Save source count evidence", exact: true })
+    .click();
+  await page
+    .getByText("8 fewer native question positions", { exact: false })
+    .waitFor();
   await page.getByLabel("Item outcome").selectOption("checked");
   await page.getByRole("button", { name: "Save item outcome" }).click();
   await page.getByRole("alert").filter({ hasText: "short note" }).waitFor();
@@ -348,6 +384,11 @@ try {
     "Item work must never rewrite the original QA result",
   );
   assert.equal(data.followUp.reviews.length, 1);
+  assert.equal(data.followUp.reviews[0].sourceCounts[0].count, 10);
+  assert.equal(
+    data.followUp.questionComparisons[0].questionComparisons[0].coursera.count,
+    2,
+  );
   assert.equal(
     data.followUp.reviews[0].capture.payload.textSample,
     "Fresh reading content",
@@ -367,6 +408,8 @@ try {
     exportedText,
     /Confirmed source guide opens in the learner preview/,
   );
+  assert.match(exportedText, /Reviewed source reference: 10/);
+  assert.match(exportedText, /8 fewer native question positions/);
   assert(exportedText.endsWith(output.report));
   await page.getByRole("button", { name: "Copy report", exact: true }).click();
   await page
@@ -392,6 +435,25 @@ try {
     path: path.join(shots, "owner-mobile.png"),
     fullPage: false,
   });
+  await page
+    .getByRole("heading", {
+      name: "Expected source vs Coursera questions",
+      exact: true,
+    })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "question-counts-mobile.png"),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page
+    .getByRole("heading", {
+      name: "Expected source vs Coursera questions",
+      exact: true,
+    })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "question-counts-desktop.png"),
+  });
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -408,6 +470,7 @@ try {
           "original audit immutable",
           "text, clipboard and JSON exports include saved follow-ups after reload",
           "exports explicitly identify reports without follow-ups",
+          "source count reference validation, persistence, scoped counts and exports",
           "390px layout",
         ],
         screenshots: shots,

@@ -1,4 +1,9 @@
 import {
+  withQuestionFollowUp,
+  questionComparisonsText,
+  type ReviewedSourceCount,
+} from "./question-counts.ts";
+import {
   buildOwnerTasks,
   courseraLocation,
   ownerCourseLocation,
@@ -18,6 +23,7 @@ export interface ExportedOwnerReview {
   updatedAt: string;
   capture?: EvidenceObject;
   pluginCaptures: EvidenceObject[];
+  sourceCounts: ReviewedSourceCount[];
 }
 
 const text = (value: unknown) =>
@@ -48,7 +54,13 @@ export async function prepareOwnerReportExport(
       r.data.auditId === auditId,
   );
   signal?.throwIfAborted();
-  const tasks = buildOwnerTasks(report.result || {});
+  const sourceMatches =
+    !report.sourceScanSha256 ||
+    report.sourceScanSha256 === course.data.scan?.fileSha256;
+  const tasks = buildOwnerTasks(
+    report.result || {},
+    sourceMatches ? course.data.scan?.courseTree || [] : [],
+  );
   const location = ownerCourseLocation(report.result || {});
   const reviews: ExportedOwnerReview[] = [];
   // Bounded reads also work with the authenticated, chunked team store.
@@ -131,7 +143,15 @@ export async function prepareOwnerReportExport(
           binaryContentVerified: false,
         };
       });
+      const sourceCounts = review.sourceCounts || [];
+      // Also bind reviewed source references to this audit's exact source mapping.
+      withQuestionFollowUp(
+        task?.questionComparisons || [],
+        capture,
+        sourceCounts,
+      );
       reviews.push({
+        sourceCounts,
         recordId: r.id,
         itemKey: r.data.itemKey,
         title: task?.name || r.title,
@@ -148,7 +168,23 @@ export async function prepareOwnerReportExport(
       a.itemKey.localeCompare(b.itemKey) ||
       a.recordId.localeCompare(b.recordId),
   );
+  const questionComparisons = tasks
+    .map((task) => {
+      const review = reviews.find((r) => r.itemKey === task.key);
+      return {
+        itemKey: task.key,
+        id: task.id,
+        name: task.name,
+        questionComparisons: withQuestionFollowUp(
+          task.questionComparisons,
+          review?.capture,
+          review?.sourceCounts,
+        ),
+      };
+    })
+    .filter((group) => group.questionComparisons.length);
   const followUp = {
+    questionComparisons,
     schemaVersion: 1,
     auditId,
     packageId: course.id,
@@ -220,6 +256,7 @@ export async function prepareOwnerReportExport(
         `    Captured text characters: ${typeof p.text === "string" ? p.text.length : 0}. Visible-screen evidence only; hidden screens, interaction, course launch and binary content remain unverified.`,
       );
   }
+  lines.push("", questionComparisonsText(questionComparisons));
   const original =
     typeof report.report === "string"
       ? report.report
