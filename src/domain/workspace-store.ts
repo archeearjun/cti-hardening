@@ -73,6 +73,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
           duplicateSurvivorId: d.duplicateSurvivorId,
           hasExternalRuntimeEvidence: !!d.externalRuntimeEvidence,
           workState: d.workState,
+          assignmentPlan: d.assignmentPlan,
           scan: {
             fileName: d.scan?.fileName,
             stats: scalarSummary(d.scan?.stats),

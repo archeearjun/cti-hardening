@@ -1,3 +1,7 @@
+import {
+  buildOwnerTasks,
+  needsOwnerAction,
+} from "../src/domain/owner-actions.ts";
 import fs from "node:fs";
 import http from "node:http";
 import assert from "node:assert/strict";
@@ -276,13 +280,17 @@ try {
   await page.getByLabel("Find a course", { exact: true }).fill("Course 062");
   assert.equal(await page.locator(".table-wrap tbody tr").count(), 1);
   await page.getByLabel("Find a course", { exact: true }).fill("");
-  await page.getByRole("combobox", { name: "Filter by partner", exact: true }).selectOption("Partner B");
+  await page
+    .getByRole("combobox", { name: "Filter by partner", exact: true })
+    .selectOption("Partner B");
   await page.getByText("31 of 62 courses", { exact: true }).waitFor();
   await page.getByLabel("Filter by status").selectOption("QA Review");
   await page
     .getByText("No courses match your filters.", { exact: false })
     .waitFor();
-  await page.getByRole("combobox", { name: "Filter by partner", exact: true }).selectOption("");
+  await page
+    .getByRole("combobox", { name: "Filter by partner", exact: true })
+    .selectOption("");
   await page.getByLabel("Filter by status").selectOption("");
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("catalogue-desktop");
@@ -401,7 +409,9 @@ try {
   await page
     .getByLabel("Smart Ingestion capability")
     .selectOption("LATEST_APPLIED");
-  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[1].id);
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(courses[1].id);
   await waitIdle();
   assert.equal(
     await page
@@ -427,7 +437,9 @@ try {
     await page.getByLabel("Smart Ingestion capability").inputValue(),
     "UNKNOWN",
   );
-  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[0].id);
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(courses[0].id);
   await waitIdle();
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
@@ -509,7 +521,9 @@ try {
     .click();
   await waitIdle();
   assert.equal(
-    await page.getByRole("combobox", { name: "Selected source course", exact: true }).inputValue(),
+    await page
+      .getByRole("combobox", { name: "Selected source course", exact: true })
+      .inputValue(),
     courses[1].id,
   );
   assert.equal(
@@ -517,12 +531,16 @@ try {
     false,
   );
   await tab("Macmillan");
-  await page.getByRole("combobox", { name: "Resume saved workbook", exact: true }).selectOption(books[0].id);
+  await page
+    .getByRole("combobox", { name: "Resume saved workbook", exact: true })
+    .selectOption(books[0].id);
   await waitIdle();
   await page.getByLabel("Row 4: Ch 1: Quantities").check();
   await page.getByLabel(/^Stage/).selectOption("Merged");
   await page.getByLabel("Output XLSX to validate").setInputFiles(file);
-  await page.getByRole("combobox", { name: "Resume saved workbook", exact: true }).selectOption(books[1].id);
+  await page
+    .getByRole("combobox", { name: "Resume saved workbook", exact: true })
+    .selectOption(books[1].id);
   await waitIdle();
   assert.equal(
     await page.getByLabel("Row 4: Ch 1: Quantities").isChecked(),
@@ -537,7 +555,9 @@ try {
   );
   assert(await page.getByRole("button", { name: "Run stage QA" }).isDisabled());
 
-  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(courses[0].id);
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(courses[0].id);
   await waitIdle();
   await tab("Operations");
   await page
@@ -728,9 +748,64 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("operations-desktop");
 
+  await courseSearch.fill("");
+  await courseSelect.selectOption(courses[0].id);
+  await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+  await tab("Assignment plan");
+  await page
+    .getByRole("heading", { name: "What do I need to do next?", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Open latest item worklist", exact: true })
+    .waitFor();
+  assert(
+    await page
+      .getByRole("button", {
+        name: "Record owner reconciliation review",
+        exact: true,
+      })
+      .isDisabled(),
+  );
+  await page
+    .getByLabel("Deliverable path", { exact: true })
+    .selectOption("SPECIALIZATION");
+  await page
+    .getByText(
+      "Assignment plan saved. Original audit findings remain unchanged.",
+      { exact: true },
+    )
+    .waitFor();
+  assert(
+    await page
+      .getByRole("button", { name: "Record content map approval", exact: true })
+      .isDisabled(),
+  );
+  await tab("Overview");
+  await tab("Assignment plan");
+  assert.equal(
+    await page.getByLabel("Deliverable path", { exact: true }).inputValue(),
+    "SPECIALIZATION",
+  );
+  await page
+    .getByRole("button", { name: "Open latest item worklist", exact: true })
+    .waitFor();
+  const handoffDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download assignment handoff", exact: true })
+    .click();
+  const handoff = await handoffDownload;
+  assert.equal(handoff.suggestedFilename(), "CTI-assignment-handoff.txt");
+  assert.match(
+    fs.readFileSync(await handoff.path(), "utf8"),
+    /Reconciliation: NOT READY/,
+  );
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot("assignment-plan-desktop");
+
   await page.setViewportSize({ width: 390, height: 844 });
   for (const name of [
     "Overview",
+    "Assignment plan",
     "Catalogue",
     "Explore",
     "Scan",
@@ -751,10 +826,204 @@ try {
       `${name} overflows at 390px`,
     );
   }
+  await tab("Assignment plan");
+  await page
+    .getByRole("heading", { name: "What do I need to do next?", exact: true })
+    .scrollIntoViewIfNeeded();
+  await shot("assignment-plan-mobile");
+  await page
+    .getByRole("heading", {
+      name: "Review reconciliation readiness",
+      exact: true,
+    })
+    .scrollIntoViewIfNeeded();
+  await shot("assignment-readiness-mobile");
   await tab("Catalogue");
   await page.getByLabel("Find a course", { exact: true }).fill("");
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("catalogue-mobile");
+  // Separate synthetic acceptance case: every flagged item has a documented
+  // human check. Exercise the actual review/approval save flow, not DOM mocks.
+  const approvedCourse = structuredClone(courses[0]);
+  approvedCourse.id = crypto.randomUUID();
+  approvedCourse.title = "HANDOFF001 synthetic acceptance";
+  approvedCourse.data.scan.fileName = "HANDOFF001.imscc";
+  const acceptanceInput = comparisonFixture();
+  const acceptanceCapture = JSON.parse(
+    new TextDecoder().decode(acceptanceInput.json.bytes),
+  );
+  for (let index = 1; index <= 3; index++) {
+    const id = `reading-extra-${index}`,
+      name = `Additional synthetic reading ${index}`;
+    approvedCourse.data.scan.courseTree[0].children.push({
+      ...structuredClone(approvedCourse.data.scan.courseTree[0].children[0]),
+      idref: id,
+      title: name,
+    });
+    acceptanceCapture.fingerprints.push({
+      ...structuredClone(acceptanceCapture.fingerprints[0]),
+      id,
+      name,
+    });
+  }
+  approvedCourse.data.scan.stats.totalItems = 5;
+  approvedCourse.data.scan.stats.webcontent = 4;
+  const acceptanceRows = [
+    ["Module"],
+    ["***Name", "Module 1"],
+    ["Lesson"],
+    ["***Name", "Lesson 1"],
+    ...acceptanceCapture.fingerprints.map((item) => [
+      item.type,
+      item.name,
+      "",
+      "",
+      "",
+      "",
+      "",
+      item.id,
+    ]),
+  ];
+  const approvedAudit = structuredClone(audit);
+  approvedAudit.data = workflows.compare({
+    ...acceptanceInput,
+    course: approvedCourse,
+    excel: {
+      name: "handoff.xlsx",
+      bytes: writeWorkbook({
+        name: "handoff",
+        sheets: { "FOR IMPORT": { values: acceptanceRows } },
+      }),
+    },
+    json: {
+      name: "handoff.json",
+      bytes: new TextEncoder().encode(JSON.stringify(acceptanceCapture)),
+    },
+  });
+  assert.equal(
+    approvedAudit.data.result.inputCoherence.status,
+    "PASS",
+    "acceptance fixture must meet real snapshot identity rules",
+  );
+  approvedAudit.id = crypto.randomUUID();
+  approvedAudit.packageId = approvedCourse.id;
+  const reviewedItems = buildOwnerTasks(
+    approvedAudit.data.result,
+    approvedCourse.data.scan.courseTree,
+  )
+    .filter(needsOwnerAction)
+    .map((task) => ({
+      ...structuredClone(approvedAudit),
+      id: crypto.randomUUID(),
+      kind: "item-review",
+      title: "Synthetic documented manual check",
+      data: {
+        auditId: approvedAudit.id,
+        itemKey: task.key,
+        review: {
+          status: "checked",
+          note: "Synthetic owner confirmed source matching and learner behaviour for this item.",
+          updatedAt: new Date().toISOString(),
+          updatedBy: "Synthetic reviewer",
+        },
+      },
+    }));
+  const acceptanceRecords = [approvedCourse, approvedAudit, ...reviewedItems];
+  await tab("Setup");
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "synthetic-assignment.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        kind: "CTI_BROWSER_WORKSPACE",
+        schemaVersion: 1,
+        records: acceptanceRecords,
+      }),
+    ),
+  });
+  await page
+    .getByText(`${acceptanceRecords.length} records prepared.`, {
+      exact: false,
+    })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Import prepared records", exact: true })
+    .click();
+  await page
+    .getByText(`Imported ${acceptanceRecords.length} records;`, {
+      exact: false,
+    })
+    .waitFor();
+  await courseSearch.fill("");
+  await courseSelect.selectOption(approvedCourse.id);
+  await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+  await tab("Assignment plan");
+  await page
+    .getByRole("button", { name: "Open latest item worklist", exact: true })
+    .waitFor();
+  await page
+    .getByLabel("Deliverable path", { exact: true })
+    .selectOption("SPECIALIZATION");
+  await page
+    .getByText(
+      "Assignment plan saved. Original audit findings remain unchanged.",
+      { exact: true },
+    )
+    .waitFor();
+  await page
+    .getByLabel("Reconciliation review note", { exact: true })
+    .fill(
+      "Synthetic acceptance: checked source matching, learner access and every recorded limitation.",
+    );
+  await page
+    .getByRole("button", {
+      name: "Record owner reconciliation review",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByText("Source reconciliation review recorded.", { exact: false })
+    .waitFor();
+  await page
+    .getByLabel("Approved content map URL", { exact: true })
+    .fill("https://docs.google.com/document/d/synthetic-map/edit");
+  await page
+    .getByLabel("Who approved it and what was approved?", { exact: true })
+    .fill(
+      "Synthetic partner reviewer approved the documented structure and scope.",
+    );
+  await page
+    .getByRole("button", { name: "Record content map approval", exact: true })
+    .click();
+  await page
+    .getByRole("link", { name: "Approved content map ↗", exact: true })
+    .waitFor();
+  await tab("Overview");
+  await tab("Assignment plan");
+  await page
+    .getByRole("link", { name: "Approved content map ↗", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", {
+      name: "I changed the shell — require fresh evidence",
+      exact: true,
+    })
+    .click();
+  await page.getByText("Shell change recorded.", { exact: false }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Approved content map ↗", exact: true })
+      .count(),
+    0,
+  );
+  assert(
+    await page
+      .getByRole("button", {
+        name: "Record owner reconciliation review",
+        exact: true,
+      })
+      .isDisabled(),
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -771,6 +1040,7 @@ try {
           "before/after owner actions and separate portfolio results",
           "workbook choices and output files reset across masters",
           "portable planner/catalog/runtime operations and workflow state",
+          "assignment path persistence, blocked premature approvals, scoped owner review, map approval, shell-change invalidation and handoff download",
           "Master Manifest XLSX export",
           "390px layouts across Scan, Extract and Operations",
         ],

@@ -1,4 +1,5 @@
 import type { WorkspaceRecord } from "./workspace-types.ts";
+import { normalizeAssignmentPlan } from "./assignment-plan.ts";
 import { validateOwnerReview } from "./owner-actions.ts";
 import { validateContentSnapshot } from "./content-evidence.ts";
 import { validateCourseMetadata } from "./operations.ts";
@@ -52,6 +53,8 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       );
   }
   if (record.kind === "package") {
+    if (record.data.assignmentPlan !== undefined)
+      normalizeAssignmentPlan(record.data.assignmentPlan);
     if (
       !Array.isArray(record.data.scan?.courseTree) ||
       !record.data.scan?.stats

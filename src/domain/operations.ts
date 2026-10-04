@@ -1,3 +1,8 @@
+import {
+  latestAssignmentAudit,
+  normalizeAssignmentPlan,
+  reconciliationCurrent,
+} from "./assignment-plan.ts";
 import type { BookData, Cell } from "../adapters/workbook.ts";
 import type { PackageNode, PackageScan } from "./package-types.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
@@ -538,24 +543,58 @@ export interface WorkItemContext {
   productType?: string;
   plannerCategories?: string[];
   plannerOwnerConflict?: boolean;
+  reconciliationReviewed?: boolean;
+  contentMapApproved?: boolean;
+  deliverableRoute?: string;
 }
 
-export function nextWorkAction(item: WorkItemContext, stateValue: unknown): WorkNextAction {
+export function nextWorkAction(
+  item: WorkItemContext,
+  stateValue: unknown,
+): WorkNextAction {
   const state = normalizeWorkState(stateValue);
   if (state.scope === "EXCLUDED")
-    return { code: "EXCLUDED", label: "Excluded from this redo campaign", tone: "muted" };
+    return {
+      code: "EXCLUDED",
+      label: "Excluded from this redo campaign",
+      tone: "muted",
+    };
   if (item.plannerOwnerConflict)
-    return { code: "RESOLVE_PLANNER_OWNER", label: "Resolve conflicting owners on the latest planner date", tone: "warning" };
+    return {
+      code: "RESOLVE_PLANNER_OWNER",
+      label: "Resolve conflicting owners on the latest planner date",
+      tone: "warning",
+    };
   if (item.catalogStatus === "AMBIGUOUS")
-    return { code: "RESOLVE_CATALOG", label: "Resolve duplicate catalog assignment before work begins", tone: "warning" };
+    return {
+      code: "RESOLVE_CATALOG",
+      label: "Resolve duplicate catalog assignment before work begins",
+      tone: "warning",
+    };
   if (item.ctiMatchStatus === "AMBIGUOUS")
-    return { code: "RESOLVE_CTI_DUPLICATE", label: "Review duplicate CTI package records", tone: "warning" };
+    return {
+      code: "RESOLVE_CTI_DUPLICATE",
+      label: "Review duplicate CTI package records",
+      tone: "warning",
+    };
   if (item.hasSource === false)
-    return { code: "UPLOAD_SOURCE", label: "Upload the source IMSCC package", tone: "danger" };
+    return {
+      code: "UPLOAD_SOURCE",
+      label: "Upload the source IMSCC package",
+      tone: "danger",
+    };
   if (!item.sourceRescanned)
-    return { code: "RESCAN_SOURCE", label: "Re-scan source IMSCC with the current CTI parser", tone: "primary" };
+    return {
+      code: "RESCAN_SOURCE",
+      label: "Re-scan source IMSCC with the current CTI parser",
+      tone: "primary",
+    };
   if (state.courseraRedo === "BLOCKED")
-    return { code: "COURSERA_BLOCKED", label: "Resolve Coursera reimport blocker", tone: "danger" };
+    return {
+      code: "COURSERA_BLOCKED",
+      label: "Resolve Coursera reimport blocker",
+      tone: "danger",
+    };
   if (
     state.courseraRedo !== "DONE" &&
     state.courseraRedo !== "NOT_REQUIRED" &&
@@ -564,7 +603,8 @@ export function nextWorkAction(item: WorkItemContext, stateValue: unknown): Work
     if (!item.rawQaFresh)
       return {
         code: "AUDIT_EXISTING_RAW",
-        label: "Audit the existing Coursera shell against the refreshed source before re-ingesting",
+        label:
+          "Audit the existing Coursera shell against the refreshed source before re-ingesting",
         tone: "warning",
       };
     const rec = item.rawQaRecommendation?.code || "NONE";
@@ -572,50 +612,124 @@ export function nextWorkAction(item: WorkItemContext, stateValue: unknown): Work
       return item.hasRuntimeFlag
         ? {
             code: "REVIEW_SCORM_EXISTING",
-            label: "Verify flagged runtime/interactivity manually before keeping the existing shell",
+            label:
+              "Verify flagged runtime/interactivity manually before keeping the existing shell",
             tone: "warning",
           }
         : {
             code: "CONFIRM_KEEP_EXISTING",
-            label: "Evidence supports the existing raw shell — mark reimport Not required to proceed",
+            label:
+              "Evidence supports the existing raw shell — mark reimport Not required to proceed",
             tone: "success",
           };
     if (rec === "REVIEW")
-      return { code: "REVIEW_EXISTING_RAW", label: "Review existing raw-shell QA findings before deciding whether to re-ingest", tone: "warning" };
+      return {
+        code: "REVIEW_EXISTING_RAW",
+        label:
+          "Review existing raw-shell QA findings before deciding whether to re-ingest",
+        tone: "warning",
+      };
     if (rec === "REINGEST")
-      return { code: "REDO_COURSERA", label: "Re-run Smart Ingestion; current evidence found material fidelity issues", tone: "danger" };
+      return {
+        code: "REDO_COURSERA",
+        label:
+          "Re-run Smart Ingestion; current evidence found material fidelity issues",
+        tone: "danger",
+      };
   }
   if (state.courseraRedo !== "DONE" && state.courseraRedo !== "NOT_REQUIRED")
-    return { code: "REDO_COURSERA", label: "Redo Smart Ingestion in Coursera", tone: "primary" };
-  if (state.courseOutline === "BLOCKED")
-    return { code: "OUTLINE_BLOCKED", label: "Resolve course-outline blocker", tone: "danger" };
-  if (state.courseOutline === "NOT_STARTED")
-    return { code: "BUILD_COURSE_OUTLINE", label: "Create the course outline", tone: "primary" };
-  if (state.courseOutline === "DRAFT" && state.sourceAudit !== "PASS")
-    return { code: "AUDIT_SOURCE", label: "Audit the course outline against the source LMS", tone: "warning" };
-  if (state.sourceAudit === "BLOCKED" || state.sourceAudit === "REVIEW")
-    return { code: "AUDIT_REVIEW", label: "Resolve source-LMS audit findings", tone: "warning" };
-  if (state.sourceAudit === "PASS" && state.courseOutline !== "SECURED")
-    return { code: "SECURE_COURSE_OUTLINE", label: "Secure/finalize the audited course outline", tone: "primary" };
-
+    return {
+      code: "REDO_COURSERA",
+      label: "Redo Smart Ingestion in Coursera",
+      tone: "primary",
+    };
+  if (!item.reconciliationReviewed)
+    return {
+      code: "AUDIT_SOURCE",
+      label:
+        "Reconcile source and Coursera, verify edits, then record the owner review in Assignment plan",
+      tone: "warning",
+    };
   const needsSpecialization =
-    String(item.productType || "").toLowerCase().includes("specialization") ||
-    (item.plannerCategories || []).some((category) =>
-      String(category || "").toLowerCase().includes("course-to-specialization"),
-    );
+    item.deliverableRoute === "SPECIALIZATION" ||
+    (item.deliverableRoute !== "COURSE" &&
+      (String(item.productType || "")
+        .toLowerCase()
+        .includes("specialization") ||
+        (item.plannerCategories || []).some((category) =>
+          String(category).toLowerCase().includes("course-to-specialization"),
+        )));
+  if (!needsSpecialization && item.deliverableRoute !== "COURSE")
+    return {
+      code: "CHOOSE_DELIVERABLE",
+      label: "Choose the deliverable path in Assignment plan",
+      tone: "primary",
+    };
   if (needsSpecialization) {
-    if (state.specializationOutline === "BLOCKED")
-      return { code: "SPEC_OUTLINE_BLOCKED", label: "Resolve specialization-outline blocker", tone: "danger" };
-    if (state.specializationOutline === "NOT_STARTED")
-      return { code: "BUILD_SPEC_OUTLINE", label: "Create the specialization outline", tone: "primary" };
-    if (state.specializationOutline === "DRAFT")
-      return { code: "SECURE_SPEC_OUTLINE", label: "Review and secure the specialization outline", tone: "warning" };
     if (state.contentMap === "BLOCKED")
-      return { code: "CONTENT_MAP_BLOCKED", label: "Resolve content-map blocker", tone: "danger" };
-    if (state.contentMap !== "DONE")
-      return { code: "BUILD_CONTENT_MAP", label: "Create/finalize the content map", tone: "primary" };
+      return {
+        code: "CONTENT_MAP_BLOCKED",
+        label: "Resolve content-map blocker",
+        tone: "danger",
+      };
+    if (state.contentMap !== "DONE" && !item.contentMapApproved)
+      return {
+        code: "BUILD_CONTENT_MAP",
+        label: "Create the content map from the reconciled content",
+        tone: "primary",
+      };
+    if (!item.contentMapApproved)
+      return {
+        code: "APPROVE_CONTENT_MAP",
+        label: "Obtain content-map approval and record it in Assignment plan",
+        tone: "warning",
+      };
+    if (state.specializationOutline === "BLOCKED")
+      return {
+        code: "SPEC_OUTLINE_BLOCKED",
+        label: "Resolve specialization-outline blocker",
+        tone: "danger",
+      };
+    if (state.specializationOutline === "NOT_STARTED")
+      return {
+        code: "BUILD_SPEC_OUTLINE",
+        label:
+          "Create the linked specialization outline using the approved map and existing reconciliation",
+        tone: "primary",
+      };
+    if (state.specializationOutline !== "SECURED")
+      return {
+        code: "SECURE_SPEC_OUTLINE",
+        label: "Review item links and finalize the specialization outline",
+        tone: "warning",
+      };
+  } else {
+    if (state.courseOutline === "BLOCKED")
+      return {
+        code: "OUTLINE_BLOCKED",
+        label: "Resolve course-outline blocker",
+        tone: "danger",
+      };
+    if (state.courseOutline === "NOT_STARTED")
+      return {
+        code: "BUILD_COURSE_OUTLINE",
+        label:
+          "Create the linked course outline directly from the reconciled content",
+        tone: "primary",
+      };
+    if (state.courseOutline !== "SECURED")
+      return {
+        code: "SECURE_COURSE_OUTLINE",
+        label: "Review item links and finalize the course outline",
+        tone: "primary",
+      };
   }
-  return { code: "COMPLETE", label: "Redo workflow complete", tone: "success" };
+  return {
+    code: "COMPLETE",
+    label:
+      "Recorded deliverable workflow complete — publication remains a separate review",
+    tone: "success",
+  };
 }
 
 function normalizeHeader(value: unknown): string {
@@ -1391,7 +1505,9 @@ export function buildPortableWorkQueue(args: {
     const rawQaFresh =
       sourceRescanned &&
       Number.isFinite(rawTime) &&
-      (!Number.isFinite(scanTime) || rawTime >= scanTime);
+      (!Number.isFinite(scanTime) || rawTime >= scanTime) &&
+      !!course?.data.scan?.fileSha256 &&
+      latestRaw?.data.sourceScanSha256 === course.data.scan.fileSha256;
     const recommendation = rawQaFresh
       ? rawQaRecommendation(latestRaw)
       : {
@@ -1417,7 +1533,20 @@ export function buildPortableWorkQueue(args: {
     const state = course
       ? normalizeWorkState(course.data.workState || {})
       : defaultWorkState();
+    const assignmentPlan = normalizeAssignmentPlan(course?.data.assignmentPlan);
+    const latestAudit = course
+      ? latestAssignmentAudit(course.id, args.records)
+      : null;
+    const reconciled =
+      !!course && reconciliationCurrent(course, latestAudit, args.records);
     const itemContext: WorkItemContext = {
+      reconciliationReviewed: reconciled,
+      contentMapApproved:
+        reconciled &&
+        !!assignmentPlan.mapApproval &&
+        assignmentPlan.mapApproval.basis ===
+          assignmentPlan.reconciliation?.basis,
+      deliverableRoute: assignmentPlan.route,
       plannerOwnerConflict,
       catalogStatus: resolved.status,
       ctiMatchStatus,
