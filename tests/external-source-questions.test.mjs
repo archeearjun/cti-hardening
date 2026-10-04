@@ -117,7 +117,7 @@ test("inaccessible, unsupported, ambiguous and limited content cannot become a z
     html({ library: "H5P.Essay", jsonContent: "{}" }),
   ]) {
     const c = await fetchSourceQuestions(key, target, async () => res(body));
-    assert.equal(c.status, "UNVERIFIED");
+    assert.notEqual(c.status, "CAPTURED");
     assert.equal(c.bank, null);
   }
   await assert.rejects(
@@ -251,8 +251,9 @@ test("an additional inaccessible H5P bank prevents a whole-source count claim", 
       html() + '<iframe src="https://another.test/book/?h5p-embed=9"></iframe>',
     ),
   );
-  assert.equal(c.status, "UNVERIFIED");
+  assert.equal(c.status, "PARTIAL");
   assert.equal(c.bank, null);
+  assert.equal(c.observedBanks.length, 1);
   const requests = [];
   const second = await fetchSourceQuestions(key, target, async (url) => {
     requests.push(url);
@@ -264,5 +265,7 @@ test("an additional inaccessible H5P bank prevents a whole-source count claim", 
     );
   });
   assert.equal(requests.length, 2);
-  assert.equal(second.status, "UNVERIFIED");
+  assert.equal(second.status, "PARTIAL");
+  assert.equal(second.bank, null);
+  assert.equal(second.observedBanks.length, 2);
 });

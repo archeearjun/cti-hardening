@@ -61,6 +61,11 @@ is not required for these already-recorded URLs.
 
 ## Verification
 
+The [content comparison](content-evidence-comparison.md) extends this reader to
+retain longer prompts, choices, observed media references and partial static page
+text. `PARTIAL` responses expose useful captured content without declaring a
+complete bank. A complete saved bank survives a failed or partial refresh.
+
 Regression checks cover typed JSON parsing, bank versus selection count, explicit
 zero, unsupported and multiple banks, safe redirects/hosts/query routes, denied
 access, response size/request limits, cancellation, record scope and source

@@ -112,6 +112,8 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                   importedAt: d.importedAt,
                   rowCount: Array.isArray(d.rows) ? d.rows.length : 0,
                   runId: d.runId,
+                  platform: d.platform,
+                  sourceHash: d.sourceHash,
                   toGeneration: d.toGeneration,
                 }
             : record.kind === "legacy-backup" &&

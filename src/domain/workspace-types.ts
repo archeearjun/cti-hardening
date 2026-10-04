@@ -45,6 +45,7 @@ export interface ComparisonInput {
     | "LEGACY_OR_OUTDATED";
 }
 export interface ComparisonOutput {
+  contentEvidence?: import("./content-evidence.ts").ContentSnapshot;
   ownerContext?: EvidenceObject;
   ingestionCapabilityStatus: string;
   result: EvidenceObject;

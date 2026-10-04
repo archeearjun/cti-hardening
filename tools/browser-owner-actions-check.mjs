@@ -71,6 +71,8 @@ input.course.data.scan.courseTree[0].children[0].sourcePayload.files = [
   },
 ];
 const output = createWorkflows(workerXml).compare(input);
+// Exercise an existing report that predates content retention.
+delete output.contentEvidence;
 output.ownerContext = buildOwnerContext(
   new TextEncoder().encode(
     JSON.stringify({
@@ -189,6 +191,33 @@ try {
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 2 records;", { exact: false }).waitFor();
   await openAudit();
+  await page
+    .getByText("Load original extraction content into an older report", {
+      exact: true,
+    })
+    .click();
+  await page
+    .getByLabel("Original extraction JSON", { exact: true })
+    .setInputFiles({
+      name: "wrong.json",
+      mimeType: "application/json",
+      buffer: Buffer.from("{}"),
+    });
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "does not match either original extraction hash" })
+    .waitFor();
+  await page
+    .getByLabel("Original extraction JSON", { exact: true })
+    .setInputFiles({
+      name: input.json.name,
+      mimeType: "application/json",
+      buffer: Buffer.from(input.json.bytes),
+    });
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Original Coursera content loaded and saved" })
+    .waitFor();
   const emptyExportEvent = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "Download complete report", exact: true })
@@ -392,6 +421,42 @@ try {
   await page
     .getByText("Automatically read source definitions", { exact: false })
     .waitFor();
+  const sourceContent = page.getByRole("region", {
+    name: "Source captured content",
+    exact: true,
+  });
+  const destinationContent = page.getByRole("region", {
+    name: "Coursera captured content",
+    exact: true,
+  });
+  await sourceContent
+    .getByText("Source question 10", { exact: true })
+    .waitFor();
+  await destinationContent
+    .getByText("First question", { exact: true })
+    .waitFor();
+  assert.equal(
+    await sourceContent.locator(".captured-questions > li").count(),
+    10,
+  );
+  assert.equal(
+    await destinationContent.locator(".captured-questions > li").count(),
+    2,
+  );
+  await page
+    .getByLabel("Find captured question text", { exact: true })
+    .fill("Source question 10");
+  assert.equal(
+    await sourceContent.locator(".captured-questions > li").count(),
+    1,
+  );
+  assert.equal(
+    await destinationContent.locator(".captured-questions > li").count(),
+    0,
+  );
+  await page
+    .getByLabel("Find captured question text", { exact: true })
+    .fill("");
   assert.match(
     await page.locator(".question-count-values dd").first().innerText(),
     /^10 — Automatically captured H5P question-bank definitions[\s\S]*Original audit capture: Unverified/,
@@ -458,6 +523,22 @@ try {
   assert.equal(data.followUp.reviews[0].sourceCounts[0].count, 10);
   assert.equal(data.followUp.reviews[0].sourceCaptures[0].bank.count, 10);
   assert.equal(
+    data.followUp.contentEvidence.coursera[0].content.text,
+    JSON.parse(new TextDecoder().decode(input.json.bytes)).fingerprints[0]
+      .payload.textSample,
+  );
+  assert.equal(
+    data.followUp.contentComparisons[0].view.coursera.questions[0].prompt,
+    "First question",
+  );
+  assert.equal(
+    data.followUp.contentComparisons[0].view.source.find((c) =>
+      c.basis.startsWith("Fetched external"),
+    ).questions.length,
+    10,
+  );
+  assert(data.followUp.contentComparisons[0].view.previousCoursera.text);
+  assert.equal(
     data.followUp.questionComparisons[0].questionComparisons[0].source.count,
     10,
   );
@@ -486,6 +567,9 @@ try {
   );
   assert.match(exportedText, /Reviewed source reference: 10/);
   assert.match(exportedText, /Automatic source capture:/);
+  assert.match(exportedText, /Source question 10/);
+  assert.match(exportedText, /First question/);
+  assert.match(exportedText, /CONTENT COMPARISON/);
   assert.match(exportedText, /8 fewer native question positions/);
   assert(exportedText.endsWith(output.report));
   await page.getByRole("button", { name: "Copy report", exact: true }).click();
@@ -521,6 +605,12 @@ try {
   await page.screenshot({
     path: path.join(shots, "question-counts-mobile.png"),
   });
+  await page
+    .getByText("Compare captured questions and text", { exact: true })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "content-comparison-mobile.png"),
+  });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page
     .getByRole("heading", {
@@ -530,6 +620,12 @@ try {
     .scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(shots, "question-counts-desktop.png"),
+  });
+  await page
+    .getByText("Compare captured questions and text", { exact: true })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "content-comparison-desktop.png"),
   });
   assert.deepEqual(errors, []);
   console.log(
@@ -549,6 +645,7 @@ try {
           "exports explicitly identify reports without follow-ups",
           "source count reference validation, persistence, scoped counts and exports",
           "automatic source fetch, failed refresh preserving previous source evidence, and exported bank count",
+          "original extraction hash rejection/recovery; both content panes, question search, full content exports and previous observations",
           "390px layout",
         ],
         screenshots: shots,

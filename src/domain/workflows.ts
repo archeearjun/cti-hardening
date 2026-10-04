@@ -1,4 +1,5 @@
 import { questionComparisonsText } from "./question-counts.ts";
+import { buildContentSnapshot } from "./content-evidence.ts";
 import { createEngine } from "../engine/index.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import {
@@ -236,6 +237,10 @@ export function createWorkflows(xmlService: unknown) {
     );
     return {
       result,
+      contentEvidence: buildContentSnapshot(
+        input.json?.bytes,
+        input.brightspace?.bytes,
+      ),
       ownerContext: buildOwnerContext(
         input.brightspace?.bytes,
         result.liveSourceGroundTruth?.sourceTopicMappings || [],

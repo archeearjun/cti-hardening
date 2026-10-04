@@ -1,5 +1,6 @@
 import type { WorkspaceRecord } from "./workspace-types.ts";
 import { validateOwnerReview } from "./owner-actions.ts";
+import { validateContentSnapshot } from "./content-evidence.ts";
 import { validateCourseMetadata } from "./operations.ts";
 const kinds = [
   "package",
@@ -27,6 +28,8 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
   )
     throw new Error("Invalid workspace record.");
   if (!full) return;
+  if (record.kind === "audit" && record.data.contentEvidence !== undefined)
+    validateContentSnapshot(record.data.contentEvidence);
   if (record.kind === "item-review") {
     if (
       !record.packageId ||
@@ -41,7 +44,10 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
     validateOwnerReview(record.data.review);
   }
   if (record.kind === "package") {
-    if (!Array.isArray(record.data.scan?.courseTree) || !record.data.scan?.stats)
+    if (
+      !Array.isArray(record.data.scan?.courseTree) ||
+      !record.data.scan?.stats
+    )
       throw new Error(
         "A source record must contain a complete source tree and scan statistics.",
       );
@@ -106,13 +112,24 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
         "planner",
         "runtime-inventory",
         "lineage-repair",
+        "report-content",
         "legacy-scan-history",
         "legacy-duplicate-archive",
         "legacy-catalog-map",
       ].includes(type)
     )
       throw new Error("Invalid operations record type.");
-    if (type === "lineage-repair") {
+    if (type === "report-content") {
+      if (
+        !record.packageId ||
+        typeof record.data.runId !== "string" ||
+        !record.data.runId ||
+        !["coursera", "brightspace"].includes(record.data.platform) ||
+        !/^[a-f0-9]{64}$/.test(record.data.sourceHash)
+      )
+        throw Error("Invalid report content identity.");
+      validateContentSnapshot(record.data.contentEvidence);
+    } else if (type === "lineage-repair") {
       if (
         !record.packageId ||
         typeof record.data.runId !== "string" ||

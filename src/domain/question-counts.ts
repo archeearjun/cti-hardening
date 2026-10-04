@@ -51,6 +51,60 @@ export interface QuestionComparison {
   automaticSource?: SourceQuestionCapture;
   originalSource?: QuestionCountSide;
 }
+export interface SourceContentTarget {
+  sourceKey: string;
+  sourceName: string;
+  sourcePath: string;
+  sourceUrls: string[];
+}
+export function sourceContentTarget(
+  finding: ObjectValue,
+  sourceNode: unknown,
+): SourceContentTarget {
+  const payload = object(object(sourceNode).sourcePayload),
+    checks = object(finding.checks);
+  return {
+    sourceKey: text(finding.sourceName) ? sourceQuestionKey(finding) : "",
+    sourceName: text(finding.sourceName) || "Source not matched",
+    sourcePath: text(finding.sourcePath),
+    sourceUrls: [
+      ...new Set(
+        [
+          ...list(object(checks.links).expected),
+          ...list(payload.embeddedRefs),
+          ...list(payload.links),
+        ]
+          .map(safeWebUrl)
+          .filter(Boolean),
+      ),
+    ],
+  };
+}
+export function validateSourceCaptureTargets(
+  rows: SourceContentTarget[],
+  captures: SourceQuestionCapture[],
+) {
+  const seen = new Set<string>();
+  for (const capture of captures) {
+    validateSourceQuestionCapture(capture);
+    if (seen.has(capture.sourceKey))
+      throw Error("Duplicate automatic source evidence.");
+    seen.add(capture.sourceKey);
+    if (
+      !rows.some(
+        (row) =>
+          row.sourceKey === capture.sourceKey &&
+          row.sourceUrls.some(
+            (url) =>
+              publicSourceUrl(url) === publicSourceUrl(capture.targetUrl),
+          ),
+      )
+    )
+      throw Error(
+        "Automatic source evidence does not match this report's recorded source link.",
+      );
+  }
+}
 const unknownSide = (basis: string): QuestionCountSide => ({
   count: null,
   declared: null,
@@ -195,20 +249,7 @@ export function questionComparison(
     coursera.poolSize = count(cp.poolSize);
   }
   return {
-    sourceKey: text(finding.sourceName) ? sourceQuestionKey(finding) : "",
-    sourceName: text(finding.sourceName) || "Source not matched",
-    sourcePath: text(finding.sourcePath),
-    sourceUrls: [
-      ...new Set(
-        [
-          ...list(object(checks.links).expected),
-          ...list(payload.embeddedRefs),
-          ...list(payload.links),
-        ]
-          .map(safeWebUrl)
-          .filter(Boolean),
-      ),
-    ],
+    ...sourceContentTarget(finding, sourceNode),
     source,
     coursera,
     directMatch: primary,
@@ -231,22 +272,7 @@ export function withQuestionFollowUp(
     throw new Error(
       "Saved source count does not match this report's source item.",
     );
-  for (const capture of sourceCaptures) {
-    validateSourceQuestionCapture(capture);
-    if (
-      !rows.some(
-        (row) =>
-          row.sourceKey === capture.sourceKey &&
-          row.sourceUrls.some(
-            (url) =>
-              publicSourceUrl(url) === publicSourceUrl(capture.targetUrl),
-          ),
-      )
-    )
-      throw new Error(
-        "Automatic source evidence does not match this report's recorded source link.",
-      );
-  }
+  validateSourceCaptureTargets(rows, sourceCaptures);
   return rows.map((row) => {
     const automaticSource = sourceCaptures.find(
       (c) => c.sourceKey === row.sourceKey && c.status === "CAPTURED",

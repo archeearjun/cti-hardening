@@ -1,8 +1,16 @@
 import {
   validateSourceQuestionCapture,
+  publicSourceUrl,
   type SourceQuestionCapture,
 } from "../src/domain/external-source-questions";
-import { withQuestionFollowUp } from "../src/domain/question-counts";
+import { validateSourceCaptureTargets } from "../src/domain/question-counts";
+import {
+  itemContentView,
+  type ItemContentView,
+} from "../src/domain/owner-content";
+import type { ContentSnapshot } from "../src/domain/content-evidence";
+import ContentEvidencePanel from "./ContentEvidencePanel";
+import PublicContentFetch from "./PublicContentFetch";
 import { workspaceRequest } from "../src/domain/workspace-http";
 import QuestionCountPanel from "./QuestionCountPanel";
 import type { ReviewedSourceCount } from "../src/domain/question-counts";
@@ -52,6 +60,7 @@ export default function OwnerActionCard({
   context,
   courseLocation,
   onOpenExtraction,
+  contentSnapshot,
 }: {
   task: OwnerTask;
   label: string;
@@ -63,6 +72,7 @@ export default function OwnerActionCard({
   context: EvidenceObject;
   courseLocation: { courseId: string; base: string } | null;
   onOpenExtraction?: (url?: string) => void;
+  contentSnapshot?: ContentSnapshot;
 }) {
   const [open, setOpen] = useState(false),
     [loaded, setLoaded] = useState(!saved),
@@ -150,6 +160,54 @@ export default function OwnerActionCard({
     });
   }
 
+  async function fetchSourceContent(
+    sourceKey: string,
+    targetUrl: string,
+    signal: AbortSignal,
+  ) {
+    setBusy("Fetching source content…");
+    setError("");
+    setMessage("");
+    try {
+      const value: unknown = await workspaceRequest(
+        "source-questions",
+        { method: "POST", body: JSON.stringify({ sourceKey, targetUrl }) },
+        { signal, context: "Source content capture" },
+      );
+      validateSourceQuestionCapture(value);
+      signal.throwIfAborted();
+      if (value.status === "UNVERIFIED") throw Error(value.reason);
+      if (
+        value.status === "PARTIAL" &&
+        sourceCaptures.some(
+          (c) => c.sourceKey === sourceKey && c.status === "CAPTURED",
+        )
+      )
+        throw Error(
+          "The new source read was partial. The previously complete bank has been retained. " +
+            value.reason,
+        );
+      const next = [
+        ...sourceCaptures.filter((c) => c.sourceKey !== sourceKey),
+        value,
+      ];
+      validateSourceCaptureTargets(task.sourceTargets, next);
+      await persist(
+        capture,
+        status === "checked" ? "in_progress" : status,
+        pluginCaptures,
+        sourceCounts,
+        next,
+      );
+      setMessage(
+        value.status === "CAPTURED"
+          ? `Source questions fetched and saved: ${value.bank?.count}. Original audit unchanged.`
+          : "Partial source content saved. Whole-source question coverage remains unverified; original audit unchanged.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
   async function persist(
     nextCapture = capture,
     nextStatus = status,
@@ -214,6 +272,21 @@ export default function OwnerActionCard({
         link.url && all.findIndex((x) => x.url === link.url) === i,
     );
   const actionable = task.actions.filter((a) => a.severity !== "NONE");
+  let contentView: ItemContentView | undefined,
+    contentError = "";
+  if (open && loaded)
+    try {
+      contentView = itemContentView(
+        task,
+        contentSnapshot,
+        context,
+        capture,
+        sourceCaptures,
+        pluginCaptures,
+      );
+    } catch (e) {
+      contentError = e instanceof Error ? e.message : String(e);
+    }
   return (
     <details
       className="outline-item action-card"
@@ -249,48 +322,12 @@ export default function OwnerActionCard({
               rows={task.questionComparisons}
               capture={capture}
               references={sourceCounts}
-              sourceCaptures={sourceCaptures}
-              onFetch={async (sourceKey, targetUrl, signal) => {
-                setBusy("Fetching source questions…");
-                setError("");
-                setMessage("");
-                try {
-                  const value: unknown = await workspaceRequest(
-                    "source-questions",
-                    {
-                      method: "POST",
-                      body: JSON.stringify({ sourceKey, targetUrl }),
-                    },
-                    { signal, context: "Source question capture" },
-                  );
-                  validateSourceQuestionCapture(value);
-                  signal.throwIfAborted();
-                  if (value.status !== "CAPTURED")
-                    throw new Error(value.reason);
-                  const next = [
-                    ...sourceCaptures.filter((c) => c.sourceKey !== sourceKey),
-                    value,
-                  ];
-                  withQuestionFollowUp(
-                    task.questionComparisons,
-                    capture,
-                    sourceCounts,
-                    next,
-                  );
-                  await persist(
-                    capture,
-                    status === "checked" ? "in_progress" : status,
-                    pluginCaptures,
-                    sourceCounts,
-                    next,
-                  );
-                  setMessage(
-                    `Source questions fetched and saved: ${value.bank?.count}. Original audit unchanged.`,
-                  );
-                } finally {
-                  setBusy("");
-                }
-              }}
+              sourceCaptures={sourceCaptures.filter((c) =>
+                task.questionComparisons.some(
+                  (r) => r.sourceKey === c.sourceKey,
+                ),
+              )}
+              onFetch={fetchSourceContent}
               editable={editable && !busy}
               onSave={async (next) => {
                 setBusy("Saving source count…");
@@ -308,6 +345,42 @@ export default function OwnerActionCard({
                 }
               }}
             />
+          )}
+          {loaded && (
+            <>
+              {task.sourceTargets
+                .filter(
+                  (t) =>
+                    !task.questionComparisons.some(
+                      (r) => r.sourceKey === t.sourceKey,
+                    ),
+                )
+                .flatMap((t) =>
+                  t.sourceUrls
+                    .filter(publicSourceUrl)
+                    .map((url) => (
+                      <PublicContentFetch
+                        key={t.sourceKey + url}
+                        sourceKey={t.sourceKey}
+                        url={url}
+                        disabled={!editable || !!busy}
+                        onFetch={fetchSourceContent}
+                      />
+                    )),
+                )}
+              {contentView ? (
+                <ContentEvidencePanel
+                  view={contentView}
+                  onCapture={spec ? () => void copyCheck() : undefined}
+                  disabled={!editable || !!busy}
+                />
+              ) : (
+                <p role="alert">
+                  {contentError} Saved evidence has been preserved; this content
+                  cannot be attributed to the current source mapping.
+                </p>
+              )}
+            </>
           )}
           <section className="action-focus">
             <p className="eyebrow">1 · WHAT TO DO</p>

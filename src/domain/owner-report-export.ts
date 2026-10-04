@@ -1,6 +1,10 @@
+import { loadReportContent } from "./report-content-store.ts";
 import type { SourceQuestionCapture } from "./external-source-questions.ts";
+import { validateContentSnapshot } from "./content-evidence.ts";
+import { itemContentView, itemContentText } from "./owner-content.ts";
 import {
   withQuestionFollowUp,
+  validateSourceCaptureTargets,
   questionComparisonsText,
   type ReviewedSourceCount,
 } from "./question-counts.ts";
@@ -9,6 +13,7 @@ import {
   courseraLocation,
   ownerCourseLocation,
   validateOwnerReview,
+  normalizeOwnerContext,
   type OwnerReview,
 } from "./owner-actions.ts";
 import { validateItemCheck } from "./item-check.ts";
@@ -49,7 +54,15 @@ export async function prepareOwnerReportExport(
     (report.packageId && report.packageId !== course.id)
   )
     throw new Error("Open the saved report for this course before exporting.");
-  const summaries = (await store.list()).filter(
+  const records = await store.list();
+  const contentEvidence = await loadReportContent(
+    report,
+    auditId,
+    course.id,
+    store,
+    records,
+  );
+  const summaries = records.filter(
     (r) =>
       r.kind === "item-review" &&
       r.packageId === course.id &&
@@ -63,6 +76,7 @@ export async function prepareOwnerReportExport(
     report.result || {},
     sourceMatches ? course.data.scan?.courseTree || [] : [],
   );
+  if (report.contentEvidence) validateContentSnapshot(report.contentEvidence);
   const location = ownerCourseLocation(report.result || {});
   const reviews: ExportedOwnerReview[] = [];
   // Bounded reads also work with the authenticated, chunked team store.
@@ -147,12 +161,15 @@ export async function prepareOwnerReportExport(
       });
       const sourceCounts = review.sourceCounts || [];
       const sourceCaptures = review.sourceCaptures || [];
+      validateSourceCaptureTargets(task?.sourceTargets || [], sourceCaptures);
       // Also bind reviewed source references to this audit's exact source mapping.
       withQuestionFollowUp(
         task?.questionComparisons || [],
         capture,
         sourceCounts,
-        sourceCaptures,
+        sourceCaptures.filter((c) =>
+          task?.questionComparisons.some((r) => r.sourceKey === c.sourceKey),
+        ),
       );
       reviews.push({
         sourceCounts,
@@ -184,12 +201,27 @@ export async function prepareOwnerReportExport(
           task.questionComparisons,
           review?.capture,
           review?.sourceCounts,
-          review?.sourceCaptures,
+          review?.sourceCaptures.filter((c) =>
+            task.questionComparisons.some((r) => r.sourceKey === c.sourceKey),
+          ),
         ),
       };
     })
     .filter((group) => group.questionComparisons.length);
   const followUp = {
+    contentEvidence,
+    contentComparisons: tasks.map((task) => ({
+      itemKey: task.key,
+      name: task.name,
+      view: itemContentView(
+        task,
+        contentEvidence,
+        normalizeOwnerContext(report.ownerContext),
+        reviews.find((r) => r.itemKey === task.key)?.capture,
+        reviews.find((r) => r.itemKey === task.key)?.sourceCaptures,
+        reviews.find((r) => r.itemKey === task.key)?.pluginCaptures,
+      ),
+    })),
     questionComparisons,
     schemaVersion: 1,
     auditId,
@@ -263,6 +295,8 @@ export async function prepareOwnerReportExport(
       );
   }
   lines.push("", questionComparisonsText(questionComparisons));
+  for (const item of followUp.contentComparisons)
+    lines.push("", itemContentText(item.name, item.view));
   const original =
     typeof report.report === "string"
       ? report.report
