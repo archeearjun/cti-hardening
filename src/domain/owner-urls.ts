@@ -27,6 +27,7 @@ export function courseraLocation(value: unknown) {
   return {
     courseId: match[2],
     base: `${u.origin}/teach/${match[1]}/${match[2]}/content`,
+    typedItem: !!item,
     itemId: item?.[1] || u.searchParams.get("itemId") || "",
     url,
   };
@@ -43,26 +44,59 @@ export function courseraItemUrl(
   result: EvidenceObject,
   id: string,
   override = "",
+  evidence?: EvidenceObject,
 ) {
   const course = ownerCourseLocation(result, override);
   if (!course || !/^[A-Za-z0-9_-]+$/.test(id)) return "";
+  const item =
+    evidence ||
+    (result.ownerView?.items || []).find(
+      (row: EvidenceObject) => String(row.id) === id,
+    ) ||
+    {};
   const crawl = result.stats?.extractorMeta?.activeSpaCrawl || {};
-  for (const diag of [
-    ...(crawl.targetDiagnostics || []),
-    ...(crawl.retryDiagnostics || []),
-  ]) {
-    if (String(diag.id) !== id) continue;
-    for (const value of [
-      diag.route,
+  const diagnostics = [crawl.targetDiagnostics, crawl.retryDiagnostics]
+    .flatMap((rows) => (Array.isArray(rows) ? rows : []))
+    .filter((row) => row && String(row.id) === id);
+  const payload = item.payload || {};
+  const routes = [
+    item.url,
+    payload.readingEditorEvidence?.route,
+    payload.pluginEvidence?.route,
+    payload.nativeAssignment?.route,
+    ...diagnostics.flatMap((diag) => [
       diag.typedEditorRecovery?.route,
       diag.readingRouteRecovery?.route,
-    ]) {
-      const route = courseraLocation(value);
-      if (route?.courseId === course.courseId && route.itemId === id)
-        return route.url;
-    }
+      diag.route,
+    ]),
+    course.url,
+  ];
+  // A query-string itemId can leave Coursera on the outline. Only typed,
+  // course-and-item-bound routes qualify as observed item destinations.
+  for (const value of routes) {
+    const route = courseraLocation(value);
+    if (
+      route?.typedItem &&
+      route.courseId === course.courseId &&
+      route.itemId === id
+    )
+      return route.url;
   }
-  // Observed authoring outline route accepts the stable item ID, including item
-  // types whose typed editor path was not captured. Never guess an editor type.
-  return `${course.base}/edit?itemId=${encodeURIComponent(id)}`;
+  // These route families are established by extractor navigation/captures.
+  // A generic Assignment may be several editor types: do not guess it.
+  const types: Record<string, string> = {
+    supplement: "supplement",
+    reading: "supplement",
+    ungradedWidget: "plugin",
+    plugin: "plugin",
+    discussionPrompt: "discussionPrompt",
+    discussion: "discussionPrompt",
+    ungradedAssignment: "project",
+  };
+  const key = [
+    String(item.typeName || ""),
+    String(item.type || "").toLowerCase(),
+  ].find((value) => Object.hasOwn(types, value));
+  const type = key ? types[key] : "";
+  return type ? `${course.base}/item/${type}/${id}` : "";
 }

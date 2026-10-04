@@ -109,6 +109,8 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                   type: d.type,
                   partner: d.partner,
                   sourceName: d.sourceName,
+                  sourceSheet: d.sourceSheet,
+                  sourceUrl: d.sourceUrl,
                   importedAt: d.importedAt,
                   rowCount: Array.isArray(d.rows) ? d.rows.length : 0,
                   runId: d.runId,

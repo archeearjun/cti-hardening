@@ -235,7 +235,7 @@ try {
     await page
       .getByRole("link", { name: "Open item", exact: false })
       .getAttribute("href"),
-    /itemId=reading/,
+    /content\/item\/supplement\/reading$/,
   );
   await page.locator(".action-card > summary").click();
   assert.equal(

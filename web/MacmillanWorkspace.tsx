@@ -1,3 +1,4 @@
+import SearchableSelect from "./SearchableSelect";
 import { useEffect, useState } from "react";
 import EvidenceDetails from "./EvidenceDetails";
 import { newRecord, type WorkspaceStore } from "../src/domain/workspace-store";
@@ -103,33 +104,26 @@ export default function MacmillanWorkspace({
         baseline. CTI does not generate those documents.
       </p>
       <h3>1. Scan or resume a source master</h3>
-      <label>
-        Resume saved workbook
-        <select
-          value={bookRecord?.id || ""}
-          disabled={!!busy}
-          onChange={(e) => {
-            if (e.target.value)
-              void act("Opening workbook", async () => {
-                const r = await store!.get(e.target.value);
-                resetBookInputs();
-                setBookRecord(r);
-                setBook(r.data.book);
-                setMasterResult(r.data.masterResult);
-                setMacResult(null);
-              });
-          }}
-        >
-          <option value="">Choose workbook</option>
-          {records
-            .filter((r) => r.kind === "workbook")
-            .map((r) => (
-              <option value={r.id} key={r.id}>
-                {r.title}
-              </option>
-            ))}
-        </select>
-      </label>
+      <SearchableSelect
+        label="Resume saved workbook"
+        value={bookRecord?.id || ""}
+        disabled={!!busy}
+        emptyLabel="Choose workbook"
+        options={records
+          .filter((r) => r.kind === "workbook")
+          .map((r) => ({ value: r.id, label: r.title }))}
+        onChange={(value) => {
+          if (value)
+            void act("Opening workbook", async () => {
+              const r = await store!.get(value);
+              resetBookInputs();
+              setBookRecord(r);
+              setBook(r.data.book);
+              setMasterResult(r.data.masterResult);
+              setMacResult(null);
+            });
+        }}
+      />
       <FileField
         label="New source master XLSX"
         disabled={!!busy || !editable}

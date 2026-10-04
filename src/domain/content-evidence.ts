@@ -1,4 +1,4 @@
-import { safeWebUrl } from "./owner-urls.ts";
+import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import {
   qaBrightspaceFlattenTopics_,
@@ -387,7 +387,17 @@ export function buildContentSnapshot(
       content: capturedContent(f.payload, {
         basis: "Original Coursera extraction",
         capturedAt: string(raw.extractedAt),
-        url: string(contentObject(raw.page).url),
+        url:
+          courseraItemUrl(
+            {
+              stats: {
+                extractorMeta: { ...contentObject(raw.meta), page: raw.page },
+              },
+            },
+            String(f.id ?? ""),
+            "",
+            f,
+          ) || string(contentObject(raw.page).url),
         itemId: String(f.id ?? ""),
       }),
     };

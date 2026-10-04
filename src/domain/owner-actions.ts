@@ -111,6 +111,7 @@ export function buildOwnerTasks(
   result: EvidenceObject,
   tree: EvidenceObject[] = [],
   override = "",
+  contentItems: { id: string; content: { url: string } }[] = [],
 ): OwnerTask[] {
   const nodes = sourceEntries(tree),
     results: EvidenceObject[] = result.itemResults || [];
@@ -245,7 +246,10 @@ export function buildOwnerTasks(
       findings,
       sources: uniqueSources,
       excerpt: item.excerpt || "",
-      url: courseraItemUrl(result, id, override),
+      url: courseraItemUrl(result, id, override, {
+        ...item,
+        url: contentItems.find((entry) => entry.id === id)?.content.url,
+      }),
       questionSummary,
       checks,
       sourceOnly,

@@ -537,12 +537,15 @@ export interface WorkItemContext {
   hasRuntimeFlag?: boolean;
   productType?: string;
   plannerCategories?: string[];
+  plannerOwnerConflict?: boolean;
 }
 
 export function nextWorkAction(item: WorkItemContext, stateValue: unknown): WorkNextAction {
   const state = normalizeWorkState(stateValue);
   if (state.scope === "EXCLUDED")
     return { code: "EXCLUDED", label: "Excluded from this redo campaign", tone: "muted" };
+  if (item.plannerOwnerConflict)
+    return { code: "RESOLVE_PLANNER_OWNER", label: "Resolve conflicting owners on the latest planner date", tone: "warning" };
   if (item.catalogStatus === "AMBIGUOUS")
     return { code: "RESOLVE_CATALOG", label: "Resolve duplicate catalog assignment before work begins", tone: "warning" };
   if (item.ctiMatchStatus === "AMBIGUOUS")
@@ -636,6 +639,8 @@ function firstSheet(book: BookData): Cell[][] {
 
 export interface CatalogRow {
   sourceRow: number;
+  sourceSheet?: string;
+  comments?: string;
   partner: string;
   titleCode: string;
   displayCode: string;
@@ -669,6 +674,7 @@ export function importCatalogWorkbook(book: BookData, partner: string): CatalogR
   const brightIdx = headerIndex(headers, ["Brightspace Access"]);
   const ccIdx = headerIndex(headers, ["CC Package Access"]);
   const importIdx = headerIndex(headers, ["Import Status"]);
+  const commentsIdx = headerIndex(headers, ["Comments", "Remarks", "Notes"]);
   if (titleIdx < 0 || (fileIdx < 0 && codeIdx < 0))
     throw new Error(
       "Catalog must contain Title plus Title Code or Common Cartridge File Name.",
@@ -676,9 +682,9 @@ export function importCatalogWorkbook(book: BookData, partner: string): CatalogR
   const rows: CatalogRow[] = [];
   for (let i = 1; i < data.length; i++) {
     const source = data[i] || [];
-    const fileName = fileIdx >= 0 ? String(source[fileIdx] || "").trim() : "";
-    const titleCode = codeIdx >= 0 ? String(source[codeIdx] || "").trim() : fileName;
-    const title = String(source[titleIdx] || "").trim();
+    const fileName = fileIdx >= 0 ? String(source[fileIdx] ?? "").trim() : "";
+    const titleCode = codeIdx >= 0 ? String(source[codeIdx] ?? "").trim() : fileName;
+    const title = String(source[titleIdx] ?? "").trim();
     if (!fileName && !titleCode && !title) continue;
     const code = displayCode(titleCode || fileName || title);
     const titleKey = packageMatchKey(titleCode || fileName || code || title);
@@ -690,11 +696,12 @@ export function importCatalogWorkbook(book: BookData, partner: string): CatalogR
       displayCode: code,
       titleKey,
       title,
-      productType: typeIdx >= 0 ? String(source[typeIdx] || "").trim() : "",
-      owner: ownerIdx >= 0 ? String(source[ownerIdx] || "").trim() : "",
-      brightspaceAccess: brightIdx >= 0 ? String(source[brightIdx] || "").trim() : "",
-      ccPackageAccess: ccIdx >= 0 ? String(source[ccIdx] || "").trim() : "",
-      importStatus: importIdx >= 0 ? String(source[importIdx] || "").trim() : "",
+      productType: typeIdx >= 0 ? String(source[typeIdx] ?? "").trim() : "",
+      owner: ownerIdx >= 0 ? String(source[ownerIdx] ?? "").trim() : "",
+      brightspaceAccess: brightIdx >= 0 ? String(source[brightIdx] ?? "").trim() : "",
+      ccPackageAccess: ccIdx >= 0 ? String(source[ccIdx] ?? "").trim() : "",
+      importStatus: importIdx >= 0 ? String(source[importIdx] ?? "").trim() : "",
+      comments: commentsIdx >= 0 ? String(source[commentsIdx] ?? "") : "",
       expectedFileName:
         fileName && /\.imscc$/i.test(fileName)
           ? fileName
@@ -710,13 +717,15 @@ export function importCatalogWorkbook(book: BookData, partner: string): CatalogR
 
 export interface PlannerRow {
   sourceRow: number;
+  sourceSheet?: string;
+  courseReference?: string;
   assignmentDate: string;
   partner: string;
   method: string;
   category: string;
   subCategory: string;
   owner: string;
-  totalTitleCount: number;
+  totalTitleCount: number | null;
   status: string;
   remarks: string;
 }
@@ -747,6 +756,7 @@ export function importPlannerWorkbook(book: BookData): PlannerRow[] {
   const totalIdx = headerIndex(headers, ["Total Title Count"]);
   const statusIdx = headerIndex(headers, ["Status"]);
   const remarksIdx = headerIndex(headers, ["Assignment Owner Remarks"]);
+  const referenceIdx = headerIndex(headers, ["Course Reference"]);
   if (dateIdx < 0 || partnerIdx < 0 || ownerIdx < 0)
     throw new Error("Planner must contain Assignment Date, Partner and Assignment Owner.");
   const rows: PlannerRow[] = [];
@@ -754,7 +764,7 @@ export function importPlannerWorkbook(book: BookData): PlannerRow[] {
     const source = data[i] || [];
     const assignmentDate = workbookDate(source[dateIdx]);
     const partner = String(source[partnerIdx] || "").trim();
-    const owner = String(source[ownerIdx] || "").trim();
+    const owner = String(source[ownerIdx] ?? "").trim();
     if (!assignmentDate || !partner || !owner) continue;
     rows.push({
       sourceRow: i + 1,
@@ -765,9 +775,10 @@ export function importPlannerWorkbook(book: BookData): PlannerRow[] {
       subCategory: subCategoryIdx >= 0 ? String(source[subCategoryIdx] || "").trim() : "",
       owner,
       totalTitleCount:
-        totalIdx >= 0 ? Math.max(0, Math.trunc(Number(source[totalIdx]) || 0)) : 0,
+        totalIdx >= 0 && String(source[totalIdx] ?? "").trim() ? Math.max(0, Math.trunc(Number(source[totalIdx]) || 0)) : null,
       status: statusIdx >= 0 ? String(source[statusIdx] || "").trim() : "",
-      remarks: remarksIdx >= 0 ? String(source[remarksIdx] || "") : "",
+      courseReference: referenceIdx >= 0 ? String(source[referenceIdx] ?? "").trim() : "",
+      remarks: remarksIdx >= 0 ? String(source[remarksIdx] ?? "") : "",
     });
   }
   return rows;
@@ -1076,6 +1087,10 @@ export interface PortableWorkQueueItem {
   productType: string;
   owner: string;
   catalogOwner: string;
+  plannerOwnerConflict: boolean;
+  catalogComments: string;
+  catalogSourceRow: number | null;
+  catalogSourceSheet: string;
   catalogStatus: "MATCH" | "MISSING" | "AMBIGUOUS";
   catalogCandidateCount: number;
   plannerLatestDate: string;
@@ -1256,6 +1271,7 @@ export function buildPortableWorkQueue(args: {
       categories: Set<string>;
     }
   >();
+  let plannerUnknownTitleCounts = 0;
   for (const row of args.planner) {
     if (
       normalizePartnerName(row.partner) !== partnerKey ||
@@ -1265,6 +1281,7 @@ export function buildPortableWorkQueue(args: {
         !row.method.toLowerCase().includes("smart ingestion"))
     )
       continue;
+    if (row.totalTitleCount == null) plannerUnknownTitleCounts++;
     const key = row.assignmentDate + "|" + ownerKey(row.owner);
     const group =
       groups.get(key) ||
@@ -1277,6 +1294,13 @@ export function buildPortableWorkQueue(args: {
       };
     group.expectedTitleAssignments += Math.max(0, row.totalTitleCount || 0);
     if (row.category) group.categories.add(row.category);
+    const referenceKey = packageMatchKey(row.courseReference);
+    const exactReferences = catalog.filter((entry) => referenceKey && (
+      entry.titleKey === referenceKey || packageMatchKey(entry.expectedFileName) === referenceKey
+    ));
+    const referenceKeys = [...new Set(exactReferences.map((entry) => entry.titleKey))];
+    // A filename shared by distinct catalogue titles is unresolved, not two assignments.
+    if (referenceKeys.length === 1) group.codes.add(referenceKeys[0]);
     for (const code of extractCatalogKeys(row.remarks, byKey))
       group.codes.add(code);
     groups.set(key, group);
@@ -1284,19 +1308,22 @@ export function buildPortableWorkQueue(args: {
 
   const titleEvidence = new Map<
     string,
-    { owner: string; latestDate: string; categories: Set<string> }
+    { owner: string; owners: Map<string, string>; latestDate: string; categories: Set<string> }
   >();
   for (const group of groups.values()) {
     for (const key of group.codes) {
       const prior = titleEvidence.get(key);
-      if (!prior || group.assignmentDate >= prior.latestDate)
+      if (!prior || group.assignmentDate > prior.latestDate)
         titleEvidence.set(key, {
           owner: group.owner,
+          owners: new Map([[ownerKey(group.owner), group.owner]]),
           latestDate: group.assignmentDate,
           categories: new Set(group.categories),
         });
-      else
+      else {
+        if (group.assignmentDate === prior.latestDate) prior.owners.set(ownerKey(group.owner), group.owner);
         for (const category of group.categories) prior.categories.add(category);
+      }
     }
   }
 
@@ -1321,11 +1348,12 @@ export function buildPortableWorkQueue(args: {
   for (const [titleKey, evidence] of titleEvidence) {
     if (
       args.ownerFilter &&
-      ownerKey(evidence.owner) !== ownerKey(args.ownerFilter)
+      !evidence.owners.has(ownerKey(args.ownerFilter))
     )
       continue;
     const candidates = byKey.get(titleKey) || [];
-    const resolved = resolveCatalogCandidate(candidates, evidence.owner);
+    const plannerOwnerConflict = evidence.owners.size > 1;
+    const resolved = resolveCatalogCandidate(candidates, plannerOwnerConflict ? "" : evidence.owner);
     const catalogRow =
       resolved.row ||
       ({
@@ -1336,7 +1364,8 @@ export function buildPortableWorkQueue(args: {
         expectedFileName: titleKey.toUpperCase() + ".imscc",
         importStatus: "",
       } as CatalogRow);
-    const matches = packagesByKey.get(titleKey) || [];
+    const matchKeys = new Set([titleKey, ...(resolved.row?.expectedFileName ? [packageSemanticKey(resolved.row.expectedFileName)] : [])]);
+    const matches = [...new Map([...matchKeys].flatMap((key) => packagesByKey.get(key) || []).map((record) => [record.id, record])).values()];
     const ctiMatchStatus: PortableWorkQueueItem["ctiMatchStatus"] =
       matches.length === 0
         ? "MISSING"
@@ -1389,6 +1418,7 @@ export function buildPortableWorkQueue(args: {
       ? normalizeWorkState(course.data.workState || {})
       : defaultWorkState();
     const itemContext: WorkItemContext = {
+      plannerOwnerConflict,
       catalogStatus: resolved.status,
       ctiMatchStatus,
       hasSource: !!course,
@@ -1405,8 +1435,12 @@ export function buildPortableWorkQueue(args: {
       displayCode: catalogRow.displayCode || displayCode(catalogRow.titleCode || titleKey),
       title: catalogRow.title || "",
       productType: catalogRow.productType || "",
-      owner: evidence.owner || "Unassigned",
+      owner: [...evidence.owners.values()].sort().join(" / ") || "Unassigned",
+      plannerOwnerConflict,
       catalogOwner: catalogRow.owner || "",
+      catalogComments: catalogRow.comments || "",
+      catalogSourceRow: catalogRow.sourceRow || null,
+      catalogSourceSheet: catalogRow.sourceSheet || "",
       catalogStatus: resolved.status,
       catalogCandidateCount: candidates.length,
       plannerLatestDate: evidence.latestDate,
@@ -1448,6 +1482,7 @@ export function buildPortableWorkQueue(args: {
     unresolvedGroups,
     summary: {
       confirmedTitles: items.length,
+      plannerUnknownTitleCounts,
       needsUpload: items.filter((item) => item.nextAction.code === "UPLOAD_SOURCE").length,
       needsRescan: items.filter((item) => item.nextAction.code === "RESCAN_SOURCE").length,
       needsRawAudit: items.filter((item) => item.nextAction.code === "AUDIT_EXISTING_RAW").length,

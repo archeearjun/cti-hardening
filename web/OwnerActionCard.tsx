@@ -23,6 +23,7 @@ import type { ReviewedSourceCount } from "../src/domain/question-counts";
 import { useEffect, useRef, useState } from "react";
 import {
   safeWebUrl,
+  courseraLocation,
   resolveSourceTopic,
   validateOwnerReview,
   type OwnerTask,
@@ -92,6 +93,7 @@ export default function OwnerActionCard({
   const [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const [manualItemUrl, setManualItemUrl] = useState("");
   const [script, setScript] = useState("");
   const [sourceCaptures, setSourceCaptures] = useState<SourceQuestionCapture[]>(
     [],
@@ -128,13 +130,22 @@ export default function OwnerActionCard({
       alive = false;
     };
   }, [open, saved?.id, saved?.version, store]);
+  const observedItemUrl = [capture?.openedUrl, manualItemUrl].find((value) => {
+    const location = courseraLocation(value);
+    return (
+      location?.typedItem &&
+      location.courseId === courseLocation?.courseId &&
+      location.itemId === task.id
+    );
+  });
+  const itemUrl = task.url || safeWebUrl(observedItemUrl);
   const spec: ItemCheckSpec | null =
-    task.url && auditId && courseLocation && task.id
+    itemUrl && auditId && courseLocation && task.id
       ? {
           auditId,
           itemId: task.id,
           courseId: courseLocation.courseId,
-          url: task.url,
+          url: itemUrl,
           name: task.name,
           checks: task.checks,
         }
@@ -380,10 +391,10 @@ export default function OwnerActionCard({
           </small>
         </span>
         <span className={`finding-label finding-${task.status}`}>{label}</span>
-        {task.url && (
+        {itemUrl && (
           <a
             className="button-link item-open"
-            href={task.url}
+            href={itemUrl}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -475,11 +486,32 @@ export default function OwnerActionCard({
                   "Compare this item with its intended source and confirm its placement and learner access."}
               </p>
             )}
+            {!task.url && task.id && courseLocation && (
+              <div>
+                <label>
+                  Coursera item editor URL
+                  <input
+                    type="url"
+                    value={manualItemUrl}
+                    onChange={(e) => setManualItemUrl(e.target.value)}
+                    placeholder="Paste the URL after opening this item in Coursera"
+                  />
+                </label>
+                <p
+                  className="hint"
+                  role={manualItemUrl && !itemUrl ? "alert" : undefined}
+                >
+                  {manualItemUrl && !itemUrl
+                    ? "This must be a typed Coursera editor URL for this exact course and item."
+                    : "The report did not retain an item route. Open the course, select this item, and paste its editor URL to enable focused checks."}
+                </p>
+              </div>
+            )}
             <div className="action-links">
-              {task.url ? (
+              {itemUrl ? (
                 <a
                   className="button-link primary"
-                  href={task.url}
+                  href={itemUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -492,7 +524,7 @@ export default function OwnerActionCard({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Find its destination in Coursera ↗
+                  Open Coursera course · item link unavailable ↗
                 </a>
               ) : (
                 <p className="hint">
@@ -604,7 +636,7 @@ export default function OwnerActionCard({
                   disabled={!!busy || !onOpenExtraction}
                   onClick={() =>
                     onOpenExtraction?.(
-                      courseLocation ? courseLocation.base + "/edit" : task.url,
+                      courseLocation ? courseLocation.base + "/edit" : itemUrl,
                     )
                   }
                 >
