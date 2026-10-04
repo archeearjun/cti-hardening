@@ -300,7 +300,11 @@ export default function OperationsWorkspace({
       );
       const repairedAudits = applyLineageRepairs(fullAudits, fullRepairs);
       const next = buildPortableWorkQueue({
-        records: [...fullPackages, ...repairedAudits],
+        records: [
+          ...fullPackages,
+          ...repairedAudits,
+          ...records.filter((record) => record.kind === "item-review"),
+        ],
         catalog: catalogRecord.data.rows || [],
         planner: plannerRecord.data.rows || [],
         runtime: runtimeRecord?.data.rows || [],
@@ -1094,6 +1098,13 @@ export default function OperationsWorkspace({
             )}
 
             <h3>Workflow state</h3>
+            <p className="hint">
+              Use Assignment plan for source reconciliation and content-map
+              approval. These operational statuses record progress; a legacy
+              PASS or DONE does not establish current evidence readiness.
+              Specializations follow content map → approval → linked outline.
+              Direct course outlines skip the map.
+            </p>
             <div className="settings">
               <label>
                 Scope

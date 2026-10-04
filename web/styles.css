@@ -2123,3 +2123,45 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 .finding small, td small, th, footer, .nav-group-label { font-size: 12px; }
 ::placeholder { color: #536675; opacity: 1; }
 .expand { color: #536675; }
+
+
+.assignment-steps {
+  padding-left: 1.5rem;
+}
+.assignment-steps > li {
+  padding: 0.5rem 0 1.5rem 0.5rem;
+  border-bottom: 1px solid var(--line, #cbd5e1);
+}
+.assignment-steps h3 {
+  margin-bottom: 0.6rem;
+}
+.assignment-plan label {
+  display: grid;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+.assignment-plan input,
+.assignment-plan select,
+.assignment-plan textarea {
+  width: 100%;
+  max-width: 48rem;
+}
+.assignment-plan textarea {
+  min-height: 6rem;
+}
+.assignment-plan p,
+.assignment-plan dd,
+.assignment-plan a {
+  overflow-wrap: anywhere;
+}
+.assignment-evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+}
+.assignment-evidence dt {
+  font-weight: 700;
+}
+.assignment-evidence dd {
+  margin: 0.4rem 0 0;
+}

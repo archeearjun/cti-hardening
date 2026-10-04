@@ -1,5 +1,6 @@
 import SearchableSelect, { matchesSearch } from "./SearchableSelect";
 import OwnerEvidence from "./OwnerEvidence";
+import AssignmentPlanView from "./AssignmentPlan";
 import SourceExplorer from "./SourceExplorer";
 import EvidenceDetails from "./EvidenceDetails";
 import ReportOverview from "./ReportOverview";
@@ -63,6 +64,8 @@ const statuses = [
 const descriptions: Record<string, string> = {
   Overview:
     "See what needs attention, resume the selected course, and jump into the next evidence task.",
+  "Assignment plan":
+    "Know what to reconcile before creating a content map or linked outline.",
   Catalogue: "Find a course, see its ownership, and pick up your review.",
   Explore: "Understand the source package before making an ingestion decision.",
   Scan: "Inspect a new package or save a fresh baseline for an existing course.",
@@ -82,7 +85,10 @@ const descriptions: Record<string, string> = {
   Setup: "Manage your workspace connection, backups and migration recovery.",
 };
 const navGroups = [
-  { label: "Workspace", tabs: ["Overview", "Catalogue", "Work queue"] },
+  {
+    label: "Workspace",
+    tabs: ["Overview", "Assignment plan", "Catalogue", "Work queue"],
+  },
   {
     label: "Course evidence",
     tabs: ["Explore", "Scan", "Extract", "Compare", "History"],
@@ -95,6 +101,7 @@ const navGroups = [
 const navGlyphs: Record<string, string> = {
   Overview: "⌂",
   Catalogue: "⌕",
+  "Assignment plan": "→",
   "Work queue": "✓",
   Explore: "≡",
   Scan: "↑",
@@ -673,7 +680,13 @@ export default function FullWorkspace({
                 {course.version}
               </small>
               <div className="context-actions">
-                {["Explore", "Compare", "History", "Work queue"]
+                {[
+                  "Assignment plan",
+                  "Explore",
+                  "Compare",
+                  "History",
+                  "Work queue",
+                ]
                   .filter((t) => t !== tab)
                   .map((t) => (
                     <button
@@ -728,6 +741,25 @@ export default function FullWorkspace({
           <p role="status" className="success-notice">
             {notice}
           </p>
+        )}
+        {tab === "Assignment plan" && (
+          <AssignmentPlanView
+            key={courseId}
+            course={course}
+            records={records}
+            store={store}
+            disabled={!!busy}
+            onNavigate={setTab}
+            onSaved={async (saved) => {
+              setCourse(saved);
+              await refresh();
+            }}
+            onAudit={(audit) => {
+              setReport(audit.data);
+              setReportId(audit.id);
+              setTab("History");
+            }}
+          />
         )}
         {tab === "Overview" && (
           <div className="workspace-overview">
@@ -1748,6 +1780,14 @@ export default function FullWorkspace({
               generated their script; a new comparison does not carry them over.
               Unsaved notes are not included. Original scores and findings stay
               unchanged.
+            </p>
+            <p>
+              <button
+                className="secondary"
+                onClick={() => setTab("Assignment plan")}
+              >
+                Check content map / outline prerequisites
+              </button>
             </p>
             <OwnerEvidence
               key={reportId || json(report.hashes || {})}
