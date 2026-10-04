@@ -88,3 +88,45 @@ content that was never captured. After a relevant extractor change, choose a
 representative affected item for live validation and retain the rest of the
 collection as regression evidence. A newer version by itself is not a reason to
 recapture every course.
+
+## Check whether known historical errors still get through
+
+A successful replay only proves that processing completed. Use a separate,
+evidence-authored expectation manifest to assert what the current verdict,
+evidence dimension and owner action must say for each known historical case.
+Include positive controls so "flag everything" cannot pass.
+
+```sh
+node tools/check-corpus-expectations.mjs /private/evidence/expectations.json /private/evidence/review-current
+```
+
+The private manifest has `kind: "CTI_CORPUS_EXPECTATIONS"`, `schemaVersion: 1`
+and a nonempty `checks` array. Each check has a unique `id`, replay `caseId`,
+evidence-based `description`, `target` (`comparison` or `capture`), the complete
+`inputHashes` from that historical case, and explicit `assertions`. An optional
+`match` object selects exactly one result item (prefer `sourceId`) or captured
+assessment (prefer `id`) by exact fields. Without it, assertions target the
+whole comparison result or capture review.
+
+Each assertion has a `path` array, an `operator` (`equals`, `notEquals`, `oneOf`,
+`contains`, `excludes`) and an expected `value`. Array indices are numbers.
+Missing evidence fails negative assertions too; an absent field is not a
+successful "not VERIFIED" check. Zero/false are retained as real values.
+
+For example, a documented failed assessment should require both
+`["verdict"] equals "INGESTION_FAILURE"` and
+`["ownerAction", "severity"] equals "CRITICAL"`. A preserved renamed attachment
+should require its exact hash-match receipt and no false missing-asset warning.
+Do not generate expected outcomes by copying current verdicts.
+
+Missing/ambiguous items, changed inputs, missing fields and wrong decisions fail.
+A missing full source comparison is `BLOCKED`, never a pass. Exit codes are 0
+for all explicit checks passing, 1 for failures, and 2 for incomplete coverage.
+This gate does not certify unenumerated errors or current live collection.
+
+The private 15-title set currently has 63 explicit checks: known failed/empty
+assessments, grading changes, unresolved and preserved attachments, positive
+question/answer controls, source-total uncertainty, mixed-editor gaps and three
+report false positives. Baseline main fails those three false-positive checks;
+the corpus-convergence correction passes 59 with zero failures and four blocked
+full-source grading cases. Counts describe assertions, not 63 distinct bugs.

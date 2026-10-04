@@ -303,7 +303,7 @@ export function qaParseSmartIngestionIntelligence_(courseraEvidenceItems){
       else if(assetKind==='CONTENT_MARKUP_ADAPTATION')push(assetKind,subject,path,event,'INFO','');
       if(/(?:NonRetryable|Exception|ERROR DURING DISTILLATION|distillation|parsing failure|malformed model|failed to (?:parse|convert|distill))/i.test(event))
         push('SI_PROCESSING_FAILURE',subject,path,event,'CRITICAL','Escalate the Smart Ingestion processing failure and restore from source evidence if required.');
-      if(cat==='AI-Generated Mandatory Field' && /(?:passing threshold|passing score|grader type|rubric|graded|grade setting)/i.test(event))
+      if(cat==='AI-Generated Mandatory Field' && qaGeneratedBehaviorEvent_(event))
         push('GENERATED_BEHAVIOR',subject,path,event,'REVIEW','Compare generated behavior with the source LMS behavior before approval.');
       else if(cat==='AI-Generated Mandatory Field' && /\bgenerated\s+(?:the\s+)?(?:replacement\s+)?reading\s+content\b/i.test(body))
         push('GENERATED_CONTENT_FALLBACK',subject,path,event,'REVIEW','Compare generated content with actual source evidence.');
@@ -321,6 +321,23 @@ export function qaParseSmartIngestionIntelligence_(courseraEvidenceItems){
   out.parserVersion='aar-event-parser-v8.1';return out;
 }
 
+export function qaGeneratedBehaviorEvent_(text) {
+    // Explicit absence is not a generated grading value. Remove only that
+    // declaration and its causal explanation; preserve other generated fields
+    // in the same sentence/event. Unknown grading wording remains reviewable.
+    return qaCleanText_(text || '').split(/[.!?;]\s+/).some(function(sentence) {
+        var absent=/\b(?:set|left|kept)\s+(?:the\s+)?passing (?:threshold|score)\s+(?:to\s+)?(?:unspecified\s*\(null\)|null|unspecified)\b\)?/i;
+        if(absent.test(sentence)) {
+            sentence=sentence.replace(absent,'');
+            // A later generated field must survive even when it follows the
+            // causal clause rather than starting a separate sentence.
+            if(/\b(?:generated?|created?|set|assigned?|added?)\b[^.!?]*\b(?:passing threshold|passing score|grader type|rubric|graded|grade setting)\b/i.test(sentence))return true;
+            sentence=sentence.replace(/\bbecause\b[\s\S]*$/i,'');
+        }
+        return /\b(?:passing threshold|passing score|grader type|rubric|graded|grade setting)\b/i.test(sentence);
+    });
+}
+
 export function qaIngestionAssetEventKind_(text) {
     text=qaCleanText_(text||'');
     var direct=/\b(?:could not|cannot|unable to|failed to)\s+(?:be\s+)?(?:attach(?:ed)?|embed(?:ded)?|upload(?:ed)?|include(?:d)?|represent(?:ed)?|resolve(?:d)?)\b/i.test(text) && /\b(?:attachments?|documents?|files?|assets?|images?|videos?)\b/i.test(text);
@@ -335,6 +352,11 @@ export function qaIngestionAssetEventKind_(text) {
 
 export function qaNormalizeIngestionClaimScope_(claim) {
     var c=Object.assign({},claim||{}), originalType=c.type, originalSubject=c.subject||'';
+    if(c.type==='GENERATED_BEHAVIOR' && /\bpassing (?:threshold|score)\s+(?:to\s+)?(?:null|unspecified)\b/i.test(c.excerpt||'') && !qaGeneratedBehaviorEvent_(c.excerpt)) {
+        c.type='SOURCE_GRADING_UNSPECIFIED';c.severity='INFO';c.remediation='';
+        c.originalClaimType=c.originalClaimType||originalType;
+        c.classificationReason='The report explicitly leaves grading unspecified; it does not establish an invented passing threshold or source grading fidelity.';
+    }
     if(['UNRESOLVED_SOURCE_ASSET','UNSUPPORTED_CONTENT_FALLBACK','REPAIR_INSTRUCTION'].indexOf(c.type)<0)return c;
     var text=qaCleanText_((c.excerpt||'')+' '+(c.detail||''));
     var files=[],fileRe=/["\u201c\u201d']([^"\u201c\u201d'\n]{1,220}\.(?:docx?|pdf|pptx?|xlsx?|zip|html?|mp[34]|wav|png|jpe?g))["\u201c\u201d']/gi,fileMatch;
@@ -433,6 +455,21 @@ export function qaLocalizeNamedIngestionClaims_(intelligence, sourceItems) {
     var out=Object.assign({},intelligence);
     out.claims=intelligence.claims.map(function(original){
         var claim=qaNormalizeIngestionClaimScope_(original);
+        // Prefer a unique explicit name in the named module over substring
+        // matches to sibling titles (e.g. a lesson and its practice assessment).
+        // Quoted questions retain their stricter question-level resolver.
+        if(!claim.sourceIdentity && qaCleanText_(claim.subject) && !qaClaimQuestionScope_(null,claim)) {
+            var subject=qaCleanName_(claim.subject), namedHint=qaCleanName_(claim.pathHint);
+            var exact=(sourceItems||[]).filter(function(source){
+                var sourcePath=qaCleanName_(source.path);
+                return qaCleanName_(source.name)===subject && namedHint &&
+                    (sourcePath===namedHint || sourcePath.indexOf(namedHint+' ')===0);
+            });
+            if(exact.length===1) {
+                claim.sourceIdentity={id:exact[0].id||'',name:exact[0].name,path:exact[0].path};
+                claim.localizationMethod='UNIQUE_EXACT_SOURCE_NAME_IN_MODULE';
+            }
+        }
         if(qaCleanText_(claim.subject) || !/^(UNSUPPORTED_CONTENT_FALLBACK|UNRESOLVED_SOURCE_ASSET|GENERATED_CONTENT_FALLBACK|GENERATED_BEHAVIOR|SI_PROCESSING_FAILURE)$/.test(claim.type))return claim;
         // Quoted question stems have their own stricter identity resolver.
         if(qaClaimQuestionScope_(null,claim))return claim;

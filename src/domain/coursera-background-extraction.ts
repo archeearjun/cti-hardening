@@ -92,7 +92,74 @@ export function parseCourseraShellUrl(value: string): CourseraShellTarget {
   };
 }
 
-function assessmentReasons(fingerprints: any[]): string[] {
+function textBlockEvidenceValid(
+  item: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  courseId: string,
+): boolean {
+  const evidence = record(
+    record(payload.nativeAssignment)?.contentBlockEvidence,
+  );
+  const blocks = array(evidence?.blocks);
+  const assessment = record(payload.structuredAssessment);
+  return (
+    !!evidence &&
+    evidence.completeTextBlockOnly === true &&
+    evidence.itemId === item.id &&
+    evidence.courseId === courseId &&
+    Number.isInteger(evidence.declaredContentParts) &&
+    evidence.declaredContentParts > 0 &&
+    evidence.declaredContentParts === blocks.length &&
+    evidence.observedPartCount === blocks.length &&
+    evidence.observedTextBlockCount === blocks.length &&
+    evidence.otherPartCount === 0 &&
+    new Set(blocks.map((b) => record(b)?.id)).size === blocks.length &&
+    blocks.every(
+      (b) =>
+        record(b) &&
+        typeof b.id === "string" &&
+        b.id &&
+        typeof b.text === "string" &&
+        b.text.trim() &&
+        b.truncated === false,
+    ) &&
+    !array(assessment?.questions).length &&
+    !number(assessment?.declaredQuestionCount) &&
+    !number(record(assessment?.captureCompleteness)?.declared)
+  );
+}
+
+function itemContractReasons(fingerprints: unknown[]): string[] {
+  const reasons: string[] = [];
+  for (const fp of fingerprints) {
+    const item = record(fp),
+      payload = record(item?.payload);
+    const outer = record(item?.captureContract),
+      inner = record(payload?.captureContract);
+    const contract = outer || inner,
+      id = String(item?.id || "unknown");
+    if (
+      !contract ||
+      typeof contract.complete !== "boolean" ||
+      typeof contract.status !== "string" ||
+      !contract.status
+    )
+      reasons.push(`ITEM_CONTRACT_MISSING:${id}`);
+    else if (contract.complete !== true)
+      reasons.push(`ITEM_INCOMPLETE:${id}:${contract.status}`);
+    if (
+      outer &&
+      inner &&
+      (outer.complete !== inner.complete || outer.status !== inner.status)
+    )
+      reasons.push(`ITEM_CONTRACT_CONFLICT:${id}`);
+    if (contract?.itemId != null && contract.itemId !== item?.id)
+      reasons.push(`ITEM_CONTRACT_ID_MISMATCH:${id}`);
+  }
+  return reasons;
+}
+
+function assessmentReasons(fingerprints: any[], courseId: string): string[] {
   const reasons: string[] = [];
   for (const fp of fingerprints) {
     const item = record(fp);
@@ -101,22 +168,33 @@ function assessmentReasons(fingerprints: any[]): string[] {
     if (!/assignment|quiz|exam|assessment/.test(type)) continue;
     const payload = record(item.payload) || {};
     const assessment = record(payload.structuredAssessment);
-    const contract = record(
-      item.captureContract || payload.captureContract,
-    );
+    const contract = record(item.captureContract || payload.captureContract);
     if (contract && contract.complete === false) {
       reasons.push(
         `ITEM_INCOMPLETE:${String(item.id || "unknown")}:${String(contract.status || "UNRESOLVED")}`,
       );
       continue;
     }
+    if (contract?.status === "COMPLETE_ASSIGNMENT_TEXT_BLOCKS") {
+      if (!textBlockEvidenceValid(item, payload, courseId))
+        reasons.push(
+          `ASSIGNMENT_TEXT_BLOCK_EVIDENCE_INCOMPLETE:${String(item.id || "unknown")}`,
+        );
+      continue;
+    }
+    // A captured ingestion failure describes an observed defect, not a claim
+    // that assessment payload exists. Preserve that separate capture outcome.
+    if (
+      contract?.status === "INGESTION_FAILURE_CAPTURED" &&
+      record(payload.ingestionFailure)?.detected === true
+    )
+      continue;
     if (!assessment) {
       if (
         contract &&
-        ![
-          "COMPLETE_NATIVE_ASSIGNMENT",
-          "COMPLETE_EMPTY_ASSIGNMENT",
-        ].includes(String(contract.status || ""))
+        !["COMPLETE_NATIVE_ASSIGNMENT", "COMPLETE_EMPTY_ASSIGNMENT"].includes(
+          String(contract.status || ""),
+        )
       )
         reasons.push(
           `ASSESSMENT_EVIDENCE_MISSING:${String(item.id || "unknown")}`,
@@ -139,7 +217,10 @@ function assessmentReasons(fingerprints: any[]): string[] {
         !completeness ||
         completeness.questionCoverageComplete !== true ||
         completeness.requiredAnswerCoverageComplete !== true ||
-        captured < declared
+        captured < declared ||
+        array(assessment.questions).length !== declared ||
+        array(completeness.missingQuestionOrdinals).length > 0 ||
+        array(completeness.missingRequiredAnswerOrdinals).length > 0
       )
         reasons.push(
           `ASSESSMENT_COVERAGE_INCOMPLETE:${String(item.id || "unknown")}:${captured}/${declared}`,
@@ -164,9 +245,7 @@ function pluginReasons(fingerprints: any[]): string[] {
       status === "ACCOUNTED_EXTERNAL_TARGET_ONLY" ||
       status === "COMPLETE_EXTERNAL_TARGET_ONLY"
     )
-      reasons.push(
-        `PLUGIN_BODY_UNVERIFIED:${String(item.id || "unknown")}`,
-      );
+      reasons.push(`PLUGIN_BODY_UNVERIFIED:${String(item.id || "unknown")}`);
     else if (contract && contract.complete !== true)
       reasons.push(
         `PLUGIN_INCOMPLETE:${String(item.id || "unknown")}:${status || "UNRESOLVED"}`,
@@ -206,6 +285,11 @@ export function evaluateCourseraCapture(
       `COURSE_ID_MISMATCH:${actualCourseId || "missing"}:${expectedCourseId}`,
     );
   if (!fingerprints.length) reasons.push("NO_ITEM_FINGERPRINTS");
+  const ids = fingerprints.map((fp) => record(fp)?.id);
+  const identitiesValid =
+    ids.every((id) => typeof id === "string" && id.trim()) &&
+    new Set(ids).size === ids.length;
+  if (!identitiesValid) reasons.push("ITEM_IDENTITIES_MISSING_OR_DUPLICATED");
 
   let inventoryCount = number(meta.baseFingerprintCount, fingerprints.length),
     completeCount = 0,
@@ -216,6 +300,40 @@ export function evaluateCourseraCapture(
     noSilentMisses = false;
 
   if (accounting) {
+    const requiredCounts = [
+      "inventoryCount",
+      "completeCount",
+      "unresolvedCount",
+      "unknownCount",
+      "unvisitedCount",
+    ];
+    const optionalCounts = [
+      "externalContentUnverifiedCount",
+      "terminalAccountedIncompleteCount",
+    ];
+    const countersValid = [
+      ...requiredCounts,
+      ...optionalCounts.filter((k) => accounting[k] !== undefined),
+    ].every(
+      (k) =>
+        typeof accounting[k] === "number" &&
+        Number.isSafeInteger(accounting[k]) &&
+        accounting[k] >= 0,
+    );
+    if (!countersValid) reasons.push("CAPTURE_ACCOUNTING_COUNTERS_INVALID");
+    const totalsValid =
+      accounting.completeCount + accounting.unresolvedCount ===
+      accounting.inventoryCount;
+    if (!totalsValid) reasons.push("CAPTURE_ACCOUNTING_TOTALS_INCONSISTENT");
+    const itemCompleteCount = fingerprints.filter((fp) => {
+      const item = record(fp);
+      return (
+        record(item?.captureContract || record(item?.payload)?.captureContract)
+          ?.complete === true
+      );
+    }).length;
+    if (itemCompleteCount !== accounting.completeCount)
+      reasons.push("CAPTURE_ACCOUNTING_ITEM_COUNT_MISMATCH");
     inventoryCount = number(accounting.inventoryCount, inventoryCount);
     completeCount = number(accounting.completeCount);
     unresolvedCount = number(accounting.unresolvedCount);
@@ -228,7 +346,11 @@ export function evaluateCourseraCapture(
       accounting.noSilentMisses === true &&
       accounting.allInventoryAccounted === true &&
       unknownCount === 0 &&
-      unvisitedCount === 0;
+      unvisitedCount === 0 &&
+      identitiesValid &&
+      countersValid &&
+      totalsValid &&
+      inventoryCount === fingerprints.length;
 
     if (inventoryCount !== fingerprints.length)
       reasons.push(
@@ -274,7 +396,8 @@ export function evaluateCourseraCapture(
   if (meta.wholeRunDeadlineReached === true)
     reasons.push("WHOLE_RUN_DEADLINE_REACHED");
 
-  reasons.push(...assessmentReasons(fingerprints));
+  reasons.push(...itemContractReasons(fingerprints));
+  reasons.push(...assessmentReasons(fingerprints, actualCourseId));
   reasons.push(...pluginReasons(fingerprints));
 
   const uniqueReasons = [...new Set(reasons)];

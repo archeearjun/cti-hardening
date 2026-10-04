@@ -329,8 +329,13 @@ test(
     const actual = plain(workflows.compare(input).result),
       expected = plain(result);
     delete actual.workspaceWarnings;
-    // The evidence engine stays equal to the frozen GAS baseline. The available
-    // extractor release is deployment metadata and intentionally advanced to v6.15.4.
+    // This unchanged fixture must preserve every evidence decision. Explicitly
+    // assert the distinct release identities before comparing its behavior.
+    assert.equal(actual.engineBuildId, "v8.0.0-corpus-convergence-20261004");
+    assert.equal(expected.engineBuildId, "v8.0.0-source-item-evidence-20260930");
+    delete actual.engineBuildId;
+    delete expected.engineBuildId;
+    // The available extractor release is separately tested deployment metadata.
     if (actual.captureReadiness) delete actual.captureReadiness.expectedVersion;
     if (expected.captureReadiness) delete expected.captureReadiness.expectedVersion;
     assert.deepEqual(actual, expected);
