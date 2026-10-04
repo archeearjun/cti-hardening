@@ -270,5 +270,14 @@ export function qaAssessmentAnswerEvidenceSide_(q, side) {
     if(!q || q.answerEvidenceApplicable===false)return 'NOT_APPLICABLE';
     var total=q[side+'AnswerableQuestionCount'],captured=q[side+'AnswerEvidenceQuestionCount'];
     if(total==null || captured==null || !Number.isFinite(Number(total)) || !Number.isFinite(Number(captured)) || Number(total)<0 || Number(captured)<0)return 'UNKNOWN';
-    return Number(captured)<Number(total)?'INCOMPLETE':'COMPLETE';
+    if(Number(captured)<Number(total))return 'INCOMPLETE';
+    // Unknown types are excluded from the answerable denominator. Their 0/0
+    // therefore cannot establish complete keys or that keys do not apply.
+    var supported=['true-false','single-select','multiple-select','regex','text-entry','essay'];
+    var questions=q.questionResults||[];
+    if(questions.some(function(r){return supported.indexOf(r[side+'Type'])<0;}) ||
+        (Number(q.unknownTypeCount)>0 && questions.length<Number(q[side+'QuestionCount']||1)))return 'UNKNOWN';
+    var completeness=side==='coursera'&&q.courseraCaptureCompleteness;
+    if(completeness && completeness.requiredAnswerCoverageComplete===false)return 'INCOMPLETE';
+    return 'COMPLETE';
 }

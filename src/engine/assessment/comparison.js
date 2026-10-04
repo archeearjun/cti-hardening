@@ -150,6 +150,9 @@ export function qaStructuredAssessmentComparison_(source, coursera) {
     var supportedTypes = { 'true-false':true, 'single-select':true, 'multiple-select':true, 'regex':true, 'text-entry':true, 'essay':true };
     var unknownTypeCount = sAssessment.questions.filter(function(q) { return !supportedTypes[String(q.type || '')]; }).length + cAssessment.questions.filter(function(q) { return !supportedTypes[String(q.type || '')]; }).length;
     base.unknownTypeCount = unknownTypeCount;
+    // Unknown types leave answer-key applicability undetermined. Excluding
+    // them from the denominator must not turn absent keys into 100% coverage.
+    if(unknownTypeCount>0)base.answerEvidenceCoverage=null;
     if (coverage < 0.55 || !bothParsersStrong) {
         base.status = 'UNVERIFIED';
         base.reason = 'Question-level evidence exists, but structured coverage/parser confidence is not strong enough for a hard verdict.';

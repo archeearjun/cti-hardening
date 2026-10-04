@@ -299,7 +299,7 @@ export function buildPostQaText_(res) {
          text += "  Structured assessment: source " + (sa.sourceQuestionCount || 0) + " q | Coursera " + (sa.courseraQuestionCount || 0) + " q | aligned " + (sa.alignedQuestionCount || 0);
          if (sa.declaredCaptureIncomplete) text += " | declared source=" + sa.sourceDeclaredQuestionCount + " Coursera=" + sa.courseraDeclaredQuestionCount + " (capture incomplete)";
          if (sa.evidenceCoverage != null) text += " | coverage " + Math.round(Number(sa.evidenceCoverage || 0) * 100) + "%";
-         if (sa.answerEvidenceCoverage != null) text += " | answer evidence " + qaAssessmentAnswerEvidenceText_(sa);
+         if (sa.answerEvidenceCoverage != null || Number(sa.unknownTypeCount)>0) text += " | answer evidence " + qaAssessmentAnswerEvidenceText_(sa);
          if (sa.answerMismatchCount) text += " | answer mismatches " + sa.answerMismatchCount;
          if (sa.selectionPolicyStatus && sa.selectionPolicyStatus !== 'NOT_OBSERVED') {
            var sp = sa.sourceSelectionPolicy || {}, cp = sa.courseraSelectionPolicy || {};

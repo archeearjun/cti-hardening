@@ -2687,9 +2687,11 @@
     {
       "name": "qaStructuredAssessmentComparison_",
       "line": 9386,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/assessment/comparison.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "3b86f6bf9f83641740de08872f5112373a0a8f9e00e442d2bbffb88a0a1d8d71",
+      "note": "Answer coverage is unknown (null), not a fabricated 0/0 percentage, when any question type is unknown or unsupported."
     },
     {
       "name": "qaBestSemanticSourceField_",
@@ -2799,9 +2801,11 @@
     {
       "name": "qaAssessmentAnswerEvidenceSide_",
       "line": 10308,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/assessment/rubrics.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "e72a9612709d3e1bb7a2801b30e7bc1082bd03035f80ba613751373db6301bbf",
+      "note": "Unknown types and explicit incomplete required-key capture cannot produce complete answer evidence from a zero answerable denominator. Independently observed source key gaps remain incomplete."
     },
     {
       "name": "qaMathRendererFormula_",
@@ -2816,8 +2820,8 @@
       "status": "adapted",
       "path": "src/engine/reporting/actions.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "a505dff3e29c08b345ae3c7e7048d545ef32c4cbfd651b07828982973aa4254c",
-      "note": "Source-only assessment answer gaps now tell owners to inspect source keys/applicability instead of recapturing already complete Coursera question positions."
+      "reviewedCurrentHash": "ed19695c23baf2c960272fe12fb56e0520ba6a41f180710715506097dda5095c",
+      "note": "Retain source-only guidance for proven complete destination fields; direct known-position unknown-type cases to focused field inspection without clearing failures or overlooking missing positions."
     },
     {
       "name": "workApplyPolicyAwareOperatorGuidance_",
@@ -2859,9 +2863,11 @@
     {
       "name": "qaCourseraCaptureReadiness_",
       "line": 11128,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/capture/recovery.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "1c7057780700415fb4d08e0444329316919ebb3b2e4badefb960c8c025f69afa",
+      "note": "Unknown assessment types require field review even when counts align or prior aggregate key coverage appeared complete; never label these source-only gaps."
     },
     {
       "name": "qaMergeCourseraPayload_",
@@ -3184,8 +3190,8 @@
       "status": "adapted-metadata",
       "path": "src/engine/matching/text.js",
       "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
-      "reviewedCurrentHash": "2c40a1806f6a922375d9bf90d2ffb3b4f6ec830599efd39a5b81a40f8cb59e36",
-      "note": "Distinct QA build provenance for reviewed corpus claim corrections on 2026-10-04; extractor versions and schemas unchanged."
+      "reviewedCurrentHash": "5729d216f9d6ff0d76f9773ef8551289a8e66ff128adfe1241c882d908ab202d",
+      "note": "QA build for unknown assessment evidence and focused inspection guidance; extractor versions and schemas unchanged."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",
@@ -4227,7 +4233,9 @@
     {
       "name": "qaAssessmentAnswerEvidenceText_",
       "path": "src/reporting/assessment-evidence.js",
-      "status": "preserved"
+      "status": "adapted",
+      "reviewedCurrentHash": "a406a67d3b187ec0ac91c4cca3b199a27efdb8d4b2b48a6c30bc206ccdc675cb",
+      "note": "Render unknown answer applicability as not established rather than a percentage."
     },
     {
       "name": "qaAssessmentEvidenceText_",
@@ -4243,8 +4251,8 @@
       "name": "qaCaptureInputsText_",
       "path": "src/reporting/capture-summary.js",
       "status": "adapted",
-      "reviewedCurrentHash": "2a7764f46d2b379f1640b855b5a1fd87e79048cc6868aeaff740b35ac99e2a01",
-      "note": "Report provenance wording distinguishes historical/current capture versions and now separates editor reachability from capture-contract review categories."
+      "reviewedCurrentHash": "61a0ffb56fcd2925da9cc0ef9551faba20a0998a5b1dc42c335ce22963a83537",
+      "note": "Include unknown/unsupported question-type counts and field-inspection guidance."
     },
     {
       "name": "qaCapturedExtractorLabel_",
@@ -4259,7 +4267,9 @@
     {
       "name": "buildPostQaText_",
       "path": "src/reporting/owner-report.js",
-      "status": "preserved"
+      "status": "adapted",
+      "reviewedCurrentHash": "4ecf2bdc33acd29aed4892253e079460ee02cc52e50a4af3dfe9615e8be221a7",
+      "note": "Display answer-evidence uncertainty when question types are unknown."
     },
     {
       "name": "qaOwnerTasksText",

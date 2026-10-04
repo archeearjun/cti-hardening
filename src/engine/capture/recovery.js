@@ -23,7 +23,12 @@ export function qaCourseraCaptureReadiness_(meta, itemResults) {
     var captured=Number(q.courseraQuestionCount||0),declared=Number(q.courseraDeclaredQuestionCount||0);
     var partial=(declared>0&&captured<declared)||q.captureCoverageUnverified===true;
     var answerGap=q.status==='UNVERIFIED'&&q.answerEvidenceApplicable!==false&&q.answerEvidenceCoverage!=null&&Number(q.answerEvidenceCoverage)<1;
-    if(partial||answerGap)gaps.push({id:String(r.courseraId||''),name:String(r.courseraName||r.sourceName||'Assessment'),captured:captured,declared:declared,sourceQuestions:Number(q.sourceQuestionCount||0),declaredObserved:declared>0,questionCaptureIncomplete:partial,answerEvidenceIncomplete:answerGap,sourceAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'source'),destinationAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'coursera'),answerEvidenceOnly:qaAssessmentAnswerOnlyGap_(q),sourceEvidenceOnly:answerGap&&!partial&&declared>0&&captured===declared&&!(q.captureIssueQuestionNumbers||[]).length&&qaAssessmentAnswerEvidenceSide_(q,'source')==='INCOMPLETE'&&qaAssessmentAnswerEvidenceSide_(q,'coursera')==='COMPLETE'});
+    var unknownTypes=Number(q.unknownTypeCount||0);
+    if(partial||answerGap||unknownTypes>0) {
+      var gap={id:String(r.courseraId||''),name:String(r.courseraName||r.sourceName||'Assessment'),captured:captured,declared:declared,sourceQuestions:Number(q.sourceQuestionCount||0),declaredObserved:declared>0,questionCaptureIncomplete:partial,answerEvidenceIncomplete:answerGap,sourceAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'source'),destinationAnswerEvidence:qaAssessmentAnswerEvidenceSide_(q,'coursera'),answerEvidenceOnly:qaAssessmentAnswerOnlyGap_(q),sourceEvidenceOnly:answerGap&&!partial&&unknownTypes===0&&declared>0&&captured===declared&&!(q.captureIssueQuestionNumbers||[]).length&&qaAssessmentAnswerEvidenceSide_(q,'source')==='INCOMPLETE'&&qaAssessmentAnswerEvidenceSide_(q,'coursera')==='COMPLETE'};
+      if(unknownTypes>0)gap.unknownQuestionTypeCount=unknownTypes;
+      gaps.push(gap);
+    }
   });
   var status=!actual?'VERSION_UNKNOWN':(order<0?'OLDER_CAPTURE':(order>0?'NEWER_CAPTURE':'CURRENT_VERSION'));
   var action='';
@@ -32,6 +37,10 @@ export function qaCourseraCaptureReadiness_(meta, itemResults) {
     action='Captured Coursera question counts meet their destination declarations. The remaining answer evidence gaps are in the source assessment data. Inspect original source keys and any source-to-destination question differences; repeating the Coursera extraction cannot resolve these source gaps. This does not establish complete course fidelity.';
   }
   else if(gaps.length&&order<0&&actual&&!gaps.every(function(g){return g.answerEvidenceOnly;})){status='OLDER_CAPTURE_WITH_GAPS';action='The uploaded Coursera JSON was captured with '+('v'+actual.join('.'))+'; '+expected+' is available. A newer version alone does not establish that these evidence gaps are fixed. Inspect the specific uncaptured fields and stopping reasons; repeat extraction when a relevant recovery fix is available or the course has changed. Existing captured evidence remains usable.';}
+  else if(gaps.some(function(g){return g.unknownQuestionTypeCount>0;})&&gaps.every(function(g){return !g.questionCaptureIncomplete;})) {
+    status=actual?'ASSESSMENT_EVIDENCE_REVIEW':'VERSION_UNKNOWN_WITH_GAPS';
+    action='Captured question positions do not establish complete assessment fields. Some source or destination question types remain unknown or unsupported. Inspect the affected question types, options, and applicable answer keys on both sides. Matching prompts and counts do not verify those fields, and unknown types cannot establish that answer keys are unnecessary.';
+  }
   else if(gaps.length && gaps.every(function(g){return g.answerEvidenceOnly;})) {
     status=actual?'ANSWER_EVIDENCE_REVIEW':'VERSION_UNKNOWN_WITH_GAPS';
     action='The captured question counts and prompts align for '+gaps.length+' assessment(s); answer evidence or its applicability still needs review. Confirm whether answer keys apply and obtain any required source/destination keys before approval. These comparisons do not identify missing question positions.';
