@@ -1,3 +1,9 @@
+import {
+  questionComparison,
+  validateReviewedSourceCounts,
+  type QuestionComparison,
+  type ReviewedSourceCount,
+} from "./question-counts.ts";
 import { cleanOwnerText as clean } from "./owner-text.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
 
@@ -14,6 +20,7 @@ export interface OwnerReview {
   updatedBy: string;
   capture?: EvidenceObject;
   pluginCaptures?: EvidenceObject[];
+  sourceCounts?: ReviewedSourceCount[];
 }
 export interface OwnerTask {
   key: string;
@@ -28,6 +35,7 @@ export interface OwnerTask {
   excerpt: string;
   url: string;
   questionSummary: string[];
+  questionComparisons: QuestionComparison[];
   checks: ItemExpectation[];
   sourceOnly: boolean;
   pluginTargets: string[];
@@ -144,9 +152,6 @@ export function buildOwnerTasks(
       for (const url of c.links?.missing || [])
         if (safeWebUrl(url)) add("url", url, "Source link not observed");
       if (a) {
-        questionSummary.push(
-          `${r.sourceName}: ${a.alignedQuestionCount ?? "?"} aligned · ${a.sourceQuestionCount ?? "?"} package questions · ${a.courseraQuestionCount ?? "?"} Coursera questions`,
-        );
         if (a.unmatchedSourceQuestions?.length)
           questionSummary.push(
             `Unmatched package question(s): ${a.unmatchedSourceQuestions.join(", ")}. Check placement and intended inclusion before adding them.`,
@@ -194,7 +199,11 @@ export function buildOwnerTasks(
       if (/BROKEN_LINK/.test(claim.claimType || "") && safeWebUrl(claim.target))
         add("url", claim.target, "Link named in ingestion finding");
     }
+    const questionComparisons = (findings.length ? findings : [{}])
+      .map((r) => questionComparison(r, sourceFor(r, nodes), { ...item, id }))
+      .filter((row): row is QuestionComparison => row !== null);
     return {
+      questionComparisons,
       key: sourceOnly
         ? `source:${index}:${item.path}:${item.name}`
         : `item:${id || index}`,
@@ -252,6 +261,8 @@ export function needsOwnerAction(task: OwnerTask) {
   );
 }
 export function validateOwnerReview(review: OwnerReview) {
+  if (review.sourceCounts != null)
+    validateReviewedSourceCounts(review.sourceCounts);
   if (
     review.pluginCaptures != null &&
     (!Array.isArray(review.pluginCaptures) ||

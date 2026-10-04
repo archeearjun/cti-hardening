@@ -156,7 +156,9 @@ test("owner tasks localize assessment gaps and never invent source matches for d
   assert.equal(task.sources.length, 1);
   assert.equal(task.checks[0].value, "Exact absent prompt");
   assert.equal(task.checks[1].value, "images/sling.jpg");
-  assert.match(task.questionSummary[1], /question\(s\): 1/);
+  assert.match(task.questionSummary[0], /question\(s\): 1/);
+  assert.equal(task.questionComparisons[0].source.count, 2);
+  assert.equal(task.questionComparisons[0].coursera.count, 1);
   tree[0].children.push(structuredClone(tree[0].children[0]));
   assert.equal(buildOwnerTasks(r, tree)[0].sources.length, 0);
 });

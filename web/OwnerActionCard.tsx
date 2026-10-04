@@ -1,3 +1,5 @@
+import QuestionCountPanel from "./QuestionCountPanel";
+import type { ReviewedSourceCount } from "../src/domain/question-counts";
 import { useEffect, useState } from "react";
 import {
   safeWebUrl,
@@ -69,6 +71,7 @@ export default function OwnerActionCard({
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const [script, setScript] = useState("");
+  const [sourceCounts, setSourceCounts] = useState<ReviewedSourceCount[]>([]);
   const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
   useEffect(() => {
@@ -84,6 +87,7 @@ export default function OwnerActionCard({
         setNote(r.data.review.note);
         setCapture(r.data.review.capture);
         setPluginCaptures(r.data.review.pluginCaptures || []);
+        setSourceCounts(r.data.review.sourceCounts || []);
         setLoaded(true);
       })
       .catch((e) => {
@@ -140,6 +144,7 @@ export default function OwnerActionCard({
     nextCapture = capture,
     nextStatus = status,
     nextPlugins = pluginCaptures,
+    nextSourceCounts = sourceCounts,
   ) {
     if (!editable || !store || !course || !loaded) return;
     const review: OwnerReview = {
@@ -149,6 +154,7 @@ export default function OwnerActionCard({
       updatedBy: store.email,
       ...(nextCapture ? { capture: nextCapture } : {}),
       pluginCaptures: nextPlugins,
+      sourceCounts: nextSourceCounts,
     };
     validateOwnerReview(review);
     const id = `item-review-${await digest(new TextEncoder().encode(JSON.stringify([auditId, task.key])))}`;
@@ -163,6 +169,7 @@ export default function OwnerActionCard({
     setRecord(next);
     setCapture(nextCapture);
     setPluginCaptures(nextPlugins);
+    setSourceCounts(nextSourceCounts);
     setStatus(nextStatus);
     await onSaved?.();
     setMessage("Item work saved. The original report is unchanged.");
@@ -224,6 +231,29 @@ export default function OwnerActionCard({
       </summary>
       {open && (
         <div className="item-evidence action-body">
+          {loaded && (
+            <QuestionCountPanel
+              rows={task.questionComparisons}
+              capture={capture}
+              references={sourceCounts}
+              editable={editable && !busy}
+              onSave={async (next) => {
+                setBusy("Saving source count…");
+                setError("");
+                setMessage("");
+                try {
+                  await persist(
+                    capture,
+                    status === "checked" ? "in_progress" : status,
+                    pluginCaptures,
+                    next,
+                  );
+                } finally {
+                  setBusy("");
+                }
+              }}
+            />
+          )}
           <section className="action-focus">
             <p className="eyebrow">1 · WHAT TO DO</p>
             {task.questionSummary.map((s, i) => (
@@ -337,9 +367,9 @@ export default function OwnerActionCard({
               <p className="eyebrow">3 · NEED MORE EVIDENCE?</p>
               <h4>Check this item in your signed-in Chrome</h4>
               <p>
-                Use this item’s current targeted check in the exact Coursera item
-                above. It collects fresh evidence for this item only and never
-                clears a finding automatically.
+                Use this item’s current targeted check in the exact Coursera
+                item above. It collects fresh evidence for this item only and
+                never clears a finding automatically.
               </p>
               <div className="action-links">
                 <button
@@ -377,8 +407,8 @@ export default function OwnerActionCard({
               </div>
               <p className="hint">
                 Keep the Coursera tab open while the check runs. Protected
-                cross-origin plugin bodies may remain unverified; CTI records that
-                uncertainty instead of manufacturing a pass.
+                cross-origin plugin bodies may remain unverified; CTI records
+                that uncertainty instead of manufacturing a pass.
               </p>
               {script && (
                 <details>

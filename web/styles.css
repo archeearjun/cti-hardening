@@ -2071,3 +2071,14 @@ fieldset:disabled {
     margin-right: -4px;
   }
 }
+
+.question-counts { margin-bottom: 1rem; padding: 1rem; border: 1px solid #bac7d5; border-radius: .65rem; background: #f6f9fc; overflow-wrap: anywhere; }
+.question-count-row { border-top: 1px solid #d3dce6; padding: .85rem 0; }
+.question-count-row small { display: block; }
+.question-count-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.question-count-values dt { font-weight: 700; }
+.question-count-values dd { margin: .35rem 0 0; }
+.question-counts fieldset { border: 0; padding: .6rem 0; min-width: 0; }
+.question-counts label { display: block; margin: .7rem 0; }
+.question-counts input, .question-counts select, .question-counts textarea { width: 100%; max-width: 100%; }
+@media (max-width: 600px) { .question-count-values { grid-template-columns: 1fr; gap: .75rem; } }
