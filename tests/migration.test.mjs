@@ -136,7 +136,8 @@ test("normalization and readiness match GAS with identical capture inputs", () =
     items = capture.fingerprints.map((i) => original.normalizeCourseraItem_(i));
   assert.deepEqual(
     plain(capture.fingerprints.map((i) => engine.normalizeCourseraItem_(i))),
-    plain(items),
+    // The old runtime dropped lesson metadata; an absent lesson stays empty.
+    plain(items).map(item => ({...item, lesson: ""})),
   );
   const expected = original.qaAssessDestinationReadiness_(
     items,

@@ -16,6 +16,8 @@ import {
   type CourseraLinkedCapture,
 } from "./coursera-linked-content.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
+import { ownerScope, type ItemRelevance } from "./owner-scope.ts";
+import type { TimeEstimate } from "./owner-time.ts";
 
 export type OwnerProgress =
   | "open"
@@ -24,6 +26,7 @@ export type OwnerProgress =
   | "checked"
   | "blocked";
 export interface OwnerReview {
+  relevance?: ItemRelevance;
   status: OwnerProgress;
   note: string;
   updatedAt: string;
@@ -35,6 +38,7 @@ export interface OwnerReview {
   courseraLinkedCaptures?: CourseraLinkedCapture[];
 }
 export interface OwnerTask {
+  timeEstimate?: TimeEstimate;
   key: string;
   id: string;
   name: string;
@@ -111,7 +115,7 @@ export function buildOwnerTasks(
   result: EvidenceObject,
   tree: EvidenceObject[] = [],
   override = "",
-  contentItems: { id: string; content: { url: string } }[] = [],
+  contentItems: { id: string; path?: string; content: { url: string; timeEstimate?: TimeEstimate } }[] = [],
 ): OwnerTask[] {
   const nodes = sourceEntries(tree),
     results: EvidenceObject[] = result.itemResults || [];
@@ -216,7 +220,17 @@ export function buildOwnerTasks(
     const questionComparisons = (findings.length ? findings : [{}])
       .map((r) => questionComparison(r, sourceFor(r, nodes), { ...item, id }))
       .filter((row): row is QuestionComparison => row !== null);
+    const contentMatches = contentItems.filter(entry => entry.id === id);
+    const contentItem = contentMatches.length === 1 ? contentMatches[0] : undefined;
+    const recordedPath = String(item.path || "");
+    // Older reports dropped lesson metadata. An exact original item snapshot
+    // can supply a deeper path only within that same recorded module.
+    const capturedPath = String(contentItem?.path || "");
+    const deeperSameModule = !recordedPath.includes(">") && capturedPath.includes(">") && capturedPath.split(">")[0].trim() === recordedPath.trim();
+    const ownerPath = !sourceOnly && item.lesson ? [recordedPath, item.lesson].filter(Boolean).join(" > ")
+      : !sourceOnly && deeperSameModule ? capturedPath : recordedPath;
     return {
+      timeEstimate: contentItem?.content.timeEstimate,
       sourceTargets: findings
         .map((r) => sourceContentTarget(r, sourceFor(r, nodes)))
         .filter(
@@ -230,7 +244,7 @@ export function buildOwnerTasks(
         : `item:${id || index}`,
       id,
       name: item.name || "Unnamed item",
-      path: item.path || "Placement not recorded",
+      path: ownerPath || "Placement not recorded",
       type: item.type || "Source item",
       status: sourceOnly
         ? item.verdict === "MISSING"
@@ -278,13 +292,16 @@ export function buildOwnerTasks(
     ),
   ];
 }
-export function needsOwnerAction(task: OwnerTask) {
+export function needsOwnerAction(task: OwnerTask, review?: Pick<OwnerReview, "relevance">) {
   return (
+    ownerScope(task, review).included && (
     task.status !== "VERIFIED_EVIDENCE" ||
-    task.actions.some((a) => a.severity && a.severity !== "NONE")
+    task.actions.some((a) => a.severity && a.severity !== "NONE"))
   );
 }
 export function validateOwnerReview(review: OwnerReview) {
+  if (review.relevance !== undefined && !["auto", "relevant", "not_relevant"].includes(review.relevance))
+    throw Error("Choose automatic, relevant or not relevant for this item.");
   if (review.courseraLinkedCaptures != null)
     validateCourseraLinkedCaptures(review.courseraLinkedCaptures);
   if (review.sourceCaptures != null) {

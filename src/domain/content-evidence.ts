@@ -1,5 +1,6 @@
 import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
 import { supportedMathText } from "./supported-math-text.ts";
+import { capturedTime, validateTimeEstimate, type TimeEstimate } from "./owner-time.ts";
 import { choiceLabel, ctiAnswerText } from "./cti-answer-check.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import {
@@ -33,6 +34,7 @@ export interface ContentQuestion {
   mathTextChecked?: boolean;
 }
 export interface ContentEvidence {
+  timeEstimate?: TimeEstimate;
   basis: string;
   capturedAt: string;
   url: string;
@@ -74,6 +76,7 @@ export function validateContentSnapshot(
     for (const entry of list) {
       const item = contentObject(entry),
         c = contentObject(item.content);
+      if (c.timeEstimate !== undefined) validateTimeEstimate(c.timeEstimate);
       if (
         ![
           item.id,
@@ -404,6 +407,7 @@ export function capturedContent(
     );
   return {
     basis: options.basis,
+    timeEstimate: capturedTime(p, options.capturedAt || ""),
     capturedAt: options.capturedAt || "",
     url: safeWebUrl(options.url),
     text: full.slice(0, 300000),

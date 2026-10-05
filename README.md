@@ -103,8 +103,14 @@ Course/specialization outline and content-map **state tracking** is restored; CT
 does not claim to author partner content artifacts that were external to the
 evidence workflow.
 
-Coursera extraction is **v6.15.9/schema 35** and Brightspace remains
-**v1.0.8/schema 2**. Coursera v6.15.9 reads rendered choice labels across boxless question and option containers without inferring answer keys. Uncaptured choices remain technical capture gaps. It keeps explicit no-silent-miss accounting, bounded slow-item waits,
+The owner checklist excludes instructor resources and archives by default, with
+per-item relevance choices and a separate retained reference view. It follows
+recorded modules and lessons and shows baseline/latest learner-time totals for
+content maps. See [scope and time behavior](docs/audits/owner-scope-time-2026-10-05.md)
+for refresh steps and evidence limits.
+
+Coursera extraction is **v6.15.10/schema 35** and Brightspace remains
+**v1.0.8/schema 2**. Coursera v6.15.10 adds explicitly labeled learner-time capture and retains rendered choice labels. It reads rendered choice labels across boxless question and option containers without inferring answer keys. Uncaptured choices remain technical capture gaps. It keeps explicit no-silent-miss accounting, bounded slow-item waits,
 strict assessment/plugin/empty-reading contracts and checkpointable browser traversal. Certified
 direct-editor routing avoids redundant outline round-trips. Collapsed assignment text blocks are bound
 to their exact visible assignment outline by fragment identity even when Coursera portals the outline

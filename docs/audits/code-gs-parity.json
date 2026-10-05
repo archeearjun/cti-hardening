@@ -1903,9 +1903,11 @@
     {
       "name": "qaOneToManyAggregateForSource_",
       "line": 5739,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/provenance/transformations.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "890e78aef48536a7e63051810922cbfa80f73da40006883bf7139479b27f5fe9",
+      "note": "Count only observed numeric time evidence in transformation families. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md."
     },
     {
       "name": "qaDecorateOneToManyResult_",
@@ -2040,8 +2042,8 @@
       "status": "adapted",
       "path": "src/engine/readiness/destination.js",
       "effectiveOverride": false,
-      "note": "Recognize explicit Include-your/information and Brief-description template prompts, preserve existing prompt detection and policy exemptions; syllabus-readiness.test.mjs protects normal brackets and legacy patterns.",
-      "reviewedCurrentHash": "93cf0e0ead89a1ad14b21a90595bffe8e5c1045c3947c781290dc1389efab253"
+      "note": "Recognize explicit Include-your/information and Brief-description template prompts, preserve existing prompt detection and policy exemptions; syllabus-readiness.test.mjs protects normal brackets and legacy patterns. Flag a zero-minute video only for explicit numeric zero; missing time is unverified. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md.",
+      "reviewedCurrentHash": "fa7384d91d64f578222d54709cec0b9d5c120fd10f23cdef279a0aca9f752427"
     },
     {
       "name": "qaApplyDestinationReadinessPolicy_",
@@ -2456,9 +2458,11 @@
     {
       "name": "normalizeCourseraItem_",
       "line": 8341,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/capture/normalization.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "4c24f0eeffdb7f979bc9035700e7337ca25dead7c1b3a9582d5100a745511ab7",
+      "note": "Reject null, empty, boolean, negative and nonfinite durations instead of converting unknown to zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Preserve XLSX lesson metadata for owner hierarchy without changing the module-level source placement comparison. Regression: tests/owner-scope-time.test.mjs and tools/browser-owner-scope-check.mjs."
     },
     {
       "name": "qaMatchScore_",
@@ -2876,9 +2880,11 @@
     {
       "name": "qaMergeCourseraPayload_",
       "line": 11168,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/capture/recovery.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "3cfff4c9bfa9e8e388cce6424f5e2a9ec8b6376c44d286f44b5b5ff11a26b0b4",
+      "note": "Only merge observed numeric durations; a missing live estimate must not overwrite a recorded value with zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md."
     },
     {
       "name": "qaAssertNotDiagnosticCapture_",
@@ -2952,9 +2958,11 @@
     {
       "name": "qaBuildDestinationOwnerView_",
       "line": 12103,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/metrics.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "1f2baaccb53224f7e8fe3a4e70e8e04455895ea249857253458bd545f91c47c6",
+      "note": " Preserve XLSX lesson metadata for owner hierarchy without changing the module-level source placement comparison. Regression: tests/owner-scope-time.test.mjs and tools/browser-owner-scope-check.mjs."
     },
     {
       "name": "qaAttachSourceAssetProvenance_",
@@ -3042,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected.",
+      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release adds labeled learner-time capture and preserves unknown versus zero; docs/audits/owner-scope-time-2026-10-05.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "71a20a4d860f5c07eaac60bc157b219a98d6ff32084289cbf04199bab1edc0d7"
+      "reviewedCurrentHash": "6e779003f08d9767ba18746848b8c99edd27e089293ee1ea2bdbe116be81cc1b"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -3196,8 +3204,8 @@
       "status": "adapted-metadata",
       "path": "src/engine/matching/text.js",
       "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
-      "reviewedCurrentHash": "af0b11fbecea9707183ee29af650412795644484fa077c399578958cbc3900cb",
-      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md."
+      "reviewedCurrentHash": "1c45f956c621a3e5aa57364a795d729c1bc1eb7ebde616d6478d2a0dafe90479",
+      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release adds labeled learner-time capture and preserves unknown versus zero; docs/audits/owner-scope-time-2026-10-05.md."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",
@@ -4306,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.9/schema35",
+      "current": "v6.15.10/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4316,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "d82fcf34d6a4f16c74a268d6fc31208ce84e9d838cc99934004e825b897fe240"
+          "reviewedCurrentHash": "bc9428a3bc9bebe28ff7086a0df443a642a0dc696e1e895c0660d989e4c7c8e6"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4354,6 +4362,11 @@
           "reviewedCurrentHash": "9277d61bfb1ccacf00689080e56b1c13c3d6c2069268684d55b9eb5b86337723"
         },
         {
+          "name": "collectDomEvidenceFromRoot",
+          "archivedHash": "a7d291e7e59982d90225019e1eb2a7ecda548a14dfcb9ea49f31f97e4d2e5213",
+          "reviewedCurrentHash": "bd8061b326faea3c64bd6f1bf6d3f06793fc08eb582d31a55d1b0ba5260da8be"
+        },
+        {
           "name": "collectPluginEvidenceV6139",
           "archivedHash": "e70687a4aea7f9f2ca95c4df00717a1f07f44e344e62141e824f3aa3c15ae035",
           "reviewedCurrentHash": "e4d7aacd50fdd5920097801e757d937866ce790eaeea6455d46474a523c4ab40"
@@ -4361,7 +4374,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "c1b73148800f773026341f62d71b4f8d018f094cc8b6330b65ca29e550dc784e"
+          "reviewedCurrentHash": "168a0e07c5135526488fb9a876d9765f837d6b5fe7006449c0787a4b65a6e720"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4382,6 +4395,11 @@
           "name": "hydrateOutlineSurfaceForCrawl",
           "archivedHash": "a28f0e8f840cb72915010e9b9c27f382505eedb1586914827c55f34bf8f16cfc",
           "reviewedCurrentHash": "863eada47869d80c6352f28200c847ad383b312ba2b36843d51cfe95ed3a420e"
+        },
+        {
+          "name": "mergeEvidence",
+          "archivedHash": "f2d9b08daa80134984fa68216c034a78812868713a07be7d6e4e571d0feb18f8",
+          "reviewedCurrentHash": "332e24f304958fa46a0261ecee8dbfdc8ee33f4a1676ce9d21fc1ac7668ba77b"
         },
         {
           "name": "parseAssignmentPartDomV665",
@@ -4416,7 +4434,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "c7cc79d905148636664553a17750437acc598d5d217b014d2e4755804d591940"
+          "reviewedCurrentHash": "79f02aa5c3023cb290eb4f3b6b7ebdbb1bc230d237c0e9f62c37af3bbd85d19f"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4453,6 +4471,14 @@
           "reviewedCurrentHash": "4d901613e82e9c7f76b973435c8834e574f4960e6122ca54564da57d883cd58e"
         },
         {
+          "name": "collectCourseraTimeEstimate",
+          "reviewedCurrentHash": "8aec69fc2ba950ef07a2f4c9935bd62fd14a23e26fae14c5c108cbf6be31c363"
+        },
+        {
+          "name": "collectOutlineTimeEstimate",
+          "reviewedCurrentHash": "307c5ca78477536ef8470e31b73b1bdfea83a212e104c4ae6362269b59004804"
+        },
+        {
           "name": "compactDiagnosticV6150",
           "reviewedCurrentHash": "7f7615563627f76670c0959810a0cdfe30193724b201d3ee1c77ec0525c54962"
         },
@@ -4475,6 +4501,10 @@
         {
           "name": "openCheckpointDbV6150",
           "reviewedCurrentHash": "8345a3d8d7aa0f3ffad8aa42cd92e3053feda6813b0c780ba9f744d83cd349af"
+        },
+        {
+          "name": "parseCourseraTimeEstimate",
+          "reviewedCurrentHash": "6a3898d9fb710bad0f781f77bdb77b3f947bc2388092eab7dd3423f8a1052415"
         },
         {
           "name": "renderedChoiceLabelV6159",
@@ -4635,11 +4665,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "722c6e261a70dd3ef8ee09697ce90375f7decd914e92e111ec28f1fdf823c84e"
+        "reviewedCurrentHash": "2b778358b451aba22541be1e305122fd582f69d53fd01b74f4825fc91cfacd63"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "71a20a4d860f5c07eaac60bc157b219a98d6ff32084289cbf04199bab1edc0d7"
+        "reviewedCurrentHash": "6e779003f08d9767ba18746848b8c99edd27e089293ee1ea2bdbe116be81cc1b"
       }
     }
   }

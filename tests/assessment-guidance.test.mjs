@@ -155,7 +155,7 @@ test('Downloadable report separates historical captured evidence from the curren
     capturedAt:'2026-09-23T11:36:06.301Z'
   },[]);
   assert.equal(readiness.olderCapture,true);
-  assert.equal(readiness.expectedVersion,'v6.15.9');
+  assert.equal(readiness.expectedVersion,'v6.15.10');
   const report=buildPostQaText_({
     success:true,
     stats:{extractorMeta:{buildId:'v6.13.27-memory-cleanup-20260922',capturedAt:'2026-09-23T11:36:06.301Z'}},
@@ -165,7 +165,7 @@ test('Downloadable report separates historical captured evidence from the curren
   });
   assert.match(report,/Report evidence source: uploaded Coursera capture JSON/);
   assert.match(report,/Coursera captured extractor: v6\.13\.27-memory-cleanup-20260922/);
-  assert.match(report,/Current available Coursera extractor: v6\.15\.9/);
+  assert.match(report,/Current available Coursera extractor: v6\.15\.10/);
   assert.match(report,/Version relationship: HISTORICAL_CAPTURE/);
   assert.match(report,/does not retroactively change its evidence/);
 });

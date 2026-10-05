@@ -7,7 +7,7 @@ export const CTI_RELEASE_REGISTRY_ = Object.freeze({
   gateway:'v8.0.0',
   qaEngine:'v8.0.0',
   architecture:CTI_ARCHITECTURE_VERSION_,
-  courseraExtractor:{version:'v6.15.9',schema:35,build:'v6.15.9-rendered-choice-labels-20261004',delivery:'GENERATED_BROWSER_BUNDLE'},
+  courseraExtractor:{version:'v6.15.10',schema:35,build:'v6.15.10-item-time-estimates-20261005',delivery:'GENERATED_BROWSER_BUNDLE'},
   brightspaceExtractor:{version:'v1.0.8',schema:2,build:'v1.0.8-described-counts-20260930',delivery:'GENERATED_BROWSER_BUNDLE'},
   evidenceEnvelopeSchema:1,
   qaRunSchema:5,

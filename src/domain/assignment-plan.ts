@@ -3,6 +3,19 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildOwnerTasks, needsOwnerAction } from "./owner-actions.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
 import { sourceIdentityMessage } from "./assignment-evidence.ts";
+import { ownerScope } from "./owner-scope.ts";
+import { moduleTimes, moduleTimesText } from "./owner-time.ts";
+import { loadReportContent } from "./report-content-store.ts";
+import type { WorkspaceStore } from "./workspace-store.ts";
+
+/** Read-only projection for the plan/handoff, including exact-input supplements.
+ * The saved audit and its version/hash identity are never rewritten. */
+export async function loadAssignmentEvidence(auditId: string, store: Pick<WorkspaceStore, "get" | "list">, records?: WorkspaceRecord[]) {
+  const audit = await store.get(auditId);
+  if (audit.kind !== "audit") throw Error("Assignment evidence must be a saved audit.");
+  const contentEvidence = await loadReportContent(audit.data, audit.id, audit.packageId, store, records);
+  return { ...audit, data: { ...audit.data, contentEvidence } };
+}
 
 export const CONTENT_MAP_AGENT =
   "https://chatgpt.com/g/g-69a5fdc3d3c081918683edd8a3c13e90-course-to-specialization-content-map-creator";
@@ -145,6 +158,7 @@ export function assignmentBasis(
               r.data.itemKey,
               r.data.review?.status,
               r.data.review?.note,
+              r.data.review?.relevance,
             ])
             .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
         ]),
@@ -189,12 +203,14 @@ export function evaluateAssignment(
         audit?.data.contentEvidence?.coursera || [],
       )
     : [];
-  const attention = tasks.filter(needsOwnerAction);
   const reviews = audit ? reviewsFor(course, audit, records) : [];
   const reviewFor = (key: string) => {
     const matches = reviews.filter((r) => r.data.itemKey === key);
     return matches.length === 1 ? matches[0].data.review : undefined;
   };
+  const included = tasks.filter(t => ownerScope(t, reviewFor(t.key)).included);
+  const excluded = tasks.filter(t => !ownerScope(t, reviewFor(t.key)).included);
+  const attention = included.filter(t => needsOwnerAction(t, reviewFor(t.key)));
   const checked = attention.filter((t) => {
     const r = reviewFor(t.key);
     return (
@@ -258,7 +274,7 @@ export function evaluateAssignment(
   const reconciled =
     !blockers.length && reconciliationCurrent(course, audit, records);
   const mapApproved = reconciled && plan.mapApproval?.basis === basis;
-  const outlineLinks = tasks.filter((t) => !t.sourceOnly);
+  const outlineLinks = included.filter((t) => !t.sourceOnly);
   const missingLinks = outlineLinks.filter(
     (t) => !t.url || !/\/content\/item\/[^/]+\/[^/?#]+/.test(t.url),
   );
@@ -271,6 +287,9 @@ export function evaluateAssignment(
   return {
     plan,
     tasks,
+    included,
+    excluded,
+    moduleTimes: moduleTimes(tasks, reviews),
     attention,
     checked,
     changed,
@@ -309,7 +328,7 @@ export function assignmentHandoff(
       : []),
     "",
     "Item inventory and reconciliation tasks (source-only entries have no destination link):",
-    ...e.tasks.flatMap((t) => [
+    ...e.included.flatMap((t) => [
       `${t.path} / ${t.name} [${t.type}] — ${t.status}`,
       t.url
         ? `Coursera item: ${t.url}`
@@ -317,6 +336,11 @@ export function assignmentHandoff(
       ...t.actions.map((a) => `Action: ${String(a.action || "")}`),
       ...t.questionSummary,
     ]),
+    "",
+    moduleTimesText(e.moduleTimes),
+    "",
+    `Reference only / excluded from publishing work: ${e.excluded.length}`,
+    ...e.excluded.map(t => `${t.path} / ${t.name} — no checklist action or learner time included.`),
     "",
     "Attach CTI's complete owner report with saved follow-ups and the approved content map when required. This handoff is a task inventory, not a generated content map or outline.",
   ].join("\n");

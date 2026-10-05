@@ -115,6 +115,13 @@ export function textEvidenceSourcePriority(sourceLabel) {
 
 export function mergeEvidence(target, extra, sourceLabel) {
     if (!extra) return;
+    // A later exact editor setting supersedes outline-row metadata in this
+    // fresh run. Empty observations do not become zero or overwrite evidence.
+    if(extra.timeEstimateEvidence==='labeled-editor-time-estimate' || extra.timeEstimateState==='CONFLICT') {
+      target.timeEstimateMinutes=extra.timeEstimateMinutes;
+      target.timeEstimateState=extra.timeEstimateState;
+      target.timeEstimateEvidence=extra.timeEstimateEvidence;
+    }
     target.files = unique([...(target.files || []), ...(extra.files || [])], 600);
     target.links = unique([...(target.links || []), ...(extra.links || [])], 600);
     target.images = unique([...(target.images || []), ...(extra.images || [])], 600);

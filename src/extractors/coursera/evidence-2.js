@@ -1,5 +1,6 @@
 import { collectCourseraStructuredAssessment, exactAssessmentLayoutV61313 } from "./assessments-4.js";
 import { collectCourseraNativeAssignment } from "./assessments-5.js";
+import { collectCourseraTimeEstimate } from "./time-estimates.js";
 import { isStructuredAssessmentFingerprint } from "./assessments.js";
 import { assetDescriptor, fileNameFromUrl, isCourseraUiAssetUrl, uniqueAssetDetails } from "./assets.js";
 import { MAX_CAPTURED_RESPONSE_CHARS, MAX_TEXT_SAMPLE } from "./config.js";
@@ -496,12 +497,14 @@ export function collectDomEvidenceFromRoot(root, sourceLabel, fp) {
     const bodyEvidence = normalizeDiscussionBodyEvidenceV6612(fp, bodyEvidenceRaw);
     const structuredAssessment = collectCourseraStructuredAssessment(root, fp);
     const nativeAssignment = collectCourseraNativeAssignment(root, fp, structuredAssessment);
+    const timeEstimate = collectCourseraTimeEstimate(root);
     const ingestionFailure = detectCourseraIngestionFailure(root, fp);
     const cleanDetails = uniqueAssetDetails(details, 800);
     const cleanLinks = unique(links, 500);
     const strongConfiguredLink = Boolean(configuredUrls.length || launchUrlsFound);
     return {
       files: unique(files, 500),
+      ...timeEstimate,
       links: cleanLinks,
       images: unique(images, 500),
       embeddedRefs: unique(files, 500),

@@ -9,6 +9,7 @@ import {
 } from "../src/domain/content-evidence.ts";
 import { itemContentView } from "../src/domain/owner-content.ts";
 import { buildOwnerTasks } from "../src/domain/owner-actions.ts";
+import { loadAssignmentEvidence, assignmentHandoff } from "../src/domain/assignment-plan.ts";
 import { fetchSourceQuestions } from "../server/source-questions.ts";
 import { validateSourceQuestionCapture } from "../src/domain/external-source-questions.ts";
 import { comparisonFixture, encode } from "./workflow-fixtures.mjs";
@@ -85,8 +86,11 @@ test("question records stay complete only with matching declared coverage; missi
 });
 
 test("content supplements use exact original hashes and preserve immutable audits across repeated imports and stale reads", async () => {
-  const input = comparisonFixture(),
-    report = createWorkflows(workerXml).compare(input);
+  const input = comparisonFixture();
+  const raw = JSON.parse(new TextDecoder().decode(input.json.bytes));
+  raw.fingerprints[0].payload.timeEstimateMinutes = 12;
+  input.json.bytes = encode(raw);
+  const report = createWorkflows(workerXml).compare(input);
   delete report.contentEvidence;
   const audit = {
     ...input.course,
@@ -134,6 +138,10 @@ test("content supplements use exact original hashes and preserve immutable audit
   const supplement = [...records.values()].find((r) => r.kind === "operations");
   assert.equal(supplement.data.sourceHash, await digest(input.json.bytes));
   assert.equal(recordSummary(supplement).data.contentEvidence, undefined);
+  const assignmentEvidence = await loadAssignmentEvidence(audit.id, store);
+  assert.equal(assignmentEvidence.data.contentEvidence.coursera[0].content.timeEstimate.minutes, 12);
+  assert.match(assignmentHandoff(input.course, assignmentEvidence, await store.list()), /baseline 12 min.*latest available 12 min/);
+  assert.deepEqual(records.get(audit.id), before, "handoff projection must not rewrite the original audit");
   await assert.rejects(
     loadReportContent(
       { ...report, hashes: { json: "0".repeat(64) } },

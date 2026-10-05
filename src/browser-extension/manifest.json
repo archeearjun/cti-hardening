@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CTI Coursera Item Refresh",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minimum_chrome_version": "120",
   "description": "Refresh one Coursera authoring item into CTI using your signed-in browser. Runs only when requested from CTI.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzCJ9W1OTo/oZUBDuf6VEZUsZfeaMtpLCKKsz6gtJobjNdqkGV2bumb4JknlFzPyLZB0GDbvHPnsIfUWJK6d39n0GIVTT1RUmrYhTgbNFypg0Bf4AyVoKoQIy5dlB7cyfCwq71hceM9ZC3i6QAp/UuhZrbWUmKMHuMK7rB9WJhTaKgnVYpofhv/UqKg4nEZUjg0227HmfelGPzUKgye/SOr5WZs1sTSytlrTjU9b6/X+PEIAaWiEb2rTZq0kdns1w9UyR2AN1vnJ7C37rQl6C++zElJrW27PAszhUbnynOq5zBy7EniN/XztwORKucDYcv6LkUUzg8JA1mEIhG49fuwIDAQAB",
