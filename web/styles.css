@@ -2203,6 +2203,11 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 @media (max-width: 600px) { .owner-checks > div { grid-template-columns: 1fr; gap: .25rem; } }
 
 .cti-answer { padding: .75rem; margin: .75rem 0; overflow-wrap: anywhere; }
+.owner-outline-group { margin: .8rem 0; padding: .65rem; border: 1px solid #bac7d5; border-radius: .6rem; min-width: 0; }
+.owner-outline-group > summary { cursor: pointer; padding: .45rem; min-height: 44px; overflow-wrap: anywhere; }
+.owner-outline-group > summary .hint { display: block; margin: .25rem 0; }
+.owner-outline-children { padding-left: .9rem; border-left: 2px solid #b6cbd0; min-width: 0; }
+@media (max-width: 600px) { .owner-outline-group { padding: .3rem; } .owner-outline-children { padding-left: .3rem; } }
 .cti-answer > p + p { margin-top: .55rem; }
 .cti-answer details { padding: .5rem; }
 @media (max-width: 600px) {

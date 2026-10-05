@@ -44,7 +44,7 @@ function fixture() {
       "https://www.coursera.org/teach/example/course-a/content/edit?itemId=survey",
     expectations: [],
     finishedAt: "2026-10-04T14:14:01Z",
-    extractorVersion: "v6.15.9",
+    extractorVersion: "v6.15.10",
     extractorBuild: "test-build",
     editorObserved: true,
     payload: {

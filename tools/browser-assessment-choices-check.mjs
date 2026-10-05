@@ -159,6 +159,41 @@ try {
   assert.equal(diagnostics.length,16);
   assert(diagnostics.every(d=>d.reason==='HIDDEN_CONTAINER' && !('privateText' in d)));
   assert(result.compact.unmarkedChoiceProbes[0].labels.every(d=>d.reason==='RENDERED_OPTION_TEXT' && !('text' in d)));
+  const times = await page.evaluate(() => {
+    const editor=document.getElementById('editor');
+    const check=(html)=>{editor.innerHTML=html;return collectCourseraTimeEstimate(editor);};
+    const labeled=check('<label for="duration">Time estimate (minutes)</label><input id="duration" value="25">');
+    const adjacent=check('<div><span>Time estimate</span><input value="15"><span>minutes</span></div>');
+    const zero=check('<input aria-label="Time estimate (minutes)" value="0">');
+    const hours=check('<input aria-label="Time estimate" value="1 h 30 min">');
+    const conflict=check('<input aria-label="Time estimate (minutes)" value="10"><input aria-label="Time estimate (minutes)" value="20">');
+    const rejected=[
+      '<p>Question 1: estimate 25 minutes.</p><input value="25">',
+      '<input aria-label="Time limit (minutes)" value="25">',
+      '<input aria-label="Time estimate (minutes)" value="">',
+      '<input aria-label="Time estimate" value="25">',
+      '<input style="display:none" aria-label="Time estimate (minutes)" value="25">',
+      '<div contenteditable="true">Time estimate 25 minutes</div>',
+      '<div data-testid="assignment-part-0"><input aria-label="Time estimate (minutes)" value="25"></div>',
+    ].map(check);
+    editor.innerHTML='<span>Reading about time</span><span>12 min</span>';
+    const outline=collectOutlineTimeEstimate(editor,'Reading about time');
+    editor.innerHTML='<span>10 min</span>';
+    const titleOnly=collectOutlineTimeEstimate(editor,'10 min');
+    const target={timeEstimateMinutes:12};mergeEvidence(target,labeled);
+    return {labeled,adjacent,zero,hours,conflict,rejected,outline,titleOnly,merged:target};
+  });
+  assert.equal(times.labeled.timeEstimateMinutes,25);
+  assert.equal(times.adjacent.timeEstimateMinutes,15);
+  assert.equal(times.zero.timeEstimateMinutes,0);
+  assert.equal(times.hours.timeEstimateMinutes,90);
+  assert.equal(times.conflict.timeEstimateState,'CONFLICT');
+  assert.equal(times.conflict.timeEstimateMinutes,null);
+  assert(times.rejected.every(r=>!('timeEstimateMinutes' in r)),'unlabeled, blank, hidden and learner-prose durations are not evidence');
+  assert.equal(times.outline.timeEstimateMinutes,12);
+  assert.deepEqual(times.titleOnly,{});
+  assert.equal(times.merged.timeEstimateMinutes,25,'fresh editor setting replaces earlier outline estimate');
+  console.log('PASS: real-browser labeled time controls, unit conversion, explicit zero, stale-outline replacement, conflicts and rejected ambiguous/prose values.');
   console.log('PASS: real-browser boxless question containers, disabled radio/checkbox choices, unknown keys, zero points, hidden ancestry, mixed controls, prompt boundaries, full outline traversal, strict completion, and bounded diagnostics.');
 } finally {
   await browser.close();

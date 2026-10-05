@@ -32,8 +32,11 @@ import {
 import { validateItemCheck } from "./item-check.ts";
 import type { WorkspaceStore } from "./workspace-store.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
+import { ownerScope } from "./owner-scope.ts";
+import { moduleTimes, moduleTimesText } from "./owner-time.ts";
 
 export interface ExportedOwnerReview {
+  relevance?: OwnerReview["relevance"];
   recordId: string;
   itemKey: string;
   title: string;
@@ -89,6 +92,8 @@ export async function prepareOwnerReportExport(
   const tasks = buildOwnerTasks(
     report.result || {},
     sourceMatches ? course.data.scan?.courseTree || [] : [],
+    "",
+    contentEvidence?.coursera,
   );
   if (report.contentEvidence) validateContentSnapshot(report.contentEvidence);
   const location = ownerCourseLocation(report.result || {});
@@ -188,6 +193,7 @@ export async function prepareOwnerReportExport(
         ),
       );
       reviews.push({
+        relevance: review.relevance,
         sourceCounts,
         sourceCaptures,
         courseraLinkedCaptures,
@@ -226,6 +232,8 @@ export async function prepareOwnerReportExport(
     })
     .filter((group) => group.questionComparisons.length);
   const followUp = {
+    itemScope: tasks.map(t => ({ itemKey: t.key, name: t.name, ...ownerScope(t, reviews.find(r => r.itemKey === t.key)) })),
+    moduleTimes: moduleTimes(tasks, reviews.map(r => ({ itemKey: r.itemKey, review: r }))),
     contentEvidence,
     contentComparisons: tasks.map((task) => ({
       itemKey: task.key,
@@ -298,6 +306,9 @@ export async function prepareOwnerReportExport(
     `Saved item reviews: ${reviews.length} | focused item checks: ${reviews.filter((r) => r.capture).length} | plugin-page checks: ${reviews.reduce((n, r) => n + r.pluginCaptures.length, 0)}`,
     "These later observations and manual notes supplement the original audit below. Its scores, findings and ingestion status are unchanged. No finding is automatically cleared; this is not publication approval.",
     "Only work saved against this exact report is included. Unsaved notes and checks attached to other reports are not included.",
+    "CHECKLIST SCOPE: Instructor/instructional resources, archives and owner-excluded items are reference only. Their original findings below are retained history, not publishing tasks.",
+    ...followUp.itemScope.filter(t => !t.included).map(t => `Excluded: ${t.name} [${t.itemKey}] — ${t.reason}`),
+    moduleTimesText(followUp.moduleTimes),
   ];
   if (!reviews.length)
     lines.push(
@@ -308,6 +319,7 @@ export async function prepareOwnerReportExport(
       "",
       `${line(r.title)} [${line(r.itemKey)}]`,
       `  Recorded owner outcome: ${r.status} | saved: ${line(r.updatedAt)}`,
+      `  Relevance: ${r.relevance || "auto"}`,
     );
     if (r.note) lines.push(`  Owner note: ${r.note.replace(/\n/g, "\n    ")}`);
     if (r.capture) {

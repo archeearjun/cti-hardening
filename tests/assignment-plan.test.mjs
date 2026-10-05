@@ -288,3 +288,28 @@ test("legacy PASS/DONE cannot bypass reconciliation and specialization follows m
   context.deliverableRoute = "COURSE";
   assert.equal(nextWorkAction(context, state).code, "BUILD_COURSE_OUTLINE");
 });
+
+
+test("reference scope and explicit relevance govern work and invalidate signed handoffs without changing the report", () => {
+  const f = fixture();
+  f.audit.data.result.ownerView.items.push({id:"archive",name:"Old material",path:"Archive > Lesson",type:"Reading",status:"REVIEW",actions:[{severity:"REVIEW",action:"Old diagnostic"}]});
+  const original=JSON.stringify(f.audit);
+  let e=evaluateAssignment(f.course,f.audit,f.records);
+  assert.equal(e.excluded.length,1);assert.equal(e.attention.length,1);assert.equal(e.canRecordReview,true);
+  sign(f);
+  const oldBasis=assignmentBasis(f.course,f.audit,f.records);
+  f.review.data.review.relevance="not_relevant";
+  e=evaluateAssignment(f.course,f.audit,f.records);
+  assert.equal(e.attention.length,0);assert.equal(e.excluded.length,2);
+  assert.notEqual(e.basis,oldBasis);assert.equal(e.reconciled,false);
+  assert.equal(JSON.stringify(f.audit),original);
+  const handoff=assignmentHandoff(f.course,f.audit,f.records);
+  assert.match(handoff,/Reference only \/ excluded from publishing work: 2/);
+  assert.doesNotMatch(handoff,/Action: Old diagnostic/);
+  f.review.data.review.relevance="auto";
+  f.audit.data.result.ownerView.items[0].path="Instructor Resources";
+  f.review.data.review.status="open";f.review.data.review.note="";
+  assert.equal(evaluateAssignment(f.course,f.audit,f.records).attention.length,0);
+  f.review.data.review.relevance="relevant";
+  assert.equal(evaluateAssignment(f.course,f.audit,f.records).canRecordReview,false);
+});

@@ -7,6 +7,10 @@ import {
   type ContentSnapshot,
 } from "../src/domain/content-evidence";
 import OwnerActionCard from "./OwnerActionCard";
+import OwnerChecklistTree from "./OwnerChecklistTree";
+import ModuleTimeSummary from "./ModuleTimeSummary";
+import { ownerScope, ownerHierarchy, referenceArea } from "../src/domain/owner-scope";
+import { moduleTimes } from "../src/domain/owner-time";
 import {
   buildOwnerTasks,
   needsOwnerAction,
@@ -109,14 +113,18 @@ export default function OwnerEvidence({
       r.packageId === course?.id,
   );
   const reviewFor = (key: string) =>
-    reviews.find((r) => r.data.itemKey === key);
-  const attention = tasks.filter(needsOwnerAction);
+    reviews.filter((r) => r.data.itemKey === key).length === 1 ? reviews.find((r) => r.data.itemKey === key) : undefined;
+  const included = tasks.filter(t => ownerScope(t, reviewFor(t.key)?.data.review).included);
+  const excluded = tasks.filter(t => !ownerScope(t, reviewFor(t.key)?.data.review).included);
+  const attention = included.filter(t => needsOwnerAction(t, reviewFor(t.key)?.data.review));
+  const groups = ownerHierarchy(tasks);
   const checked = attention.filter(
     (t) => reviewFor(t.key)?.data.review?.status === "checked",
   );
   const remaining = attention.length - checked.length;
   const matchingTasks = tasks.filter((i) => {
     return (
+      (ownerScope(i, reviewFor(i.key)?.data.review).included === (show !== "excluded")) &&
       (!status || i.status === status) &&
       [
         i.name,
@@ -132,9 +140,11 @@ export default function OwnerEvidence({
   });
   const items = matchingTasks.filter((i) => {
     const progress = reviewFor(i.key)?.data.review?.status || "open";
+    if (show === "excluded") return !ownerScope(i, reviewFor(i.key)?.data.review).included;
+    if (!ownerScope(i, reviewFor(i.key)?.data.review).included) return false;
     return (
       (show !== "attention" ||
-        (needsOwnerAction(i) && progress !== "checked")) &&
+        (needsOwnerAction(i, reviewFor(i.key)?.data.review) && progress !== "checked")) &&
       (show !== "checked" || progress === "checked")
     );
   });
@@ -144,7 +154,7 @@ export default function OwnerEvidence({
       ? "Needs attention"
       : show === "checked"
         ? "Checked by you"
-        : "All items";
+        : show === "excluded" ? "Excluded / reference only" : "All items";
   if (!result.ownerView) return null;
   return (
     <section className="owner-evidence" aria-label="Course action workspace">
@@ -175,14 +185,14 @@ export default function OwnerEvidence({
         <div className="action-counts">
           <span>
             <strong>
-              {tasks.filter((t) => t.status === "REPAIR_OR_CONFIRM").length}
+              {included.filter((t) => t.status === "REPAIR_OR_CONFIRM").length}
             </strong>{" "}
             flagged to confirm / fix
           </span>
           <span>
             <strong>
               {attention.length -
-                tasks.filter((t) => t.status === "REPAIR_OR_CONFIRM").length}
+                included.filter((t) => t.status === "REPAIR_OR_CONFIRM").length}
             </strong>{" "}
             flagged for other checks
           </span>
@@ -190,8 +200,9 @@ export default function OwnerEvidence({
             <strong>{checked.length}</strong> checked by you
           </span>
           <span>
-            <strong>{tasks.length - attention.length}</strong> no action raised
+            <strong>{included.length - attention.length}</strong> no action raised
           </span>
+          <span><strong>{excluded.length}</strong> reference only / excluded</span>
         </div>
         {!!attention.length && (
           <progress
@@ -245,8 +256,9 @@ export default function OwnerEvidence({
       <div className="action-switch" role="group" aria-label="Show owner work">
         {[
           ["attention", `Needs attention (${remaining})`],
-          ["all", `All items (${tasks.length})`],
+          ["all", `All items (${included.length})`],
           ["checked", `Checked by you (${checked.length})`],
+          ["excluded", `Excluded / reference only (${excluded.length})`],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -261,6 +273,8 @@ export default function OwnerEvidence({
           </button>
         ))}
       </div>
+      <p className="hint">Instructor/instructional resources, archives and items marked not relevant are excluded from the checklist and learner-time totals. Use “Excluded / reference only” to inspect or restore them. Relevance is saved with this report; it does not delete or publish anything in Coursera.</p>
+      <ModuleTimeSummary rows={moduleTimes(tasks, reviews)} />
       <div className="filter-bar">
         <label>
           Find an item or action
@@ -315,26 +329,21 @@ export default function OwnerEvidence({
           </button>
         </div>
       )}
-      {items.slice(0, limit).map((item, index) => (
-        <div key={item.key}>
-          {(index === 0 || items[index - 1].path !== item.path) && (
-            <h4 className="outline-path">
-              {item.sourceOnly ? "Source evidence · " : ""}
-              {item.path}
-            </h4>
-          )}
+      <OwnerChecklistTree groups={groups} visible={new Set(items.slice(0, limit).map(t => t.key))} reviewFor={key => reviewFor(key)?.data.review} renderItem={item => (
           <OwnerActionCard
             task={item}
-            label={labels[item.status] || item.status}
+            label={ownerScope(item, reviewFor(item.key)?.data.review).included ? labels[item.status] || item.status : "Reference only"}
             auditId={auditId}
             course={course}
             store={store}
             saved={reviewFor(item.key)}
-            onSaved={async (nextStatus) => {
+            onSaved={async (nextStatus, relevance) => {
               // Keep a reopened item visible when its previous outcome was
               // the reason it appeared in the current filter.
               if (show === "checked" && nextStatus !== "checked")
                 setShow("all");
+              if (!ownerScope(item, { relevance }).included) setShow("excluded");
+              else if (show === "excluded") setShow("all");
               await onSaved?.();
             }}
             context={sourceContext}
@@ -342,8 +351,7 @@ export default function OwnerEvidence({
             onOpenExtraction={onOpenExtraction}
             contentSnapshot={contentState.snapshot}
           />
-        </div>
-      ))}
+      )} />
       {!items.length && (
         <p className="empty-state">
           {show === "attention" && !query && !status
@@ -356,17 +364,17 @@ export default function OwnerEvidence({
           Show next 40 items
         </button>
       )}
-      {!!result.liveSourceGroundTruth?.liveOnlyItems?.length && (
+      {!!result.liveSourceGroundTruth?.liveOnlyItems?.filter((i: EvidenceObject) => !referenceArea(String(i.path || ""))).length && (
         <details className="scope">
           <summary>
             Additional Brightspace items to reconcile (
-            {result.liveSourceGroundTruth.liveOnlyItems.length})
+            {result.liveSourceGroundTruth.liveOnlyItems.filter((i: EvidenceObject) => !referenceArea(String(i.path || ""))).length})
           </summary>
           <p>
             These source items are outside the package match. Confirm their
             intended destination before creating duplicates.
           </p>
-          {result.liveSourceGroundTruth.liveOnlyItems.map(
+          {result.liveSourceGroundTruth.liveOnlyItems.filter((i: EvidenceObject) => !referenceArea(String(i.path || ""))).map(
             (i: EvidenceObject, n: number) => (
               <p key={n}>
                 <strong>{i.title}</strong> · {i.path}

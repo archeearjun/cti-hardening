@@ -1,4 +1,5 @@
 import { createCtiProgressPanelV1 } from "./progress.js";
+import { collectOutlineTimeEstimate } from "./time-estimates.js";
 import { downloadJson, absolute, getJson, courseId, normalizeType, normalizeName, unique, stripHtml, sha256, sha256Buffer, ctiCourseraCourseLabel, ctiCourseraExportName, inferPublished, safeSourceLabel, enrichFromObservedObject, collectFieldValues, isAuthoringChromeUrl, extractConfiguredExternalUrls, shouldUseDomResourceElement, objectAssociationScore, discoverObservedItemTemplates, instantiateObservedTemplate, automaticDeepVerify } from "./text-and-dom.js";
 import { perceptualHashBuffer, ctiSafeFileToken, ctiLocalFileTimestamp, fileNameFromUrl, assetDescriptor, uniqueAssetDetails, canonicalRemoteAssetKeyV614, hashRemoteAsset, isCourseraUiAssetUrl, readingAssetRequestsV61324, recoverReadingAssetUrlsV61324, attachmentFileTypeFromText } from "./assets.js";
 import { harvestEvidence, textEvidenceSourcePriority, mergeEvidence, fingerprintsFromMaterial, collectCurrentDomEvidence, matchCurrentPageToFingerprint, fetchHtmlEvidence, mergeExactReadingEvidenceV61318, finalizeCapturedTextV61318, readingFrameEvidenceV61311, readingNetworkRecordsV61323, mergeReadingNetworkV61312 } from "./evidence.js";
@@ -45,7 +46,7 @@ javascript:(async function () {
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.9"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.10"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -55,7 +56,7 @@ javascript:(async function () {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.9"
+          finishedAt: Date.now(), version: "v6.15.10"
         };
       }
     } catch (e) {}
@@ -711,8 +712,8 @@ javascript:(async function () {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.9",
-      buildId: "v6.15.9-rendered-choice-labels-20261004",
+      version: "v6.15.10",
+      buildId: "v6.15.10-item-time-estimates-20261005",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1013,11 +1014,7 @@ javascript:(async function () {
           continue;
         }
         try {
-          const tm = String(found.text || "").match(/\b(\d+(?:\.\d+)?)\s*min(?:ute)?s?\b/i);
-          if (tm && Number.isFinite(Number(tm[1]))) {
-            fp.payload.timeEstimateMinutes = Number(tm[1]);
-            fp.payload.timeEstimateEvidence = "outline-row";
-          }
+          Object.assign(fp.payload,collectOutlineTimeEstimate(itemRowRootForFingerprint(fp, found.element),fp.name));
         } catch (e) {}
         meta.discoveredTargets++;
         meta.routeAttempts++;
@@ -1490,7 +1487,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.9", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.10", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1504,7 +1501,7 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.9", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.10", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1512,8 +1509,8 @@ javascript:(async function () {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.9",
-      buildId: "v6.15.9-rendered-choice-labels-20261004",
+      extractor: "CTI Item Fidelity Extractor v6.15.10",
+      buildId: "v6.15.10-item-time-estimates-20261005",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1560,7 +1557,7 @@ javascript:(async function () {
     ctiProgress.finish("error", "Course structure was unavailable. A diagnostic JSON will be prepared; it is not a complete capture.");
   // CTI_PROGRESS_END
 
-    result.meta.itemsWithTimeEstimateEvidence = result.fingerprints.filter(fp => Number.isFinite(Number(fp.payload && fp.payload.timeEstimateMinutes))).length;
+    result.meta.itemsWithTimeEstimateEvidence = result.fingerprints.filter(fp => fp.payload && typeof fp.payload.timeEstimateMinutes === "number" && Number.isFinite(fp.payload.timeEstimateMinutes)).length;
   result.meta.deepEvidenceCoverage = { structuralItems: result.fingerprints.length, eligibleTargets:Number(result.meta.activeSpaCrawl && result.meta.activeSpaCrawl.eligibleTargets || 0), navigated:Number(result.meta.activeSpaCrawl && result.meta.activeSpaCrawl.effectiveNavigated || 0), completeness:Number(result.meta.activeSpaCrawl && result.meta.activeSpaCrawl.deepCoverageCompleteness || 0), timeBudgetExhausted:Boolean(result.meta.activeSpaCrawl && result.meta.activeSpaCrawl.timeBudgetExhausted), limitedByCap:Boolean(result.meta.activeSpaCrawl && result.meta.activeSpaCrawl.coverageLimitedByCap) };
   result.meta.exportFileName = ctiCourseraExportName(id, "ITEM_FINGERPRINT_ERROR");
   downloadJson(result.meta.exportFileName, result);

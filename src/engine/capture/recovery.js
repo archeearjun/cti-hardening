@@ -101,7 +101,7 @@ export function qaMergeCourseraPayload_(excelItem, liveItem) {
         excelItem.ingestionFailure = liveItem.ingestionFailure;
     }
     if (liveItem.published === true || liveItem.published === false) excelItem.published = liveItem.published;
-    if (Number.isFinite(Number(liveItem.timeEstimateMinutes))) { excelItem.timeEstimateMinutes = Number(liveItem.timeEstimateMinutes); excelItem.timeEstimateEvidence = liveItem.timeEstimateEvidence || 'Coursera extractor'; }
+    if (typeof liveItem.timeEstimateMinutes === "number" && Number.isFinite(liveItem.timeEstimateMinutes) && liveItem.timeEstimateMinutes >= 0) { excelItem.timeEstimateMinutes = Number(liveItem.timeEstimateMinutes); excelItem.timeEstimateEvidence = liveItem.timeEstimateEvidence || 'Coursera extractor'; }
 
     excelItem.evidenceLevel = liveItem.evidenceLevel || excelItem.evidenceLevel;
     excelItem.evidenceSources = (excelItem.evidenceSources || []).concat(liveItem.evidenceSources || []);

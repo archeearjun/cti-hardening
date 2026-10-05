@@ -72,7 +72,7 @@ export function qaOneToManyAggregateForSource_(source, courseraItems, intelligen
         if(strongPayload) strongPayloadChildren++;
         (item.evidenceSources||[]).forEach(function(e){if(evidenceSources.indexOf(e)===-1)evidenceSources.push(e);});
         if(item.published===true||item.published===false){publishedKnown++;if(item.published===true)publishedTrue++;}
-        if(Number.isFinite(Number(item.timeEstimateMinutes))) timeEvidence++;
+        if(typeof item.timeEstimateMinutes === "number" && Number.isFinite(item.timeEstimateMinutes) && item.timeEstimateMinutes>=0) timeEvidence++;
     });
     var aggregateText=textParts.join(' ');
     var sourceText=qaCleanText_(source.textSample||'');

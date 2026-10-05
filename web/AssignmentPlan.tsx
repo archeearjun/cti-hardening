@@ -11,6 +11,7 @@ import {
 import type { WorkspaceRecord } from "../src/domain/workspace-types";
 import type { WorkspaceStore } from "../src/domain/workspace-store";
 import { download } from "./workspace-ui";
+import ModuleTimeSummary from "./ModuleTimeSummary";
 import {
   nextAssignmentStep,
   sourceBaseline,
@@ -376,6 +377,7 @@ export default function AssignmentPlanView({
             {e.changed.length > 0 &&
               `${e.changed.length} changed item(s) await a new comparison.`}
           </p>
+          <p className="hint">{e.excluded.length} reference-only or owner-excluded item(s) are outside the publishing checklist. Use item relevance in the worklist to restore any of them; their evidence is retained.</p>
           {audit && (
             <button className="primary" onClick={() => onAudit(audit)}>
               Open latest item worklist
@@ -488,6 +490,7 @@ export default function AssignmentPlanView({
               ? "Create and approve the content map, then build the outline"
               : "Prepare the course outline"}
           </h3>
+          {!!audit && <ModuleTimeSummary rows={e.moduleTimes} />}
           {e.plan.route === "UNDECIDED" ? (
             <p>
               Choose a deliverable path above. CTI will not infer it from course

@@ -15,23 +15,23 @@ import {
   finalCaptureAccountingV6150,
 } from "../src/extractors/coursera/completion.js";
 
-test("v6.15.9 is the maintained Coursera extractor release", () => {
+test("v6.15.10 is the maintained Coursera extractor release", () => {
   assert.deepEqual(CTI_RELEASE_REGISTRY_.courseraExtractor, {
-    version: "v6.15.9",
+    version: "v6.15.10",
     schema: 35,
-    build: "v6.15.9-rendered-choice-labels-20261004",
+    build: "v6.15.10-item-time-estimates-20261005",
     delivery: "GENERATED_BROWSER_BUNDLE",
   });
   const script = bundleConsole(
     path.resolve("src/extractors/coursera/entry.js"),
   );
-  assert.match(script, /CTI Item Fidelity Extractor v6\.15\.9/);
+  assert.match(script, /CTI Item Fidelity Extractor v6\.15\.10/);
   assert.match(script, /schemaVersion:\s*35/);
   assert.match(script, /captureAccounting/);
-  assert.match(script, /v6\.15\.9_s35/);
+  assert.match(script, /v6\.15\.10_s35/);
 });
 
-test("v6.15.9 keeps bounded crawl and text ceilings explicit", () => {
+test("v6.15.10 keeps bounded crawl and text ceilings explicit", () => {
   assert.equal(ACTIVE_CRAWL_MAX_TOTAL_MS, 90 * 60 * 1000);
   assert.equal(CTI_WHOLE_RUN_MAX_MS, 120 * 60 * 1000);
   assert.equal(CTI_MAX_ITEM_ATTEMPTS, 2);
@@ -227,7 +227,7 @@ test("Playwright-observed external plugin body improves evidence but stays fail-
 });
 
 
-test("v6.15.9 uses certified direct-editor routing before outline fallback", () => {
+test("v6.15.10 uses certified direct-editor routing before outline fallback", () => {
   const script = bundleConsole(
     path.resolve("src/extractors/coursera/entry.js"),
   );
@@ -256,7 +256,7 @@ test("v6.15.9 uses certified direct-editor routing before outline fallback", () 
 });
 
 
-test("v6.15.9 treats a fully observed Practice assessment with no key as review, not a blind retry", () => {
+test("v6.15.10 treats a fully observed Practice assessment with no key as review, not a blind retry", () => {
   const fp = {
     id: "survey-1",
     type: "Assignment",
@@ -315,7 +315,7 @@ test("v6.15.9 treats a fully observed Practice assessment with no key as review,
   }
 });
 
-test("v6.15.9 accepts a proven text-block-only assignment as complete learner content", () => {
+test("v6.15.10 accepts a proven text-block-only assignment as complete learner content", () => {
   const fp = {
     id: "text-block-1",
     type: "Assignment",
@@ -341,7 +341,7 @@ test("v6.15.9 accepts a proven text-block-only assignment as complete learner co
   assert.equal(contract.retryable, false);
 });
 
-test("v6.15.9 accounting separates source review, answer review, external limits and technical gaps", () => {
+test("v6.15.10 accounting separates source review, answer review, external limits and technical gaps", () => {
   const sourceReview = {
     id:"empty-1", type:"Assignment",
     payload:{captureAttempts:1,emptyEditorEvidence:{status:"OBSERVED_EMPTY_EDITOR",itemId:"empty-1",scope:"EXACT_ITEM_ASSIGNMENT_LAYOUT"}},
@@ -369,7 +369,7 @@ test("v6.15.9 accounting separates source review, answer review, external limits
   assert.equal(accounting.noSilentMisses,true);
 });
 
-test("v6.15.9 short-circuits known-useless waits without weakening evidence states", () => {
+test("v6.15.10 short-circuits known-useless waits without weakening evidence states", () => {
   const script = bundleConsole(path.resolve("src/extractors/coursera/entry.js"));
   assert.match(script, /MATCHING_EDITOR_NOT_FOUND_FAST/);
   assert.match(script, /Date\.now\(\)-started>=6000/);
@@ -380,7 +380,7 @@ test("v6.15.9 short-circuits known-useless waits without weakening evidence stat
 });
 
 
-test("v6.15.9 binds portalled assignment text blocks by exact fragment identity", () => {
+test("v6.15.10 binds portalled assignment text blocks by exact fragment identity", () => {
   const script = bundleConsole(path.resolve("src/extractors/coursera/entry.js"));
   assert.match(script, /EXACT_ROUTE_PART_ANCHORED_TEXT_BLOCK_LAYOUT/);
   assert.match(script, /localIds\.has\(decodeURIComponent/);

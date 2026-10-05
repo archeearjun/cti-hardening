@@ -1,4 +1,5 @@
 import { validateRecord } from "./workspace-validation.ts";
+import { reviewTime } from "./owner-time.ts";
 import {
   normalizePartnerName,
   packageSemanticKey,
@@ -95,6 +96,8 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
               auditId: d.auditId,
               itemKey: d.itemKey,
               review: {
+                relevance: d.review?.relevance,
+                timeEstimate: reviewTime(d.review),
                 status: d.review?.status,
                 note: d.review?.note,
                 updatedAt: d.review?.updatedAt,

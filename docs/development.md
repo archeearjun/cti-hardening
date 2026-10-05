@@ -18,6 +18,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Source item links, captured topic identity, course URLs | `src/domain/source-navigation.ts`, `owner-urls.ts` | `npm run test:navigation` |
 | Assignment sequence, reconciliation review and deliverable prerequisites | `src/domain/assignment-plan.ts`, `web/AssignmentPlan.tsx`, `src/domain/operations.ts` | `tests/assignment-plan.test.mjs`; `npm run test:browser:ux` |
 | Guided evidence stages, source provenance and local Brightspace input | `src/domain/assignment-evidence.ts`, `src/domain/brightspace-local-extraction.ts`, `web/SourceLmsCapture.tsx` | `tests/assignment-evidence.test.mjs`; `npm run test:browser:ux` |
+| Owner checklist relevance, hierarchy and module times | `src/domain/owner-scope.ts`, `owner-time.ts`, `web/OwnerChecklistTree.tsx`, `ModuleTimeSummary.tsx`, `src/extractors/coursera/time-estimates.js` | `tests/owner-scope-time.test.mjs`; `npm run test:browser:owner`; `npm run test:browser:choices` |
 | Owner tasks, manual review | `src/domain/owner-actions.ts`, `web/OwnerActionCard.tsx` | `npm run test:navigation` |
 | Owner explanations, source-template readiness, relevant question controls | `src/domain/owner-guidance.ts`, `web/OwnerAssessment.tsx` | `tests/owner-guidance.test.mjs`; `npm run test:browser:owner` |
 | Focused item/plugin checks | `src/domain/item-check.ts`, `plugin-check.ts` | `npm run test:navigation` |

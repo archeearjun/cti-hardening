@@ -331,13 +331,17 @@ test(
     delete actual.workspaceWarnings;
     // This unchanged fixture must preserve every evidence decision. Explicitly
     // assert the distinct release identities before comparing its behavior.
-    assert.equal(actual.engineBuildId, "v8.0.1-source-wording-readiness-20261005");
+    assert.equal(actual.engineBuildId, "v8.0.2-owner-time-evidence-20261005");
     assert.equal(expected.engineBuildId, "v8.0.0-source-item-evidence-20260930");
     delete actual.engineBuildId;
     delete expected.engineBuildId;
     // The available extractor release is separately tested deployment metadata.
     if (actual.captureReadiness) delete actual.captureReadiness.expectedVersion;
     if (expected.captureReadiness) delete expected.captureReadiness.expectedVersion;
+    // Owner display now retains the XLSX lesson, while the comparable module
+    // path and every matching/readiness decision remain identical.
+    assert.deepEqual(actual.ownerView.items.map(item => item.lesson), ["Lesson 1", "Lesson 1"]);
+    expected.ownerView.items.forEach(item => { item.lesson = "Lesson 1"; });
     assert.deepEqual(actual, expected);
   },
 );

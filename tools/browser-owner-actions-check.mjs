@@ -18,6 +18,7 @@ import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
 import { checkItemRefreshUi } from "./browser-item-refresh-ui.mjs";
 import { percentages } from "../tests/cti-percentage-fixtures.mjs";
+import { checkOwnerScope } from "./browser-owner-scope-check.mjs";
 const root = path.resolve(".");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -372,7 +373,7 @@ try {
     })
     .click();
   await page
-    .getByText("Current v6.15.9 item check copied.", { exact: false })
+    .getByText("Current v6.15.10 item check copied.", { exact: false })
     .waitFor();
   const script = await page.evaluate(() => navigator.clipboard.readText());
   assert(script.includes("owner-action-audit"));
@@ -1279,6 +1280,7 @@ try {
       });
     }
   }
+  await checkOwnerScope(page, tab, shots);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(

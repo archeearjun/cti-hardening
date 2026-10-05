@@ -54,6 +54,8 @@ import EvidenceDetails from "./EvidenceDetails";
 import SourceRepairEvidence from "./SourceRepairEvidence";
 import PluginEvidencePanel from "./PluginEvidencePanel";
 import { download } from "./workspace-ui";
+import { ownerScope, type ItemRelevance } from "../src/domain/owner-scope";
+import { formatMinutes, taskTimes } from "../src/domain/owner-time";
 
 const progressLabels: Record<OwnerProgress, string> = {
   open: "Not started",
@@ -81,7 +83,7 @@ export default function OwnerActionCard({
   course?: WorkspaceRecord | null;
   store?: WorkspaceStore | null;
   saved?: WorkspaceRecord;
-  onSaved?: (status: OwnerProgress) => Promise<void>;
+  onSaved?: (status: OwnerProgress, relevance?: ItemRelevance) => Promise<void>;
   context: EvidenceObject;
   courseLocation: { courseId: string; base: string } | null;
   onOpenExtraction?: (url?: string) => void;
@@ -90,6 +92,7 @@ export default function OwnerActionCard({
   const [open, setOpen] = useState(false),
     [loaded, setLoaded] = useState(!saved),
     [record, setRecord] = useState<WorkspaceRecord | null>(null);
+  const [relevance, setRelevance] = useState<ItemRelevance>(saved?.data.review?.relevance || "auto");
   const [status, setStatus] = useState<OwnerProgress>(
       saved?.data.review?.status || "open",
     ),
@@ -121,6 +124,7 @@ export default function OwnerActionCard({
         if (!alive) return;
         setRecord(r);
         setStatus(r.data.review.status);
+        setRelevance(r.data.review.relevance || "auto");
         setNote(r.data.review.note);
         setCapture(r.data.review.capture);
         setPluginCaptures(r.data.review.pluginCaptures || []);
@@ -308,6 +312,7 @@ export default function OwnerActionCard({
         "Item evidence is not ready to save. Reopen this item and retry; previous evidence has been preserved.",
       );
     const review: OwnerReview = {
+      relevance,
       status: nextStatus,
       note,
       updatedAt: new Date().toISOString(),
@@ -335,7 +340,7 @@ export default function OwnerActionCard({
     setSourceCaptures(nextSourceCaptures);
     setCourseraLinkedCaptures(nextCourseraLinkedCaptures);
     setStatus(nextStatus);
-    await onSaved?.(nextStatus);
+    await onSaved?.(nextStatus, relevance);
     setMessage("Item work saved. The original report is unchanged.");
   }
   async function importCheck(text: string) {
@@ -365,6 +370,8 @@ export default function OwnerActionCard({
         link.url && all.findIndex((x) => x.url === link.url) === i,
     );
   const guidance = ownerGuidance(task);
+  const scope = ownerScope(task, record?.data.review || saved?.data.review);
+  const times = taskTimes(task, capture ? { capture } : saved?.data.review);
   let contentView: ItemContentView | undefined,
     contentError = "";
   if (open && loaded)
@@ -396,8 +403,8 @@ export default function OwnerActionCard({
               : ""}
           </small>
         </span>
-        <span className={`finding-label finding-${task.status}`}>
-          {guidance.readinessOnly ? "Review readiness" : label}
+        <span className={`finding-label finding-${scope.included ? task.status : "reference"}`}>
+          {!scope.included ? "Reference only" : guidance.readinessOnly ? "Review readiness" : label}
         </span>
         {itemUrl && (
           <a
@@ -413,6 +420,24 @@ export default function OwnerActionCard({
       </summary>
       {open && (
         <div className="item-evidence action-body">
+          <section className="scope" aria-label="Item relevance">
+            <label>Relevance to publishing work
+              <select value={relevance} disabled={!editable || !loaded || !!busy} onChange={e => setRelevance(e.target.value as ItemRelevance)}>
+                <option value="auto">Automatic — use the course area</option>
+                <option value="relevant">Relevant — include in checklist</option>
+                <option value="not_relevant">Not relevant — reference only</option>
+              </select>
+            </label>
+            <p>{scope.reason}</p>
+            <button className="secondary" disabled={!editable || !loaded || !!busy} onClick={() => void act("Saving relevance…", () => persist())}>Save relevance</button>
+            <p className="hint">Saved with this report. Exclusion removes checklist work and learner-time totals; it does not mark the content verified or modify Coursera. Restore “Relevant” to include it again.</p>
+          </section>
+          {scope.included && <>
+          {!task.sourceOnly && <section className="scope" aria-label="Item time estimate">
+            <p><strong>Baseline estimate:</strong> {formatMinutes(times.baseline.minutes)}{times.baseline.capturedAt ? ` · captured ${new Date(times.baseline.capturedAt).toLocaleString()}` : " · capture date not recorded"}</p>
+            <p><strong>Latest available estimate:</strong> {formatMinutes(times.latest.minutes)}{times.latest.capturedAt ? ` · captured ${new Date(times.latest.capturedAt).toLocaleString()}` : " · capture date not recorded"}</p>
+            <p className="hint">{times.latest.evidence} {times.refreshed ? "From the saved item refresh." : "No newer item estimate is saved; this uses the baseline evidence."}</p>
+          </section>}
           <section className="action-focus">
             <p className="eyebrow">1 · WHAT TO DO</p>
             <OwnerAssessment
@@ -922,6 +947,7 @@ export default function OwnerActionCard({
               </p>
             )}
           </section>
+          </>}
           {busy && <p role="status">{busy}</p>}
           {message && (
             <p role="status" className="success-note">
