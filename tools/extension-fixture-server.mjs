@@ -56,6 +56,7 @@ export async function startExtensionFixture(profile, state) {
           );
           if (!file.startsWith(path.resolve("dist") + path.sep))
             throw Error("Path");
+          const content = fs.readFileSync(file);
           res.writeHead(200, {
             "Content-Type": file.endsWith(".js")
               ? "text/javascript"
@@ -66,7 +67,7 @@ export async function startExtensionFixture(profile, state) {
                   : "text/html",
             "Content-Security-Policy": csp,
           });
-          res.end(fs.readFileSync(file));
+          res.end(content);
         } catch {
           res.writeHead(404);
           res.end("Not found");
