@@ -1083,7 +1083,27 @@ try {
     .filter({ hasText: "Instructor Contact Information" });
   await contactCard.waitFor({ state: "visible" });
   assert.equal(await contactCard.count(), 1);
+  assert.equal(
+    await page
+      .getByRole("heading", { name: "Assignment owner report", exact: true })
+      .evaluate((el) => el === document.activeElement),
+    true,
+    "Opening a report establishes heading focus before keyboard interaction",
+  );
   await contactCard.locator(":scope > summary").focus();
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  assert.equal(
+    await contactCard
+      .locator(":scope > summary")
+      .evaluate((el) => el === document.activeElement),
+    true,
+    "Report focus must not move away from the owner's next keyboard target",
+  );
   await page.keyboard.press("Enter");
   await contactCard
     .getByRole("heading", { name: "Your next action", exact: true })
