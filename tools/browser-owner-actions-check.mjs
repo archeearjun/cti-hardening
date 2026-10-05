@@ -254,6 +254,40 @@ try {
   await page.locator(".action-card > summary").click();
   assert.equal(
     await page
+      .getByRole("region", { name: "Refresh Coursera item", exact: true })
+      .count(),
+    0,
+    "A browser without the extension must not show a disabled extension refresh panel",
+  );
+  assert.equal(
+    await page
+      .getByText("Install or update the CTI extension", { exact: true })
+      .count(),
+    0,
+  );
+  await page
+    .getByRole("heading", {
+      name: "Refresh this item after editing Coursera",
+      exact: true,
+    })
+    .waitFor();
+  await page.locator(".targeted-check").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "manual-item-refresh-desktop.png"),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".targeted-check h4").scrollIntoViewIfNeeded();
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.screenshot({
+    path: path.join(shots, "manual-item-refresh-mobile.png"),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  assert.equal(
+    await page
       .getByRole("link", { name: "Open source item", exact: false })
       .getAttribute("href"),
     "https://lms.example.test/d2l/le/content/123/viewContent/10/View",
