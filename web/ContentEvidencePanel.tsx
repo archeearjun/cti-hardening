@@ -12,9 +12,11 @@ const labels = {
 function Evidence({
   content,
   query,
+  showQuestions,
 }: {
   content: ContentEvidence;
   query: string;
+  showQuestions: boolean;
 }) {
   const [limit, setLimit] = useState(50);
   const filtered = content.questions.filter((q) =>
@@ -42,17 +44,21 @@ function Evidence({
           </>
         )}
       </p>
-      <p>
-        <strong>
-          Question positions:{" "}
-          {content.questionCoverage === "COMPLETE"
-            ? "Complete captured set"
-            : labels[content.questionCoverage]}
-        </strong>{" "}
-        · {content.questions.length} captured /{" "}
-        {content.expectedQuestions ?? "unknown"} expected
-      </p>
-      <p className="hint">{content.questionReason}</p>
+      {showQuestions && (
+        <>
+          <p>
+            <strong>
+              Question positions:{" "}
+              {content.questionCoverage === "COMPLETE"
+                ? "Complete captured set"
+                : labels[content.questionCoverage]}
+            </strong>{" "}
+            · {content.questions.length} captured /{" "}
+            {content.expectedQuestions ?? "unknown"} expected
+          </p>
+          <p className="hint">{content.questionReason}</p>
+        </>
+      )}
       {!!content.questions.length && (
         <>
           <p role="status">
@@ -148,6 +154,11 @@ function Evidence({
           <summary>
             Captured resource references ({content.references.length})
           </summary>
+          <p className="hint">
+            Reference totals can include package pages, template resources and
+            links. Comparing these totals does not establish how many learner
+            assets are missing.
+          </p>
           {content.references.map((r, i) => (
             <p key={i}>
               {safeWebUrl(r) ? (
@@ -178,8 +189,10 @@ export default function ContentEvidencePanel({
   onCapture,
   disabled,
   onFetchLinked,
+  showQuestions = true,
 }: {
   view: ItemContentView;
+  showQuestions?: boolean;
   onCapture?: () => void;
   disabled: boolean;
   onFetchLinked?: (url: string, signal: AbortSignal) => Promise<void>;
@@ -187,12 +200,16 @@ export default function ContentEvidencePanel({
   const [query, setQuery] = useState("");
   return (
     <details className="content-comparison" open>
-      <summary>Compare captured questions and text</summary>
+      <summary>
+        {showQuestions
+          ? "Compare captured questions and text"
+          : "Compare captured text and references"}
+      </summary>
       <p>
         Both sides show saved content. Complete refers to the stated field or
-        question positions, not whole-course fidelity. Questions are listed in
-        each capture’s order; matching numbers do not establish matching
-        questions.
+        question positions, not whole-course fidelity.{" "}
+        {showQuestions &&
+          "Questions are listed in each capture’s order; matching numbers do not establish matching questions."}
       </p>
       {onCapture && (
         <button className="secondary" disabled={disabled} onClick={onCapture}>
@@ -207,20 +224,27 @@ export default function ContentEvidencePanel({
           session from this page.
         </p>
       )}
-      <label>
-        Find captured question text
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Question wording or choice text"
-        />
-      </label>
+      {showQuestions && (
+        <label>
+          Find captured question text
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Question wording or choice text"
+          />
+        </label>
+      )}
       <div className="content-comparison-columns">
         <section aria-label="Source captured content">
           <h5>Source content</h5>
           {view.source.map((c, i) => (
-            <Evidence key={i} content={c} query={query} />
+            <Evidence
+              key={i}
+              content={c}
+              query={query}
+              showQuestions={showQuestions}
+            />
           ))}
         </section>
         <section aria-label="Coursera captured content">
@@ -265,23 +289,41 @@ export default function ContentEvidencePanel({
               </p>
             )}
           {view.linkedCoursera.map((c, i) => (
-            <Evidence key={i} content={c} query={query} />
+            <Evidence
+              key={i}
+              content={c}
+              query={query}
+              showQuestions={showQuestions}
+            />
           ))}
-          <Evidence content={view.coursera} query={query} />
+          <Evidence
+            content={view.coursera}
+            query={query}
+            showQuestions={showQuestions}
+          />
           {!!view.previousLinkedCoursera.length && (
             <details>
               <summary>
                 Previous linked-page content — current reference unverified
               </summary>
               {view.previousLinkedCoursera.map((c, i) => (
-                <Evidence key={i} content={c} query={query} />
+                <Evidence
+                  key={i}
+                  content={c}
+                  query={query}
+                  showQuestions={showQuestions}
+                />
               ))}
             </details>
           )}
           {view.previousCoursera && (
             <details>
               <summary>Previous Coursera observation (kept separately)</summary>
-              <Evidence content={view.previousCoursera} query={query} />
+              <Evidence
+                content={view.previousCoursera}
+                query={query}
+                showQuestions={showQuestions}
+              />
             </details>
           )}
         </section>
@@ -293,7 +335,12 @@ export default function ContentEvidencePanel({
             unverified
           </summary>
           {view.observations.map((c, i) => (
-            <Evidence key={i} content={c} query={query} />
+            <Evidence
+              key={i}
+              content={c}
+              query={query}
+              showQuestions={showQuestions}
+            />
           ))}
         </details>
       )}

@@ -107,16 +107,18 @@ export default function SourceRepairEvidence({
           <div className="source-repair" key={i}>
             <h4>{source.title}</h4>
             <small>{source.path}</small>
-            {sourceUrl && (
-              <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
-                Open source material ↗
-              </a>
-            )}
-            {documentUrl && documentUrl !== sourceUrl && (
-              <a href={documentUrl} target="_blank" rel="noopener noreferrer">
-                Open captured file or external target ↗
-              </a>
-            )}
+            <div className="action-links">
+              {sourceUrl && (
+                <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
+                  Open source material ↗
+                </a>
+              )}
+              {documentUrl && documentUrl !== sourceUrl && (
+                <a href={documentUrl} target="_blank" rel="noopener noreferrer">
+                  Open captured file or external target ↗
+                </a>
+              )}
+            </div>
             {!sourceUrl && (
               <p className="hint">
                 No unique source link was captured for this item. Use its source

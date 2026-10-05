@@ -12,6 +12,7 @@ import {
 } from "../src/domain/owner-actions.ts";
 import { chromium } from "playwright";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
+import { contactTemplateFixture } from "../tests/owner-guidance-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
 const root = path.resolve(".");
@@ -754,6 +755,112 @@ try {
     })
     .first()
     .waitFor();
+  // The contact template is text-matched but not ready to publish. Exercise
+  // that distinction in the actual bundled app, including keyboard/mobile use.
+  const contactInput = contactTemplateFixture();
+  const contactReport = createWorkflows(workerXml).compare(contactInput);
+  const contactAudit = {
+    ...contactInput.course,
+    id: "contact-guidance-audit",
+    kind: "audit",
+    packageId: contactInput.course.id,
+    title: "Contact template guidance",
+    data: contactReport,
+  };
+  await tab("Setup");
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "contact-guidance.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        kind: "CTI_BROWSER_WORKSPACE",
+        schemaVersion: 1,
+        records: [contactInput.course, contactAudit],
+      }),
+    ),
+  });
+  await page
+    .getByRole("button", { name: "Import prepared records", exact: true })
+    .click();
+  await page.getByText("Imported 2 records;", { exact: false }).waitFor();
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(contactInput.course.id);
+  await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+  await tab("History");
+  await page
+    .getByRole("button", { name: contactAudit.title, exact: true })
+    .click();
+  const contactCard = page
+    .locator(".action-card")
+    .filter({ hasText: "Instructor Contact Information" });
+  await contactCard.waitFor({ state: "visible" });
+  assert.equal(await contactCard.count(), 1);
+  await contactCard.locator(":scope > summary").focus();
+  await page.keyboard.press("Enter");
+  await contactCard
+    .getByRole("heading", { name: "Your next action", exact: true })
+    .waitFor();
+  assert.match(
+    await contactCard.locator(":scope > summary").innerText(),
+    /Review readiness/,
+  );
+  assert.match(
+    await contactCard.locator(".owner-assessment").innerText(),
+    /Comparison passed/,
+  );
+  assert.match(
+    await contactCard.locator(".owner-readiness").innerText(),
+    /also appears in the saved source package/,
+  );
+  assert.match(
+    await contactCard.locator(".action-focus").innerText(),
+    /approved facilitator/,
+  );
+  assert.equal(
+    await contactCard
+      .getByLabel("Find captured question text", { exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await contactCard
+      .getByText("Question positions:", { exact: false })
+      .count(),
+    0,
+  );
+  assert(
+    await contactCard.evaluate((el) =>
+      Boolean(
+        el
+          .querySelector(".action-focus")
+          .compareDocumentPosition(el.querySelector(".content-comparison")) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ),
+  );
+  await contactCard.locator(".action-focus").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "contact-guidance-desktop.png"),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await contactCard.locator(".owner-assessment").scrollIntoViewIfNeeded();
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    "contact guidance mobile overflow",
+  );
+  await page.screenshot({
+    path: path.join(shots, "contact-guidance-mobile.png"),
+  });
+  await contactCard
+    .getByText("Source images to check in learner preview (2)", { exact: true })
+    .click();
+  assert.match(
+    await contactCard.locator(".owner-assessment").innerText(),
+    /instructor.jpg/,
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -775,6 +882,7 @@ try {
           "automatic source fetch, failed refresh preserving previous source evidence, and exported bank count",
           "original extraction hash rejection/recovery; both content panes, question search, full content exports and previous observations",
           "390px layout",
+          "contact template: passed text vs inherited readiness, actionable guidance first, no irrelevant question warnings, keyboard expansion and 390px layout",
         ],
         screenshots: shots,
       },
