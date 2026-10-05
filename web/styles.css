@@ -2182,7 +2182,7 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 .source-tree li > details[open] > summary::before { content: "−"; }
 .source-tree li > details > summary > span:first-of-type { flex: 1; min-width: 0; margin: 0; color: #193747; }
 .source-tree summary strong, .source-tree summary small { display: block; overflow-wrap: anywhere; }
-.source-tree summary .badge { margin: 0; max-width: 35%; overflow-wrap: anywhere; font-size: 12px; }
+.source-tree summary .badge { margin: 0; max-width: 35%; white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
 .source-tree summary:focus-visible { outline: 3px solid #12669b; outline-offset: 2px; border-radius: 5px; }
 .source-tree ul.source-tree-children { margin: 0 10px 10px 22px; padding-left: 12px; border-left: 2px solid #a7bdcd; }
 .source-tree .hint { padding-inline: 12px; }
