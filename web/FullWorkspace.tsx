@@ -25,6 +25,7 @@ const MacmillanWorkspace = lazy(() => import("./MacmillanWorkspace"));
 const CourseraExtractionWorkspace = lazy(
   () => import("./CourseraExtractionWorkspace"),
 );
+const SourceLmsCapture = lazy(() => import("./SourceLmsCapture"));
 const OperationsWorkspace = lazy(() => import("./OperationsWorkspace"));
 import {
   applyLineageRepairs,
@@ -69,6 +70,8 @@ const descriptions: Record<string, string> = {
   Catalogue: "Find a course, see its ownership, and pick up your review.",
   Explore: "Understand the source package before making an ingestion decision.",
   Scan: "Inspect a new package or save a fresh baseline for an existing course.",
+  "Source LMS":
+    "Capture and inspect the matching Brightspace course before correcting Coursera.",
   Extract:
     "Run the current Coursera extractor in your signed-in Chrome at zero browser-service cost, then verify its capture in CTI.",
   Compare: "Compare source evidence with what was captured in Coursera.",
@@ -91,7 +94,7 @@ const navGroups = [
   },
   {
     label: "Course evidence",
-    tabs: ["Explore", "Scan", "Extract", "Compare", "History"],
+    tabs: ["Explore", "Scan", "Source LMS", "Extract", "Compare", "History"],
   },
   {
     label: "Tools & admin",
@@ -105,6 +108,7 @@ const navGlyphs: Record<string, string> = {
   "Work queue": "✓",
   Explore: "≡",
   Scan: "↑",
+  "Source LMS": "≡",
   Extract: "↓",
   Compare: "⇄",
   History: "◷",
@@ -145,6 +149,17 @@ export default function FullWorkspace({
     [capture, setCapture] = useState<File | null>(null),
     [source, setSource] = useState<File | null>(null),
     [recovery, setRecovery] = useState<File | null>(null);
+  const [comparedFiles, setComparedFiles] = useState<(File | null)[]>([]);
+  const comparisonFiles = [excel, capture, source, recovery];
+  const pendingEvidence = {
+    source: source?.name || "",
+    coursera: capture?.name || "",
+    excel: excel?.name || "",
+    courseraChanged: !!capture && capture !== (comparedFiles[1] || null),
+    changed:
+      comparisonFiles.some(Boolean) &&
+      comparisonFiles.some((file, i) => file !== (comparedFiles[i] || null)),
+  };
   const [mode, setMode] = useState<"raw" | "ops" | "published" | "auto">("ops"),
     [generation, setGeneration] = useState(0),
     [before, setBefore] = useState(""),
@@ -329,6 +344,7 @@ export default function FullWorkspace({
       );
   }
   function resetCourseInputs() {
+    setComparedFiles([]);
     setExcel(null);
     setCapture(null);
     setSource(null);
@@ -572,6 +588,7 @@ export default function FullWorkspace({
         ),
       );
       setReportId(saved.id);
+      setComparedFiles(comparisonFiles);
       await refresh();
       setNotice(
         `Full report saved (${saved.id}). Open an item below to start its review.`,
@@ -749,6 +766,11 @@ export default function FullWorkspace({
             records={records}
             store={store}
             disabled={!!busy}
+            pending={pendingEvidence}
+            onRescan={() => {
+              setRescan(!!course);
+              setTab("Scan");
+            }}
             onNavigate={setTab}
             onSaved={async (saved) => {
               setCourse(saved);
@@ -1303,6 +1325,18 @@ export default function FullWorkspace({
                 >
                   Rescan this course
                 </button>
+                <button
+                  className="secondary"
+                  onClick={() => setTab("Source LMS")}
+                >
+                  Next: capture Brightspace source
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => setTab("Assignment plan")}
+                >
+                  Return to assignment plan
+                </button>
               </>
             ) : (
               <p className="empty-state">
@@ -1370,6 +1404,22 @@ export default function FullWorkspace({
             </section>
           )}
         </div>
+        {tab === "Source LMS" && (
+          <Suspense
+            fallback={<p role="status">Loading source capture tools…</p>}
+          >
+            <SourceLmsCapture
+              key={courseId}
+              disabled={!!busy || !editable}
+              partner={partner}
+              courseTitle={course?.title || ""}
+              selectedFile={source?.name || ""}
+              onUseCapture={setSource}
+              onPlan={() => setTab("Assignment plan")}
+              onCompare={() => setTab("Compare")}
+            />
+          </Suspense>
+        )}
         {tab === "Extract" && (
           <Suspense
             fallback={
@@ -1446,6 +1496,13 @@ export default function FullWorkspace({
                 </p>
               )}
               <h3>2. Add source and supplemental evidence</h3>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setTab("Source LMS")}
+              >
+                Capture Brightspace source →
+              </button>
               <div className="settings">
                 <FileField
                   label="Brightspace source JSON"
@@ -1837,6 +1894,17 @@ export default function FullWorkspace({
                 For the Master Planner / catalog queue and CTI-generated next
                 actions, open Operations.
               </span>
+              <span>
+                For source inspection, captures and the item correction
+                checklist, open Assignment plan. These manual ticks do not
+                establish that evidence was captured.
+              </span>
+              <button
+                className="text-button"
+                onClick={() => setTab("Assignment plan")}
+              >
+                Open assignment guidance →
+              </button>
               <button
                 className="text-button"
                 disabled={!!busy}

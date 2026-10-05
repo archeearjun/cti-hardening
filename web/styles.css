@@ -2165,3 +2165,10 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 .assignment-evidence dd {
   margin: 0.4rem 0 0;
 }
+.assignment-next { margin: 1.5rem 0; padding: 1.2rem; border: 2px solid #0f5d69; border-radius: 10px; background: #f0f7f7; }
+.assignment-next h3 { margin-top: 0; }
+.source-capture label { display: grid; gap: 0.5rem; margin: 1rem 0; }
+.source-capture textarea { width: 100%; min-height: 8rem; }
+.source-capture .source-confirm { display: flex; align-items: flex-start; }
+.source-capture p, .source-capture li { overflow-wrap: anywhere; }
+.source-capture input[type="file"] { max-width: 100%; }

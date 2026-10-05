@@ -6,6 +6,44 @@ review records. It does not change the extractor or automatically edit an LMS.
 
 ## Owner journey
 
+### Guided evidence collection update (5 October 2026)
+
+Assignment plan now recommends one next action from the saved evidence and files
+selected for the next comparison. Its stages explicitly separate IMSCC inspection,
+Brightspace capture, Coursera capture/comparison, the correction checklist,
+reconciliation review and deliverables. The Source LMS screen is reachable directly
+from the plan, Explore and Compare. It provides the current Brightspace extractor,
+inspects downloaded JSON, retains capture warnings and requires the owner to confirm
+the displayed course before selecting the file for comparison.
+
+| Confirmed issue | Impact / severity | Implemented correction | Verification |
+| --- | --- | --- | --- |
+| Step 1 mentioned Brightspace but only linked to Explore | Owners could omit source capture; medium | Separate source step and direct Source LMS screen, with a return to the assignment plan | Browser source-to-plan-to-Compare flow; wrong-platform input rejection |
+| Historical source tree appeared in the current app without a prominent provenance label | Saved results could be mistaken for a fresh scan; medium | Show historical, manifest-only or saved scan state; original filename/date; explain that opening evidence does not rescan or check for newer exports | State tests; browser historical-scan next action and rescan target |
+| Missing source fingerprints were described as changed packages; owner view accepted an absent report fingerprint as a match | Unestablished source identity could supply repair context; high | Distinguish missing identity from actual mismatch; require matching recorded fingerprints before supplying selected-package repair context | Unknown/mismatch tests and owner browser regression |
+| Collection ticks, selected files and saved report evidence were easy to confuse | Premature handoff or wrong-course comparison; medium | Display staged filenames and unsaved state, preserve existing report evidence, block new review/approval while replacement files await comparison, clear file selections on course change | Browser input isolation and staging; existing saved-report/review tests |
+
+The source JSON selection is held for the selected course in the current page
+session until a comparison saves its evidence. Reloading or changing courses clears
+that selection; keep the downloaded file. Inspection is not a full comparison or
+proof of extraction completeness. Captured question-definition counts do not
+establish the expected learner question total. Owners without Brightspace access
+can still compare available inputs and document source limitations; no new mandatory
+source-platform rule or automatic LMS edit is introduced.
+
+Scope: reviewed and changed Assignment plan, source exploration, source capture
+entry points, owner source identity handling and their regression checks. The
+extractors and audit decision engine are unchanged in this update. Current live
+LMS/plugin acceptance remains subject to the limits below.
+
+Verification for this guided update: baseline 277 tests passed; updated suite 284
+passed with zero failures. Type checking and production build passed. Built-app
+Chromium UX and owner suites passed, including source selection/isolation,
+malformed captures, historical identity protection, review/approval persistence,
+desktop and 390px mobile layouts. Screens were visually inspected. The build
+retains the existing large-chunk warning; no new dependency or deployment
+configuration is required.
+
 Before import, inspect the IMSCC and source LMS to establish requirements and
 identify package/runtime limitations. If a shell exists, compare its captured
 content before deciding to reimport. Without a destination, CTI cannot determine

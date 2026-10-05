@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadReportContent } from "../src/domain/report-content-store";
+import { sourceIdentityMessage } from "../src/domain/assignment-evidence";
 import OriginalContentImport from "./OriginalContentImport";
 import {
   validateContentSnapshot,
@@ -84,7 +85,7 @@ export default function OwnerEvidence({
     };
   }, [report, auditId, course?.id, store, records]);
   const sourceMatches =
-    !report.sourceScanSha256 ||
+    !!report.sourceScanSha256 &&
     report.sourceScanSha256 === course?.data.scan?.fileSha256;
   const tasks = useMemo(
     () =>
@@ -222,9 +223,12 @@ export default function OwnerEvidence({
       />
       {!sourceMatches && (
         <p className="scope">
-          The saved source scan has changed since this report. Its newer content
-          is not being presented as this report’s repair evidence. The original
-          findings remain available.
+          {sourceIdentityMessage(
+            course?.data.scan?.fileSha256,
+            report.sourceScanSha256,
+          )}{" "}
+          The selected package is not being presented as this report’s matched
+          repair evidence. The original findings remain available.
         </p>
       )}
       <div className="action-switch" role="group" aria-label="Show owner work">

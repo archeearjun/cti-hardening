@@ -15,6 +15,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Source versus Coursera question counts and reviewed references | `src/domain/question-counts.ts`, `web/QuestionCountPanel.tsx` | `tests/question-counts.test.mjs`; `npm run test:browser:owner` |
 | Source item links, captured topic identity, course URLs | `src/domain/source-navigation.ts`, `owner-urls.ts` | `npm run test:navigation` |
 | Assignment sequence, reconciliation review and deliverable prerequisites | `src/domain/assignment-plan.ts`, `web/AssignmentPlan.tsx`, `src/domain/operations.ts` | `tests/assignment-plan.test.mjs`; `npm run test:browser:ux` |
+| Guided evidence stages, source provenance and local Brightspace input | `src/domain/assignment-evidence.ts`, `src/domain/brightspace-local-extraction.ts`, `web/SourceLmsCapture.tsx` | `tests/assignment-evidence.test.mjs`; `npm run test:browser:ux` |
 | Owner tasks, manual review | `src/domain/owner-actions.ts`, `web/OwnerActionCard.tsx` | `npm run test:navigation` |
 | Focused item/plugin checks | `src/domain/item-check.ts`, `plugin-check.ts` | `npm run test:navigation` |
 | Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |

@@ -136,7 +136,16 @@ const audit = {
 const backup = {
   kind: "CTI_BROWSER_WORKSPACE",
   schemaVersion: 1,
-  records: [input.course, audit],
+  records: [
+    input.course,
+    audit,
+    {
+      ...structuredClone(audit),
+      id: "unidentified-source-audit",
+      title: "Historical report without source identity",
+      data: { ...structuredClone(output), sourceScanSha256: "" },
+    },
+  ],
 };
 const tab = async (name) =>
   page
@@ -144,7 +153,9 @@ const tab = async (name) =>
     .getByRole("button", { name, exact: true })
     .click();
 const openAudit = async () => {
-  await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(input.course.id);
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(input.course.id);
   await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
@@ -193,7 +204,7 @@ try {
     buffer: Buffer.from(JSON.stringify(backup)),
   });
   await page.getByRole("button", { name: "Import prepared records" }).click();
-  await page.getByText("Imported 2 records;", { exact: false }).waitFor();
+  await page.getByText("Imported 3 records;", { exact: false }).waitFor();
   await openAudit();
   await page
     .getByText("Load original extraction content into an older report", {
@@ -719,6 +730,30 @@ try {
   await page.screenshot({
     path: path.join(shots, "content-comparison-desktop.png"),
   });
+  await tab("History");
+  await page
+    .getByRole("button", {
+      name: "Historical report without source identity",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByText("This report has no source file identity.", { exact: false })
+    .waitFor();
+  await page.locator(".action-card > summary").first().click();
+  assert.equal(
+    await page
+      .getByText("Retrieve files from the original IMSCC", { exact: true })
+      .count(),
+    0,
+    "A report without source identity cannot offer files from the selected package as matched repair evidence",
+  );
+  await page
+    .getByText("The exact source entry is not available in this saved scan.", {
+      exact: false,
+    })
+    .first()
+    .waitFor();
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -729,6 +764,7 @@ try {
           "production bundle generates a valid canonical item script",
           "wrong-item upload rejected",
           "wrong source package rejected and exact source file downloaded",
+          "historical report without source identity cannot supply selected-package repair files",
           "fresh item check persisted",
           "completion note required",
           "outcomes and payload survive reload",
