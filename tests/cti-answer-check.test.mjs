@@ -222,6 +222,7 @@ test("copy/report text exposes both keys, working, choice-order warning and unre
 
 test("percentage notation and halfway conventions cannot silently change the numerical meaning", () => {
   for (const prompt of [
+    "Round 1.234 to the nearest tenth. Express your answer to the nearest hundredth.",
     "Round 1.245 to the nearest hundredth.",
     "25 is what percent of 100. Express your answer to the nearest tenth.",
   ])

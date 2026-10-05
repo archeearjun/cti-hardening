@@ -91,6 +91,7 @@ function solvePrompt(
       ),
     );
   if (match) {
+    if (rounding) return null; // Two rounding instructions need reconciliation.
     expr = match[1];
     places = precision(match[2] || match[3]);
     if (places === null) return null;
