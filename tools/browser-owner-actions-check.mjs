@@ -276,7 +276,12 @@ try {
     path: path.join(shots, "manual-item-refresh-desktop.png"),
   });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator(".targeted-check h4").scrollIntoViewIfNeeded();
+  await page
+    .getByRole("heading", {
+      name: "Refresh this item after editing Coursera",
+      exact: true,
+    })
+    .scrollIntoViewIfNeeded();
   assert(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
