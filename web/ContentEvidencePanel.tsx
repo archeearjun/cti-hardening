@@ -287,7 +287,7 @@ export default function ContentEvidencePanel({
       </p>
       {onCapture && (
         <button className="secondary" disabled={disabled} onClick={onCapture}>
-          Capture Coursera content
+          Copy manual Coursera capture script
         </button>
       )}
       {onCapture && (

@@ -5,6 +5,7 @@ dist-gas/
 .env.*
 !.env.example
 src/generated/
+public/downloads/cti-browser-extension.zip
 playwright-report/
 test-results/
 

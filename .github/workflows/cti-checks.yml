@@ -65,6 +65,8 @@ jobs:
         run: npm run test:browser:owner
       - name: Verify assessment choice layout in Chromium
         run: npm run test:browser:choices
+      - name: Verify actual extension item refresh in Chromium
+        run: npm run test:browser:extension
       - name: Preserve browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,3 +76,4 @@ jobs:
           path: |
             /tmp/cti-ux-screenshots
             /tmp/cti-owner-actions
+            /tmp/cti-extension-screenshots

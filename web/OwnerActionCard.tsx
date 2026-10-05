@@ -16,6 +16,7 @@ import {
   type CourseraLinkedCapture,
 } from "../src/domain/coursera-linked-content";
 import ContentEvidencePanel from "./ContentEvidencePanel";
+import CourseraItemRefresh from "./CourseraItemRefresh";
 import OwnerAssessment from "./OwnerAssessment";
 import {
   ownerGuidance,
@@ -547,6 +548,16 @@ export default function OwnerActionCard({
                   setBusy("");
                 }
               }}
+            />
+          )}
+          {spec && open && (
+            <CourseraItemRefresh
+              key={`${auditId}:${task.id}`}
+              spec={spec}
+              disabled={!editable || !loaded || !!busy}
+              previousCount={capture?.evaluation?.questionCount}
+              onImport={importCheck}
+              onBusy={setBusy}
             />
           )}
           {loaded && (

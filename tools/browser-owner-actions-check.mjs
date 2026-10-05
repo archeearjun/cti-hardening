@@ -16,6 +16,7 @@ import { contactTemplateFixture } from "../tests/owner-guidance-fixtures.mjs";
 import { syllabusFixture } from "../tests/syllabus-readiness-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
+import { checkItemRefreshUi } from "./browser-item-refresh-ui.mjs";
 const root = path.resolve(".");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -878,6 +879,7 @@ try {
   await page.screenshot({
     path: path.join(shots, "content-comparison-desktop.png"),
   });
+  await checkItemRefreshUi(page, capture, shots);
   await tab("History");
   await page
     .getByRole("button", {
