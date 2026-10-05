@@ -1,36 +1,10 @@
-import { useMemo, useState } from "react";
+import SourceTree from "./SourceTree";
 import EvidenceDetails from "./EvidenceDetails";
-import type { PackageNode, PackageScan } from "../src/domain/package-types";
+import type { PackageScan } from "../src/domain/package-types";
 import { sourceBaseline } from "../src/domain/assignment-evidence";
 
 export default function SourceExplorer({ scan }: { scan: PackageScan }) {
   const baseline = sourceBaseline(scan);
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState("");
-  const [limit, setLimit] = useState(40);
-  const rows = useMemo(() => {
-    const all: { node: PackageNode; path: string; key: string }[] = [];
-    const walk = (nodes: PackageNode[], path: string, prefix: string) => {
-      (nodes || []).forEach((node, i) => {
-        const key = `${prefix}.${i}`;
-        all.push({ node, path, key });
-        walk(
-          node.children,
-          [path, node.title].filter(Boolean).join(" / "),
-          key,
-        );
-      });
-    };
-    walk(scan.courseTree, "", "source");
-    return all;
-  }, [scan]);
-  const matches = rows.filter(
-    ({ node, path }) =>
-      (!type || node.type === type) &&
-      `${node.title} ${path} ${node.type} ${node.idref || ""}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
   return (
     <section className="source-explorer">
       <div className="section-heading">
@@ -88,125 +62,11 @@ export default function SourceExplorer({ scan }: { scan: PackageScan }) {
           </ul>
         </details>
       )}
-      <div className="filter-bar">
-        <label>
-          Find source content
-          <input
-            value={query}
-            placeholder="Title, module, type or resource ID"
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setLimit(40);
-            }}
-          />
-        </label>
-        <label>
-          Source content type
-          <select
-            value={type}
-            onChange={(e) => {
-              setType(e.target.value);
-              setLimit(40);
-            }}
-          >
-            <option value="">All types</option>
-            {[...new Set(rows.map((r) => r.node.type))].sort().map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <p className="hint" role="status">
-        {matches.length} of {rows.length} hierarchy entries · source order
-        preserved
-      </p>
-      <div className="source-items">
-        {matches.slice(0, limit).map(({ node, path, key }) => {
-          const payload = node.sourcePayload;
-          return (
-            <details key={key}>
-              <summary>
-                <span>
-                  <strong>{node.title || "Untitled source entry"}</strong>
-                  <small>{path || "Course root"}</small>
-                </span>
-                <span className="badge">{node.type || "Unknown type"}</span>
-              </summary>
-              <div className="item-evidence">
-                <p className="hint">
-                  Resource ID: {node.idref || "Not recorded"}
-                  {node.autoDeleted
-                    ? " · Marked as excluded in the source scan"
-                    : ""}
-                </p>
-                {payload?.textSample ? (
-                  <>
-                    <h4>Captured source text</h4>
-                    <blockquote>{payload.textSample}</blockquote>
-                    <p className="hint">
-                      {payload.evidenceTruncated
-                        ? "This source excerpt was truncated."
-                        : "Captured text does not establish complete runtime coverage."}
-                    </p>
-                  </>
-                ) : (
-                  <p>No text excerpt is recorded for this entry.</p>
-                )}
-                {payload?.structuredAssessment && (
-                  <p>
-                    <strong>
-                      {payload.structuredAssessment.questionCount} questions
-                      recorded.
-                    </strong>{" "}
-                    Expand the full entry evidence below for question and answer
-                    details.
-                  </p>
-                )}
-                {!!payload?.files?.length && (
-                  <>
-                    <h4>Source files</h4>
-                    <ul className="file-evidence">
-                      {payload.files.map((file, i) => (
-                        <li key={i}>
-                          <strong>
-                            {file.name ||
-                              file.path ||
-                              file.href ||
-                              "Unnamed file"}
-                          </strong>
-                          <small>
-                            {file.presentInPackage === true
-                              ? "Present in package"
-                              : file.presentInPackage === false
-                                ? "Not present in package"
-                                : "Package presence not recorded"}
-                            {file.hashStatus ? ` · ${file.hashStatus}` : ""}
-                          </small>
-                          {file.sha256 && <code>SHA-256: {file.sha256}</code>}
-                          {(file.readError || file.pdfReadError) && (
-                            <p className="error">
-                              {file.readError || file.pdfReadError}
-                            </p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                <EvidenceDetails title="Full entry evidence" value={node} />
-              </div>
-            </details>
-          );
-        })}
-      </div>
-      {!matches.length && (
-        <p className="empty-state">No source entries match these filters.</p>
-      )}
-      {matches.length > limit && (
-        <button className="secondary" onClick={() => setLimit(limit + 40)}>
-          Show next 40 entries
-        </button>
-      )}
+      <SourceTree
+        scan={scan}
+        searchLabel="Find source content"
+        className="source-items"
+      />
       <p className="hint">
         IFS, lexical and z-score metrics are review aids, not evidence that a
         course is complete.

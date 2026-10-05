@@ -1,6 +1,7 @@
+import { readSourceHierarchy } from "./source-hierarchy.ts";
 import JSZip from "jszip";
-import * as pdfjsLib from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
+import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import { createSourceScanner } from "../source/scanner.js";
 import { createEngine } from "../engine/index.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
@@ -87,6 +88,9 @@ export async function scanPackage(
       throw new Error("The manifest exceeds the 12 MB limit.");
     if (/<!DOCTYPE|<!ENTITY/i.test(xml))
       throw new Error("Manifest XML declarations are unsupported.");
+    const preflight = scanner.parseXmlCompat_(xml);
+    if (!preflight.doc) throw Error("The manifest hierarchy could not be parsed.");
+    readSourceHierarchy(preflight.doc);
     progress({
       phase: "Read content",
       detail: "Reading source files, questions, attachments and dependencies.",
@@ -110,6 +114,7 @@ export async function scanPackage(
     throw new Error(
       "The manifest hierarchy could not be parsed. No complete package scan was produced.",
     );
+  const sourceHierarchy = readSourceHierarchy(parsed.doc);
   if (parsed.repaired)
     warnings.push(
       "The manifest needed the existing compatibility repair pass; its parser diagnostics are retained in the source evidence.",
@@ -157,6 +162,10 @@ export async function scanPackage(
     warnings.push(
       `${reads} file evidence record(s) contain text/PDF read limitations. Details are retained on the file records.`,
     );
+  if (sourceEvidence.qtiDiagnostics?.incompleteQuestionResources?.length)
+    warnings.push(`${sourceEvidence.qtiDiagnostics.incompleteQuestionResources.length} assessment resource(s) have incomplete question capture. Declared and captured counts are retained separately.`);
+  if (sourceEvidence.qtiDiagnostics?.orphanSearchIncomplete)
+    warnings.push("Unreferenced QTI search could not finish within read limits. No orphan assessment was assigned on incomplete evidence.");
   if (hashGaps)
     warnings.push(
       `${hashGaps} present file evidence record(s) have no SHA-256 fingerprint, including files beyond scanner budgets.`,
@@ -165,6 +174,7 @@ export async function scanPackage(
     fileName: analysis.fileName!,
     moduleCount: analysis.moduleCount!,
     courseTree: analysis.courseTree,
+    sourceHierarchy,
     stats: analysis.stats,
     unknownTypesLog: analysis.unknownTypesLog!,
     fileExtensionsLog: analysis.fileExtensionsLog!,

@@ -305,18 +305,14 @@ try {
   await waitIdle();
   await page.getByRole("heading", { name: "Explore what is inside" }).waitFor();
   await page.getByLabel("Find source content").fill("Reading");
-  assert.equal(await page.locator(".source-items > details").count(), 1);
+  assert.equal(await page.locator(".source-items li > details > summary").filter({hasText:"Reading"}).count(), 1);
   assert.equal(
     await page.locator(".source-explorer .evidence-json").count(),
     0,
     "Closed evidence should not be formatted yet",
   );
-  await page.locator(".source-items > details > summary").click();
-  assert(
-    (await page.locator(".source-items").innerText()).includes(
-      "Learning about quantities",
-    ),
-  );
+  await page.locator(".source-items li > details > summary").filter({hasText:"Reading"}).click();
+  await page.locator(".source-items blockquote").filter({hasText:"Learning about quantities"}).waitFor();
   await page.getByText("Full entry evidence", { exact: true }).click();
   await page.locator(".source-items .evidence-json").waitFor();
   await page.getByText("Full entry evidence", { exact: true }).click();

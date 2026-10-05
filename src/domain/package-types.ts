@@ -21,7 +21,7 @@ export interface PackageResourceEvidence {
   files: PackageFileEvidence[];
   textSample?: string;
   evidenceTruncated?: boolean;
-  structuredAssessment?: { questionCount: number; questions: unknown[] } | null;
+  structuredAssessment?: { questionCount: number; declaredQuestionCount?: number; questions: unknown[] } | null;
   [key: string]: unknown;
 }
 export interface PackageNode {
@@ -41,13 +41,15 @@ export interface PackageScan {
   scope: string;
   moduleCount: number;
   courseTree: PackageNode[];
+  /** Original manifest hierarchy, including nested folders and course wrapper. */
+  sourceHierarchy?: PackageNode[];
   stats: Record<string, number | string | boolean | unknown[]>;
   unknownTypesLog: Record<string, number>;
   fileExtensionsLog: Record<string, number>;
   sourceEvidence: {
     manifestOnly: boolean;
     resources: Record<string, PackageResourceEvidence>;
-    qtiDiagnostics?: { unresolvedQtiResources: string[] };
+    qtiDiagnostics?: { unresolvedQtiResources: string[]; incompleteQuestionResources?: string[]; orphanSearchIncomplete?: boolean };
     [key: string]: unknown;
   };
   warnings: string[];

@@ -42,6 +42,37 @@ export function validateDateOnly(value: unknown, fieldName: string): string {
   return text;
 }
 
+/** Compatibility for dates serialized by the Apps Script/Sheets export.
+ * Preserve the original timestamp (including its offset); a rescan is not a
+ * calendar edit and must not infer a different day from an unknown sheet zone.
+ * New date edits continue to use validateDateOnly.
+ */
+export function validateStoredDate(value: unknown, fieldName: string): string {
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/.test(text)) {
+    validateDateOnly(text.slice(0, 10), fieldName);
+    if (Number.isFinite(Date.parse(text))) return text;
+  }
+  return validateDateOnly(value, fieldName);
+}
+
+export function validateStoredCourseMetadata(value: Partial<CourseMetadata>): CourseMetadata {
+  const assignedDate = validateStoredDate(value.assignedDate, "Assigned Date");
+  const deadline = validateStoredDate(value.deadline, "Deadline");
+  return { ...validateCourseMetadata({ ...value, assignedDate: "", deadline: "" }), assignedDate, deadline };
+}
+
+/** Unedited stored dates remain byte-for-byte intact during metadata changes. */
+export function validateCourseMetadataUpdate(value: Partial<CourseMetadata>, previous: Partial<CourseMetadata>): CourseMetadata {
+  const dates = {
+    assignedDate: value.assignedDate === previous.assignedDate
+      ? validateStoredDate(value.assignedDate, "Assigned Date") : validateDateOnly(value.assignedDate, "Assigned Date"),
+    deadline: value.deadline === previous.deadline
+      ? validateStoredDate(value.deadline, "Deadline") : validateDateOnly(value.deadline, "Deadline"),
+  };
+  return { ...validateCourseMetadata({ ...value, assignedDate: "", deadline: "" }), ...dates };
+}
+
 export function validateCourseStatus(value: unknown): CourseStatus {
   const status = String(value || "In Queue").trim();
   if (!COURSE_STATUSES.includes(status as CourseStatus))

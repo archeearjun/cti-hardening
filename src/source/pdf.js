@@ -68,6 +68,7 @@ const {pdfjsLib, pdfWorkerUrl, pdfVersion} = pdfServices;
         text: parts.join(' ').replace(/\s+/g, ' ').trim(),
         pageCount: Number(pdf.numPages || 0),
         pagesRead: pagesRead,
+        truncated: pagesRead < pdf.numPages || meaningful.length > pageSamples.length || selected.some(function(rec) { return rec.text.length > 3000; }) || pageSamples.reduce(function(n, rec) { return n + rec.text.length; }, 0) > charLimit,
         parser:'pdfjs-' + pdfVersion,
         pageSamples: pageSamples,
         sampleStrategy:'role-keyword-page-sampling-v1'
