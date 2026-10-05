@@ -66,3 +66,54 @@ include reference/rubric requirements; CTI sends no messages or approval request
 All calculations are derived when displayed/exported. Updating CTI's math rules
 does not rewrite historical capture evidence. Original JSON downloads intentionally
 contain only original source observations, without derived CTI answers.
+
+## Percentage follow-up (`exact-math-2`)
+
+The user's ten Percentage questions exposed a confirmed checker-coverage defect,
+not missing extraction: every prompt, choice and source key was present in the
+pasted view, but the v1 full-prompt grammar rejected alternate percentage wording,
+word problems and all true/false formats. Its generic subject-review instruction
+also obscured ordinary math and specific ambiguity. This affects answer review
+and copying (high priority); it does not prove that other extraction is complete.
+
+`percentage-math.ts` now calculates supported percentage relations, parts of a
+total, waste, motor efficiency with an explicit formula, and dimensional
+tolerances. All operands come from the full prompt, never from choices/keys.
+Units must match the prompt; no implicit conversions or closest-option selection.
+True/false statements require supported semantics and two explicit English
+labels; shuffled letters and false source keys are mapped without defaulting.
+`supported-math-text.ts` recognizes only the complete efficiency TeX formula.
+Unknown notation and missing original H5P definitions still block calculation.
+`cti-answer-check.ts` also now blocks explicitly incomplete media capture.
+
+| Supplied question | Independent result / remaining action |
+| --- | --- |
+| 1: 40% of 24 | B, 9.6 |
+| 2: 0.6 as a percent of 1.32 | 500/11% (about 45.4545%); no exact option. State rounding before accepting 45%. |
+| 3: 3 is 15% of 22 | B, False: the product is 3.3. |
+| 4: 1 part acid and 4 parts water | B, 20% of the total stated parts. |
+| 5: 90% efficiency, 13.5 hp output | A, 15 hp input. |
+| 6: 3.6 of 120 spoiled | A, 3%. |
+| 7: maximum width at 5% variation | C, 193.2 mm. |
+| 8: 12% profit, $2345 cost | Clarify markup ($2626.40) versus margin (about $2664.77). |
+| 9: 630 rpm is 94% of 668 rpm | 94% gives 627.92 rpm; the actual ratio is about 94.3114%. False exactly, potentially True if percentage rounding is intended. Clarify precision. |
+| 10: 354 rpm loses 16%, becoming 297 rpm | Exact result 297.36 rpm. False exactly, True after rounding to whole rpm. Clarify precision. |
+
+Six questions receive independent choices; four retain an explicit explanation
+and next action. Unknown wording is labelled a checker limitation, without
+claiming extraction failed or requiring a subject expert for every calculation.
+This remains a deterministic set of supported grammars, not a general natural
+language solver. Original captured keys and definitions remain unchanged.
+
+Regression fixtures replay all ten questions through content normalization and
+H5P capture, saved-bank input, answer comparison and exports. Variants exercise
+changed operands, zero, signs, explicit percentage rounding, shuffled choices,
+wrong/missing keys, incompatible units, duplicate answers, incomplete capture,
+extra/negated wording, unsafe notation and repeated rounding instructions.
+The owner browser check covers actual rendered answer panels, review reasons,
+copy/export text and desktop/390px layout with controlled fixtures. No live
+authenticated source/Coursera capture is certified by these checks.
+
+Existing rich saved banks recalculate when reopened after reloading CTI. Earlier
+captures missing raw definitions still require the existing source refresh;
+no database migration, new dependency, paid model, credentials or binding change.
