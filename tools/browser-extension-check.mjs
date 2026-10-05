@@ -168,13 +168,11 @@ try {
   await page.goto(origin);
   assert.equal((await request(page, { type: "PING" })).version, "1.0.0");
   await workflow("Setup");
-  await page
-    .getByLabel("Workspace migration or backup JSON")
-    .setInputFiles({
-      name: "test.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(backup)),
-    });
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "test.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup)),
+  });
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 2 records;", { exact: false }).waitFor();
   await openReport();
@@ -329,6 +327,33 @@ try {
       2,
     ),
   );
+} catch (error) {
+  // This test uses synthetic pages only; retain bounded diagnostics rather
+  // than concealing an extension or extractor failure behind a UI timeout.
+  console.error(
+    "CTI refresh UI:",
+    await page.locator(".item-refresh").allTextContents(),
+  );
+  for (const p of context.pages()) {
+    console.error(
+      "Capture state:",
+      await p
+        .evaluate(() => {
+          const j = window.__CTI_EXTENSION_JOB;
+          return {
+            url: location.href,
+            visibility: document.visibilityState,
+            state: j?.state,
+            phase: j?.phase,
+            detail: j?.detail,
+            error: j?.error,
+            result: j?.result?.slice(0, 3000),
+          };
+        })
+        .catch(() => "page unavailable"),
+    );
+  }
+  throw error;
 } finally {
   await context.close();
   fs.rmSync(profile, { recursive: true, force: true });

@@ -169,6 +169,7 @@ export default function CourseraItemRefresh({
       </p>
       <button
         type="button"
+        className="primary"
         disabled={disabled || running || !ready}
         onClick={() => void refresh()}
       >
