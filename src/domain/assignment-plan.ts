@@ -5,6 +5,17 @@ import type { WorkspaceRecord } from "./workspace-types.ts";
 import { sourceIdentityMessage } from "./assignment-evidence.ts";
 import { ownerScope } from "./owner-scope.ts";
 import { moduleTimes, moduleTimesText } from "./owner-time.ts";
+import { loadReportContent } from "./report-content-store.ts";
+import type { WorkspaceStore } from "./workspace-store.ts";
+
+/** Read-only projection for the plan/handoff, including exact-input supplements.
+ * The saved audit and its version/hash identity are never rewritten. */
+export async function loadAssignmentEvidence(auditId: string, store: Pick<WorkspaceStore, "get" | "list">, records?: WorkspaceRecord[]) {
+  const audit = await store.get(auditId);
+  if (audit.kind !== "audit") throw Error("Assignment evidence must be a saved audit.");
+  const contentEvidence = await loadReportContent(audit.data, audit.id, audit.packageId, store, records);
+  return { ...audit, data: { ...audit.data, contentEvidence } };
+}
 
 export const CONTENT_MAP_AGENT =
   "https://chatgpt.com/g/g-69a5fdc3d3c081918683edd8a3c13e90-course-to-specialization-content-map-creator";

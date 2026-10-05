@@ -4,6 +4,7 @@ import {
   SPECIALIZATION_AGENT,
   assignmentHandoff,
   evaluateAssignment,
+  loadAssignmentEvidence,
   latestAssignmentAudit,
   normalizeAssignmentPlan,
   type AssignmentRoute,
@@ -70,8 +71,7 @@ export default function AssignmentPlanView({
     let active = true;
     setLoaded({ audit: null, loading: !!latest, error: "" });
     if (latest && store)
-      void store
-        .get(latest.id)
+      void loadAssignmentEvidence(latest.id, store, records)
         .then((audit) => {
           if (active) setLoaded({ audit, loading: false, error: "" });
         })
@@ -82,7 +82,7 @@ export default function AssignmentPlanView({
     return () => {
       active = false;
     };
-  }, [latest?.id, latest?.version, store]);
+  }, [latest?.id, latest?.version, store, records]);
   const e = useMemo(
     () => (course ? evaluateAssignment(course, loaded.audit, records) : null),
     [course, loaded.audit, records],
