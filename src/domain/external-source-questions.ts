@@ -1,16 +1,21 @@
 import { safeWebUrl } from "./owner-urls.ts";
 import { contentText } from "./content-evidence.ts";
+import {
+  h5pQuestionDetails,
+  type H5PQuestionDetails,
+} from "./h5p-definition-evidence.ts";
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj =>
   v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : {};
 const str = (v: unknown) => (typeof v === "string" ? v : "");
-export interface SourceQuestionDefinition {
+export interface SourceQuestionDefinition
+  extends Partial<Omit<H5PQuestionDetails, "options">> {
   id: string;
   library: string;
   prompt: string;
   promptTruncated?: boolean;
-  options?: { id: string; text: string }[];
+  options?: { id: string; text: string; correct?: boolean | null }[];
   optionTextReliable?: boolean;
   mediaRefs?: string[];
   mediaTruncated?: boolean;
@@ -22,6 +27,9 @@ export interface SourceQuestionBank {
   questions: SourceQuestionDefinition[];
   selectedPerAttempt: number | null;
   randomOrder: boolean | null;
+  /** Exact authored assessment JSON, not page scripts, credentials or session state. */
+  definitionJson?: string;
+  definitionLibrary?: string;
 }
 export interface SourceQuestionCapture {
   kind: "CTI_PUBLIC_SOURCE_QUESTIONS";
@@ -197,28 +205,11 @@ export function readH5PQuestionSets(html: string): {
                 lib = str(v.library).split(" ")[0];
               if (!/^H5P\.[A-Za-z0-9]+$/.test(lib))
                 throw Error("Question library missing.");
-              const prompt = contentText(
-                p.question || p.text || p.taskDescription || p.introduction,
-              );
-              const answers = Array.isArray(p.answers) ? p.answers : [];
               return {
                 ...questionMedia(p),
                 id: str(v.subContentId) || String(index + 1),
                 library: lib,
-                prompt: prompt.slice(0, 48000),
-                promptTruncated: prompt.length > 48000,
-                options: answers.slice(0, 200).map((v, i) => ({
-                  id: String(i + 1),
-                  text: contentText(obj(v).text).slice(0, 48000),
-                })),
-                optionTextReliable:
-                  answers.length > 0 &&
-                  answers.length <= 200 &&
-                  answers.every(
-                    (v) =>
-                      typeof obj(v).text === "string" &&
-                      contentText(obj(v).text).length <= 48000,
-                  ),
+                ...h5pQuestionDetails(q),
               };
             },
           );
@@ -241,6 +232,8 @@ export function readH5PQuestionSets(html: string): {
               typeof params.randomQuestions === "boolean"
                 ? params.randomQuestions
                 : null,
+            definitionJson: content.jsonContent,
+            definitionLibrary: str(content.library),
           };
           // Repeated integration assignments are often emitted for the same
           // activity. Conflicting data cannot silently select the first copy.
@@ -370,8 +363,79 @@ function validateBank(value: unknown) {
     (b.randomOrder !== null && typeof b.randomOrder !== "boolean")
   )
     throw Error("Source question bank count or scope is invalid.");
-  for (const q of b.questions) {
+  let originalQuestions: unknown[] | undefined;
+  if (b.definitionJson !== undefined || b.definitionLibrary !== undefined) {
+    if (
+      typeof b.definitionJson !== "string" ||
+      b.definitionJson.length > 2_000_000 ||
+      !/^H5P\.QuestionSet \d+\.\d+$/.test(str(b.definitionLibrary))
+    )
+      throw Error("Invalid retained source definitions.");
+    const original = obj(JSON.parse(b.definitionJson));
+    if (
+      !Array.isArray(original.questions) ||
+      original.questions.length !== b.count
+    )
+      throw Error(
+        "Retained source definitions disagree with the question positions.",
+      );
+    if (
+      original.poolSize != null &&
+      (!Number.isSafeInteger(original.poolSize) ||
+        Number(original.poolSize) < 0 ||
+        Number(original.poolSize) > original.questions.length)
+    )
+      throw Error("Retained source selection size is invalid.");
+    if (
+      b.selectedPerAttempt !==
+        (typeof original.poolSize === "number" && original.poolSize > 0
+          ? original.poolSize
+          : null) ||
+      b.randomOrder !==
+        (typeof original.randomQuestions === "boolean"
+          ? original.randomQuestions
+          : null)
+    )
+      throw Error(
+        "Retained source definitions disagree with selection settings.",
+      );
+    originalQuestions = original.questions;
+  }
+  for (const [index, q] of b.questions.entries()) {
     const question = obj(q);
+    if (originalQuestions) {
+      const raw = obj(originalQuestions[index]);
+      if (
+        question.id !== (str(raw.subContentId) || String(index + 1)) ||
+        question.library !== str(raw.library).split(" ")[0]
+      )
+        throw Error(
+          "Retained source question identity disagrees with its readable view.",
+        );
+      const expected = h5pQuestionDetails(raw);
+      for (const key of Object.keys(expected) as (keyof H5PQuestionDetails)[])
+        if (JSON.stringify(question[key]) !== JSON.stringify(expected[key]))
+          throw Error(
+            "Source answer/feedback evidence disagrees with its retained definitions.",
+          );
+    } else if (
+      [
+        "definitionVersion",
+        "correctAnswers",
+        "answerTextReliable",
+        "answerCoverage",
+        "feedback",
+        "feedbackCoverage",
+        "settingsText",
+        "definitionLimitations",
+      ].some((key) => question[key] !== undefined) ||
+      (Array.isArray(question.options) &&
+        question.options.some((o) => obj(o).correct !== undefined))
+    ) {
+      throw Error(
+        "Rich source answer evidence requires retained original definitions.",
+      );
+    }
     if (
       !str(question.id) ||
       !/^H5P\.[A-Za-z0-9]+$/.test(str(question.library)) ||

@@ -12,6 +12,7 @@ import {
   type ReviewedSourceCount,
 } from "../src/domain/question-counts";
 import type { EvidenceObject } from "../src/domain/workspace-types";
+import SourceBankTools from "./SourceBankTools";
 
 export default function QuestionCountPanel({
   rows,
@@ -164,6 +165,11 @@ export default function QuestionCountPanel({
               launch and interactions remain unverified.
             </p>
           )}
+          {sourceCaptures
+            .filter((c) => c.sourceKey === row.sourceKey)
+            .map((c) => (
+              <SourceBankTools key={c.sourceKey} capture={c} />
+            ))}
           {onFetch &&
             (row.source.count === null || row.automaticSource) &&
             row.sourceUrls.filter(publicSourceUrl).map((url, index, urls) => (

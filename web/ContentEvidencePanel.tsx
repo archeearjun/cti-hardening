@@ -1,5 +1,8 @@
 import { useState } from "react";
-import type { ContentEvidence } from "../src/domain/content-evidence";
+import {
+  contentQuestionText,
+  type ContentEvidence,
+} from "../src/domain/content-evidence";
 import type { ItemContentView } from "../src/domain/owner-content";
 import { safeWebUrl } from "../src/domain/owner-urls";
 import PublicContentFetch from "./PublicContentFetch";
@@ -19,8 +22,16 @@ function Evidence({
   showQuestions: boolean;
 }) {
   const [limit, setLimit] = useState(50);
+  const [copyStatus, setCopyStatus] = useState("");
   const filtered = content.questions.filter((q) =>
-    [q.ordinal, q.type, q.prompt, ...q.options.map((o) => o.text)]
+    [
+      q.ordinal,
+      q.type,
+      q.prompt,
+      ...q.options.map((o) => o.text),
+      ...q.answers,
+      q.feedback,
+    ]
       .join(" ")
       .toLowerCase()
       .includes(query.toLowerCase()),
@@ -71,6 +82,27 @@ function Evidence({
                 <strong>
                   Question {q.ordinal} · {q.type}
                 </strong>
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={`Copy question ${q.ordinal} with captured answers`}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(
+                        contentQuestionText(q),
+                      );
+                      setCopyStatus(
+                        `Question ${q.ordinal} copied with its captured evidence and limitations.`,
+                      );
+                    } catch {
+                      setCopyStatus(
+                        "Could not copy. Select the displayed text or use the question-bank download.",
+                      );
+                    }
+                  }}
+                >
+                  Copy question and answer
+                </button>
                 <div className="captured-text">
                   {q.prompt || "Prompt not captured"}
                 </div>
@@ -85,9 +117,21 @@ function Evidence({
                     ))}
                   </ul>
                 )}
+                {q.answerCoverage && (
+                  <p className="hint">
+                    Source answer key:{" "}
+                    {q.answerCoverage === "CAPTURED"
+                      ? "Captured from definitions; correctness not independently checked"
+                      : "Incomplete / unverified"}
+                  </p>
+                )}
                 {!!q.answers.length && (
-                  <details>
-                    <summary>Captured answer evidence</summary>
+                  <details open={!!q.answerCoverage}>
+                    <summary>
+                      {q.answerCoverage
+                        ? "Source-marked answers"
+                        : "Captured answer evidence"}
+                    </summary>
                     {q.answers.map((a, j) => (
                       <p className="captured-text" key={j}>
                         {a}
@@ -97,8 +141,23 @@ function Evidence({
                 )}
                 {q.feedback && (
                   <details>
-                    <summary>Captured feedback</summary>
+                    <summary>Captured feedback and hints</summary>
                     <p className="captured-text">{q.feedback}</p>
+                  </details>
+                )}
+                {q.feedbackCoverage === "NONE_AUTHORED" && (
+                  <p className="hint">
+                    No feedback or hints authored in the supported definition
+                    fields.
+                  </p>
+                )}
+                {q.feedbackCoverage === "UNVERIFIED" && (
+                  <p className="hint">Feedback and hint coverage unverified.</p>
+                )}
+                {q.settingsText && (
+                  <details>
+                    <summary>Explicit question settings</summary>
+                    <p className="captured-text">{q.settingsText}</p>
                   </details>
                 )}
                 {!!q.media.length && (
@@ -129,6 +188,7 @@ function Evidence({
               </li>
             ))}
           </ol>
+          {copyStatus && <p role="status">{copyStatus}</p>}
           {filtered.length > limit && (
             <button className="secondary" onClick={() => setLimit(limit + 50)}>
               Show next 50 captured questions

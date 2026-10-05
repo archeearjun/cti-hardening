@@ -17,6 +17,10 @@ import {
 } from "./coursera-linked-content.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
 import { validateSourceCaptureTargets } from "./question-counts.ts";
+import {
+  sourceBankSummary,
+  sourceBankSettings,
+} from "./source-bank-summary.ts";
 
 export interface ItemContentView {
   source: ContentEvidence[];
@@ -53,6 +57,13 @@ function fetchedContent(
       },
     );
     content.limitations.push(s.reason);
+    content.limitations.push(sourceBankSummary(bank));
+    const settings = sourceBankSettings(bank);
+    if (settings)
+      content.limitations.push(
+        "Explicit assessment settings (bank overrides can supersede question settings):\n" +
+          settings,
+      );
     if (bank.questions.some((q) => q.promptTruncated === undefined))
       content.limitations.push(
         "Older source capture: prompt truncation was not recorded. Refresh source questions for current text evidence.",

@@ -24,6 +24,9 @@ export interface ContentQuestion {
   feedback: string;
   media: string[];
   limitations: string[];
+  settingsText?: string;
+  answerCoverage?: "CAPTURED" | "NONE_AUTHORED" | "UNVERIFIED";
+  feedbackCoverage?: "CAPTURED" | "NONE_AUTHORED" | "UNVERIFIED";
 }
 export interface ContentEvidence {
   basis: string;
@@ -101,6 +104,17 @@ export function validateContentSnapshot(
       for (const value of c.questions) {
         const q = contentObject(value);
         if (
+          (q.settingsText !== undefined &&
+            (typeof q.settingsText !== "string" ||
+              q.settingsText.length > 49000)) ||
+          [q.answerCoverage, q.feedbackCoverage].some(
+            (v) =>
+              v !== undefined &&
+              !["CAPTURED", "NONE_AUTHORED", "UNVERIFIED"].includes(String(v)),
+          )
+        )
+          throw Error("Invalid saved definition coverage.");
+        if (
           ![q.id, q.ordinal, q.type, q.prompt, q.feedback].every(
             (v) => typeof v === "string",
           ) ||
@@ -169,6 +183,17 @@ function question(value: unknown, index: number): ContentQuestion {
     limitations.push("Media reference capture is incomplete.");
   if (q.answerTextReliable !== true)
     limitations.push("Answer-key coverage is unverified or not applicable.");
+  if (q.definitionVersion === 1) {
+    limitations.push(
+      ...array(q.definitionLimitations).filter(
+        (v): v is string => typeof v === "string",
+      ),
+    );
+    if (q.answerTextReliable === true)
+      limitations.push(
+        "Answer key copied from source definitions; correctness has not been independently checked.",
+      );
+  }
   if (options.length > 200)
     limitations.push("Only the first 200 captured choices are displayed.");
   return {
@@ -212,6 +237,21 @@ function question(value: unknown, index: number): ContentQuestion {
       ),
     ],
     limitations,
+    ...(q.definitionVersion === 1
+      ? {
+          settingsText: string(q.settingsText),
+          answerCoverage:
+            q.answerCoverage === "CAPTURED"
+              ? ("CAPTURED" as const)
+              : ("UNVERIFIED" as const),
+          feedbackCoverage:
+            q.feedbackCoverage === "CAPTURED"
+              ? ("CAPTURED" as const)
+              : q.feedbackCoverage === "NONE_AUTHORED"
+                ? ("NONE_AUTHORED" as const)
+                : ("UNVERIFIED" as const),
+        }
+      : {}),
   };
 }
 export function capturedContent(
@@ -457,6 +497,37 @@ export function buildContentSnapshot(
   });
   return { schemaVersion: 1, coursera, brightspace };
 }
+export function contentQuestionText(q: ContentQuestion): string {
+  return [
+    `Question ${q.ordinal} [${q.type}]`,
+    q.prompt || "[Prompt not captured]",
+    ...q.options.map(
+      (o) => `  ${o.id}: ${o.text || "[Choice text not captured]"}`,
+    ),
+    ...(q.answerCoverage
+      ? [`Source answer-key coverage: ${q.answerCoverage}`]
+      : []),
+    ...q.answers.map(
+      (a) =>
+        `  ${q.answerCoverage ? "Source-marked answer" : "Captured answer evidence"}: ${a}`,
+    ),
+    ...(q.feedbackCoverage
+      ? [`Authored feedback coverage: ${q.feedbackCoverage}`]
+      : []),
+    ...(q.feedback
+      ? [
+          q.feedbackCoverage
+            ? `  Feedback and hints:\n${q.feedback}`
+            : `  Feedback: ${q.feedback}`,
+        ]
+      : []),
+    ...(q.settingsText
+      ? [`Explicit question settings:\n${q.settingsText}`]
+      : []),
+    ...q.media.map((m) => `  Media reference: ${m}`),
+    ...q.limitations.map((l) => `  ${l}`),
+  ].join("\n");
+}
 export function contentEvidenceText(content: ContentEvidence): string {
   const out = [
     `${content.basis} | ${content.capturedAt || "Capture time unrecorded"}`,
@@ -464,18 +535,7 @@ export function contentEvidenceText(content: ContentEvidence): string {
     content.text,
     `Questions: ${content.questionCoverage} | ${content.questions.length} captured / ${content.expectedQuestions ?? "unknown"} expected — ${content.questionReason}`,
   ];
-  for (const q of content.questions)
-    out.push(
-      `Question ${q.ordinal} [${q.type}]`,
-      q.prompt || "[Prompt not captured]",
-      ...q.options.map(
-        (o) => `  ${o.id}: ${o.text || "[Choice text not captured]"}`,
-      ),
-      ...q.answers.map((a) => `  Captured answer evidence: ${a}`),
-      ...(q.feedback ? [`  Feedback: ${q.feedback}`] : []),
-      ...q.media.map((m) => `  Media reference: ${m}`),
-      ...q.limitations.map((l) => `  ${l}`),
-    );
+  for (const q of content.questions) out.push(contentQuestionText(q));
   out.push(
     ...content.references.map((r) => `Reference: ${r}`),
     ...content.limitations,
