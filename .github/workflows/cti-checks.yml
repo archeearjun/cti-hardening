@@ -61,6 +61,8 @@ jobs:
         run: npm run test:browser:workspace
       - name: Verify full responsive UX in Chromium
         run: npm run test:browser:ux
+      - name: Verify actual extension item refresh in Chromium
+        run: npm run test:browser:extension
       - name: Verify owner actions in Chromium
         run: npm run test:browser:owner
       - name: Verify assessment choice layout in Chromium
@@ -74,3 +76,4 @@ jobs:
           path: |
             /tmp/cti-ux-screenshots
             /tmp/cti-owner-actions
+            /tmp/cti-extension-screenshots

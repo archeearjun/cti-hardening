@@ -16,6 +16,7 @@ import {
   type CourseraLinkedCapture,
 } from "../src/domain/coursera-linked-content";
 import ContentEvidencePanel from "./ContentEvidencePanel";
+import CourseraItemRefresh from "./CourseraItemRefresh";
 import OwnerAssessment from "./OwnerAssessment";
 import {
   ownerGuidance,
@@ -80,7 +81,7 @@ export default function OwnerActionCard({
   course?: WorkspaceRecord | null;
   store?: WorkspaceStore | null;
   saved?: WorkspaceRecord;
-  onSaved?: () => Promise<void>;
+  onSaved?: (status: OwnerProgress) => Promise<void>;
   context: EvidenceObject;
   courseLocation: { courseId: string; base: string } | null;
   onOpenExtraction?: (url?: string) => void;
@@ -334,7 +335,7 @@ export default function OwnerActionCard({
     setSourceCaptures(nextSourceCaptures);
     setCourseraLinkedCaptures(nextCourseraLinkedCaptures);
     setStatus(nextStatus);
-    await onSaved?.();
+    await onSaved?.(nextStatus);
     setMessage("Item work saved. The original report is unchanged.");
   }
   async function importCheck(text: string) {
@@ -547,6 +548,16 @@ export default function OwnerActionCard({
                   setBusy("");
                 }
               }}
+            />
+          )}
+          {spec && open && (
+            <CourseraItemRefresh
+              key={`${auditId}:${task.id}`}
+              spec={spec}
+              disabled={!editable || !loaded || !!busy}
+              previousCount={capture?.evaluation?.questionCount}
+              onImport={importCheck}
+              onBusy={setBusy}
             />
           )}
           {loaded && (

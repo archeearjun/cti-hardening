@@ -330,7 +330,13 @@ export default function OwnerEvidence({
             course={course}
             store={store}
             saved={reviewFor(item.key)}
-            onSaved={onSaved}
+            onSaved={async (nextStatus) => {
+              // Keep a reopened item visible when its previous outcome was
+              // the reason it appeared in the current filter.
+              if (show === "checked" && nextStatus !== "checked")
+                setShow("all");
+              await onSaved?.();
+            }}
             context={sourceContext}
             courseLocation={location}
             onOpenExtraction={onOpenExtraction}

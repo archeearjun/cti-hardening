@@ -44,3 +44,6 @@ const target = new URL(
 if (!fs.existsSync(target) || fs.readFileSync(target, "utf8") !== output)
   fs.writeFileSync(target, output);
 console.log("Validated and prepared the two standalone extractor scripts.");
+const { buildBrowserExtension } = await import("./build-browser-extension.mjs");
+await buildBrowserExtension(sources.courseraSource);
+console.log("Prepared the packaged CTI browser extension and install ZIP.");

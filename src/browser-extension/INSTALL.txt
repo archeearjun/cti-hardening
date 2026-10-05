@@ -1,0 +1,29 @@
+CTI Coursera Item Refresh — Chrome setup (one time)
+
+1. Download the extension ZIP from the CTI item card and extract it.
+2. Keep the extracted CTI-browser-extension folder somewhere permanent.
+3. In Chrome, open chrome://extensions and turn on Developer mode.
+4. Choose Load unpacked and select the extracted folder containing manifest.json.
+5. Refresh your CTI browser tab. Open a saved report and expand an item.
+6. Save your edits in your normal Coursera tab, then press Refresh this Coursera
+   item in CTI. A temporary Coursera capture tab opens. Keep it visible and do
+   not edit in that tab. CTI returns when capture finishes.
+
+CTI retains the previous evidence if capture/import fails or is cancelled. A
+successful refresh does not approve the item or rewrite the original audit.
+If capture is partial, download it for review; the previous saved evidence stays.
+Sign in to Coursera normally first; the extension does not collect passwords.
+
+The extension works with https://cti-hardening.pages.dev only, in the SAME Chrome
+profile as your signed-in Coursera session. It can read Coursera authoring pages
+when requested. No cookie API, remote browser, paid API, analytics, or credentials
+export is used. Capture data returns to CTI and follows your selected workspace's
+normal saving rules. Protected cross-origin plugin content may remain unverified.
+
+Update: download the new ZIP when CTI requests an update, replace files in the
+same extracted folder, click Reload on this extension at chrome://extensions,
+then refresh CTI. Do not install a second copy. If your organization blocks
+unpacked extensions, ask your browser administrator; use CTI's manual item-check
+workflow in the meantime. CTI cannot override managed-browser restrictions.
+
+To remove: chrome://extensions → CTI Coursera Item Refresh → Remove.
