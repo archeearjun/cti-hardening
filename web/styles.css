@@ -2201,3 +2201,12 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 .owner-checks p { margin: .3rem 0 0; }
 .owner-readiness { border-left: 3px solid #946200; padding-left: .8rem; }
 @media (max-width: 600px) { .owner-checks > div { grid-template-columns: 1fr; gap: .25rem; } }
+
+.cti-answer { padding: .75rem; margin: .75rem 0; overflow-wrap: anywhere; }
+.cti-answer > p + p { margin-top: .55rem; }
+.cti-answer details { padding: .5rem; }
+@media (max-width: 600px) {
+  .content-comparison { padding: .6rem; }
+  .captured-content { padding: .55rem; }
+  .cti-answer { padding: .55rem; }
+}

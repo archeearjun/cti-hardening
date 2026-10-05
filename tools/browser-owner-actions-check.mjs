@@ -410,17 +410,26 @@ try {
                   questions: Array.from({ length: 10 }, (_, i) => ({
                     library: "H5P.MultiChoice 1.16",
                     params: {
-                      question: "Source question " + (i + 1),
+                      question:
+                        i === 0
+                          ? "Round 5237.02046 to the nearest thousandth."
+                          : "Source question " + (i + 1),
                       answers: [
                         {
-                          text: "Source correct choice " + (i + 1),
+                          text:
+                            i === 0
+                              ? "5237.021"
+                              : "Source correct choice " + (i + 1),
                           correct: true,
                           tipsAndFeedback: {
                             tip: "Think about this question.",
                             chosenFeedback: "Recorded source feedback.",
                           },
                         },
-                        { text: "Source incorrect choice", correct: false },
+                        {
+                          text: i === 0 ? "5237.02" : "Source incorrect choice",
+                          correct: false,
+                        },
                       ],
                       behaviour: { randomAnswers: false, enableRetry: true },
                     },
@@ -516,6 +525,30 @@ try {
   const copiedQuestions = await page.evaluate(() =>
     navigator.clipboard.readText(),
   );
+  assert.match(copiedQuestions, /CTI answer: B — 5237.02/);
+  assert.match(copiedQuestions, /Key comparison: CONFLICT/);
+  const mathCheck = sourceContent.getByRole("region", {
+    name: "CTI answer check for question 1",
+    exact: true,
+  });
+  await mathCheck
+    .getByText("CTI answer: B — 5237.02 (calculated 5237.020)", { exact: true })
+    .waitFor();
+  await mathCheck.getByText("Answer-key conflict.", { exact: true }).waitFor();
+  const subjectCheck = sourceContent.getByRole("region", {
+    name: "CTI answer check for question 2",
+    exact: true,
+  });
+  await subjectCheck
+    .getByText("CTI answer: Needs review", { exact: true })
+    .waitFor();
+  await subjectCheck
+    .getByRole("button", { name: "Copy independent review brief", exact: true })
+    .click();
+  const brief = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(brief, /INDEPENDENT QUESTION REVIEW/);
+  assert(!brief.includes("Recorded source feedback"));
+  assert(!brief.includes("Source-marked answer:"));
   assert.match(copiedQuestions, /Source question 10/);
   assert.match(
     copiedQuestions,
@@ -525,7 +558,7 @@ try {
   assert.match(copiedQuestions, /disableBackwardsNavigation\): true/);
   assert.match(
     copiedQuestions,
-    /correctness has not been independently checked/,
+    /separate CTI answer check for calculation coverage/,
   );
   const definitionsEvent = page.waitForEvent("download");
   await reuse
@@ -589,6 +622,15 @@ try {
   await page.screenshot({
     path: "/tmp/cti-owner-actions/source-answer-reuse-mobile.png",
   });
+  await mathCheck.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "/tmp/cti-owner-actions/cti-answer-check-mobile.png",
+  });
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    ),
+  );
   await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(
     await destinationContent.locator(".captured-questions > li").count(),

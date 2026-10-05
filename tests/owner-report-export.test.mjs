@@ -167,6 +167,13 @@ test("exports full saved follow-ups for this audit only, preserving original evi
   assert.equal(r.capture.evaluation.answerCoverageComplete, false);
   assert.equal(r.pluginCaptures[0].wholePluginVerified, false);
   assert.equal(exported.followUp.automatedResolution, false);
+  assert.equal(exported.followUp.derivedAnswers.originalKeysUnchanged, true);
+  const checks = exported.followUp.derivedAnswers.items.flatMap((i) =>
+    i.evidence.flatMap((e) => e.questions),
+  );
+  assert.equal(checks.length, 2);
+  assert(checks.every((q) => q.check.status === "NEEDS_REVIEW"));
+  assert.match(exported.text, /CTI answer: Needs review/);
 });
 
 test("zero follow-ups is explicit and does not imply the original audit is current", async () => {

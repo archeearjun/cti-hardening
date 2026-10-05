@@ -1,4 +1,5 @@
 import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
+import { choiceLabel, ctiAnswerText } from "./cti-answer-check.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import {
   qaBrightspaceFlattenTopics_,
@@ -27,6 +28,8 @@ export interface ContentQuestion {
   settingsText?: string;
   answerCoverage?: "CAPTURED" | "NONE_AUTHORED" | "UNVERIFIED";
   feedbackCoverage?: "CAPTURED" | "NONE_AUTHORED" | "UNVERIFIED";
+  answerKeyReliable?: boolean;
+  mathTextChecked?: boolean;
 }
 export interface ContentEvidence {
   basis: string;
@@ -104,6 +107,10 @@ export function validateContentSnapshot(
       for (const value of c.questions) {
         const q = contentObject(value);
         if (
+          (q.answerKeyReliable !== undefined &&
+            typeof q.answerKeyReliable !== "boolean") ||
+          (q.mathTextChecked !== undefined &&
+            typeof q.mathTextChecked !== "boolean") ||
           (q.settingsText !== undefined &&
             (typeof q.settingsText !== "string" ||
               q.settingsText.length > 49000)) ||
@@ -166,11 +173,31 @@ export function contentText(value: unknown): string {
     )
     .trim();
 }
-function question(value: unknown, index: number): ContentQuestion {
+export function contentQuestion(value: unknown, index = 0): ContentQuestion {
   const q = contentObject(value),
     limitations: string[] = [];
-  const full = contentText(q.prompt),
+  const full = contentText(q.prompt ?? q.text),
     options = array(q.options);
+  if (
+    q.mathNotationRisk === true ||
+    [
+      q.prompt ?? q.text,
+      ...options.map((v) =>
+        typeof v === "string"
+          ? v
+          : (contentObject(v).text ??
+            contentObject(v).label ??
+            contentObject(v).description),
+      ),
+    ].some(
+      (v) =>
+        typeof v === "string" &&
+        /<(?:sup|sub|math|svg|img)\b|\\\(|\\\[|\$\$/i.test(v),
+    )
+  )
+    limitations.push(
+      "Mathematical markup or original notation coverage requires inspection; refresh older source captures. Readable text may omit notation.",
+    );
   if (!full)
     limitations.push(
       "Question prompt not captured; this position is not an empty question.",
@@ -191,7 +218,7 @@ function question(value: unknown, index: number): ContentQuestion {
     );
     if (q.answerTextReliable === true)
       limitations.push(
-        "Answer key copied from source definitions; correctness has not been independently checked.",
+        "Answer key copied from source definitions. See the separate CTI answer check for calculation coverage and disagreements.",
       );
   }
   if (options.length > 200)
@@ -237,6 +264,8 @@ function question(value: unknown, index: number): ContentQuestion {
       ),
     ],
     limitations,
+    answerKeyReliable: q.answerTextReliable === true,
+    mathTextChecked: true,
     ...(q.definitionVersion === 1
       ? {
           settingsText: string(q.settingsText),
@@ -271,7 +300,7 @@ export function capturedContent(
     c = contentObject(a.captureCompleteness),
     d = contentObject(a.definitionCoverage);
   const raw = array(a.questions),
-    questions = raw.slice(0, 5000).map(question);
+    questions = raw.slice(0, 5000).map(contentQuestion);
   const limitations: string[] = [];
   if (raw.length > 5000)
     limitations.push(
@@ -502,7 +531,8 @@ export function contentQuestionText(q: ContentQuestion): string {
     `Question ${q.ordinal} [${q.type}]`,
     q.prompt || "[Prompt not captured]",
     ...q.options.map(
-      (o) => `  ${o.id}: ${o.text || "[Choice text not captured]"}`,
+      (o, i) =>
+        `  ${choiceLabel(i)} (recorded ID ${o.id}): ${o.text || "[Choice text not captured]"}`,
     ),
     ...(q.answerCoverage
       ? [`Source answer-key coverage: ${q.answerCoverage}`]
@@ -511,6 +541,7 @@ export function contentQuestionText(q: ContentQuestion): string {
       (a) =>
         `  ${q.answerCoverage ? "Source-marked answer" : "Captured answer evidence"}: ${a}`,
     ),
+    ctiAnswerText(q),
     ...(q.feedbackCoverage
       ? [`Authored feedback coverage: ${q.feedbackCoverage}`]
       : []),

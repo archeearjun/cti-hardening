@@ -4,6 +4,12 @@ import { safeWebUrl, resolveSourceTopic } from "../src/domain/owner-actions";
 import { digest } from "../src/domain/workspace-store";
 import { download } from "./workspace-ui";
 import EvidenceDetails from "./EvidenceDetails";
+import CtiAnswerPanel from "./CtiAnswerPanel";
+import {
+  contentQuestion,
+  contentQuestionText,
+} from "../src/domain/content-evidence";
+import { choiceLabel } from "../src/domain/cti-answer-check";
 
 export default function SourceRepairEvidence({
   sources,
@@ -169,6 +175,7 @@ export default function SourceRepairEvidence({
                           {q.options.map(
                             (o: EvidenceObject | string, k: number) => (
                               <li key={k}>
+                                <strong>{choiceLabel(k)}: </strong>
                                 {typeof o === "string"
                                   ? o
                                   : String(
@@ -187,13 +194,14 @@ export default function SourceRepairEvidence({
                           ? q.correctAnswers.map(String).join("; ")
                           : "Not captured or not applicable — do not infer an answer."}
                       </p>
+                      <CtiAnswerPanel question={contentQuestion(q, n)} />
                       <button
                         className="secondary"
                         onClick={() =>
-                          void copy(String(q.prompt || q.text || ""))
+                          void copy(contentQuestionText(contentQuestion(q, n)))
                         }
                       >
-                        Copy question {n + 1} prompt
+                        Copy question {n + 1} and answers
                       </button>
                     </div>
                   ),

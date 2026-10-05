@@ -10,6 +10,7 @@ import {
   sourceBankCoverage,
   sourceBankSettings,
   sourceQuestionCaptureText,
+  sourceBankAnswerChecks,
 } from "../src/domain/source-bank-summary.ts";
 import {
   capturedContent,
@@ -339,4 +340,31 @@ test("readable snapshot and report preserve rich evidence, mathematical notation
     /Source-marked answer: Choice 1: 2/,
   );
   assert.match(contentEvidenceText(content), /Explicit question settings/);
+});
+
+test("independent H5P math checks inspect original notation without changing saved definitions", async () => {
+  for (const question of [
+    "2+2",
+    "<math><mn>2</mn><msup><mn>2</mn><mn>2</mn></msup></math>+2",
+  ]) {
+    const c = await capture({
+      questions: [
+        mc({
+          question,
+          answers: [
+            { text: "4", correct: true },
+            { text: "5", correct: false },
+          ],
+        }),
+      ],
+    });
+    const original = JSON.stringify(c);
+    const checks = sourceBankAnswerChecks(c.bank);
+    assert.equal(checks.calculated, question === "2+2" ? 1 : 0);
+    assert.equal(JSON.stringify(c), original);
+    assert.match(
+      sourceQuestionCaptureText(c),
+      question === "2+2" ? /CTI answer: A/ : /CTI answer: Needs review/,
+    );
+  }
 });

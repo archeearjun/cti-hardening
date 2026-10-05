@@ -6,6 +6,8 @@ import {
 import type { ItemContentView } from "../src/domain/owner-content";
 import { safeWebUrl } from "../src/domain/owner-urls";
 import PublicContentFetch from "./PublicContentFetch";
+import CtiAnswerPanel from "./CtiAnswerPanel";
+import { choiceLabel, ctiAnswerCheck } from "../src/domain/cti-answer-check";
 const labels = {
   COMPLETE: "Complete captured field",
   PARTIAL: "Partial / coverage unverified",
@@ -23,18 +25,22 @@ function Evidence({
 }) {
   const [limit, setLimit] = useState(50);
   const [copyStatus, setCopyStatus] = useState("");
-  const filtered = content.questions.filter((q) =>
-    [
-      q.ordinal,
-      q.type,
-      q.prompt,
-      ...q.options.map((o) => o.text),
-      ...q.answers,
-      q.feedback,
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const filtered = content.questions.filter(
+    (q) =>
+      !query.trim() ||
+      [
+        q.ordinal,
+        q.type,
+        q.prompt,
+        ...q.options.map((o) => o.text),
+        ...q.answers,
+        q.feedback,
+        ctiAnswerCheck(q).answer,
+        ctiAnswerCheck(q).comparison,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query.toLowerCase()),
   );
   return (
     <article className="captured-content">
@@ -76,6 +82,12 @@ function Evidence({
             Showing {Math.min(limit, filtered.length)} of {filtered.length}{" "}
             matching captured questions.
           </p>
+          <p className="hint">
+            CTI independently calculates supported arithmetic, rounding and
+            percentage questions. Non-math, ambiguous or unsupported questions
+            need a subject review. These checks do not change the captured keys
+            or approve the item.
+          </p>
           <ol className="captured-questions">
             {filtered.slice(0, limit).map((q, i) => (
               <li key={`${q.id}:${i}`}>
@@ -111,6 +123,7 @@ function Evidence({
                     {q.options.map((o, j) => (
                       <li key={j}>
                         <span className="captured-text">
+                          <strong>{choiceLabel(j)}: </strong>
                           {o.text || "Choice text not captured"}
                         </span>
                       </li>
@@ -121,7 +134,7 @@ function Evidence({
                   <p className="hint">
                     Source answer key:{" "}
                     {q.answerCoverage === "CAPTURED"
-                      ? "Captured from definitions; correctness not independently checked"
+                      ? "Captured from definitions; see the separate CTI check below"
                       : "Incomplete / unverified"}
                   </p>
                 )}
@@ -139,6 +152,7 @@ function Evidence({
                     ))}
                   </details>
                 )}
+                <CtiAnswerPanel question={q} />
                 {q.feedback && (
                   <details>
                     <summary>Captured feedback and hints</summary>

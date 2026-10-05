@@ -4,7 +4,16 @@ import {
   type CourseraLinkedCapture,
 } from "./coursera-linked-content.ts";
 import type { SourceQuestionCapture } from "./external-source-questions.ts";
-import { validateContentSnapshot } from "./content-evidence.ts";
+import {
+  validateContentSnapshot,
+  contentQuestion,
+  type ContentEvidence,
+} from "./content-evidence.ts";
+import {
+  ctiAnswerCheck,
+  ctiAnswerText,
+  CTI_ANSWER_VERSION,
+} from "./cti-answer-check.ts";
 import { itemContentView, itemContentText } from "./owner-content.ts";
 import {
   withQuestionFollowUp,
@@ -240,6 +249,49 @@ export async function prepareOwnerReportExport(
     automatedResolution: false,
     reviews,
   };
+  const answerChecks = followUp.contentComparisons.map((item) => {
+    const entries: [string, ContentEvidence][] = [
+      ...item.view.source.map((c): [string, ContentEvidence] => ["source", c]),
+      ["coursera", item.view.coursera],
+      ...item.view.linkedCoursera.map((c): [string, ContentEvidence] => [
+        "coursera-linked",
+        c,
+      ]),
+      ...item.view.observations.map((c): [string, ContentEvidence] => [
+        "plugin-observation",
+        c,
+      ]),
+      ...item.view.previousLinkedCoursera.map(
+        (c): [string, ContentEvidence] => ["previous-coursera-linked", c],
+      ),
+      ...(item.view.previousCoursera
+        ? [
+            ["previous-coursera", item.view.previousCoursera] as [
+              string,
+              ContentEvidence,
+            ],
+          ]
+        : []),
+    ];
+    return {
+      itemKey: item.itemKey,
+      evidence: entries.map(([side, c]) => ({
+        side,
+        basis: c.basis,
+        capturedAt: c.capturedAt,
+        questions: c.questions.map((q) => ({
+          id: q.id,
+          ordinal: q.ordinal,
+          check: ctiAnswerCheck(q),
+        })),
+      })),
+    };
+  });
+  const derivedAnswers = {
+    version: CTI_ANSWER_VERSION,
+    originalKeysUnchanged: true,
+    items: answerChecks,
+  };
   const lines = [
     "SAVED FOLLOW-UP EVIDENCE",
     `Saved report: ${line(auditId)} | exported: ${followUp.exportedAt}`,
@@ -283,6 +335,7 @@ export async function prepareOwnerReportExport(
         options.forEach((o, n) =>
           lines.push(`    Option ${n + 1}: ${line(o.text)}`),
         );
+        lines.push(ctiAnswerText(contentQuestion(q, index)));
       });
       for (const finding of evaluation.findings)
         lines.push(
@@ -313,7 +366,7 @@ export async function prepareOwnerReportExport(
   lines.push("", "ORIGINAL AUDIT — UNCHANGED", original);
   return {
     text: lines.join("\n"),
-    evidence: { ...report, followUp },
-    followUp,
+    evidence: { ...report, followUp: { ...followUp, derivedAnswers } },
+    followUp: { ...followUp, derivedAnswers },
   };
 }

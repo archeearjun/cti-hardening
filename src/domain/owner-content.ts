@@ -20,6 +20,7 @@ import { validateSourceCaptureTargets } from "./question-counts.ts";
 import {
   sourceBankSummary,
   sourceBankSettings,
+  sourceBankQuestionInputs,
 } from "./source-bank-summary.ts";
 
 export interface ItemContentView {
@@ -41,7 +42,7 @@ function fetchedContent(
     const content = capturedContent(
       {
         structuredAssessment: {
-          questions: bank.questions,
+          questions: sourceBankQuestionInputs(bank),
           declaredQuestionCount:
             s.status === "CAPTURED" ? bank.count : undefined,
           definitionCoverage: {
