@@ -22,6 +22,7 @@ import { create_normalizeSourceItem_, qaApplySourceTextGap_, qaApplyUnreachedCar
 import { qaApplyReadinessToSummary_, qaAttachReadinessActions_, qaAttachSourceAssetProvenance_, qaBuildDestinationOwnerView_, qaMissingReconciliationDiagnostic_ } from "../source/metrics.js";
 import { qaApplyIngestionActionabilityPolicy_, workBuildRawQaOperationalPolicy_ } from "../work/policy.js";
 import { compareItemFidelity_, qaBuildSummary_ } from "./item.js";
+import { qaAttachLiveSourceTextReviews_ } from "../source/live-text-review.js";
 
 export function create_runPostIngestionQaCore_(services) {
 const {Utilities} = services;
@@ -541,6 +542,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
         // forever while still surfacing generated behavior that is actually present.
         var currentStateResolution = qaResolveHistoricalCurrentState_(coreItems,courseraItems,itemResults,ingestionIntelligence,extractorMeta,snapshotContext);
         itemResults = qaApplyCurrentStateResolutionsToResults_(itemResults,currentStateResolution);
+        qaAttachLiveSourceTextReviews_(itemResults,coreItems,courseraItems,liveSourceGroundTruth,(dbData.packageMeta||{}).partner);
         destinationReadiness = qaAssessDestinationReadiness_(courseraItems, ingestionIntelligence, extractorMeta, snapshotContext, currentStateResolution, (dbData.packageMeta||{}).partner);
         qaAttachReadinessActions_(itemResults, courseraItems, destinationReadiness);
 
