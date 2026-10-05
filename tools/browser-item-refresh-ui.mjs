@@ -104,7 +104,7 @@ export async function checkItemRefreshUi(page, capture, shots) {
     .getByText("Newly added question", { exact: true })
     .waitFor();
   assert.equal(
-    await card.getByLabel("Item outcome", { exact: true }).inputValue(),
+    await card.getByLabel("Item outcome").inputValue(),
     "in_progress",
   );
   for (const mode of ["partial", "wrong", "running"]) {
