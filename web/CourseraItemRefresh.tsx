@@ -140,12 +140,14 @@ export default function CourseraItemRefresh({
       }
       throw Error("Refresh timed out. Previous evidence was preserved.");
     } catch (e) {
-      if (alive.current)
+      if (alive.current) {
+        setStatus("Refresh stopped. Review the message below.");
         setError(
           e instanceof Error
             ? e.message
             : "Refresh failed. Previous evidence was preserved.",
         );
+      }
       await extensionRequest({ type: "CANCEL", id }).catch(() => {});
     } finally {
       clearInterval(timer);

@@ -81,7 +81,11 @@ export async function checkItemRefreshUi(page, capture, shots) {
   });
   await refresh
     .getByText("CTI extension connected.", { exact: true })
-    .waitFor();
+    .waitFor()
+    .catch(async (e) => {
+      console.error(await refresh.innerText());
+      throw e;
+    });
   const button = refresh.getByRole("button", {
     name: "Refresh this Coursera item",
     exact: true,
@@ -90,7 +94,11 @@ export async function checkItemRefreshUi(page, capture, shots) {
   await refresh
     .getByRole("status")
     .filter({ hasText: /3 question records \(previously 2\)/ })
-    .waitFor();
+    .waitFor()
+    .catch(async (e) => {
+      console.error(await refresh.innerText());
+      throw e;
+    });
   await card
     .getByRole("region", { name: "Coursera captured content", exact: true })
     .getByText("Newly added question", { exact: true })
