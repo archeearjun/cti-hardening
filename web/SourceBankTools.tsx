@@ -7,6 +7,7 @@ import {
   sourceBankCoverage,
   sourceBankSettings,
   sourceQuestionCaptureText,
+  sourceBankAnswerChecks,
 } from "../src/domain/source-bank-summary";
 import { download, json } from "./workspace-ui";
 
@@ -91,7 +92,8 @@ function BankSummary({
   showId: boolean;
 }) {
   const settings = sourceBankSettings(bank),
-    coverage = sourceBankCoverage(bank);
+    coverage = sourceBankCoverage(bank),
+    checks = sourceBankAnswerChecks(bank);
   return (
     <div>
       {showId && <h6>Observed bank {bank.id}</h6>}
@@ -117,6 +119,14 @@ function BankSummary({
         inspected; {coverage.noFeedback} with none authored in the supported
         fields.
       </p>
+      <p>
+        CTI independent checks:{" "}
+        <strong>
+          {checks.calculated}/{coverage.total}
+        </strong>{" "}
+        calculated; {checks.review} need review; {checks.conflicts} captured-key
+        conflicts. See the working beside each question.
+      </p>
       {!coverage.originalRetained && (
         <p role="status">
           Older capture: refresh source questions to collect answer keys,
@@ -126,9 +136,10 @@ function BankSummary({
       <details>
         <summary>What this capture verifies</summary>
         <p>
-          Source-marked answers reproduce the source key; they are not
-          independently checked for correctness. Flag suspected source errors
-          for review.
+          Source-marked answers reproduce the source key. CTI's separate answer
+          check calculates supported math and flags conflicts. Non-math,
+          unsupported notation and incomplete evidence need a subject review.
+          Agreement does not approve publication or verify learner interaction.
         </p>
         <p>
           {coverage.originalRetained
