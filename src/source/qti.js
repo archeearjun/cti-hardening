@@ -154,6 +154,7 @@ export function qtiQuestionType_(item, options) {
  }
 
 export function parseQtiAssessmentStructure_(xmlText, fileName) {
+    if (/<!DOCTYPE|<!ENTITY/i.test(xmlText)) throw new Error("QTI XML declarations are unsupported.");
     var qtiParsed = parseXmlCompat_(xmlText);
     var doc = qtiParsed && qtiParsed.doc;
     // QTI semantics require a real XML DOM. The manifest can use a record
@@ -298,6 +299,7 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
 
       questions.push({
         id: String(itemId),
+        sourceOrdinal: idx + 1,
         title: qtiClean_(itemTitle),
         type: qtiQuestionType_(item, options),
         mediaRefs:qtiQuestionMediaRefs_(item),
@@ -314,34 +316,51 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
     });
 
     if (!questions.length) return null;
-    var selectionNumbers = [];
+    // Counts belong to selection scopes. Repeated values in different sections
+    // are separate draws; nested/overlapping rules cannot safely be summed.
+    var rules = [], invalidSelection = false;
+    function selectionRule(el, raw) {
+      var n = Number(raw);
+      if (raw === '' || !Number.isInteger(n) || n < 0) { invalidSelection = true; return; }
+      var scope = el.parentElement;
+      while (scope && !/^(section|assessmentsection|assessment|assessmenttest)$/.test(qtiLocalName_(scope))) scope = scope.parentElement;
+      var pool = scope ? items.filter(function(item) { return scope.contains(item); }) : [];
+      rules.push({ count:n, pool:pool });
+    }
     qtiDesc_(doc, 'selection_number').concat(qtiDesc_(doc, 'selectionnumber')).forEach(function(el) {
-      var n = Number(qtiClean_(el.textContent || '')); if (Number.isFinite(n) && n > 0) selectionNumbers.push(n);
+      selectionRule(el, qtiClean_(el.textContent || ''));
     });
     qtiDesc_(doc, 'selection').forEach(function(el) {
-      var raw = el.getAttribute('select') || el.getAttribute('selectionNumber') || el.getAttribute('selectionnumber') || '';
-      var n = Number(raw); if (Number.isFinite(n) && n > 0) selectionNumbers.push(n);
+      var raw = el.getAttribute('select') ?? el.getAttribute('selectionNumber') ?? el.getAttribute('selectionnumber');
+      if (raw != null) selectionRule(el, raw);
     });
-    selectionNumbers = Array.from(new Set(selectionNumbers));
-    var selectCount = null;
-    if (selectionNumbers.length === 1) selectCount = selectionNumbers[0];
-    else if (selectionNumbers.length > 1) {
-      var sumSel = selectionNumbers.reduce(function(a,b){return a+b;},0);
-      if (sumSel <= questions.length) selectCount = sumSel;
-    }
+    var selectionNumbers = rules.map(function(rule) { return rule.count; });
+    var selectedPool = new Set(), selectCount = null;
+    rules.forEach(function(rule) {
+      if (!rule.pool.length || rule.count > rule.pool.length) invalidSelection = true;
+      rule.pool.forEach(function(item) {
+        if (selectedPool.has(item)) invalidSelection = true;
+        selectedPool.add(item);
+      });
+    });
+    if (rules.length && !invalidSelection) selectCount = items.length - selectedPool.size + selectionNumbers.reduce(function(a,b) { return a+b; },0);
+    if (invalidSelection) warnings.push('Selection scopes are incomplete, overlapping or unsupported; learner question count requires verification.');
+    if (items.length > questions.length) warnings.push('Question capture limited to ' + questions.length + ' of ' + items.length + ' declared definitions.');
     var selectionPolicy = {
-      observed: selectionNumbers.length > 0,
+      observed: selectionNumbers.length > 0 || invalidSelection,
       selectCount: selectCount,
-      poolSize: questions.length,
-      randomSelection: selectCount != null ? selectCount < questions.length : null,
+      poolSize: items.length,
+      randomSelection: selectCount != null ? selectCount < items.length : null,
       rawSelectionCounts: selectionNumbers.slice(0,20),
       source: 'IMS_QTI_SELECTION_RULE'
     };
     return {
       schemaVersion: 3,
-      parser: 'ims-qti-dom-v5-response-profile',
+      parser: 'ims-qti-dom-v6-coverage-scopes',
       origin: 'source-imscc',
-      declaredQuestionCount: questions.length,
+      declaredQuestionCount: items.length,
+      sourceCounts: [{ sourceFile:String(fileName || ""), declared:items.length, captured:questions.length }],
+      captureCompleteness: { questionCoverageComplete: items.length === questions.length },
       questionCount: questions.length,
       selectionPolicy: selectionPolicy,
       questions: questions,
@@ -352,15 +371,26 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
 
 export function mergeStructuredAssessment_(base, incoming) {
     if (!incoming || !Array.isArray(incoming.questions) || !incoming.questions.length) return base || null;
-    if (!base || !Array.isArray(base.questions)) return incoming;
-    var seen = new Set(base.questions.map(function(q) { return String(q.id || '') + '|' + qtiClean_(q.prompt || '').toLowerCase(); }));
+    // Never mutate a dependency's assessment: several parents can share it.
+    if (!base || !Array.isArray(base.questions)) return structuredClone(incoming);
+    var merged = structuredClone(base);
+    function identity(q) { return JSON.stringify([q.sourceFile || '', q.sourceOrdinal ?? null, q.id || '', qtiClean_(q.prompt || '').toLowerCase()]); }
+    var seen = new Set(merged.questions.map(identity));
     incoming.questions.forEach(function(q) {
-      var key = String(q.id || '') + '|' + qtiClean_(q.prompt || '').toLowerCase();
-      if (!seen.has(key)) { seen.add(key); base.questions.push(q); }
+      var key = identity(q);
+      if (!seen.has(key)) { seen.add(key); merged.questions.push(structuredClone(q)); }
     });
-    base.questionCount = base.questions.length;
-    base.declaredQuestionCount = Math.max(Number(base.declaredQuestionCount || 0), base.questionCount);
-    base.parserConfidence = Math.min(Number(base.parserConfidence || 0.9), Number(incoming.parserConfidence || 0.9));
-    base.warnings = uniqueStrings_([...(base.warnings || []), ...(incoming.warnings || [])], 20);
-    return base;
+    var counts = new Map();
+    (base.sourceCounts || []).concat(incoming.sourceCounts || []).forEach(function(c) { counts.set(c.sourceFile, c); });
+    merged.sourceCounts = Array.from(counts.values());
+    merged.questionCount = merged.questions.length;
+    merged.declaredQuestionCount = Math.max(Number(base.declaredQuestionCount || 0), Number(incoming.declaredQuestionCount || 0), merged.questionCount, merged.sourceCounts.reduce(function(n,c) { return n + c.declared; },0));
+    merged.captureCompleteness = { questionCoverageComplete: merged.declaredQuestionCount === merged.questionCount && base.captureCompleteness?.questionCoverageComplete !== false && incoming.captureCompleteness?.questionCoverageComplete !== false };
+    // A merged dependency bank is not evidence of how many a learner is assigned.
+    if (merged.sourceCounts.length > 1 || JSON.stringify(base.selectionPolicy) !== JSON.stringify(incoming.selectionPolicy)) {
+      merged.selectionPolicy = { observed:!!(base.selectionPolicy?.observed || incoming.selectionPolicy?.observed), selectCount:null, poolSize:merged.declaredQuestionCount, randomSelection:null, source:'MULTIPLE_QTI_FILES_REQUIRES_REVIEW' };
+    }
+    merged.parserConfidence = Math.min(Number(base.parserConfidence ?? 0.9), Number(incoming.parserConfidence ?? 0.9));
+    merged.warnings = uniqueStrings_([...(base.warnings || []), ...(incoming.warnings || [])], 20);
+    return merged;
  }

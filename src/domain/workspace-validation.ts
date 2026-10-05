@@ -2,7 +2,7 @@ import type { WorkspaceRecord } from "./workspace-types.ts";
 import { normalizeAssignmentPlan } from "./assignment-plan.ts";
 import { validateOwnerReview } from "./owner-actions.ts";
 import { validateContentSnapshot } from "./content-evidence.ts";
-import { validateCourseMetadata } from "./operations.ts";
+import { validateStoredCourseMetadata } from "./operations.ts";
 const kinds = [
   "package",
   "audit",
@@ -74,7 +74,7 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       // Historical workspace exports may legitimately have a blank partner.
       // Preserve them on import, but validate every other supplied field. New
       // CTI course creation still requires a partner in the active UI.
-      validateCourseMetadata({
+      validateStoredCourseMetadata({
         partner: record.data.partner || "Legacy unassigned",
         owner: record.data.owner,
         status: record.data.status,

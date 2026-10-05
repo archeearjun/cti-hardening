@@ -1,20 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import SourceTree from "./SourceTree";
 import type {
   PackageMessage,
-  PackageNode,
   PackageProgress,
   PackageScan,
 } from "../src/domain/package-types";
 
-function flatten(
-  nodes: PackageNode[],
-  path: string[] = [],
-): Array<{ node: PackageNode; path: string }> {
-  return nodes.flatMap((node) => [
-    { node, path: path.join(" / ") },
-    ...flatten(node.children || [], [...path, node.title]),
-  ]);
-}
 function download(scan: PackageScan) {
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(scan, null, 2)], { type: "application/json" }),
@@ -35,7 +26,7 @@ export default function PackageWorkspace({
   onBusyChange: (busy: boolean) => void;
   fileInputId?: string;
   catalogueMode?: boolean;
-  onResult?: (result: PackageScan) => void;
+  onResult?: (result: PackageScan | null) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,8 +34,6 @@ export default function PackageWorkspace({
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
   const [result, setResult] = useState<PackageScan | null>(null);
-  const [query, setQuery] = useState("");
-  const [visible, setVisible] = useState(50);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const cleanup = useRef<() => void>(() => {});
   useEffect(() => () => cleanup.current(), []);
@@ -60,10 +49,9 @@ export default function PackageWorkspace({
     if (!file) return;
     stop();
     setResult(null);
+    onResult?.(null);
     setError("");
     setSeconds(0);
-    setQuery("");
-    setVisible(50);
     setBusy(true);
     onBusyChange(true);
     setProgress({ phase: "Starting package scanner" });
@@ -121,17 +109,6 @@ export default function PackageWorkspace({
     };
     document.body.append(runner);
   }
-  const rows = useMemo(
-    () =>
-      result
-        ? flatten(result.courseTree).filter(({ node, path }) =>
-            `${node.title} ${node.type} ${path} ${node.idref}`
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-          )
-        : [],
-    [result, query],
-  );
   return (
     <section className="package-workspace" aria-label="Package inspection">
       <div className="card">
@@ -156,6 +133,7 @@ export default function PackageWorkspace({
           onChange={(event) => {
             setFile(event.target.files?.[0] || null);
             setResult(null);
+            onResult?.(null);
             setError("");
             setProgress({ phase: "" });
           }}
@@ -267,78 +245,11 @@ export default function PackageWorkspace({
               Inspect the package hierarchy, captured text, question definitions
               and file evidence. No course content is executed.
             </p>
-            <label>
-              Find an item
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setVisible(50);
-                }}
-                placeholder="Title, resource ID, type or module"
-              />
-            </label>
-            <p className="hint">
-              Showing {Math.min(visible, rows.length)} of {rows.length} matching
-              entries.
-            </p>
-            <div className="package-items">
-              {rows.slice(0, visible).map(({ node, path }, index) => (
-                <details key={`${node.idref}:${path}:${index}`}>
-                  <summary>
-                    <strong>{node.title || "Untitled entry"}</strong>
-                    <span>
-                      {path || "Top level"} · {node.type}
-                    </span>
-                  </summary>
-                  <p>
-                    Resource ID: {node.idref || "Folder / structural entry"}
-                  </p>
-                  {node.autoDeleted && (
-                    <p className="hint">
-                      The existing CTI flattening policy marks this empty folder
-                      for omission from a projected ingestion structure. This
-                      scan has not changed the package.
-                    </p>
-                  )}
-                  {node.sourcePayload ? (
-                    <>
-                      <p>
-                        {node.sourcePayload.files?.length || 0} file evidence
-                        records ·{" "}
-                        {node.sourcePayload.structuredAssessment
-                          ?.questionCount ?? "No resolved"}{" "}
-                        question definitions
-                      </p>
-                      <pre className="evidence-json">
-                        {JSON.stringify(node.sourcePayload, null, 2).slice(
-                          0,
-                          25000,
-                        )}
-                      </pre>
-                      <p className="hint">
-                        On-screen evidence is limited to 25,000 characters per
-                        entry. The download retains the complete scan, including
-                        parser limits and diagnostics.
-                      </p>
-                    </>
-                  ) : (
-                    <p>
-                      No content payload is attached to this structural entry.
-                    </p>
-                  )}
-                </details>
-              ))}
-            </div>
-            {rows.length > visible && (
-              <button
-                className="secondary"
-                onClick={() => setVisible(visible + 50)}
-              >
-                Show 50 more entries
-              </button>
-            )}
+            <SourceTree
+              scan={result}
+              searchLabel="Find an item"
+              className="package-items"
+            />
           </section>
         </>
       )}

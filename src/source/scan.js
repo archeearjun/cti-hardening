@@ -15,12 +15,12 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
       // Schema 4 existed both before and after the first PDF-text patch, which made
       // an old stored scan indistinguishable from a fresh extraction failure.
       schemaVersion: 8,
-      extractor: 'CTI Source Evidence v6.8.7',
-      buildId: 'v6.8.7-declared-assignment-attachments-20260926',
+      extractor: 'CTI Source Evidence v6.8.8',
+      buildId: 'v6.8.8-hierarchy-coverage-20261005',
       capabilities: { declaredAssignmentAttachments: true, pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true },
       manifestOnly: false,
       manifestPath: manifestPath,
-      resources: {},
+      resources: Object.create(null),
       limits: { maxTextSample: 16000, maxFiles: 1800, maxTotalTextPayload: 900000, maxHashedFileBytes: 12000000, maxTotalHashBytes: 60000000, maxPdfTextBytes: 12000000, maxPdfPagesPerFile: 80, maxTotalPdfPages: 240 }
     };
 
@@ -57,8 +57,8 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
 
       var resourceEvidence = {
         schemaVersion: 8,
-        evidenceExtractor: 'CTI Source Evidence v6.8.7',
-        evidenceBuildId: 'v6.8.7-declared-assignment-attachments-20260926',
+        evidenceExtractor: 'CTI Source Evidence v6.8.8',
+        evidenceBuildId: 'v6.8.8-hierarchy-coverage-20261005',
         files: [],
         links: [],
         images: [],
@@ -88,10 +88,8 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
       var seenResourceFiles=Object.create(null);
 
       for (var f = 0; f < fileQueue.length; f++) {
-        if (inspectedCount >= evidence.limits.maxFiles) {
-          resourceEvidence.evidenceTruncated = true;
-          break;
-        }
+        var fileReadBudgetAvailable = inspectedCount < evidence.limits.maxFiles;
+        if (!fileReadBudgetAvailable) resourceEvidence.evidenceTruncated = true;
 
         var queuedFile=fileQueue[f];
         var href = String(queuedFile.href || '');
@@ -99,7 +97,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
         var fileIdentity=resolveZipHref_(queuedFile.relativeTo,href)||href;
         if(seenResourceFiles[fileIdentity])continue;
         seenResourceFiles[fileIdentity]=true;
-        inspectedCount++;
+        if (fileReadBudgetAvailable) inspectedCount++;
         notifyPackageProgress_(onProgress, {phase:"Read content", completed:r, total:resources.length, file:href});
         if (onProgress && Date.now() - lastProgressPaint >= 100) { await new Promise(function(resolve) { setTimeout(resolve, 0); }); lastProgressPaint = Date.now(); }
 
@@ -116,7 +114,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
           path: exactPath || resolved || cleanHref,
           name: name,
           extension: extension,
-          presentInPackage: !!exactPath,
+          presentInPackage: zipResolution.method === "EXTERNAL_REFERENCE" ? null : !!exactPath,
           kind: 'asset',
           pathResolutionMethod: zipResolution.method,
           pathResolutionAmbiguous: zipResolution.ambiguous === true,
@@ -128,7 +126,8 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
           fileEvidence.attachmentRole=queuedFile.role||'';
         }
 
-        if (exactPath && !zip.files[exactPath].dir) {
+        if (!fileReadBudgetAvailable && exactPath) fileEvidence.readError = 'Content inspection skipped: package file-read budget exhausted; presence only.';
+        if (fileReadBudgetAvailable && exactPath && !zip.files[exactPath].dir) {
           var entry = zip.files[exactPath];
           var approxSize = entry._data && Number(entry._data.uncompressedSize)
             ? Number(entry._data.uncompressedSize)
@@ -159,6 +158,10 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
           }
 
           var textLike = /^(html?|xhtml|xml|json|txt|md|csv|css|js)$/i.test(extension);
+          if (textLike && approxSize > 2500000) {
+            fileEvidence.readError = 'Text exceeds the 2.5 MB text-read limit; content not captured.';
+            resourceEvidence.evidenceTruncated = true;
+          }
           if (textLike && (!approxSize || approxSize <= 2500000)) {
             try {
               var rawText = await entry.async('string');
@@ -194,6 +197,10 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
               if (normalized && remainingTextBudget > 0) {
                 var fragmentLimit = Math.min(evidence.limits.maxTextSample, remainingTextBudget);
                 var fragment = normalized.slice(0, fragmentLimit);
+                if (normalized.length > fragmentLimit) {
+                  fileEvidence.textTruncated = true;
+                  resourceEvidence.evidenceTruncated = true;
+                }
                 if (fragment) {
                   textFragments.push(fragment);
                   fileEvidence.textSample = fragment;
@@ -217,6 +224,10 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
           // when the current scanner already attempted the document.
           var pdfRoleCandidate = extension === 'pdf' &&
             (resourceType.indexOf('assignment') > -1 || /(?:rubric|assessment|assignment|grading|instruction|direction)/i.test(name));
+          if (extension === 'pdf' && !pdfRoleCandidate) {
+            fileEvidence.pdfParser = 'not-requested';
+            fileEvidence.pdfReadError = 'PDF content not inspected: text extraction currently targets assignment/instruction/rubric documents.';
+          }
           if (pdfRoleCandidate) {
             if (approxSize && approxSize > evidence.limits.maxPdfTextBytes) {
               fileEvidence.pdfParser = 'skipped-size';
@@ -236,6 +247,10 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
                 fileEvidence.pdfSampleStrategy = String(pdfInfo.sampleStrategy || '');
                 fileEvidence.pdfPageSamples = Array.isArray(pdfInfo.pageSamples) ? pdfInfo.pageSamples.slice(0, 12) : [];
                 if (pdfInfo.error) fileEvidence.pdfReadError = pdfInfo.error;
+                if (pdfInfo.truncated || fileEvidence.pdfPagesRead < fileEvidence.pdfPageCount) {
+                  fileEvidence.textTruncated = true;
+                  resourceEvidence.evidenceTruncated = true;
+                }
                 var pdfText = String(pdfInfo.text || '').replace(/\s+/g, ' ').trim();
                 if (pdfText) {
                   fileEvidence.textLength = pdfText.length;
@@ -244,6 +259,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
                   totalNormalizedLength += pdfText.length;
                   if (remainingTextBudget > 0) {
                     var pdfFragment = pdfText.slice(0, Math.min(evidence.limits.maxTextSample, remainingTextBudget));
+                    if (pdfFragment.length < pdfText.length) resourceEvidence.evidenceTruncated = true;
                     if (pdfFragment) { textFragments.push(pdfFragment); remainingTextBudget -= pdfFragment.length; }
                   } else resourceEvidence.evidenceTruncated = true;
                 }
@@ -265,6 +281,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
 
       var combinedText = textFragments.join(' ').replace(/\s+/g, ' ').trim();
       resourceEvidence.textSample = combinedText.slice(0, evidence.limits.maxTextSample);
+      if (combinedText.length > evidence.limits.maxTextSample) resourceEvidence.evidenceTruncated = true;
       if (resourceEvidence.textNormalizationStatus !== 'SOURCE_REFRESH_REQUIRED') resourceEvidence.textNormalizationStatus = combinedText ? 'NORMALIZED' : 'NO_TEXT';
       resourceEvidence.textSha256 = combinedText ? await sha256Text_(combinedText) : '';
       resourceEvidence.behavior = sourceBehaviorEvidence_(resourceType, behaviorFragments.join(' '), fileNodes);
@@ -360,6 +377,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
     var unresolvedQtiIds = qtiResourceIds.filter(function(id) {
       return !(evidence.resources[id] && evidence.resources[id].structuredAssessment);
     });
+    var orphanSearchIncomplete = false;
     if (unresolvedQtiIds.length === 1) {
       var referencedPaths = Object.create(null);
       resources.forEach(function(rec) {
@@ -370,26 +388,35 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
           if (rp) referencedPaths[String(rp).toLowerCase()] = true;
         });
       });
-      var orphanAssessments = [];
+      var orphanAssessments = [], orphanBytes = 0, orphanFiles = 0;
       var zipPaths = Object.keys(zip.files).filter(function(path){return !zip.files[path].dir;});
-      for (var zi = 0; zi < zipPaths.length && orphanAssessments.length < 3; zi++) {
+      for (var zi = 0; zi < zipPaths.length && orphanAssessments.length < 2; zi++) {
         var zp = zipPaths[zi], ze = zip.files[zp];
         if (!ze || ze.dir || !/\.xml$/i.test(zp) || referencedPaths[String(normalizeZipPath_(zp)).toLowerCase()]) continue;
+        var orphanSize = Number(ze._data && ze._data.uncompressedSize || 0);
+        if (++orphanFiles > 300 || orphanSize > 2500000 || orphanBytes + orphanSize > 12000000) { orphanSearchIncomplete = true; break; }
+        orphanBytes += orphanSize;
+        if (onProgress && Date.now() - lastProgressPaint >= 100) { await new Promise(function(resolve) { setTimeout(resolve, 0); }); lastProgressPaint = Date.now(); }
         try {
           var ztxt = await ze.async('string');
           if (!/(<(?:\w+:)?(?:assessmentItem|item)\b)/i.test(ztxt)) continue;
           if (!/(<(?:\w+:)?(?:response_lid|responseDeclaration|choiceInteraction|response_str|textEntryInteraction)\b)/i.test(ztxt)) continue;
           var zassess = parseQtiAssessmentStructure_(ztxt, zp);
           if (zassess && zassess.questions && zassess.questions.length) orphanAssessments.push(zassess);
-        } catch (orphanErr) {}
+        } catch (orphanErr) { orphanSearchIncomplete = true; }
       }
-      if (orphanAssessments.length === 1) {
+      if (orphanAssessments.length === 1 && !orphanSearchIncomplete) {
         evidence.resources[unresolvedQtiIds[0]].structuredAssessment = orphanAssessments[0];
         evidence.resources[unresolvedQtiIds[0]].structuredAssessmentAssociation = 'single-unresolved-qti-single-orphan-xml';
       }
     }
 
     evidence.qtiDiagnostics = {
+      orphanSearchIncomplete: orphanSearchIncomplete,
+      incompleteQuestionResources: Object.keys(evidence.resources).filter(function(id) {
+        var assessment = evidence.resources[id].structuredAssessment;
+        return assessment && assessment.captureCompleteness?.questionCoverageComplete === false;
+      }),
       qtiResources: qtiResourceIds.length,
       qtiWithStructure: qtiResourceIds.filter(function(id) {
         return evidence.resources[id] && evidence.resources[id].structuredAssessment;

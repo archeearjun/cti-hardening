@@ -32,6 +32,8 @@ import {
   normalizePartnerName,
   packageSemanticKey,
   validateCourseMetadata,
+  validateStoredCourseMetadata,
+  validateCourseMetadataUpdate,
 } from "../src/domain/operations.ts";
 import type {
   EvidenceObject,
@@ -487,7 +489,7 @@ export default function FullWorkspace({
   async function saveCourseScan() {
     if (!store || !scan) return;
     await act("Saving source scan", async () => {
-      const metadata = validateCourseMetadata({
+      const metadata = (rescan && course ? validateStoredCourseMetadata : validateCourseMetadata)({
         partner,
         owner,
         status:
@@ -1241,7 +1243,7 @@ export default function FullWorkspace({
                     disabled={!editable || !!busy}
                     onClick={() =>
                       void act("Saving metadata", async () => {
-                        const metadata = validateCourseMetadata({
+                        const metadata = validateCourseMetadataUpdate({
                           partner,
                           owner,
                           status: status as
@@ -1253,7 +1255,7 @@ export default function FullWorkspace({
                           assignedDate,
                           deadline,
                           driveLink,
-                        });
+                        }, course.data);
                         assertUniquePackageIdentity(
                           metadata.partner,
                           course.data.scan?.fileName || course.title,
@@ -1359,6 +1361,7 @@ export default function FullWorkspace({
             </p>
           )}
           <PackageWorkspace
+            key={courseId || "new-course"}
             fileInputId="workspace-package-file"
             catalogueMode
             onBusyChange={(b) => setBusy(b ? "Inspecting source package" : "")}

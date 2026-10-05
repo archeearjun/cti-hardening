@@ -2172,3 +2172,22 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 .source-capture .source-confirm { display: flex; align-items: flex-start; }
 .source-capture p, .source-capture li { overflow-wrap: anywhere; }
 .source-capture input[type="file"] { max-width: 100%; }
+
+/* Source navigation retains the authored parent/child relationship. */
+.source-tree, .source-tree ul.source-tree-children { list-style: none; padding: 0; margin: 0; }
+.source-tree li { min-width: 0; }
+.source-tree li > details { padding: 0; margin: 8px 0; border: 1px solid #c8d6df; border-radius: 8px; background: #fff; }
+.source-tree li > details > summary { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px; cursor: pointer; }
+.source-tree li > details > summary::before { content: "+"; flex: 0 0 12px; color: #365566; font-weight: 700; }
+.source-tree li > details[open] > summary::before { content: "−"; }
+.source-tree li > details > summary > span:first-of-type { flex: 1; min-width: 0; margin: 0; color: #193747; }
+.source-tree summary strong, .source-tree summary small { display: block; overflow-wrap: anywhere; }
+.source-tree summary .badge { margin: 0; max-width: 35%; overflow-wrap: anywhere; font-size: 12px; }
+.source-tree summary:focus-visible { outline: 3px solid #12669b; outline-offset: 2px; border-radius: 5px; }
+.source-tree ul.source-tree-children { margin: 0 10px 10px 22px; padding-left: 12px; border-left: 2px solid #a7bdcd; }
+.source-tree .hint { padding-inline: 12px; }
+@media (max-width: 600px) {
+  .source-tree ul.source-tree-children { margin-left: 9px; margin-right: 3px; padding-left: 7px; }
+  .source-tree li > details > summary { padding: 9px; gap: 7px; }
+  .source-tree summary .badge { max-width: 28%; }
+}

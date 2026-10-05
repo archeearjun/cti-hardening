@@ -145,6 +145,14 @@ return function analyzeImsccCore_(xmlString, fileName, sourceEvidenceJson) {
     }
 
     var orgsNode = root.getChild('organizations', ns), defaultOrg = orgsNode ? orgsNode.getChild('organization', ns) : null;
+    var defaultId = orgsNode && orgsNode.getAttribute('default');
+    if (defaultId) {
+      defaultOrg = orgsNode.getChildren('organization', ns).find(function(org) {
+        var id = org.getAttribute('identifier');
+        return id && id.getValue() === defaultId.getValue();
+      });
+      if (!defaultOrg) return { success:false, error:"The manifest's default organization could not be resolved." };
+    }
     var rootItems = defaultOrg ? defaultOrg.getChildren('item', ns) : [];
     var startingItems = rootItems;
     if (rootItems.length === 1 && rootItems[0].getChildren('item', ns).length > 0) startingItems = rootItems[0].getChildren('item', ns);

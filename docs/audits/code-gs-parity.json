@@ -1306,9 +1306,11 @@
     {
       "name": "analyzeImsccCore_",
       "line": 3242,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/manifest.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "note": "Honor the explicitly selected default IMS organization; unresolved defaults fail instead of comparing the first organization. Existing comparison projection remains unchanged. Original source hierarchy is separately retained by the package domain.",
+      "reviewedCurrentHash": "53b506af02d4a8e646513febb892d0715ee283e292b65b2d2ecce1ea89b864ba"
     },
     {
       "name": "validateManifestItems_",
@@ -4090,8 +4092,8 @@
       "name": "extractPdfTextEvidence_",
       "path": "src/source/pdf.js",
       "status": "adapted",
-      "note": "Explicit PDF services, bundled current PDF worker/version and finally cleanup replace window/CDN service access. Sampling rules unchanged.",
-      "reviewedCurrentHash": "52d6987ca24aa71b04ba3af6b1d833863b85c412756301853ab0aa5c110c6839"
+      "note": "Explicit local PDF services and cleanup retained. Report text/page sampling truncation rather than implying full PDF capture.",
+      "reviewedCurrentHash": "9b0467e127153c6ce510d655e2d53f18a455c4ea0d61521957ff4485e6b5f840"
     },
     {
       "name": "qtiClean_",
@@ -4151,12 +4153,16 @@
     {
       "name": "parseQtiAssessmentStructure_",
       "path": "src/source/qti.js",
-      "status": "preserved"
+      "status": "adapted",
+      "note": "Keep declared versus captured counts at the bounded 250-question limit, preserve source ordinal, reject XML declarations, and evaluate non-overlapping selection scopes without deduplicating equal draws. Ambiguous selection remains unknown.",
+      "reviewedCurrentHash": "17de5e7055ee46f48b02ca5ceb6b77c9603aa7ffbfc40472202b650d2d32e3d5"
     },
     {
       "name": "mergeStructuredAssessment_",
       "path": "src/source/qti.js",
-      "status": "preserved"
+      "status": "adapted",
+      "note": "Clone shared dependency evidence, deduplicate by source file and ordinal, aggregate unique source counts and retain incomplete coverage. Do not infer selection across multiple banks.",
+      "reviewedCurrentHash": "5a75d8293c78f0184f2c890296ddf397ce298aef832b9e12987f648fea9303b5"
     },
     {
       "name": "notifyPackageProgress_",
@@ -4167,8 +4173,8 @@
       "name": "buildSourceEvidenceFromZip_",
       "path": "src/source/scan.js",
       "status": "adapted",
-      "note": "Explicit PDF service argument is forwarded to PDF extraction; scan logic unchanged.",
-      "reviewedCurrentHash": "853047fe8289ba5c0f7ab4ad3f2775f91694ff51b42c7b89c4604a8d3e027606"
+      "note": "Keep explicit PDF services. Preserve presence after read limits; distinguish external references, omitted text/PDF capture and truncation. Bound orphan recovery and prevent association after an incomplete search. Version v6.8.8.",
+      "reviewedCurrentHash": "bb8edd265390b1a0b479b413cd32b32a4d8a5f151db26566d1ed765aeeac7700"
     },
     {
       "name": "xmlParserErrorText_",

@@ -53,8 +53,10 @@ const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 const base = "http://127.0.0.1:4174";
-const input = comparisonFixture(),
-  backup = {
+const input = comparisonFixture();
+input.course.data.assignedDate = "2026-09-20T18:30:00.000Z";
+input.course.data.deadline = "2026-10-06T00:00:00+05:30";
+const backup = {
     kind: "CTI_BROWSER_WORKSPACE",
     schemaVersion: 1,
     records: [input.course],
@@ -404,6 +406,34 @@ try {
       .count(),
     2,
   );
+  // Reproduce the reported Save rescan failure on migrated date timestamps.
+  await page.getByRole("combobox", {name:"Selected source course",exact:true}).selectOption(input.course.id);
+  await waitIdle();
+  async function readLocalRecords() {
+    return page.evaluate(() => new Promise((resolve,reject) => {
+      const opening=indexedDB.open("cti-workspace-v1",1);
+      opening.onsuccess=()=>{const db=opening.result;const get=db.transaction("records").objectStore("records").getAll();get.onsuccess=()=>{resolve(get.result);db.close();};get.onerror=()=>reject(get.error);};
+      opening.onerror=()=>reject(opening.error);
+    }));
+  }
+  const recordsBeforeRescan=await readLocalRecords();
+  await tab("Scan");
+  const packageInput=page.locator('#workspace-package-file');
+  const scanFile={name:'rescan.xml',mimeType:'application/xml',buffer:Buffer.from('<manifest><organizations><organization><item><title>Module One</title><item><title>Week One</title><item identifierref="r"><title>Reading</title></item></item></item></organization></organizations><resources><resource identifier="r" type="webcontent"><file href="reading.html"/></resource></resources></manifest>')};
+  async function inspectRescan(){await packageInput.setInputFiles(scanFile);await page.getByRole('button',{name:'Inspect package',exact:false}).click();await page.getByText('Package inspection complete',{exact:true}).waitFor();}
+  await inspectRescan();await page.getByRole('heading',{name:'Save this source scan'}).waitFor();
+  await packageInput.setInputFiles({name:'invalid.xml',mimeType:'application/xml',buffer:Buffer.from('<manifest><broken>')});
+  assert.equal(await page.getByRole('heading',{name:'Save this source scan'}).count(),0,'Replacing the input immediately clears the pending scan');
+  await page.getByRole('button',{name:'Inspect package',exact:false}).click();await page.getByRole('alert').filter({hasText:'Package inspection could not finish'}).waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Save this source scan'}).count(),0,'A failed replacement cannot save stale results');
+  await inspectRescan();
+  await page.getByLabel('Replace the selected course’s current scan, retaining its UUID and history').check();
+  await page.getByRole('button',{name:'Save rescan',exact:true}).click();
+  await page.getByText('Source scan saved. Previous saved versions are retained.',{exact:true}).waitFor();
+  const recordsAfterRescan=await readLocalRecords();const before=recordsBeforeRescan.find(r=>r.id===input.course.id), after=recordsAfterRescan.find(r=>r.id===input.course.id);
+  assert.equal(after.version,before.version+1);assert.equal(after.data.assignedDate,before.data.assignedDate);assert.equal(after.data.deadline,before.data.deadline);
+  assert.equal(after.data.scan.sourceHierarchy[0].children[0].title,'Week One');
+  assert.deepEqual(recordsAfterRescan.filter(r=>r.kind==='audit'),recordsBeforeRescan.filter(r=>r.kind==='audit'),'Rescan preserves every saved report');
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -411,6 +441,8 @@ try {
         status: "PASS",
         checks: [
           "backup import and source identity",
+          "rescan accepts migrated timestamps, preserves metadata, UUID and audit history",
+          "failed replacement clears stale pending scan",
           "multipart picker rejects missing parts, imports shuffled files and skips reimports",
           "unavailable QA reports require acknowledgement, retain downloadable issues and stay out of comparisons",
           "recovered full payload restores the original audit ID and resolves the warning",
