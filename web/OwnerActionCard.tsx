@@ -16,6 +16,11 @@ import {
   type CourseraLinkedCapture,
 } from "../src/domain/coursera-linked-content";
 import ContentEvidencePanel from "./ContentEvidencePanel";
+import OwnerAssessment from "./OwnerAssessment";
+import {
+  ownerGuidance,
+  questionEvidenceRelevant,
+} from "../src/domain/owner-guidance";
 import PublicContentFetch from "./PublicContentFetch";
 import { workspaceRequest } from "../src/domain/workspace-http";
 import QuestionCountPanel from "./QuestionCountPanel";
@@ -358,7 +363,7 @@ export default function OwnerActionCard({
       (link, i, all) =>
         link.url && all.findIndex((x) => x.url === link.url) === i,
     );
-  const actionable = task.actions.filter((a) => a.severity !== "NONE");
+  const guidance = ownerGuidance(task);
   let contentView: ItemContentView | undefined,
     contentError = "";
   if (open && loaded)
@@ -390,7 +395,9 @@ export default function OwnerActionCard({
               : ""}
           </small>
         </span>
-        <span className={`finding-label finding-${task.status}`}>{label}</span>
+        <span className={`finding-label finding-${task.status}`}>
+          {guidance.readinessOnly ? "Review readiness" : label}
+        </span>
         {itemUrl && (
           <a
             className="button-link item-open"
@@ -405,87 +412,39 @@ export default function OwnerActionCard({
       </summary>
       {open && (
         <div className="item-evidence action-body">
-          {loaded && (
-            <QuestionCountPanel
-              rows={task.questionComparisons}
-              capture={capture}
-              references={sourceCounts}
-              sourceCaptures={sourceCaptures.filter((c) =>
-                task.questionComparisons.some(
-                  (r) => r.sourceKey === c.sourceKey,
-                ),
-              )}
-              onFetch={fetchSourceContent}
-              editable={editable && !busy}
-              onSave={async (next) => {
-                setBusy("Saving source count…");
-                setError("");
-                setMessage("");
-                try {
-                  await persist(
-                    capture,
-                    status === "checked" ? "in_progress" : status,
-                    pluginCaptures,
-                    next,
-                  );
-                } finally {
-                  setBusy("");
-                }
-              }}
-            />
-          )}
-          {loaded && (
-            <>
-              {task.sourceTargets
-                .filter(
-                  (t) =>
-                    !task.questionComparisons.some(
-                      (r) => r.sourceKey === t.sourceKey,
-                    ),
-                )
-                .flatMap((t) =>
-                  t.sourceUrls
-                    .filter(publicSourceUrl)
-                    .map((url) => (
-                      <PublicContentFetch
-                        key={t.sourceKey + url}
-                        sourceKey={t.sourceKey}
-                        url={url}
-                        disabled={!editable || !!busy}
-                        onFetch={fetchSourceContent}
-                      />
-                    )),
-                )}
-              {contentView ? (
-                <ContentEvidencePanel
-                  view={contentView}
-                  onCapture={spec ? () => void copyCheck() : undefined}
-                  disabled={!editable || !!busy}
-                  onFetchLinked={fetchCourseraPage}
-                />
-              ) : (
-                <p role="alert">
-                  {contentError} Saved evidence has been preserved; this content
-                  cannot be attributed to the current source mapping.
-                </p>
-              )}
-            </>
-          )}
           <section className="action-focus">
             <p className="eyebrow">1 · WHAT TO DO</p>
+            <OwnerAssessment
+              task={task}
+              hasFollowUp={
+                !!capture ||
+                !!sourceCaptures.length ||
+                !!pluginCaptures.length ||
+                !!courseraLinkedCaptures.length
+              }
+            />
+            <h4>Your next action</h4>
             {task.questionSummary.map((s, i) => (
               <p className="question-location" key={i}>
                 {s}
               </p>
             ))}
-            {actionable.length ? (
-              actionable.map((a, i) => <p key={i}>{a.action}</p>)
+            {guidance.nextActions.length ? (
+              guidance.nextActions.map((action, i) => <p key={i}>{action}</p>)
             ) : (
               <p>
                 {task.actions[0]?.action ||
                   "Compare this item with its intended source and confirm its placement and learner access."}
               </p>
             )}
+            <p className="hint">
+              If this already meets the intended source and course requirements,
+              keep it and record “Checked manually — works as intended” with
+              your evidence. After an edit, record “Changed — needs
+              verification”, then verify the result before marking it checked.
+              Re-capture only when needed to resolve a specific evidence gap;
+              the original audit remains unchanged.
+            </p>
             {!task.url && task.id && courseLocation && (
               <div>
                 <label>
@@ -561,6 +520,73 @@ export default function OwnerActionCard({
               )}
             </div>
           </section>
+          {loaded && (
+            <QuestionCountPanel
+              rows={task.questionComparisons}
+              capture={capture}
+              references={sourceCounts}
+              sourceCaptures={sourceCaptures.filter((c) =>
+                task.questionComparisons.some(
+                  (r) => r.sourceKey === c.sourceKey,
+                ),
+              )}
+              onFetch={fetchSourceContent}
+              editable={editable && !busy}
+              onSave={async (next) => {
+                setBusy("Saving source count…");
+                setError("");
+                setMessage("");
+                try {
+                  await persist(
+                    capture,
+                    status === "checked" ? "in_progress" : status,
+                    pluginCaptures,
+                    next,
+                  );
+                } finally {
+                  setBusy("");
+                }
+              }}
+            />
+          )}
+          {loaded && (
+            <>
+              {task.sourceTargets
+                .filter(
+                  (t) =>
+                    !task.questionComparisons.some(
+                      (r) => r.sourceKey === t.sourceKey,
+                    ),
+                )
+                .flatMap((t) =>
+                  t.sourceUrls
+                    .filter(publicSourceUrl)
+                    .map((url) => (
+                      <PublicContentFetch
+                        key={t.sourceKey + url}
+                        sourceKey={t.sourceKey}
+                        url={url}
+                        disabled={!editable || !!busy}
+                        onFetch={fetchSourceContent}
+                      />
+                    )),
+                )}
+              {contentView ? (
+                <ContentEvidencePanel
+                  view={contentView}
+                  showQuestions={questionEvidenceRelevant(task, contentView)}
+                  onCapture={spec ? () => void copyCheck() : undefined}
+                  disabled={!editable || !!busy}
+                  onFetchLinked={fetchCourseraPage}
+                />
+              ) : (
+                <p role="alert">
+                  {contentError} Saved evidence has been preserved; this content
+                  cannot be attributed to the current source mapping.
+                </p>
+              )}
+            </>
+          )}
           <div className="evidence-pair">
             <section>
               <p className="eyebrow">2 · SOURCE TO RESTORE OR COMPARE</p>
