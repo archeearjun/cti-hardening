@@ -10,7 +10,14 @@ import {
   prepareWorkspaceBackup,
   validateImportRecordSizes,
 } from "../src/domain/workspace-validation";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import { runWorkflow } from "./workflow-client";
 import {
@@ -187,13 +194,12 @@ export default function FullWorkspace({
   const [acceptMigrationGaps, setAcceptMigrationGaps] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const reportHeading = useRef<HTMLHeadingElement | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!report) return;
-    const frame = requestAnimationFrame(() => {
-      reportHeading.current?.focus({ preventScroll: true });
-      reportHeading.current?.scrollIntoView({ block: "start" });
-    });
-    return () => cancelAnimationFrame(frame);
+    // Establish report focus before paint. A deferred frame can steal focus
+    // after the owner has already moved to a card's keyboard control.
+    reportHeading.current?.focus({ preventScroll: true });
+    reportHeading.current?.scrollIntoView({ block: "start" });
   }, [report]);
   const [partnerFilter, setPartnerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
