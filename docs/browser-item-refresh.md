@@ -1,7 +1,16 @@
 # Refresh one Coursera item
 
 After saving an edit in Coursera, open the item's action card in a saved CTI
-report and select **Refresh this Coursera item**. The optional Chrome extension
+report. The normal workflow is **3 · REFRESH ITEM EVIDENCE**: copy the current
+item check, run it in the exact signed-in Coursera item's DevTools Console, and
+return the downloaded JSON to the same card. File selection validates and saves
+immediately; pasted JSON is saved by **Add item check**. Review the refreshed
+comparison, then record and save the item outcome in step 4. No extension
+installation is required for this workflow.
+
+Only a browser with a compatible extension already connected sees the optional
+**Refresh this Coursera item** button. Unavailable/incompatible extensions show
+no installation panel or disabled refresh control. The optional Chrome extension
 opens a temporary authoring tab in the same signed-in browser profile. Keep that
 tab visible until CTI returns you to the report. The existing editing tab stays
 open. Refresh replaces the item's saved follow-up evidence, updates its content
@@ -10,8 +19,11 @@ does not rewrite the original audit or approve publication.
 
 ## One-time installation
 
-1. Download `/downloads/cti-browser-extension.zip` from CTI (also linked on each
-   item action card) and extract it to a folder you will keep.
+For browsers where installation is permitted by the administrator:
+
+1. Download `/downloads/cti-browser-extension.zip` from CTI and extract it to a
+   folder you will keep. Installation instructions are intentionally outside
+   the normal item workflow.
 2. Open `chrome://extensions` in Chrome and enable Developer mode.
 3. Select **Load unpacked**, then the `CTI-browser-extension` folder containing
    `manifest.json`.

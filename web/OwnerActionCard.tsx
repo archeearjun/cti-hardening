@@ -639,13 +639,30 @@ export default function OwnerActionCard({
           </div>
           {spec && (
             <section className="targeted-check">
-              <p className="eyebrow">3 · NEED MORE EVIDENCE?</p>
-              <h4>Check this item in your signed-in Chrome</h4>
+              <p className="eyebrow">3 · REFRESH ITEM EVIDENCE</p>
+              <h4>Refresh this item after editing Coursera</h4>
               <p>
-                Use this item’s current targeted check in the exact Coursera
-                item above. It collects fresh evidence for this item only and
-                never clears a finding automatically.
+                No extension installation is needed. This check captures only
+                this item in your signed-in Coursera tab.
               </p>
+              <ol>
+                <li>
+                  Save your changes in Coursera, then copy this item’s current
+                  check below.
+                </li>
+                <li>
+                  Open this exact Coursera item. Run the copied check in
+                  DevTools → Console and keep the tab visible until the JSON
+                  downloads.
+                </li>
+                <li>
+                  Return here and import the downloaded item-check JSON below.
+                </li>
+                <li>
+                  Review the refreshed comparison, then record the outcome in
+                  step 4.
+                </li>
+              </ol>
               <div className="action-links">
                 <button
                   className="primary"
@@ -654,6 +671,14 @@ export default function OwnerActionCard({
                 >
                   Copy this item’s current check
                 </button>
+                <a
+                  className="button-link secondary"
+                  href={spec.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open this Coursera item
+                </a>
                 {script && (
                   <button
                     className="secondary"
@@ -698,6 +723,10 @@ export default function OwnerActionCard({
               )}
               <details>
                 <summary>Import the downloaded item-check JSON</summary>
+                <p className="hint">
+                  Selecting a JSON file validates and saves it immediately. If
+                  you paste JSON instead, click Add item check to save it.
+                </p>
                 <label>
                   Item-check JSON
                   <input
@@ -843,6 +872,13 @@ export default function OwnerActionCard({
           )}
           <section className="review-outcome">
             <p className="eyebrow">{spec ? "4" : "3"} · RECORD THE OUTCOME</p>
+            <p className="hint">
+              Choose the status that describes this item now. Use “Changed —
+              needs verification” while checks remain, or “Checked manually —
+              works as intended” after confirming the content and learner
+              experience. Add what you checked or what remains, then save the
+              item outcome.
+            </p>
             <label>
               Item outcome
               <select

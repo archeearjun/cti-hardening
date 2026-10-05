@@ -41,17 +41,10 @@ export default function CourseraItemRefresh({
         if (!alive.current) return;
         const compatible = r.protocol === 1 && r.version === EXTENSION_VERSION;
         setReady(compatible);
-        setStatus(
-          compatible
-            ? "CTI extension connected."
-            : "Update the CTI extension using the download below, then reload it and CTI.",
-        );
+        if (compatible) setStatus("CTI extension connected.");
       })
       .catch(() => {
-        if (alive.current)
-          setStatus(
-            "Install the CTI extension once to enable one-click refresh.",
-          );
+        if (alive.current) setReady(false);
       });
     return () => {
       alive.current = false;
@@ -159,6 +152,10 @@ export default function CourseraItemRefresh({
       }
     }
   }
+  // Managed browsers may prohibit extensions. Show this optional control only
+  // when a compatible extension is already connected; manual checks are always
+  // available in the action card without an installation prompt or dead button.
+  if (!ready) return null;
   return (
     <section className="scope item-refresh" aria-label="Refresh Coursera item">
       <h5>Refresh after editing Coursera</h5>
@@ -205,41 +202,9 @@ export default function CourseraItemRefresh({
           Download this refresh observation
         </button>
       )}
-      <details open={!ready}>
-        <summary>Install or update the CTI extension</summary>
-        <ol>
-          <li>
-            <a href="/downloads/cti-browser-extension.zip" download>
-              Download CTI extension {EXTENSION_VERSION}
-            </a>{" "}
-            and extract the ZIP into a folder you will keep.
-          </li>
-          <li>
-            Open <code>chrome://extensions</code> in Chrome and turn on{" "}
-            <strong>Developer mode</strong>.
-          </li>
-          <li>
-            Click <strong>Load unpacked</strong> and select the extracted{" "}
-            <strong>CTI-browser-extension</strong> folder containing{" "}
-            <code>manifest.json</code>.
-          </li>
-          <li>
-            Refresh this CTI tab. Use the same Chrome profile where you are
-            signed in to Coursera.
-          </li>
-        </ol>
-        <p>
-          For updates, replace the files in that same folder, click Reload on
-          the extension, then refresh CTI. If your work browser blocks
-          installation, use the manual item-check workflow below or contact your
-          browser administrator.
-        </p>
-        <p className="hint">
-          Runs on your computer. No remote-browser quota or password export.
-          Captured content follows your workspace's normal saving rules.
-          Refreshing records evidence; it does not approve publication.
-        </p>
-      </details>
+      <p className="hint">
+        Refreshing records evidence; it does not approve publication.
+      </p>
     </section>
   );
 }
