@@ -2037,9 +2037,11 @@
     {
       "name": "qaAssessDestinationReadiness_",
       "line": 6418,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/readiness/destination.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "note": "Recognize explicit Include-your/information and Brief-description template prompts, preserve existing prompt detection and policy exemptions; syllabus-readiness.test.mjs protects normal brackets and legacy patterns.",
+      "reviewedCurrentHash": "93cf0e0ead89a1ad14b21a90595bffe8e5c1045c3947c781290dc1389efab253"
     },
     {
       "name": "qaApplyDestinationReadinessPolicy_",
@@ -2894,9 +2896,11 @@
     {
       "name": "runPostIngestionQaCore_",
       "line": 11237,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/comparison/course.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. See syllabus-readiness.test.mjs.",
+      "reviewedCurrentHash": "a486236cc92f5c8d6ddec674d628b34de5eff0d5b47a391578bd9ac7f5967520"
     },
     {
       "name": "tokenJaccardSimilarity_",
@@ -3192,8 +3196,8 @@
       "status": "adapted-metadata",
       "path": "src/engine/matching/text.js",
       "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
-      "reviewedCurrentHash": "5729d216f9d6ff0d76f9773ef8551289a8e66ff128adfe1241c882d908ab202d",
-      "note": "QA build for unknown assessment evidence and focused inspection guidance; extractor versions and schemas unchanged."
+      "reviewedCurrentHash": "af0b11fbecea9707183ee29af650412795644484fa077c399578958cbc3900cb",
+      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",

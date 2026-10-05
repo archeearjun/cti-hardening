@@ -22,6 +22,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |
 | Brightspace capture | `src/extractors/brightspace/` | `npm run test:extractors` |
 | Source topic matching and source assessment definitions | `src/engine/source/brightspace-matching.js`, `brightspace-assessment.js` | `npm run test:engine` |
+| Syllabus placeholders and observed live-source wording | `src/engine/readiness/template-placeholders.js`, `src/engine/source/live-text-review.js` | `tests/syllabus-readiness.test.mjs`; `npm run test:browser:owner` |
 | Assessment questions, answers, behaviour, rubrics | `src/engine/assessment/` | `npm run test:engine` |
 | Assets, links, text matching and repackaging | `src/engine/matching/` | `npm run test:engine` |
 | Ingestion claims and current-state resolution | `src/engine/provenance/` | `npm run test:engine` |

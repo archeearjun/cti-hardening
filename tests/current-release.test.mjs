@@ -10,7 +10,7 @@ const qa = createRequire(import.meta.url)("../tools/check.cjs");
 
 test("current QA build and retained workflow identities have explicit provenance", () => {
   assert.equal(CTI_GATEWAY_RELEASE_, "v8.0.0");
-  assert.equal(CTI_QA_ENGINE_BUILD_ID_, "v8.0.0-unknown-assessment-evidence-20261004");
+  assert.equal(CTI_QA_ENGINE_BUILD_ID_, "v8.0.1-source-wording-readiness-20261005");
   assert.equal(
     qa.CTI_MACMILLAN_BUILD_ID_,
     "v6.8.2-partner-ready-doc-projection-20260912",

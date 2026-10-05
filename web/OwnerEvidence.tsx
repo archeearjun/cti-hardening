@@ -115,12 +115,8 @@ export default function OwnerEvidence({
     (t) => reviewFor(t.key)?.data.review?.status === "checked",
   );
   const remaining = attention.length - checked.length;
-  const items = tasks.filter((i) => {
-    const progress = reviewFor(i.key)?.data.review?.status || "open";
+  const matchingTasks = tasks.filter((i) => {
     return (
-      (show !== "attention" ||
-        (needsOwnerAction(i) && progress !== "checked")) &&
-      (show !== "checked" || progress === "checked") &&
       (!status || i.status === status) &&
       [
         i.name,
@@ -134,6 +130,21 @@ export default function OwnerEvidence({
         .includes(query.toLowerCase())
     );
   });
+  const items = matchingTasks.filter((i) => {
+    const progress = reviewFor(i.key)?.data.review?.status || "open";
+    return (
+      (show !== "attention" ||
+        (needsOwnerAction(i) && progress !== "checked")) &&
+      (show !== "checked" || progress === "checked")
+    );
+  });
+  const hiddenMatches = matchingTasks.length - items.length;
+  const viewLabel =
+    show === "attention"
+      ? "Needs attention"
+      : show === "checked"
+        ? "Checked by you"
+        : "All items";
   if (!result.ownerView) return null;
   return (
     <section className="owner-evidence" aria-label="Course action workspace">
@@ -282,8 +293,28 @@ export default function OwnerEvidence({
       </div>
       <p className="hint" role="status">
         Showing {Math.min(items.length, limit)} of {items.length} matching items
-        · Coursera order preserved · source-only findings follow the outline
+        · View: {viewLabel} · Coursera order preserved · source-only findings
+        follow the outline
       </p>
+      {!!hiddenMatches && (
+        <div className="scope">
+          <p>
+            {hiddenMatches} other matching item
+            {hiddenMatches === 1 ? " is" : "s are"} hidden by the “{viewLabel}”
+            view. “All findings” applies within this view; it does not show the
+            whole course.
+          </p>
+          <button
+            className="secondary"
+            onClick={() => {
+              setShow("all");
+              setLimit(40);
+            }}
+          >
+            Show all matching items ({matchingTasks.length})
+          </button>
+        </div>
+      )}
       {items.slice(0, limit).map((item, index) => (
         <div key={item.key}>
           {(index === 0 || items[index - 1].path !== item.path) && (

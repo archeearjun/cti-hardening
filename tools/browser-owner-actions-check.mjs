@@ -13,6 +13,7 @@ import {
 import { chromium } from "playwright";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
 import { contactTemplateFixture } from "../tests/owner-guidance-fixtures.mjs";
+import { syllabusFixture } from "../tests/syllabus-readiness-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
 const root = path.resolve(".");
@@ -861,6 +862,119 @@ try {
     await contactCard.locator(".owner-assessment").innerText(),
     /instructor.jpg/,
   );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  for (const needsReview of [false, true]) {
+    const syllabusInput = syllabusFixture({
+      placeholders: needsReview,
+      live: needsReview,
+    });
+    const syllabusReport = createWorkflows(workerXml).compare(syllabusInput);
+    const syllabusAudit = {
+      ...syllabusInput.course,
+      id: `syllabus-${needsReview}`,
+      kind: "audit",
+      packageId: syllabusInput.course.id,
+      title: needsReview
+        ? "Syllabus requiring reconciliation"
+        : "Syllabus with no action",
+      data: syllabusReport,
+    };
+    await tab("Setup");
+    await page
+      .getByLabel("Workspace migration or backup JSON")
+      .setInputFiles({
+        name: "syllabus.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(
+          JSON.stringify({
+            kind: "CTI_BROWSER_WORKSPACE",
+            schemaVersion: 1,
+            records: [syllabusInput.course, syllabusAudit],
+          }),
+        ),
+      });
+    await page
+      .getByRole("button", { name: "Import prepared records", exact: true })
+      .click();
+    await page.getByText("Imported 2 records;", { exact: false }).waitFor();
+    await page
+      .getByRole("combobox", { name: "Selected source course", exact: true })
+      .selectOption(syllabusInput.course.id);
+    await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+    await tab("History");
+    await page
+      .getByRole("button", { name: syllabusAudit.title, exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Coursera content view", exact: true })
+      .waitFor();
+    await page
+      .getByRole("group", { name: "Show owner work" })
+      .getByRole("button", { name: /^Needs attention/ })
+      .click();
+    await page
+      .getByLabel("Find an item or action", { exact: true })
+      .fill("Course Syllabus");
+    const syllabusCard = page
+      .locator(".action-card")
+      .filter({ hasText: "Course Syllabus" });
+    if (!needsReview) {
+      await page
+        .getByText("No items match these filters.", { exact: true })
+        .waitFor();
+      assert.equal(await syllabusCard.count(), 0);
+      await page.getByText(/1 other matching item is hidden/).waitFor();
+      await page
+        .getByRole("button", {
+          name: "Show all matching items (1)",
+          exact: true,
+        })
+        .click();
+      await syllabusCard.waitFor({ state: "visible" });
+      assert.match(await syllabusCard.innerText(), /Evidence aligned/);
+      assert.equal(
+        await page
+          .getByLabel("Find an item or action", { exact: true })
+          .inputValue(),
+        "Course Syllabus",
+      );
+      await page
+        .getByLabel("Find an item or action", { exact: true })
+        .scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: path.join(shots, "syllabus-all-items.png"),
+      });
+    } else {
+      await syllabusCard.waitFor({ state: "visible" });
+      await syllabusCard.locator(":scope > summary").click();
+      await syllabusCard
+        .getByRole("heading", { name: "Your next action", exact: true })
+        .waitFor();
+      assert.match(
+        await syllabusCard.locator(".owner-assessment").innerText(),
+        /Brightspace wording/,
+      );
+      assert.match(
+        await syllabusCard.locator(".owner-readiness").innerText(),
+        /Include your title/,
+      );
+      assert.match(
+        await syllabusCard.locator(".action-focus").innerText(),
+        /50% or higher/,
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        "syllabus mobile overflow",
+      );
+      await syllabusCard.locator(".owner-assessment").scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: path.join(shots, "syllabus-review-mobile.png"),
+      });
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -883,6 +997,7 @@ try {
           "original extraction hash rejection/recovery; both content panes, question search, full content exports and previous observations",
           "390px layout",
           "contact template: passed text vs inherited readiness, actionable guidance first, no irrelevant question warnings, keyboard expansion and 390px layout",
+          "hidden matched syllabus is discoverable without clearing search; template/live-source review remains visible in Needs attention",
         ],
         screenshots: shots,
       },

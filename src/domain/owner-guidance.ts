@@ -16,6 +16,7 @@ const fields = [
   ["structuredAssessment", "Questions"],
   ["behavior", "Activity settings"],
   ["runtime", "Interactive activity"],
+  ["liveSourceText", "Brightspace wording"],
 ] as const;
 const statuses: Record<string, string> = {
   VERIFIED: "Comparison passed",
@@ -25,6 +26,7 @@ const statuses: Record<string, string> = {
   PARTIAL: "Partly matched — review gaps",
   RELOCATED: "Found elsewhere — confirm placement",
   TRANSFORMED: "Preserved in a different format",
+  REVIEW: "Review the observed differences",
 };
 const text = (v: unknown): string => (typeof v === "string" ? v : "");
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -47,7 +49,10 @@ export function ownerGuidance(task: OwnerTask) {
           : text(check.reason);
       checks.push({
         source: text(finding.sourceName),
-        field: label,
+        field:
+          key === "content" && finding.checks?.liveSourceText
+            ? "Package text"
+            : label,
         status: Object.hasOwn(statuses, status)
           ? statuses[status]
           : status.replaceAll("_", " "),

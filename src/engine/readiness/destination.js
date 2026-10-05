@@ -3,6 +3,7 @@ import { qaObservedEmptyAssessmentReceipt_, qaReadingAttachmentEvidence_, qaRead
 import { normalizeCourseraType_, qaCleanName_, qaCleanText_ } from "../matching/text.js";
 import { qaCaptureTraversalSummary_, qaHasAiGraderPlaceholder_, qaObservedEmptyAssessmentBody_, qaResolveHistoricalClaimCurrentState_ } from "../provenance/current-state.js";
 import { workSourceItemPolicy_ } from "../work/policy.js";
+import { qaTemplatePlaceholders_ } from "./template-placeholders.js";
 
 export function qaAssessDestinationReadiness_(courseraItems, intelligence, extractorMeta, snapshotContext, currentStateResolution, partnerName) {
     var findings=[];
@@ -35,7 +36,8 @@ export function qaAssessDestinationReadiness_(courseraItems, intelligence, extra
             'The observed assignment body contains only Coursera\'s empty-content creation controls. Full outline evidence was not captured.',
             'Check this exact assignment against its source questions. Confirm the empty state before adding or restoring content; this body-only capture does not establish complete assessment coverage.');
         if(/^\[empty\]/i.test(name)) pushItem('EMPTY_PLACEHOLDER_ITEM','REVIEW',name,item.path,'A placeholder/empty learner item exists in the destination shell.','Confirm whether this item should be populated or removed before publication.');
-        if(/\[(?:add|insert|enter)\s+[^\]]{3,80}\]/i.test(combined)) pushItem('TEMPLATE_PLACEHOLDER_TEXT','REVIEW',name,item.path,'Template placeholder text is still present in learner-facing content.','Replace or intentionally remove the placeholder before publication.');
+        var templatePlaceholders=qaTemplatePlaceholders_(combined);
+        if(templatePlaceholders.length) pushItem('TEMPLATE_PLACEHOLDER_TEXT','REVIEW',name,item.path,'Template authoring prompts remain in the captured destination: '+templatePlaceholders.join('; '),'Replace or intentionally remove the placeholder before publication. Use approved course information; do not invent contact details, assessment instructions or grading policies. Record what is needed if approval or information is unavailable.');
         if(/first\.last\.?@email\.com|\(000\)\s*000[-\s]?0000|000[-\s]?000[-\s]?0000/i.test(combined)) pushItem('PLACEHOLDER_CONTACT_INFO','REVIEW',name,item.path,'Generic facilitator contact placeholders remain in the destination content.','Replace with the intended facilitator/contact details or remove the placeholder fields.');
         if(qaHasAiGraderPlaceholder_(item)) pushItem('AI_GRADER_PLACEHOLDER','REVIEW',name,item.path,'The captured assignment authoring surface shows an AI-grader instruction placeholder. Learner text fidelity does not verify grader setup.','Inspect the AI-grader instructions. Configure them if empty, or select the intended grading mode, before publication.');
         if(/author alignment report|author.?s eyes/i.test(name+' '+String(item.path||''))) pushItem('AUTHOR_ALIGNMENT_REPORT_PRESENT','INFO',name,item.path,'The Smart Ingestion Author Alignment Report is still in the shell.','Delete the [DELETE ME] Author Alignment Report module before publication, as instructed by Smart Ingestion.');

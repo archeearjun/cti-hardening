@@ -55,7 +55,7 @@ export function vectorizeCourse(pkg) {
 
 export const CTI_GATEWAY_RELEASE_ = 'v8.0.0';
 
-export const CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.0-unknown-assessment-evidence-20261004';
+export const CTI_QA_ENGINE_BUILD_ID_ = 'v8.0.1-source-wording-readiness-20261005';
 
 export function qaCleanText_(value) {
     return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
