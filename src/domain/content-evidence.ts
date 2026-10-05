@@ -1,4 +1,5 @@
 import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
+import { supportedMathText } from "./supported-math-text.ts";
 import { choiceLabel, ctiAnswerText } from "./cti-answer-check.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import {
@@ -176,7 +177,7 @@ export function contentText(value: unknown): string {
 export function contentQuestion(value: unknown, index = 0): ContentQuestion {
   const q = contentObject(value),
     limitations: string[] = [];
-  const full = contentText(q.prompt ?? q.text),
+  const full = supportedMathText(contentText(q.prompt ?? q.text)),
     options = array(q.options);
   if (
     q.mathNotationRisk === true ||
@@ -192,7 +193,9 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
     ].some(
       (v) =>
         typeof v === "string" &&
-        /<(?:sup|sub|math|svg|img)\b|\\\(|\\\[|\$\$/i.test(v),
+        /<(?:sup|sub|math|svg|img)\b|\\\(|\\\[|\$\$/i.test(
+          supportedMathText(v),
+        ),
     )
   )
     limitations.push(

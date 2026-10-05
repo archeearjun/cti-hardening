@@ -17,6 +17,7 @@ import { syllabusFixture } from "../tests/syllabus-readiness-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
 import { checkItemRefreshUi } from "./browser-item-refresh-ui.mjs";
+import { percentages } from "../tests/cti-percentage-fixtures.mjs";
 const root = path.resolve(".");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -447,33 +448,66 @@ try {
                   randomQuestions: false,
                   disableBackwardsNavigation: true,
                   override: { retryButton: "on" },
-                  questions: Array.from({ length: 10 }, (_, i) => ({
-                    library: "H5P.MultiChoice 1.16",
-                    params: {
-                      question:
-                        i === 0
-                          ? "Round 5237.02046 to the nearest thousandth."
-                          : "Source question " + (i + 1),
-                      answers: [
-                        {
-                          text:
-                            i === 0
-                              ? "5237.021"
-                              : "Source correct choice " + (i + 1),
-                          correct: true,
-                          tipsAndFeedback: {
-                            tip: "Think about this question.",
-                            chosenFeedback: "Recorded source feedback.",
+                  questions: Array.from({ length: 10 }, (_, i) => {
+                    const f = {
+                      2: percentages[0],
+                      3: percentages[2],
+                      4: percentages[4],
+                      5: percentages[1],
+                      6: percentages[7],
+                      7: percentages[8],
+                      8: percentages[9],
+                    }[i];
+                    if (f)
+                      return {
+                        library:
+                          f.type +
+                          (f.type.endsWith("TrueFalse") ? " 1.8" : " 1.16"),
+                        params: f.type.endsWith("TrueFalse")
+                          ? {
+                              question: f.prompt,
+                              correct: f.sourceKey,
+                              l10n: { trueText: "True", falseText: "False" },
+                            }
+                          : {
+                              question: f.prompt,
+                              answers: f.options.map((text, n) => ({
+                                text,
+                                correct: f.sourceKey.startsWith(
+                                  `Choice ${n + 1}:`,
+                                ),
+                              })),
+                            },
+                      };
+                    return {
+                      library: "H5P.MultiChoice 1.16",
+                      params: {
+                        question:
+                          i === 0
+                            ? "Round 5237.02046 to the nearest thousandth."
+                            : "Source question " + (i + 1),
+                        answers: [
+                          {
+                            text:
+                              i === 0
+                                ? "5237.021"
+                                : "Source correct choice " + (i + 1),
+                            correct: true,
+                            tipsAndFeedback: {
+                              tip: "Think about this question.",
+                              chosenFeedback: "Recorded source feedback.",
+                            },
                           },
-                        },
-                        {
-                          text: i === 0 ? "5237.02" : "Source incorrect choice",
-                          correct: false,
-                        },
-                      ],
-                      behaviour: { randomAnswers: false, enableRetry: true },
-                    },
-                  })),
+                          {
+                            text:
+                              i === 0 ? "5237.02" : "Source incorrect choice",
+                            correct: false,
+                          },
+                        ],
+                        behaviour: { randomAnswers: false, enableRetry: true },
+                      },
+                    };
+                  }),
                 }),
               },
             },
@@ -589,6 +623,63 @@ try {
   assert.match(brief, /INDEPENDENT QUESTION REVIEW/);
   assert(!brief.includes("Recorded source feedback"));
   assert(!brief.includes("Source-marked answer:"));
+  const percentageCheck = sourceContent.getByRole("region", {
+    name: "CTI answer check for question 3",
+    exact: true,
+  });
+  await percentageCheck
+    .getByText("CTI answer: B — 9.6 (calculated 9.6)", { exact: true })
+    .waitFor();
+  await percentageCheck
+    .getByText("Answer-key agreement.", { exact: true })
+    .waitFor();
+  await sourceContent
+    .getByRole("region", {
+      name: "CTI answer check for question 4",
+      exact: true,
+    })
+    .getByText("CTI answer: B — False (calculated False)", { exact: true })
+    .waitFor();
+  await sourceContent
+    .getByRole("region", {
+      name: "CTI answer check for question 5",
+      exact: true,
+    })
+    .getByText("CTI answer: A — 15 hp (calculated 15 hp)", { exact: true })
+    .waitFor();
+  await sourceContent
+    .getByRole("region", {
+      name: "CTI answer check for question 6",
+      exact: true,
+    })
+    .getByText("No exact choice matches.", { exact: false })
+    .waitFor();
+  const profitCheck = sourceContent.getByRole("region", {
+    name: "CTI answer check for question 7",
+    exact: true,
+  });
+  await profitCheck
+    .getByText("The prompt does not say whether profit", { exact: false })
+    .waitFor();
+  await sourceContent
+    .getByRole("region", {
+      name: "CTI answer check for question 9",
+      exact: true,
+    })
+    .getByText("297.36 rpm", { exact: false })
+    .waitFor();
+  for (const text of [
+    "CTI answer: B — 9.6",
+    "CTI answer: B — False",
+    "CTI answer: A — 15 hp",
+    "297.36 rpm",
+    "markup on cost",
+  ])
+    assert(copiedQuestions.includes(text), text);
+  await profitCheck.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "/tmp/cti-owner-actions/percentage-review-desktop.png",
+  });
   assert.match(copiedQuestions, /Source question 10/);
   assert.match(
     copiedQuestions,
@@ -665,6 +756,14 @@ try {
   await mathCheck.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: "/tmp/cti-owner-actions/cti-answer-check-mobile.png",
+  });
+  await percentageCheck.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "/tmp/cti-owner-actions/percentage-answer-mobile.png",
+  });
+  await profitCheck.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "/tmp/cti-owner-actions/percentage-review-mobile.png",
   });
   assert(
     await page.evaluate(

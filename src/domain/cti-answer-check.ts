@@ -1,5 +1,11 @@
 import type { ContentQuestion } from "./content-evidence.ts";
 import {
+  solvePercentagePrompt,
+  type PercentageCalculation,
+  type NumericCalculation,
+  type BooleanCalculation,
+} from "./percentage-math.ts";
+import {
   equal,
   exactMath,
   formatExact,
@@ -10,7 +16,7 @@ import {
   type Rational,
 } from "./exact-math.ts";
 
-export const CTI_ANSWER_VERSION = "exact-math-1";
+export const CTI_ANSWER_VERSION = "exact-math-2";
 export interface CtiAnswerCheck {
   version: string;
   status: "CALCULATED" | "NEEDS_REVIEW";
@@ -26,7 +32,11 @@ const reviewAction =
   "Review the question against the lesson or an authoritative reference with a subject reviewer. Record the reference, proposed answer and reason under Record the outcome; use Blocked — need help while a decision is pending.";
 const conflictAction =
   "Record the captured key, CTI calculation and proposed correction under Record the outcome. Use Blocked — need help while the course owner's decision is pending; after editing, use Changed — needs verification and verify the shell. CTI does not notify the owner.";
-function review(reason: string, working = ""): CtiAnswerCheck {
+function review(
+  reason: string,
+  working = "",
+  nextAction = reviewAction,
+): CtiAnswerCheck {
   return {
     version: CTI_ANSWER_VERSION,
     status: "NEEDS_REVIEW",
@@ -34,7 +44,7 @@ function review(reason: string, working = ""): CtiAnswerCheck {
     working: working || reason,
     comparison: "UNVERIFIED",
     comparisonReason: reason,
-    nextAction: reviewAction,
+    nextAction,
   };
 }
 const number = "[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)";
@@ -62,14 +72,9 @@ function precision(text: string): number | null {
 }
 /** This function sees prompt text ONLY, never keys, feedback or options. Full
  * anchored grammars prevent solving a numeric substring of a different task. */
-function solvePrompt(
-  prompt: string,
-): {
-  value: Rational;
-  text: string;
-  working: string;
-  percentAnswer?: boolean;
-} | null {
+function solvePrompt(prompt: string): PercentageCalculation | null {
+  const percentage = solvePercentagePrompt(prompt);
+  if (percentage) return percentage;
   let p = normalizeMath(prompt)
       .replace(/\s+/g, " ")
       .replace(/[?.]$/, "")
@@ -131,6 +136,7 @@ function solvePrompt(
     if (places !== null) return null;
     const value = exactMath(`${match[1]} / ${match[2]}`);
     return {
+      kind: "number",
       value,
       percentAnswer: true,
       text: `${formatExact(operate(value, "*", rational(100n)))}%`,
@@ -147,20 +153,26 @@ function solvePrompt(
   if (places !== null) {
     const rounded = roundExact(value, places);
     return {
+      kind: "number",
       ...rounded,
       working: `${expr} = ${formatExact(value)}; rounded to ${places >= 0 ? `${places} decimal places` : `the nearest ${10 ** -places}`} gives ${rounded.text}.`,
     };
   }
   return {
+    kind: "number",
     value,
     text: formatExact(value),
     working: `${expr} = ${formatExact(value)}. Standard order of operations; exact rational arithmetic.`,
   };
 }
-/** A choice must be a standalone numeric value/fraction/percentage. We never
- * discard units, prose, labels, precision rules or choose the nearest option. */
-function numericChoice(text: string): Rational | null {
-  const t = normalizeMath(text);
+/** Only remove the exact unit established by the prompt. Other units, omitted
+ * units, prose and implicit conversion remain unsupported. */
+function numericChoice(text: string, unit = ""): Rational | null {
+  let t = normalizeMath(text);
+  if (unit) {
+    if (!t.toLowerCase().endsWith(" " + unit)) return null;
+    t = t.slice(0, -(unit.length + 1)).trim();
+  }
   if (t.includes("/") && t.includes("%")) return null;
   if (!new RegExp(`^(?:${number})(?:\\s*\/\\s*(?:${number}))?%?$`).test(t))
     return null;
@@ -172,9 +184,8 @@ function numericChoice(text: string): Rational | null {
 }
 function compareKey(
   q: ContentQuestion,
-  value: Rational,
+  solved: NumericCalculation | BooleanCalculation,
   selected: number | null,
-  percentAnswer = false,
 ): Pick<CtiAnswerCheck, "comparison" | "comparisonReason"> {
   const unknown = {
     comparison: "UNVERIFIED" as const,
@@ -197,15 +208,24 @@ function compareKey(
           i === Number(h5p[1]) - 1 && o.text === h5p[2] ? [i] : [],
         )
       : q.options.flatMap((o, i) =>
-          o.id === answer || o.text.trim() === answer ? [i] : [],
+          o.id === answer ||
+          o.text.trim() === answer ||
+          (solved.kind === "boolean" &&
+            /^(true|false)$/i.test(answer) &&
+            o.text.trim().toLowerCase() === answer.toLowerCase())
+            ? [i]
+            : [],
         );
     if (indices.length !== 1 || selected === null) return unknown;
     agrees = indices[0] === selected;
+  } else if (solved.kind === "boolean") {
+    if (!/^(true|false)$/i.test(answer)) return unknown;
+    agrees = (answer.toLowerCase() === "true") === solved.value;
   } else {
-    if (percentAnswer && !answer.endsWith("%")) return unknown;
-    const parsed = numericChoice(answer);
+    if (solved.percentAnswer && !answer.endsWith("%")) return unknown;
+    const parsed = numericChoice(answer, solved.unit);
     if (!parsed) return unknown;
-    agrees = equal(parsed, value);
+    agrees = equal(parsed, solved.value);
   }
   return {
     comparison: agrees ? "AGREES" : "CONFLICT",
@@ -226,7 +246,7 @@ export function ctiAnswerCheck(q: ContentQuestion): CtiAnswerCheck {
   if (
     q.media.length ||
     q.limitations.some((l) =>
-      /prompt.*(?:truncat|not captured)|choice.*(?:unverified|truncat)|only the first.*choices|mathematical markup/i.test(
+      /prompt.*(?:truncat|not captured)|choice.*(?:unverified|truncat)|only the first.*choices|mathematical markup|media.*incomplete/i.test(
         l,
       ),
     )
@@ -234,11 +254,7 @@ export function ctiAnswerCheck(q: ContentQuestion): CtiAnswerCheck {
     return review(
       "Question text, choices or referenced media require inspection before an independent answer can be given.",
     );
-  if (
-    /true.?false|blanks|essay|matching|multiple.?response|multi.?select/i.test(
-      q.type,
-    )
-  )
+  if (/blanks|essay|matching|multiple.?response|multi.?select/i.test(q.type))
     return review(
       "This question format needs a subject review; CTI does not infer its response rules.",
     );
@@ -252,10 +268,32 @@ export function ctiAnswerCheck(q: ContentQuestion): CtiAnswerCheck {
   }
   if (!solved)
     return review(
-      "No independent answer available: this non-math or unsupported question needs subject knowledge, context or a supported calculation. The captured key is evidence, not a second opinion.",
+      "CTI's independent checker does not yet support this wording or subject. This is a checking limitation, not evidence that extraction failed. The captured key is not an independent answer.",
+      "",
+      "Check the answer independently: use a calculation for math, or the lesson and an authoritative reference for subject questions. Record the reasoning under Record the outcome. Ask the course owner only if the answer or wording remains unclear.",
+    );
+  if (solved.kind === "review")
+    return review(solved.reason, solved.working, solved.nextAction);
+  const trueFalse = /true.?false/i.test(q.type);
+  if ((solved.kind === "boolean") !== trueFalse)
+    return review(
+      "The prompt calculation does not establish the response rules for this question type.",
+      solved.working,
     );
   let selected: number | null = null;
-  if (q.options.length) {
+  if (solved.kind === "boolean") {
+    const labels = q.options.map((o) => o.text.trim().toLowerCase());
+    if (
+      labels.length !== 2 ||
+      labels.filter((v) => v === "true").length !== 1 ||
+      labels.filter((v) => v === "false").length !== 1
+    )
+      return review(
+        "True/false choices must each be explicitly captured and unambiguous; CTI does not infer localized or missing labels.",
+        solved.working,
+      );
+    selected = labels.indexOf(String(solved.value));
+  } else if (q.options.length) {
     if (
       solved.percentAnswer &&
       q.options.some((o) => !o.text.trim().endsWith("%"))
@@ -264,11 +302,12 @@ export function ctiAnswerCheck(q: ContentQuestion): CtiAnswerCheck {
         "This question asks for a percentage, but the choices do not consistently state percent units. Review the intended format.",
         solved.working,
       );
-    const values = q.options.map((o) => numericChoice(o.text));
+    const values = q.options.map((o) => numericChoice(o.text, solved.unit));
     if (values.some((v) => v === null))
       return review(
         "One or more choices contain unsupported notation, units or wording; CTI cannot establish the correct choice.",
         solved.working,
+        "Confirm the intended units and complete choice wording before selecting an answer. CTI does not discard units or convert choices implicitly.",
       );
     const matches = values.flatMap((v, i) =>
       v && equal(v, solved!.value) ? [i] : [],
@@ -279,12 +318,15 @@ export function ctiAnswerCheck(q: ContentQuestion): CtiAnswerCheck {
           ? "More than one choice is mathematically equivalent. Review duplicated answers and response rules."
           : "No exact choice matches. CTI does not assume rounding or silently pick the closest choice.",
         solved.working,
+        matches.length
+          ? "Review the equivalent choices and intended response rules with the course owner before copying the key."
+          : "Confirm the intended rounding precision or correct the answer choices. Record that decision before copying the source key; CTI will not silently select the nearest option.",
       );
       return { ...result, answer: `Needs review — calculated ${solved.text}` };
     }
     selected = matches[0];
   }
-  const key = compareKey(q, solved.value, selected, solved.percentAnswer);
+  const key = compareKey(q, solved, selected);
   return {
     version: CTI_ANSWER_VERSION,
     status: "CALCULATED",

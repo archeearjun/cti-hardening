@@ -6,6 +6,7 @@ import {
 } from "./content-evidence.ts";
 import { ctiAnswerCheck } from "./cti-answer-check.ts";
 import { bankSettings } from "./h5p-definition-evidence.ts";
+import { supportedMathText } from "./supported-math-text.ts";
 import {
   validateSourceQuestionCapture,
   type SourceQuestionBank,
@@ -70,7 +71,11 @@ export function sourceBankQuestionInputs(bank: SourceQuestionBank) {
     mathNotationRisk:
       !Array.isArray(raw) ||
       !raw[i] ||
-      /<(?:math|svg)\b|\\\\[([]|\$\$/i.test(JSON.stringify(raw[i])),
+      /<(?:math|svg)\b|\\\\[([]|\$\$/i.test(
+        JSON.stringify(raw[i], (_key, value: unknown) =>
+          typeof value === "string" ? supportedMathText(value) : value,
+        ),
+      ),
   }));
 }
 export function sourceBankSettings(bank: SourceQuestionBank): string {
