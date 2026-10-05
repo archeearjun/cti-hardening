@@ -2,6 +2,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildOwnerTasks, needsOwnerAction } from "./owner-actions.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
+import { sourceIdentityMessage } from "./assignment-evidence.ts";
 
 export const CONTENT_MAP_AGENT =
   "https://chatgpt.com/g/g-69a5fdc3d3c081918683edd8a3c13e90-course-to-specialization-content-map-creator";
@@ -218,7 +219,10 @@ export function evaluateAssignment(
       );
     if (!sameSource)
       blockers.push(
-        "The source package differs from this audit. Compare against the current source.",
+        sourceIdentityMessage(
+          course.data.scan?.fileSha256,
+          audit.data.sourceScanSha256,
+        ),
       );
     if (!result?.ownerView || !tasks.length || result.success !== true)
       blockers.push(

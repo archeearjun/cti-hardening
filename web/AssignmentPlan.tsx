@@ -11,6 +11,12 @@ import {
 import type { WorkspaceRecord } from "../src/domain/workspace-types";
 import type { WorkspaceStore } from "../src/domain/workspace-store";
 import { download } from "./workspace-ui";
+import {
+  nextAssignmentStep,
+  sourceBaseline,
+  type PendingAssignmentEvidence,
+  type AssignmentAction,
+} from "../src/domain/assignment-evidence";
 const statusLabel = (value: string) =>
   (
     ({
@@ -34,6 +40,8 @@ export default function AssignmentPlanView({
   onSaved,
   onNavigate,
   onAudit,
+  pending,
+  onRescan,
 }: {
   course: WorkspaceRecord | null;
   records: WorkspaceRecord[];
@@ -42,6 +50,8 @@ export default function AssignmentPlanView({
   onSaved: (course: WorkspaceRecord) => Promise<void>;
   onNavigate: (tab: string) => void;
   onAudit: (audit: WorkspaceRecord) => void;
+  pending: PendingAssignmentEvidence;
+  onRescan: () => void;
 }) {
   const latest = course ? latestAssignmentAudit(course.id, records) : null;
   const [loaded, setLoaded] = useState<{
@@ -91,6 +101,22 @@ export default function AssignmentPlanView({
       </section>
     );
   const audit = loaded.audit;
+  const baseline = sourceBaseline(course.data.scan);
+  const next = nextAssignmentStep(course, audit, e, pending);
+  function openAction(action: AssignmentAction) {
+    if (action === "scan") onRescan();
+    else if (action === "source") onNavigate("Source LMS");
+    else if (action === "coursera") onNavigate("Extract");
+    else if (action === "compare") onNavigate("Compare");
+    else if (action === "worklist" && audit) onAudit(audit);
+    else {
+      const target = document.getElementById(
+        action === "review" ? "assignment-review" : "assignment-deliverable",
+      );
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.focus({ preventScroll: true });
+    }
+  }
   const readonly =
     disabled || saving || loaded.loading || !store || store.role === "viewer";
   async function save(
@@ -102,6 +128,10 @@ export default function AssignmentPlanView({
     setSaving(true);
     setMessage("");
     try {
+      if ((action === "review" || action === "approval") && pending.changed)
+        throw Error(
+          "Compare the selected files before recording a review or approval for the new evidence.",
+        );
       const currentRecords = await store.list();
       const currentAudit = latestAssignmentAudit(course.id, currentRecords);
       if (
@@ -179,6 +209,32 @@ export default function AssignmentPlanView({
         unchanged. CTI identifies work; you make and verify course edits in
         Coursera.
       </p>
+      {loaded.loading && (
+        <p role="status">Loading the latest saved comparison…</p>
+      )}
+      {loaded.error && (
+        <p role="alert">
+          Could not load the latest comparison: {loaded.error}. Readiness is
+          unverified.
+        </p>
+      )}
+      {message && <p role="status">{message}</p>}
+      {!loaded.loading &&
+        !loaded.error &&
+        (!latest ||
+          (audit?.id === latest.id && audit.version === latest.version)) && (
+          <section
+            className="assignment-next"
+            aria-label="Recommended next action"
+          >
+            <p className="eyebrow">YOUR NEXT ACTION</p>
+            <h3>{next.title}</h3>
+            <p>{next.detail}</p>
+            <button className="primary" onClick={() => openAction(next.action)}>
+              {next.button}
+            </button>
+          </section>
+        )}
       <label>
         Deliverable path
         <select
@@ -201,36 +257,94 @@ export default function AssignmentPlanView({
         A content map precedes the specialization outline; it does not require a
         separate repeat of source reconciliation.
       </p>
-      {loaded.loading && (
-        <p role="status">Loading the latest saved comparison…</p>
-      )}
-      {loaded.error && (
-        <p role="alert">
-          Could not load the latest comparison: {loaded.error}. Readiness is
-          unverified.
-        </p>
-      )}
-      {message && <p role="status">{message}</p>}
       <ol className="assignment-steps">
         <li>
-          <h3>Understand the source before import</h3>
+          <h3>Inspect what CTI obtained from the IMSCC</h3>
           <p>
-            Inspect the IMSCC, capture the source LMS, and identify expected
-            readings, questions, answer keys, attachments and interactive
-            resources. If a shell already exists, audit it before deciding to
-            reimport.
+            <strong>{baseline.label}.</strong>{" "}
+            {course.data.scan?.fileName || "No package selected"}
+            {course.data.scan?.scannedAt
+              ? ` · Scan recorded: ${new Date(course.data.scan.scannedAt).toLocaleString()}`
+              : ""}
           </p>
+          <p>
+            Explore the saved structure, text, question evidence and files.
+            Opening this view does not rescan the IMSCC or establish that it is
+            the latest source export. Coursera import results become available
+            after comparison.
+          </p>
+          {course.data.scan && (
+            <p>
+              {course.data.scan.moduleCount ?? "Unknown"} modules ·{" "}
+              {course.data.scan.stats?.totalItems ?? "Unknown"} source items
+              (not question count) · {course.data.scan.warnings?.length ?? 0}{" "}
+              scan warnings.
+            </p>
+          )}
           <button className="secondary" onClick={() => onNavigate("Explore")}>
             Explore source
+          </button>
+          <button className="secondary" disabled={disabled} onClick={onRescan}>
+            Rescan original IMSCC
+          </button>
+        </li>
+        <li>
+          <h3>Capture and inspect Brightspace</h3>
+          <p>
+            <strong>
+              {pending.source
+                ? `Selected for comparison: ${pending.source}`
+                : audit?.data.hashes?.brightspace
+                  ? "Source capture included in the latest saved comparison"
+                  : "No source capture recorded in the latest comparison"}
+              .
+            </strong>
+          </p>
+          <p>
+            Capture the matching source course before making manual Coursera
+            corrections. Use it to check live readings, questions, attachments
+            and interactive content that may be absent from the package. A
+            captured wrapper does not establish that its plugin was read.
+          </p>
+          {audit?.data.result?.liveSourceGroundTruth?.capturedAt && (
+            <p>
+              Saved source capture date:{" "}
+              {String(audit.data.result.liveSourceGroundTruth.capturedAt)} ·{" "}
+              {statusLabel(e.sourceStatus)}.
+            </p>
+          )}
+          <button
+            className="secondary"
+            onClick={() => onNavigate("Source LMS")}
+          >
+            Capture / inspect Brightspace
           </button>
         </li>
         <li>
           <h3>Capture and compare the imported shell</h3>
           <p>
+            <strong>
+              {pending.coursera
+                ? `Selected Coursera JSON: ${pending.coursera}`
+                : audit?.data.hashes?.json
+                  ? "Coursera capture included in the latest saved comparison"
+                  : "No full Coursera capture recorded in the latest comparison"}
+              .
+            </strong>
+          </p>
+          {pending.excel && <p>Selected XLSX: {pending.excel}.</p>}
+          <p>
             Import the IMSCC in Coursera if needed. Capture the shell and export
             its XLSX before manual edits; compare both with the source. Keep
             this baseline.
           </p>
+          {pending.changed && (
+            <p className="scope">
+              The selected files have not been saved in a new comparison. Keep
+              the downloaded files; a selection alone does not complete this
+              step.
+            </p>
+          )}
           <div className="action-links">
             <button className="secondary" onClick={() => onNavigate("Extract")}>
               Extract Coursera
@@ -241,7 +355,13 @@ export default function AssignmentPlanView({
           </div>
         </li>
         <li>
-          <h3>Reconcile source and Coursera</h3>
+          <h3>Your correction checklist</h3>
+          <p>
+            This is where CTI turns the comparison into item-specific work: what
+            to restore, correct, locate or verify, with source and Coursera
+            evidence where available. Flagged items are not automatically
+            confirmed defects.
+          </p>
           <p>
             Use the item worklist to decide what to restore, modify, relocate or
             inspect. Confirm the intended source match before deleting or
@@ -274,7 +394,9 @@ export default function AssignmentPlanView({
           </button>
         </li>
         <li>
-          <h3>Review reconciliation readiness</h3>
+          <h3 id="assignment-review" tabIndex={-1}>
+            Review reconciliation readiness
+          </h3>
           <dl className="assignment-evidence">
             <div>
               <dt>Capture assessment</dt>
@@ -303,6 +425,13 @@ export default function AssignmentPlanView({
                 <li key={b}>{b}</li>
               ))}
             </ul>
+          )}
+          {pending.changed && (
+            <p className="scope">
+              Compare the selected files before recording a new review or
+              approval. The readiness shown above refers to the latest saved
+              report.
+            </p>
           )}
           {e.reconciled ? (
             <div>
@@ -337,6 +466,7 @@ export default function AssignmentPlanView({
                   readonly ||
                   !!loaded.error ||
                   !e.canRecordReview ||
+                  pending.changed ||
                   note.trim().length < 20
                 }
                 onClick={() => void save("review")}
@@ -353,7 +483,7 @@ export default function AssignmentPlanView({
           </p>
         </li>
         <li>
-          <h3>
+          <h3 id="assignment-deliverable" tabIndex={-1}>
             {e.plan.route === "SPECIALIZATION"
               ? "Create and approve the content map, then build the outline"
               : "Prepare the course outline"}
@@ -433,6 +563,7 @@ export default function AssignmentPlanView({
                     disabled={
                       readonly ||
                       !e.reconciled ||
+                      pending.changed ||
                       mapNote.trim().length < 20 ||
                       !mapUrl.trim()
                     }

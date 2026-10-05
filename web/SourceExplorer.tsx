@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import EvidenceDetails from "./EvidenceDetails";
 import type { PackageNode, PackageScan } from "../src/domain/package-types";
+import { sourceBaseline } from "../src/domain/assignment-evidence";
 
 export default function SourceExplorer({ scan }: { scan: PackageScan }) {
+  const baseline = sourceBaseline(scan);
   const [query, setQuery] = useState("");
   const [type, setType] = useState("");
   const [limit, setLimit] = useState(40);
@@ -50,6 +52,13 @@ export default function SourceExplorer({ scan }: { scan: PackageScan }) {
           ? new Date(scan.scannedAt).toLocaleString()
           : "Scan date not recorded"}
       </p>
+      <p className="scope">
+        <strong>{baseline.label}.</strong>{" "}
+        {baseline.status === "historical"
+          ? "These are imported historical results. Rescan the original IMSCC to inspect it with the current scanner."
+          : "This view shows saved package evidence. Opening it does not rescan the file or check for a newer Brightspace export."}{" "}
+        Coursera import results appear after the source-to-Coursera comparison.
+      </p>
       <div className="metric-grid">
         <div>
           <strong>{scan.moduleCount ?? "—"}</strong>
@@ -57,7 +66,7 @@ export default function SourceExplorer({ scan }: { scan: PackageScan }) {
         </div>
         <div>
           <strong>{String(scan.stats?.totalItems ?? "—")}</strong>
-          <span>Source items</span>
+          <span>Source items (not question count)</span>
         </div>
         <div>
           <strong>{String(scan.stats?.ifs ?? "—")}</strong>

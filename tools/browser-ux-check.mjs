@@ -97,6 +97,11 @@ const courses = Array.from({ length: 62 }, (_, i) => {
   };
 });
 const workflows = createWorkflows(workerXml);
+// Imported source trees may have no original package fingerprint.
+courses[61].data.scan.fileSha256 = "";
+courses[61].data.scan.warnings = [
+  "Imported historical source tree; no new scan was performed.",
+];
 const audited = workflows.compare({ ...input, course: courses[0] });
 audited.result.ownerView.items[1].status = "EVIDENCE_NEEDED";
 audited.result.ownerView.items[1].actions = [
@@ -317,6 +322,117 @@ try {
   await page.getByText("Full entry evidence", { exact: true }).click();
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("source-desktop");
+
+  await page
+    .getByRole("button", {
+      name: "Next: capture Brightspace source",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByRole("heading", {
+      name: "Capture the Brightspace source",
+      exact: true,
+    })
+    .waitFor();
+  const sourceDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", {
+      name: "Download Brightspace extractor",
+      exact: true,
+    })
+    .click();
+  assert.match(
+    fs.readFileSync(await (await sourceDownload).path(), "utf8"),
+    /CTI Source LMS Ground-Truth Extractor/,
+  );
+  const sourceFile = page.getByLabel("Downloaded Brightspace source JSON", {
+    exact: true,
+  });
+  await sourceFile.setInputFiles({
+    name: "wrong-platform.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(localCapture)),
+  });
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Choose the full CTI Brightspace source JSON" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Use this source capture", exact: true })
+      .count(),
+    0,
+  );
+  await sourceFile.setInputFiles({
+    name: "brightspace-source.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        extractor: "CTI Brightspace v1.0.8",
+        schemaVersion: 2,
+        capturedAt: "2026-10-05T00:00:00Z",
+        course: { title: "Synthetic Brightspace source", orgUnitId: "123" },
+        contentTree: [],
+        quizzes: [{ name: "Quiz with unavailable definitions", questions: [] }],
+        captureWarnings: [
+          "Permission denied for quiz definitions; total unknown.",
+        ],
+      }),
+    ),
+  });
+  await page
+    .getByRole("heading", { name: "Synthetic Brightspace source", exact: true })
+    .waitFor();
+  assert(
+    await page
+      .getByRole("button", { name: "Use this source capture", exact: true })
+      .isDisabled(),
+  );
+  await page
+    .getByRole("checkbox", { name: /^I checked that this capture belongs to/ })
+    .check();
+  await page
+    .getByRole("button", { name: "Use this source capture", exact: true })
+    .click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Brightspace JSON selected for comparison" })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Return to assignment plan", exact: true })
+    .click();
+  await page
+    .getByRole("region", { name: "Recommended next action", exact: true })
+    .getByRole("button", { name: "Prepare and run comparison", exact: true })
+    .waitFor();
+  await page
+    .getByText("Selected for comparison: brightspace-source.json", {
+      exact: false,
+    })
+    .waitFor();
+  await tab("Compare");
+  await page
+    .getByText("Selected: brightspace-source.json", { exact: false })
+    .waitFor();
+
+  await courseSelect.selectOption(courses[61].id);
+  await waitIdle();
+  await tab("Assignment plan");
+  await page
+    .getByRole("button", { name: "Scan original IMSCC", exact: true })
+    .click();
+  await page
+    .getByText(`Rescan target: ${courses[61].title}`, { exact: true })
+    .waitFor();
+  await tab("Source LMS");
+  assert.equal(
+    await page.getByText("Source file selected:", { exact: false }).count(),
+    0,
+    "Source capture cannot follow a different course selection",
+  );
+  await courseSelect.selectOption(courses[0].id);
+  await waitIdle();
 
   await tab("Extract");
   await page
@@ -809,6 +925,7 @@ try {
     "Catalogue",
     "Explore",
     "Scan",
+    "Source LMS",
     "Extract",
     "Compare",
     "History",
@@ -831,6 +948,15 @@ try {
     .getByRole("heading", { name: "What do I need to do next?", exact: true })
     .scrollIntoViewIfNeeded();
   await shot("assignment-plan-mobile");
+  await tab("Source LMS");
+  await page
+    .getByRole("heading", {
+      name: "Capture the Brightspace source",
+      exact: true,
+    })
+    .scrollIntoViewIfNeeded();
+  await shot("source-capture-mobile");
+  await tab("Assignment plan");
   await page
     .getByRole("heading", {
       name: "Review reconciliation readiness",
@@ -1032,6 +1158,7 @@ try {
         checks: [
           "62-course pagination and combined filters",
           "source explorer with lazy evidence",
+          "historical source guidance, direct Brightspace download/inspection, staged-file feedback and course isolation",
           "zero-cost local Coursera extractor download and strict capture verification",
           "all comparison inputs reset across courses",
           "report focus and evidence-status filtering",
