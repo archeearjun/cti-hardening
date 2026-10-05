@@ -131,9 +131,14 @@ export function validateRefreshCapture(
       ? "The exact item editor was not fully observed."
       : questionGap
         ? "Question capture is incomplete; the previous saved questions were retained."
-        : diagnostics[0].stabilityTimedOut === true
-          ? "The item did not settle within the capture window."
-          : "";
+        : capture.payload.textCaptureTruncated === true ||
+            diagnostics[0].captureContract?.complete === false
+          ? "Item content capture is incomplete."
+          : diagnostics[0].stabilityTimedOut === true ||
+              diagnostics[0].itemAttemptDeadlineReached === true ||
+              capture.crawl?.timeBudgetExhausted === true
+            ? "The item did not settle within the capture window."
+            : "";
   return { capture, problem };
 }
 export function refreshedItemSummary(

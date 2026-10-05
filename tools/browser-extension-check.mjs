@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
+import { startExtensionFixture } from "./extension-fixture-server.mjs";
 
 // Real MV3 extension + built CTI app + maintained extractor. Only the external
 // Coursera service is replaced by a controlled authoring DOM/API fixture.
@@ -13,23 +14,35 @@ const profile = fs.mkdtempSync(
   path.join(os.tmpdir(), "cti-extension-browser-"),
 );
 const extension = path.resolve("src/generated/browser-extension");
-const context = await chromium.launchPersistentContext(profile, {
-  headless: true,
-  channel: "chromium",
-  ignoreDefaultArgs: ["--disable-extensions"],
-  ...(process.env.CTI_EXTENSION_CHROMIUM_PATH
-    ? { executablePath: process.env.CTI_EXTENSION_CHROMIUM_PATH }
-    : {}),
-  args: [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    ...(process.env.CTI_EXTENSION_SINGLE_PROCESS
-      ? ["--no-zygote", "--single-process", "--disable-gpu"]
-      : []),
-    `--disable-extensions-except=${extension}`,
-    `--load-extension=${extension}`,
-  ],
-});
+const state = { version: 1, mode: "ready" };
+const fixture = await startExtensionFixture(profile, state);
+const context = await chromium
+  .launchPersistentContext(profile, {
+    proxy: { server: fixture.proxy },
+    ignoreHTTPSErrors: true,
+    headless: true,
+    channel: "chromium",
+    ignoreDefaultArgs: ["--disable-extensions"],
+    ...(process.env.CTI_EXTENSION_CHROMIUM_PATH
+      ? { executablePath: process.env.CTI_EXTENSION_CHROMIUM_PATH }
+      : {}),
+    args: [
+      "--no-sandbox",
+      // Test-only TLS certificate; the proxy rejects all non-fixture origins.
+      "--ignore-certificate-errors",
+      "--disable-dev-shm-usage",
+      ...(process.env.CTI_EXTENSION_SINGLE_PROCESS
+        ? ["--no-zygote", "--single-process", "--disable-gpu"]
+        : []),
+      `--disable-extensions-except=${extension}`,
+      `--load-extension=${extension}`,
+    ],
+  })
+  .catch(async (error) => {
+    await fixture.close();
+    fs.rmSync(profile, { recursive: true, force: true });
+    throw error;
+  });
 const page = await context.newPage();
 page.setDefaultTimeout(15000);
 const errors = [];
@@ -53,64 +66,6 @@ const backup = {
   schemaVersion: 1,
   records: [input.course, audit],
 };
-let version = 1,
-  mode = "ready";
-const text = () =>
-  `Fresh saved reading revision ${version}. Measurement is a comparison of a quantity against a defined unit. Review this worked example carefully and use the exact units when calculating a result. This text is captured from the specific Reading Content field, not from course navigation.`;
-const csp = fs
-  .readFileSync("public/_headers", "utf8")
-  .split("\n")
-  .find((l) => l.includes("Content-Security-Policy:"))
-  .split("Content-Security-Policy: ")[1];
-await context.route(origin + "/**", async (route) => {
-  const u = new URL(route.request().url());
-  try {
-    const file = path.resolve(
-      "dist",
-      u.pathname === "/" ? "index.html" : "." + u.pathname,
-    );
-    if (!file.startsWith(path.resolve("dist") + path.sep)) throw Error("Path");
-    await route.fulfill({
-      body: fs.readFileSync(file),
-      contentType: file.endsWith(".js")
-        ? "text/javascript"
-        : file.endsWith(".css")
-          ? "text/css"
-          : file.endsWith(".zip")
-            ? "application/zip"
-            : "text/html",
-      headers: { "Content-Security-Policy": csp },
-    });
-  } catch {
-    await route.fulfill({ status: 404, body: "Not found" });
-  }
-});
-await context.route("https://www.coursera.org/**", async (route) => {
-  const u = new URL(route.request().url());
-  if (u.pathname.startsWith("/api/authoringCourseMaterials.v1/")) {
-    if (mode === "denied")
-      return route.fulfill({ status: 403, body: "Forbidden" });
-    return route.fulfill({
-      json: {
-        elements: [
-          {
-            id: "reading",
-            name: "Reading",
-            content: { typeName: "supplement" },
-          },
-        ],
-      },
-    });
-  }
-  if (u.pathname.startsWith("/api/"))
-    return route.fulfill({ status: 404, json: {} });
-  if (mode === "slow")
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-  await route.fulfill({
-    contentType: "text/html",
-    body: `<!doctype html><html><head><title>Reading</title></head><body><main><h1>Reading</h1><div contenteditable="true" role="textbox" aria-label="Reading Content" data-testid="course+reading" style="display:block;min-height:200px;padding:20px">${text()}</div></main></body></html>`,
-  });
-});
 const workflow = async (name) =>
   page
     .getByRole("navigation", { name: "CTI workflows" })
@@ -212,7 +167,7 @@ try {
   );
   // A second refresh really reads newly saved content, rather than replaying a
   // previous result or seeding the extractor with old payloads.
-  version = 2;
+  state.version = 2;
   await refresh
     .getByRole("button", { name: "Refresh this Coursera item", exact: true })
     .click();
@@ -238,7 +193,7 @@ try {
     /Fresh saved reading revision 2/,
   );
   // Permission failure retains saved revision 2 and returns to CTI.
-  mode = "denied";
+  state.mode = "denied";
   await refresh
     .getByRole("button", { name: "Refresh this Coursera item", exact: true })
     .click();
@@ -250,7 +205,7 @@ try {
     .getByRole("region", { name: "Coursera captured content", exact: true })
     .getByText(/Fresh saved reading revision 2\./)
     .waitFor();
-  mode = "slow";
+  state.mode = "slow";
   await refresh
     .getByRole("button", { name: "Refresh this Coursera item", exact: true })
     .click();
@@ -356,5 +311,6 @@ try {
   throw error;
 } finally {
   await context.close();
+  await fixture.close();
   fs.rmSync(profile, { recursive: true, force: true });
 }

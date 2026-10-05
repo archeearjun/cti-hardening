@@ -149,6 +149,10 @@ test("partial captures retain prior evidence rather than silently replacing a co
     (c) => (c.crawl.targetDiagnostics = []),
     (c) => (c.crawl.targetDiagnostics[0].id = "wrong"),
     (c) => (c.crawl.targetDiagnostics[0].stabilityTimedOut = true),
+    (c) => (c.crawl.targetDiagnostics[0].itemAttemptDeadlineReached = true),
+    (c) => (c.crawl.timeBudgetExhausted = true),
+    (c) => (c.payload.textCaptureTruncated = true),
+    (c) => (c.crawl.targetDiagnostics[0].captureContract = { complete: false }),
     (c) =>
       (c.payload.structuredAssessment.captureCompleteness.questionCoverageComplete = false),
   ]) {
