@@ -404,9 +404,26 @@ try {
               "cid-1": {
                 library: "H5P.QuestionSet 1.17",
                 jsonContent: JSON.stringify({
+                  randomQuestions: false,
+                  disableBackwardsNavigation: true,
+                  override: { retryButton: "on" },
                   questions: Array.from({ length: 10 }, (_, i) => ({
                     library: "H5P.MultiChoice 1.16",
-                    params: { question: "Source question " + (i + 1) },
+                    params: {
+                      question: "Source question " + (i + 1),
+                      answers: [
+                        {
+                          text: "Source correct choice " + (i + 1),
+                          correct: true,
+                          tipsAndFeedback: {
+                            tip: "Think about this question.",
+                            chosenFeedback: "Recorded source feedback.",
+                          },
+                        },
+                        { text: "Source incorrect choice", correct: false },
+                      ],
+                      behaviour: { randomAnswers: false, enableRetry: true },
+                    },
                   })),
                 }),
               },
@@ -486,6 +503,93 @@ try {
     await sourceContent.locator(".captured-questions > li").count(),
     10,
   );
+  const reuse = page.getByRole("region", {
+    name: "Source question reuse",
+    exact: true,
+  });
+  await reuse
+    .getByText("Source-marked answer keys: 10/10 captured.", { exact: false })
+    .waitFor();
+  await reuse
+    .getByRole("button", { name: "Copy questions and answers", exact: true })
+    .click();
+  const copiedQuestions = await page.evaluate(() =>
+    navigator.clipboard.readText(),
+  );
+  assert.match(copiedQuestions, /Source question 10/);
+  assert.match(
+    copiedQuestions,
+    /Source-marked answer: Choice 1: Source correct choice 10/,
+  );
+  assert.match(copiedQuestions, /Choice 1 hint: Think about this question/);
+  assert.match(copiedQuestions, /disableBackwardsNavigation\): true/);
+  assert.match(
+    copiedQuestions,
+    /correctness has not been independently checked/,
+  );
+  const definitionsEvent = page.waitForEvent("download");
+  await reuse
+    .getByRole("button", { name: "Download original definitions", exact: true })
+    .click();
+  const definitionsFile = await definitionsEvent;
+  const definitions = JSON.parse(
+    fs.readFileSync(await definitionsFile.path(), "utf8"),
+  );
+  assert.equal(
+    JSON.parse(definitions.bank.definitionJson).questions[9].params.answers[0]
+      .correct,
+    true,
+  );
+  const readableEvent = page.waitForEvent("download");
+  await reuse
+    .getByRole("button", {
+      name: "Download questions and answers",
+      exact: true,
+    })
+    .click();
+  const readableFile = await readableEvent;
+  assert.equal(
+    fs.readFileSync(await readableFile.path(), "utf8"),
+    copiedQuestions,
+  );
+  await page.evaluate(() => {
+    window.savedCtiClipboardWrite = navigator.clipboard.writeText;
+    navigator.clipboard.writeText = async () => {
+      throw Error("Clipboard permission denied");
+    };
+  });
+  await reuse
+    .getByRole("button", { name: "Copy questions and answers", exact: true })
+    .click();
+  await reuse
+    .getByRole("alert")
+    .filter({ hasText: "Could not copy" })
+    .waitFor();
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = window.savedCtiClipboardWrite;
+    delete window.savedCtiClipboardWrite;
+  });
+  await sourceContent
+    .getByRole("button", {
+      name: "Copy question 10 with captured answers",
+      exact: true,
+    })
+    .click();
+  assert.match(
+    await page.evaluate(() => navigator.clipboard.readText()),
+    /Source-marked answer: Choice 1: Source correct choice 10/,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await reuse.scrollIntoViewIfNeeded();
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    ),
+  );
+  await page.screenshot({
+    path: "/tmp/cti-owner-actions/source-answer-reuse-mobile.png",
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(
     await destinationContent.locator(".captured-questions > li").count(),
     2,
@@ -880,19 +984,17 @@ try {
       data: syllabusReport,
     };
     await tab("Setup");
-    await page
-      .getByLabel("Workspace migration or backup JSON")
-      .setInputFiles({
-        name: "syllabus.json",
-        mimeType: "application/json",
-        buffer: Buffer.from(
-          JSON.stringify({
-            kind: "CTI_BROWSER_WORKSPACE",
-            schemaVersion: 1,
-            records: [syllabusInput.course, syllabusAudit],
-          }),
-        ),
-      });
+    await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+      name: "syllabus.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify({
+          kind: "CTI_BROWSER_WORKSPACE",
+          schemaVersion: 1,
+          records: [syllabusInput.course, syllabusAudit],
+        }),
+      ),
+    });
     await page
       .getByRole("button", { name: "Import prepared records", exact: true })
       .click();
@@ -994,6 +1096,7 @@ try {
           "exports explicitly identify reports without follow-ups",
           "source count reference validation, persistence, scoped counts and exports",
           "automatic source fetch, failed refresh preserving previous source evidence, and exported bank count",
+          "source answer keys, hints, explicit settings, full-bank and single-question copy, original JSON and readable TXT downloads at desktop and 390px",
           "original extraction hash rejection/recovery; both content panes, question search, full content exports and previous observations",
           "390px layout",
           "contact template: passed text vs inherited readiness, actionable guidance first, no irrelevant question warnings, keyboard expansion and 390px layout",

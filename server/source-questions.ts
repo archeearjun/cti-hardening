@@ -158,7 +158,7 @@ export async function fetchSourceQuestions(
           ? "PARTIAL"
           : "UNVERIFIED",
       reason: complete
-        ? "Read complete H5P QuestionSet definition data from the recorded public source link. Learner launch, answer fidelity and interactions remain unverified."
+        ? "Read all H5P QuestionSet positions and retained the original authored definitions. Answer-key and feedback coverage are reported separately. Source-marked answers are not independently checked for correctness; learner launch and interactions remain unverified."
         : "Could not establish one complete supported H5P question bank. The page may require login, runtime loading, a different provider, or selection among multiple activities." +
           (partialFailure ? " " + partialFailure : ""),
       bank: complete ? unique[0] : null,
