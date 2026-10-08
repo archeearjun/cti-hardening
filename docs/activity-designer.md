@@ -23,8 +23,9 @@ edits. Files are processed in the operator's browser and saved by download. The
 operator deliberately submits packets to their own work-approved AI chat. No
 partner examples, captures, credentials or saved projects are included in the build.
 Deployment must retain CTI's existing hostname-wide Access policy; this change
-does not provision or expand that policy. Static access configuration has not been
-verified by a live authenticated test in this implementation.
+does not provision or expand that policy. On 2026-10-08, a signed-out browser
+reached the existing Cloudflare Access login screen at the production hostname.
+An authenticated production journey remains unverified.
 
 ## Operator flow
 
@@ -126,7 +127,13 @@ the basis of synthetic tests. PDFs provide text layers/link annotations only;
 diagrams, scanned images, plugins, hidden/randomized questions and external media
 may need bulk supplementation or review. No OCR/video understanding is claimed.
 
-The supplied Earthquakes IMSCC was unavailable, and current constituent-course
-XLSX/capture exports were not supplied. No live source equivalence or actual
-Earthquakes activity placements were verified. Keep the feature isolated for
-review until the live capture check and deployment Access check are completed.
+The Earthquakes IMSCC could not be read in the implementation session. It is now
+listed among the supplied files, but retrieval has not completed. Current
+constituent-course XLSX/capture exports were not supplied. No live source
+equivalence or actual Earthquakes activity placements were verified.
+
+The initial PR workflow passed all deterministic and browser checks. The tested
+workspace may ship as the explicitly labelled preview through CTI's normal checked
+pipeline, retaining existing Access and all evidence/copy gates. Live capture
+verification is required before describing option recovery or representative
+course coverage as established; preview availability does not imply that claim.
