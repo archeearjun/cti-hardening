@@ -494,6 +494,105 @@ try {
     path: path.join(screenshots, "pdf-packet.png"),
     fullPage: true,
   });
+  // Empty-editor holds must show source reconciliation even with no draft fields.
+  const heldSession = structuredClone(snapshot);
+  heldSession.courses[0].modules[0].lessons[0].items[0].external_resources = [
+    {
+      url: "https://example.test/book/?p=22#main",
+      status: "external_body_unread",
+      action: "Review the original resource.",
+    },
+  ];
+  const emptyItem = heldSession.courses[0].modules[0].lessons[0].items[1];
+  emptyItem.body_available = false;
+  emptyItem.capture_coverage = "observed_empty";
+  emptyItem.link =
+    "https://www.coursera.org/teach/test/b1/content/item/project/i2";
+  emptyItem.assessment_capture = null;
+  heldSession.sources[0].documents = heldSession.sources[0].documents.filter(
+    (d) => d.id !== "i2",
+  );
+  heldSession.sources[0].unread.push({
+    path: "coursera/b1/i2",
+    kind: "Assignment",
+    reason: "Observed-empty editor; source reconciliation needed.",
+    capture_state: "observed_empty",
+  });
+  const heldResult = structuredClone(result);
+  heldResult.activities[0].status = "hold";
+  heldResult.activities[0].fields = [];
+  heldResult.activities[0].minutes = 0;
+  heldResult.module_decisions[0].decision = "hold";
+  const heldPage = await context.newPage();
+  heldPage.on("pageerror", (e) => errors.push(e.message));
+  await heldPage.goto(page.url());
+  await heldPage.waitForFunction(() => !!globalThis.CoursePrepUI);
+  await heldPage.locator("#file-input").setInputFiles({
+    name: "SESSION.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(heldSession)),
+  });
+  await heldPage.locator("#process").click();
+  await heldPage.waitForFunction(
+    () =>
+      document.querySelector("#progress-label").textContent ===
+      "Preparation complete",
+  );
+  await heldPage.locator("#nav-activities").click();
+  await heldPage.locator("#paste-result summary").click();
+  const preparedHold = await heldPage.evaluate(() => CoursePrepUI.getSession());
+  heldResult.bundle_created_at = preparedHold.created_at;
+  heldResult.mode = preparedHold.phase;
+  heldResult.title = preparedHold.title;
+  await heldPage.locator("#result-json").fill(JSON.stringify(heldResult));
+  await heldPage.locator("#import-result").click();
+  assert.equal(await heldPage.locator("#result-error").isVisible(), false);
+  const heldText = await heldPage.locator("#activity-cards").innerText();
+  assert(
+    heldText.includes("What to do next") &&
+      heldText.includes("Source reconciliation needed"),
+  );
+  assert(
+    heldText.includes("Time not estimated") &&
+      !heldText.includes("Estimated 0 min"),
+  );
+  assert.equal(
+    await heldPage
+      .getByRole("link", { name: "Open Quiz (i2)", exact: true })
+      .getAttribute("href"),
+    emptyItem.link,
+  );
+  assert.equal(
+    await heldPage
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  await heldPage
+    .getByText("Embedded resources need separate review (1 items)", {
+      exact: true,
+    })
+    .click();
+  assert.equal(
+    await heldPage
+      .getByRole("link", { name: "Open embedded resource", exact: true })
+      .getAttribute("href"),
+    "https://example.test/book/?p=22#main",
+  );
+  await heldPage.screenshot({
+    path: path.join(screenshots, "observed-empty-desktop.png"),
+    fullPage: true,
+  });
+  await heldPage.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await heldPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    ),
+  );
+  await heldPage.screenshot({
+    path: path.join(screenshots, "observed-empty-mobile.png"),
+    fullPage: true,
+  });
   assert.deepEqual(errors, []);
   assert(
     requests

@@ -1,6 +1,6 @@
 (function (root) {
   "use strict";
-  const VERSION = "2.2.0";
+  const VERSION = "2.2.1";
   const LIMITS = {
     input: 500 * 1024 ** 2,
     entry: 32 * 1024 ** 2,
@@ -842,6 +842,23 @@
                 "Duplicate or missing item identity in a saved course.",
               );
             ids.add(i.id);
+            if (i.capture_coverage === "observed_empty" && i.body_available)
+              throw Error(
+                "Saved observed-empty item contradicts its readable body.",
+              );
+            if (i.external_resources !== undefined) {
+              array(i.external_resources, "external resources", 256);
+              for (const resource of i.external_resources) {
+                if (
+                  !resource ||
+                  typeof resource.url !== "string" ||
+                  resource.status !== "external_body_unread" ||
+                  (resource.url &&
+                    !root.CourseCtiAdapter.externalUrl(resource.url))
+                )
+                  throw Error("Invalid saved external resource evidence.");
+              }
+            }
           }
         }
       }
@@ -1067,6 +1084,7 @@
                       body_available: evidence?.body_available || false,
                       capture_coverage: evidence?.capture_coverage || "unread",
                       assessment_capture: evidence?.assessment_capture || null,
+                      external_resources: evidence?.external_resources || [],
                       notes: evidence?.notes || [
                         "No captured body for this exported item.",
                       ],

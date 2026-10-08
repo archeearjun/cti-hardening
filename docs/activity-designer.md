@@ -130,12 +130,11 @@ rendered prompts/options, read-only traversal, wrong redirects, actual PDF.js
 text extraction, packet search, ZIP recovery, literal HTML rendering and desktop/
 mobile layouts. They do not authenticate to Coursera or certify live extraction.
 
-The latest supplied 1.2.1 capture contains 96 items: 49 with readable text and
+The previously supplied 1.2.1 capture contains 96 items: 49 with readable text and
 47 unread; only 4 of 26 assessment items have text. Its inspected quiz has 10
 captured prompts and 34 captured option texts matching 34 visible choice
 controls. This verifies those visible counts in that supplied capture, not all
-hidden/randomized questions. The new canonical capture has not been run in the
-operator's authenticated live course during this repair.
+hidden/randomized questions. A later user-supplied canonical capture was reviewed in the semantics follow-up linked below; the implementation session did not itself sign into the live LMS.
 
 PDFs provide text layers/link annotations; original PDFs are now preserved where
 already fetched successfully (8 MiB aggregate byte archive, 30 MiB saved-session
@@ -159,3 +158,5 @@ verification is required before describing option recovery or representative
 course coverage as established; preview availability does not imply that claim.
 
 Latest implementation findings and checks: [Activity evidence repair, 2026-10-08](audits/activity-evidence-repair-2026-10-08.md).
+
+Latest capture-state follow-up: [Activity capture semantics, 2026-10-08](audits/activity-capture-semantics-2026-10-08.md). Observed-empty destination practice needs source reconciliation; a learner-text receipt is separate from answer/configuration and source-equivalence checks.

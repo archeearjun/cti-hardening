@@ -6,7 +6,7 @@ assert.deepEqual(capture.items.map(x=>x.id),['i1','i2','i3']);assert.deepEqual(c
 const payload={body:{text:'A taught concept.'},questions:[{prompt:'Explain the decision.',choices:[{text:'Option A',isCorrect:true},{text:'Option B',isCorrect:false}],correctAnswer:{text:'SECRET_KEY'},feedback:{text:'SECRET_FEEDBACK'}}],token:{text:'SECRET_TOKEN'},student:{text:'SECRET_PERSON'}};
 const blocks=S.fields(payload);assert(blocks.some(b=>b.text==='A taught concept.'));assert(blocks.some(b=>b.text==='Explain the decision.'));assert(blocks.some(b=>b.text==='Option A'));assert(!JSON.stringify(blocks).includes('SECRET_'));
 capture.items[0].blocks=blocks.filter(x=>x.kind==='teaching');capture.items[0].coverage='partial';capture.items[1].blocks=blocks.filter(x=>x.kind==='assessment');capture.items[1].coverage='partial';capture.status='finished';
-S.validate(capture);assert.deepEqual(S.summary(capture),{items:3,with_text:2,unread:1,quizzes:1,assessments_with_text:1});
+S.validate(capture);assert.deepEqual(S.summary(capture),{items:3,with_text:2,unread:1,observed_empty:0,quizzes:1,assessments_with_text:1});
 assert.equal(S.textQuality('[TEACHING | Editor / Content]\n\u200b\n/ 0\n100%\nLoading...').readable,false);
 assert.equal(S.textQuality('/ 6\n100%\nA lesson about mass.').readable,true);
 assert.equal(S.textQuality('1/2').readable,true);assert.equal(S.textQuality('Loading a truck safely requires a plan.').readable,true);

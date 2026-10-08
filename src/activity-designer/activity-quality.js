@@ -57,8 +57,12 @@
     );
     const items = m?.lessons.flatMap((l) => l.items) || [];
     const assessments = items.filter(practice);
+    const empty = assessments.filter(
+      (i) => i.capture_coverage === "observed_empty",
+    );
     const unread = assessments.filter(
       (i) =>
+        i.capture_coverage !== "observed_empty" &&
         !source(session, `coursera/${c.branch_id}/${i.id}`).readable &&
         !i.body_available,
     );
@@ -75,25 +79,48 @@
             q.options_captured < q.choice_controls_seen))
       );
     });
-    return { course: c, module: m, items, assessments, unread, incomplete };
+    const external = items.filter((i) => i.external_resources?.length);
+    return {
+      course: c,
+      module: m,
+      items,
+      assessments,
+      empty,
+      unread,
+      incomplete,
+      external,
+    };
+  }
+  function recovery(session, placement) {
+    const cv = coverage(session, placement),
+      messages = [];
+    const names = (items) =>
+      items.map((i) => `${i.title} (${i.id})`).join(", ");
+    if (cv.empty.length)
+      messages.push(
+        "Source reconciliation needed: Coursera editors were observed empty for " +
+          names(cv.empty) +
+          ". Compare these items with the source LMS/IMSCC, restore intended practice or resolve its scope, then capture after changes. Repeating capture on the unchanged empty editors will not recover missing source content.",
+      );
+    if (cv.unread.length)
+      messages.push(
+        "Read existing practice before using this draft: " +
+          names(cv.unread) +
+          ". Open the exact items to inspect their learner content. Capture again after resolving the recorded loading/content issue, or supply the original resource. Unread is not absent.",
+      );
+    if (cv.incomplete.length)
+      messages.push(
+        "Question/option coverage is incomplete for " +
+          names(cv.incomplete) +
+          ". Capture the missing visible prompts or applicable choices before deciding this adds new practice. Text-entry questions do not require options.",
+      );
+    return messages;
   }
   function problems(a, session) {
     if (a.status !== "draft") return [];
-    const issues = [],
+    const issues = recovery(session, a.placement),
       d = a.design;
     const cv = coverage(session, a.placement);
-    if (cv.unread.length)
-      issues.push(
-        "Read existing practice before using this draft: " +
-          cv.unread.map((i) => `${i.title} (${i.id})`).join(", ") +
-          ". Run a fresh CTI capture; unread is not absent.",
-      );
-    if (cv.incomplete.length)
-      issues.push(
-        "Question/option coverage is incomplete for " +
-          cv.incomplete.map((i) => `${i.title} (${i.id})`).join(", ") +
-          ". Capture the missing visible prompts/options before deciding this adds new practice.",
-      );
     if (!d) {
       issues.push(
         "Regenerate with the current AI packet: this result lacks its case facts, interaction plan, observable criteria and comparison with existing practice.",
@@ -194,5 +221,5 @@
       );
     return [...new Set(issues)];
   }
-  root.ActivityQuality = { source, coverage, problems, practice };
+  root.ActivityQuality = { source, coverage, recovery, problems, practice };
 })(globalThis);

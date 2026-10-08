@@ -499,7 +499,7 @@
     const gaps = attention(s);
     const shell = s.sources.filter((x) => x.kind === "captured_shell");
     $("coverage-message").textContent = shell.length
-      ? `${shell.reduce((n, x) => n + x.documents.filter((d) => CourseShell.textQuality(d.text).readable).length, 0)} shell items have non-placeholder text; ${shell.reduce((n, x) => n + x.unread.length + x.documents.filter((d) => !CourseShell.textQuality(d.text).readable).length, 0)} have no readable body. Assessments with text: ${shellAssessments.filter((id) => shellRead.has(id)).length}/${shellAssessments.length}. Text presence does not certify full document pages, questions or media. Review the gaps below.`
+      ? `${shell.reduce((n, x) => n + x.documents.filter((d) => CourseShell.textQuality(d.text).readable).length, 0)} shell items have non-placeholder text; ${shell.reduce((n, x) => n + x.unread.length + x.documents.filter((d) => !CourseShell.textQuality(d.text).readable).length, 0)} have no readable body (${shell.reduce((n, x) => n + x.unread.filter((u) => u.capture_state === "observed_empty").length, 0)} observed-empty editors needing source reconciliation). Assessments with text: ${shellAssessments.filter((id) => shellRead.has(id)).length}/${shellAssessments.length}. Text presence does not certify full document pages, questions or media. Review the gaps below.`
       : st.documents
         ? `${st.documents} source documents captured. ${st.unread} archive entries unread; ${st.external} external links not fetched. ${st.matched} target items have unique title candidates—these still need content-based verification.`
         : "No source teaching documents were captured. Your AI chat can review available structure and references, but cannot verify lesson-level fit from exports alone.";
@@ -548,11 +548,22 @@
           for (const item of lesson.items) {
             const entry = el("li", item.title);
             const metrics = item.assessment_capture;
-            if (metrics)
+            if (item.capture_coverage === "observed_empty")
               entry.append(
                 el(
                   "p",
-                  `Captured prompts: ${metrics.prompts_captured ?? "unknown"} / ${metrics.visible_question_headers ?? metrics.declared_questions ?? "unknown"} observed or declared. Captured options: ${metrics.options_captured ?? "unknown"} / ${metrics.choice_controls_seen ?? "unknown"} visible controls. Completeness unverified.`,
+                  "Coursera editor observed empty. Compare with source LMS/IMSCC and restore intended practice or resolve scope before designing additions.",
+                  "small",
+                ),
+              );
+            else if (metrics)
+              entry.append(
+                el(
+                  "p",
+                  `Captured prompts: ${metrics.prompts_captured ?? "unknown"} / ${metrics.visible_question_headers ?? metrics.declared_questions ?? "unknown"} observed or declared. Captured options: ${metrics.options_captured ?? "unknown"}. ` +
+                    (metrics.completeness === "learner_text_captured"
+                      ? "Declared learner text captured; text-entry questions need no options. Media, configuration and source equivalence remain unverified."
+                      : `Visible choice controls: ${metrics.choice_controls_seen ?? "unknown"}. Learner-text completeness unverified.`),
                   "small",
                 ),
               );
@@ -562,7 +573,9 @@
                   "span",
                   item.body_available
                     ? " · Text present; completeness unverified"
-                    : " · Body not captured",
+                    : item.external_resources?.length
+                      ? " · Embedded resource unread; separate resource review needed"
+                      : " · Body not captured",
                   "small",
                 ),
               );

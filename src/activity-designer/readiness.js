@@ -100,11 +100,11 @@
             items.some(
               (i) =>
                 !i.assessment_capture ||
-                i.assessment_capture.completeness !== "complete",
+                i.assessment_capture.completeness !== "learner_text_captured",
             )
           )
             warnings.push(
-              "Relevant assessment coverage is not certified complete. Verify the non-duplication decision before implementation.",
+              "Some existing practice lacks verified learner-text coverage. Review the recorded gaps before deciding this adds new practice.",
             );
         }
       }
@@ -123,14 +123,22 @@
           );
         else if (!resolved.readable) {
           const message =
-            "Known item has no readable body: " +
-            e.source_path +
-            ". Capture or inspect this item before using it as evidence.";
+            resolved.item?.capture_coverage === "observed_empty"
+              ? "Observed-empty Coursera editor: " +
+                e.source_path +
+                ". Reconcile intended practice with the source LMS/IMSCC; this is not an unread editor."
+              : "Known item has no readable body: " +
+                e.source_path +
+                ". Capture or inspect this item before using it as evidence.";
           if (activity.status === "draft" && e.purpose !== "gap")
             blocking.push(message);
           else warnings.push(message);
         }
       }
+      // Held proposals need the same concrete recovery instructions as drafts.
+      blocking.push(
+        ...root.ActivityQuality.recovery(session, activity.placement),
+      );
       blocking.push(...root.ActivityQuality.problems(activity, session));
       if (!readableTeaching)
         blocking.push(
