@@ -24,6 +24,12 @@ local bulk evidence, compact packets for an approved AI chat, validated result
 cards and downloadable saved work. It does not call a model API or edit Coursera.
 Live capture coverage still requires verification; it is not generally certified.
 
+The deployed site reserves the full CTI workspace for the verified Cloudflare
+Access identity `aarjun@coursera.org`. Other permitted signed-in users see only
+Role Play & Dialogue. The server also blocks their direct requests to private
+pages, assets, downloads and APIs. See [site access](docs/site-access.md) for
+configuration, verification and the limits of this restriction.
+
 **Migration status:** the active application now has a working current
 implementation, architecture-appropriate replacement, or explicit retirement for
 every audited Apps Script function group and declared legacy capability. The
@@ -91,7 +97,7 @@ captures are never committed to this public repository.
 
 After both deterministic and built-browser checks pass on `main`, CI
 fast-forwards the same commit to the existing Pages production branch. It refuses to overwrite divergent work. Cloudflare's
-Git integration then builds the app and `/functions/api` service. Check its
+Git integration then builds the app, site-wide access middleware and API service. Check its
 separate deployment result before treating a commit as live.
 
 Follow [shared workspace setup](docs/shared-workspace-setup.md) for Cloudflare

@@ -4,7 +4,12 @@ import {
   normalizePartnerName,
   packageSemanticKey,
 } from "../src/domain/operations.ts";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import {
+  authenticateAccess,
+  isCtiOwner,
+  requireCtiOwner,
+  type AccessAuthenticator,
+} from "./access.ts";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
 interface Statement {
   bind(...values: unknown[]): Statement;
@@ -27,7 +32,6 @@ export interface Environment {
   CTI_EDITORS?: string;
   CTI_EXTRACTOR?: ServiceFetcher;
 }
-const keys = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const list = (value = "") =>
   value
     .toLowerCase()
@@ -46,48 +50,6 @@ const response = (data: unknown, status = 200) =>
 const fail = (message: string, status = 400) => {
   throw Object.assign(new Error(message), { status });
 };
-async function authenticate(request: Request, env: Environment) {
-  const issuer = env.CTI_ACCESS_ISSUER?.replace(/\/$/, "");
-  if (
-    !env.CTI_DB ||
-    !issuer ||
-    !/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(issuer) ||
-    !env.CTI_ACCESS_AUD ||
-    !list(env.CTI_ADMINS).length
-  )
-    fail(
-      "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",
-      503,
-    );
-  const token = request.headers.get("Cf-Access-Jwt-Assertion");
-  if (!token) fail("Sign in through the configured team site.", 401);
-  let payload;
-  try {
-    let jwks = keys.get(issuer!);
-    if (!jwks) {
-      jwks = createRemoteJWKSet(new URL(issuer + "/cdn-cgi/access/certs"));
-      keys.set(issuer!, jwks);
-    }
-    payload = (
-      await jwtVerify(token!, jwks, {
-        issuer,
-        audience: env.CTI_ACCESS_AUD,
-        algorithms: ["RS256"],
-      })
-    ).payload;
-  } catch {
-    fail("Your sign-in token is invalid or expired.", 401);
-  }
-  const email = String(payload!.email || "").toLowerCase();
-  if (!email || !payload!.sub)
-    fail("A verified user identity is required.", 401);
-  const role = list(env.CTI_ADMINS).includes(email)
-    ? "admin"
-    : list(env.CTI_EDITORS).includes(email)
-      ? "editor"
-      : "viewer";
-  return { email, role };
-}
 async function boundedBody(request: Request, limit: number) {
   const reader = request.body?.getReader();
   if (!reader) return new Uint8Array();
@@ -122,10 +84,7 @@ const sha = async (bytes: Uint8Array) =>
 const PACKAGE_IDENTITY_ACTOR = "__cti_package_identity__";
 const PACKAGE_IDENTITY_COMMITTED = 2;
 
-async function packageIdentityClaimId(
-  partnerKey: string,
-  semanticKey: string,
-) {
+async function packageIdentityClaimId(partnerKey: string, semanticKey: string) {
   const digest = await sha(
     new TextEncoder().encode(partnerKey + "\u0000" + semanticKey),
   );
@@ -170,8 +129,7 @@ async function acquirePackageIdentityClaim(
     )
     .run();
   const claim = await readPackageIdentityClaim(db, claimId);
-  if (!claim)
-    fail("Package identity claim could not be verified.", 500);
+  if (!claim) fail("Package identity claim could not be verified.", 500);
   return {
     id: claimId,
     created: created.meta.changes === 1,
@@ -196,30 +154,50 @@ async function releasePackageIdentityClaim(
     )
     .run();
 }
-export async function handleApi(
-  request: Request,
-  env: Environment,
-): Promise<Response> {
-  try {
-    const user = await authenticate(request, env);
-    return await handleAuthorized(
-      request,
-      env.CTI_DB!,
-      user,
-      env.CTI_EXTRACTOR,
-    );
-  } catch (error) {
-    return response(
-      {
-        error:
-          error instanceof Error ? error.message : "Workspace request failed.",
-      },
-      Number((error as { status?: number }).status) || 500,
-    );
-  }
+export function createApiHandler(
+  authenticate: AccessAuthenticator = authenticateAccess,
+) {
+  return async (request: Request, env: Environment): Promise<Response> => {
+    try {
+      const identity = await authenticate(request, env);
+      if (
+        new URL(request.url).pathname === "/api/access" &&
+        request.method === "GET"
+      )
+        return response({ fullCti: isCtiOwner(identity) });
+      requireCtiOwner(identity);
+      if (!env.CTI_DB || !list(env.CTI_ADMINS).length)
+        fail(
+          "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",
+          503,
+        );
+      const role = list(env.CTI_ADMINS).includes(identity.email)
+        ? "admin"
+        : list(env.CTI_EDITORS).includes(identity.email)
+          ? "editor"
+          : "viewer";
+      return await handleAuthorized(
+        request,
+        env.CTI_DB!,
+        { ...identity, role },
+        env.CTI_EXTRACTOR,
+      );
+    } catch (error) {
+      return response(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Workspace request failed.",
+        },
+        Number((error as { status?: number }).status) || 500,
+      );
+    }
+  };
 }
+export const handleApi = createApiHandler();
 // Separate authenticated handler permits DB/concurrency testing. The deployed
-// entry point always verifies Access JWTs before reaching it.
+// entry point always verifies Access JWTs and the exact owner before reaching it.
 export async function handleAuthorized(
   request: Request,
   db: Database,
@@ -296,7 +274,10 @@ export async function handleAuthorized(
       redirect: "manual",
     };
     if (method !== "GET" && method !== "HEAD")
-      init.body = (await boundedBody(request, 256 * 1024)) as unknown as BodyInit;
+      init.body = (await boundedBody(
+        request,
+        256 * 1024,
+      )) as unknown as BodyInit;
     return extractor.fetch(new Request(target, init));
   }
   if (p[0] === "session" && method === "GET") return response(user);
@@ -536,7 +517,10 @@ export async function handleAuthorized(
       try {
         fullData = JSON.parse(new TextDecoder().decode(payloadBytes));
       } catch {
-        fail("Uploaded evidence is not valid JSON. Nothing has been saved.", 400);
+        fail(
+          "Uploaded evidence is not valid JSON. Nothing has been saved.",
+          400,
+        );
       }
       const r = JSON.parse(u.metadata) as WorkspaceRecord;
       try {
@@ -581,9 +565,7 @@ export async function handleAuthorized(
             )
           : "";
         const partnerKey = normalizePartnerName(data.partner);
-        const semanticKey = packageSemanticKey(
-          data.scan?.fileName || r.title,
-        );
+        const semanticKey = packageSemanticKey(data.scan?.fileName || r.title);
         const activatesIdentity =
           !currentPackage ||
           currentSummary.archived === true ||
@@ -619,9 +601,8 @@ export async function handleAuthorized(
               if (summary.archived === true) continue;
               if (
                 normalizePartnerName(summary.partner) === partnerKey &&
-                packageSemanticKey(
-                  summary.scan?.fileName || existing.title,
-                ) === semanticKey
+                packageSemanticKey(summary.scan?.fileName || existing.title) ===
+                  semanticKey
               )
                 fail(
                   "An active course with the same partner and semantic package identity already exists. Rescan that course or reconcile duplicates in Operations.",

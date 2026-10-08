@@ -1,3 +1,4 @@
+import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
 import { courseraPageKey } from "../src/domain/coursera-linked-content.ts";
 import { fetchSourceQuestions } from "../server/source-questions.ts";
 import fs from "node:fs";
@@ -57,6 +58,7 @@ const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
   permissions: ["clipboard-read", "clipboard-write"],
 });
+await ownerAccessFixture(context);
 const page = await context.newPage(),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));

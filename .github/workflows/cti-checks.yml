@@ -24,7 +24,7 @@ jobs:
 
   publish-pages-branch:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [deterministic, browser]
+    needs: [deterministic, browser, access-configuration]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,6 +41,21 @@ jobs:
           git merge-base --is-ancestor origin/codex/typescript-pages-migration HEAD
           git push origin HEAD:refs/heads/codex/typescript-pages-migration
 
+
+  access-configuration:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/owner-only-cti')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify production Access configuration before publishing
+        run: node tools/check-pages-access-config.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   browser:
     runs-on: ubuntu-latest
@@ -69,6 +84,8 @@ jobs:
         run: npm run test:browser:choices
       - name: Verify isolated activity designer and capture reader
         run: npm run test:browser:activities
+      - name: Verify owner-only CTI and colleague activity access
+        run: node tools/browser-site-access-check.mjs
       - name: Preserve browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,3 +97,4 @@ jobs:
             /tmp/cti-owner-actions
             /tmp/cti-extension-screenshots
             /tmp/cti-activity-screenshots
+            /tmp/cti-site-access

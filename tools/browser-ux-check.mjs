@@ -1,3 +1,4 @@
+import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
 import {
   buildOwnerTasks,
   needsOwnerAction,
@@ -53,6 +54,7 @@ const browser = await chromium.launch({
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1080 },
 });
+await ownerAccessFixture(context);
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
@@ -218,6 +220,8 @@ const shot = async (name) => {
 };
 try {
   await page.goto(base);
+  // Owner UI mounts after the server permission check and lazy bundle load.
+  await page.getByRole("navigation", { name: "CTI workflows" }).waitFor();
   await page.keyboard.press("Tab");
   assert.equal(
     await page

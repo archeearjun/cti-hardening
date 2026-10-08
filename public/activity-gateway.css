@@ -1,0 +1,84 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #17344a;
+  background: #f3f7fa;
+  font-size: 16px;
+  line-height: 1.6;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 1.2rem 5%;
+  background: white;
+  border-bottom: 1px solid #d8e3ed;
+}
+header a {
+  font-weight: 800;
+  color: #17344a;
+  text-decoration: none;
+}
+main {
+  width: min(900px, 90%);
+  margin: 3rem auto;
+}
+section {
+  background: white;
+  padding: clamp(1.3rem, 5vw, 3rem);
+  border: 1px solid #d8e3ed;
+  border-radius: 1rem;
+}
+.badge {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  background: #e8f2d4;
+  border-radius: 2rem;
+  color: #254918;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+h1 {
+  font-size: clamp(1.8rem, 5vw, 2.8rem);
+  line-height: 1.2;
+}
+p {
+  max-width: 65ch;
+}
+.action {
+  display: inline-block;
+  background: #075abd;
+  color: white;
+  padding: 0.8rem 1rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  font-weight: 700;
+  margin: 0.5rem 0;
+  min-height: 44px;
+}
+.note,
+.coming-soon {
+  color: #42586b;
+}
+.coming-soon {
+  padding: 1rem;
+}
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -100px;
+  background: white;
+  padding: 0.5rem;
+}
+.skip:focus {
+  top: 0;
+}
+:focus-visible {
+  outline: 3px solid #145bbb;
+  outline-offset: 4px;
+}
