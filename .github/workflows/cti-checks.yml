@@ -67,6 +67,8 @@ jobs:
         run: npm run test:browser:owner
       - name: Verify assessment choice layout in Chromium
         run: npm run test:browser:choices
+      - name: Verify isolated activity designer and capture reader
+        run: npm run test:browser:activities
       - name: Preserve browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -77,3 +79,4 @@ jobs:
             /tmp/cti-ux-screenshots
             /tmp/cti-owner-actions
             /tmp/cti-extension-screenshots
+            /tmp/cti-activity-screenshots

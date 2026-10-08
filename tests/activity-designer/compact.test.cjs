@@ -1,0 +1,21 @@
+require('../src/shell-capture.js');
+const assert=require('node:assert/strict'),C=require('../src/compact.js'),A=require('../src/designer.js');
+const mk=(id,text)=>({id,path:'coursera/b/'+id,title:'Same title',text,coverage:'partial_text',note:'Media not read'});
+const mod=(id,item)=>({id,title:id,lessons:[{id:id+'l',title:'Lesson',items:[{id:item,title:'Same title',type:'supplement',row:2}]}]});
+const s={title:'Course',phase:'final',created_at:'2026-10-08',courses:[{title:'Course',branch_id:'b',filename:'shell.json',modules:[mod('m1','i1'),mod('m2','i2')]}],sources:[{kind:'captured_shell',course_id:'b',filename:'source',documents:[mk('i1','[TEACHING | Content]\nShared exact text'),mk('i2','[TEACHING | Content]\nShared exact text')],unread:[{path:'coursera/b/i1',reason:'Missing media'}]}],references:[{filename:'feedback.txt',text:'Keep prior decision A.'}],issues:[],matches:[]};
+s.courses[0].kind='coursera_shell_capture';
+const all=C.build(s,{target:1e9}).packets[0];
+assert.equal(all.data.documents.length,2);assert.equal(all.data.documents[0].blocks[0],all.data.documents[1].blocks[0]);assert.equal(all.data.documents[1].association,'exact_shell_identity');assert.equal(all.data.structure[0].module.lessons[0].items[0].row,2);
+const split=C.build(s,{target:1});assert.equal(split.packets.length,2);assert(split.packets.every(p=>p.oversize));assert.equal(split.packets[1].data.gaps.length,0);assert.equal(split.packets[0].data.references.length,1);
+const selected=C.build(s,{keys:['C1M2']}).packets[0];assert.equal(selected.data.documents.length,1);assert.equal(selected.data.documents[0].id,'i2');assert.equal(selected.data.scope.excluded_modules[0].module,'m1');assert(!C.build(s,{keys:[]}).packets.length);
+const candidate=structuredClone(s);candidate.sources[0].kind='imscc';candidate.matches=[{course_file:'shell.json',item_id:'i1',candidates:[{source_file:'source',path:'coursera/b/i1'}]}];
+const cand=C.build(candidate,{keys:['C1M2']}).packets[0];assert.deepEqual(cand.data.documents.map(d=>d.id),['i2']);assert.equal(cand.data.documents[0].association,'unmapped_shared');
+const cp=C.build(candidate,{keys:['C1M1']}).packets[0];assert.equal(cp.data.documents[0].association,'title_candidate_only');
+const long=structuredClone(s);long.sources[0].documents[0].text='Long teaching content\n'.repeat(10000)+'END_MARKER';assert(C.build(long,{target:6000}).packets[0].text.includes('END_MARKER'));
+function result(id,module){const r=structuredClone(A.template);r.title='Course';r.bundle_created_at=s.created_at;r.activities[0].id=id;r.activities[0].placement.course='Course';r.activities[0].placement.module=module;r.module_decisions=[{course:'Course',module,decision:'role_play',reason:'practice'}];return A.parse(r);}
+const a=result('P01_A01','m1'),b=result('P02_A01','m2');const merged=A.merge(a,b);assert.equal(merged.activities.length,2);assert.equal(merged.module_decisions.length,2);
+const remove=structuredClone(a);remove.activities=[];remove.module_decisions[0].decision='neither';assert.deepEqual(A.merge(merged,remove).activities.map(a=>a.id),['P02_A01']);
+assert.throws(()=>A.merge(a,{...b,bundle_created_at:'changed'}),/different/);assert.throws(()=>A.merge(a,result('P01_A01','m2')),/conflict/);
+assert(C.prompt.includes('untrusted evidence'));assert(C.prompt.includes('INTERNAL design evidence'));assert(C.prompt.includes('never reproduce future quiz answers'));
+const loader=structuredClone(s);loader.sources[0].documents[0].text='[TEACHING | Editor]\n/ 0\n100%\nLoading...';const checked=C.build(loader,{target:1e9}).packets[0];assert.equal(checked.data.documents[0].coverage,'unread');assert.equal(checked.data.documents[0].blocks.length,0);assert.equal(checked.data.coverage_audit[0].items_with_nonplaceholder_text,0);assert(C.prompt.includes('assessment bodies are unread'));
+console.log('PASS: compact evidence deduplication, exact shell scope, candidate-only scope, shared references, complete oversized modules, explicit exclusions and atomic result merges.');

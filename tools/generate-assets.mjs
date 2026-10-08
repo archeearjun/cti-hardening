@@ -47,3 +47,6 @@ console.log("Validated and prepared the two standalone extractor scripts.");
 const { buildBrowserExtension } = await import("./build-browser-extension.mjs");
 await buildBrowserExtension(sources.courseraSource);
 console.log("Prepared the packaged CTI browser extension and install ZIP.");
+const { buildActivityDesigner } = await import("./build-activity-designer.mjs");
+buildActivityDesigner();
+console.log("Prepared the isolated activity designer and read-only capture scripts.");

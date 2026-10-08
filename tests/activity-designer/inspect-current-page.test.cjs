@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+class E{constructor(tag,attrs={}){this.tagName=tag;this.attrs=attrs;this.style={};this.children=[];this.textContent='';this.value='';}append(...x){this.children.push(...x);}getAttribute(k){return this.attrs[k]||null;}getClientRects(){return [{}];}attachShadow(){return new E('shadow');}remove(){}select(){}}
+const prompt=new E('textarea',{'aria-label':'Question prompt'});prompt.value='QUESTION_BODY_NOT_EXPORTED';
+const password=new E('input',{type:'password'});Object.defineProperty(password,'value',{get(){throw Error('Must not read password');}});
+const answer=new E('textarea',{'aria-label':'Correct answer'});Object.defineProperty(answer,'value',{get(){throw Error('Must not read answer field');}});
+const fields=[prompt,password,answer],saved=[];
+const document={readyState:'complete',title:'Test quiz',body:new E('body'),getElementById:()=>null,querySelectorAll:q=>q==='textarea,input,[contenteditable],[role="textbox"]'?fields:[],createElement:t=>new E(t)};
+const U=class extends URL{};U.createObjectURL=b=>{saved.push(b);return 'blob:test';};U.revokeObjectURL=()=>{};
+const location=new URL('https://www.coursera.org/teach/test/b1/content/item/ungradedAssignment/i1?token=OMIT');
+const window={location,performance:{getEntriesByType:()=>[{name:'https://www.coursera.org/api/onDemandUngradedAssignments.v1/x?ids=i1&token=SECRET',initiatorType:'fetch'}]}};
+const context={document,window,location,URL:U,Blob,Date,navigator:{clipboard:{writeText:async()=>{}}},fetch(){throw Error('Inspector must not fetch');}};
+(async()=>{vm.runInNewContext(fs.readFileSync('src/inspect-current-page.js','utf8'),context);const text=await saved[0].text(),r=JSON.parse(text);assert.equal(r.pages[0].field_count,3);assert.equal(r.pages[0].fields[0].text_characters,prompt.value.length);assert.equal(r.pages[0].fields[1].text_characters,null);assert.equal(r.pages[0].fields[2].text_characters,null);assert(!text.includes('QUESTION_BODY_NOT_EXPORTED'));assert(!text.includes('SECRET'));assert(!text.includes('OMIT'));assert.equal(r.pages[0].resource_requests.length,1);assert.deepEqual(r.pages[0].resource_requests[0].query_keys,['ids']);console.log('PASS: one-page inspector exports structure only, omits protected field values and URL query values, retains ungraded API paths, and performs no fetch. Simulated DOM only.');})().catch(e=>{console.error(e);process.exitCode=1;});

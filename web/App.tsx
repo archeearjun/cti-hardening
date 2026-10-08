@@ -174,6 +174,31 @@ export default function App() {
         <span className="badge">Source → ingestion → review</span>
       </header>
       <main id="main" tabIndex={-1}>
+        <section
+          className="card activity-gateway"
+          aria-labelledby="gateway-title"
+        >
+          <div>
+            <span className="badge">Activity designer · Preview</span>
+            <h1 id="gateway-title">Role Play &amp; Dialogue</h1>
+            <p>
+              Bring course evidence, review useful activity ideas, and get exact
+              placements and copyable Coursera fields through your approved AI
+              chat.
+            </p>
+            <a className="primary" href="/activity-designer/index.html">
+              Open Role Play &amp; Dialogue
+            </a>
+          </div>
+          <div>
+            <h2>The larger CTI workflow</h2>
+            <p>The complete workflow will be operational very soon.</p>
+            <p className="muted">
+              Existing inspection and reconciliation tools remain available
+              below. The activity designer can be used independently.
+            </p>
+          </div>
+        </section>
         <nav className="workspace-tabs" aria-label="Choose a workspace">
           <button
             className={workspace === "full" ? "primary" : "secondary"}

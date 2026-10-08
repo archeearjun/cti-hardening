@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base target="_top" />
+    <title>Course Activity Designer</title>
+    <meta
+      name="description"
+      content="Find useful Role Plays and Dialogues, their exact course placement, and paste-ready Coursera fields. Prepare bulk evidence locally and use your own AI chat."
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d2638'/%3E%3Cpath d='M8 8h11l5 5v12H8z' fill='none' stroke='%23b9ee67' stroke-width='2'/%3E%3Cpath d='M12 16h8m-8 5h8' stroke='%23b9ee67' stroke-width='2'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="cti-back" href="/">← CTI gateway</a>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">CA</span
+        ><span>Course Activity <strong>Designer</strong></span>
+      </div>
+      <div class="local-badge">Files stay in your browser</div>
+    </header>
+    <div class="shell">
+      <aside class="sidebar">
+        <p class="eyebrow">ROLE PLAY & DIALOGUE</p>
+        <nav aria-label="Main">
+          <button id="nav-prepare" class="nav active" aria-current="page">
+            1–2. Files & AI handoff</button
+          ><button id="nav-activities" class="nav">
+            3. Placement & content</button
+          ><button id="nav-setup" class="nav">Help & instructions</button>
+        </nav>
+        <div class="sidebar-note">
+          <strong>No API key needed.</strong>
+          <p>
+            Prepare files here. Your AI chat designs the activities. Bring them
+            back to copy the Coursera fields.
+          </p>
+        </div>
+        <div class="sidebar-bottom">
+          <span>CTI activity preview · v1.0.0</span>
+        </div>
+      </aside>
+      <main>
+        <div
+          id="file-delivery"
+          class="file-delivery"
+          hidden
+          aria-live="polite"
+        ></div>
+        <section id="prepare-view">
+          <div class="page-title">
+            <div>
+              <p class="eyebrow">ROLE PLAY & DIALOGUE</p>
+              <h1>Where it belongs. What to paste.</h1>
+              <p>
+                Capture a Coursera shell, send a compact packet to your AI chat,
+                then copy the activity fields.
+              </p>
+            </div>
+            <span class="step-count" id="step-label">01 / ADD FILES</span>
+          </div>
+          <ol class="workflow-strip" aria-label="Your workflow">
+            <li>
+              <strong>1. Add course files</strong
+              ><span>Shell capture or existing bulk files</span>
+            </li>
+            <li>
+              <strong>2. Use your AI chat</strong
+              ><span>Size-labelled module packets</span>
+            </li>
+            <li>
+              <strong>3. Copy into Coursera</strong
+              ><span>Import the result to see activity cards</span>
+            </li>
+          </ol>
+          <div class="workspace">
+            <section class="input-card panel" aria-labelledby="input-heading">
+              <div class="section-heading">
+                <span class="number">1</span>
+                <h2 id="input-heading">Add course files</h2>
+              </div>
+              <details class="detail-box capture-guide" open>
+                <summary>Capture directly from a Coursera shell</summary>
+                <ol>
+                  <li>
+                    Open the course’s
+                    <strong>Course Outline / Edit Content</strong> page in
+                    Chrome.
+                  </li>
+                  <li>
+                    Open <strong>Inspect → Console</strong>, paste this script,
+                    and run it once.
+                  </li>
+                  <li>
+                    Keep the tab open. At the end, download the capture JSON and
+                    add it below.
+                  </li>
+                </ol>
+                <div class="action-row">
+                  <button id="copy-capture-script" class="primary">
+                    Copy capture script</button
+                  ><button id="download-capture-script" class="secondary">
+                    Download script
+                  </button>
+                </div>
+                <details>
+                  <summary>Test one quiz first</summary>
+                  <p class="small">
+                    Open a specific quiz’s authoring Content page. Run this test
+                    there to read only that item; it reports prompts and options
+                    captured. Other items remain unscanned. After checking it,
+                    use the full capture script above from Course Outline.
+                  </p>
+                  <div class="action-row">
+                    <button id="copy-test-script" class="secondary">
+                      Copy one-item test</button
+                    ><button id="download-test-script" class="secondary">
+                      Download one-item test
+                    </button>
+                  </div>
+                  <textarea
+                    id="test-script-text"
+                    readonly
+                    aria-label="One-item capture test"
+                  ></textarea>
+                </details>
+                <details>
+                  <summary>Show script for manual copying</summary>
+                  <textarea
+                    id="capture-script-text"
+                    readonly
+                    aria-label="Coursera capture script"
+                  ></textarea>
+                </details>
+                <p class="small">
+                  Independent capture reader. CTI captures can also be imported.
+                  Reads text and explicitly reports gaps. It does not edit the
+                  course or make the AI judgment. The capture reports
+                  non-placeholder text and assessment coverage separately.
+                  Readable viewer text may omit later pages and diagrams; a
+                  finished run is not complete coverage.
+                </p>
+              </details>
+              <label class="label" for="title"
+                >Title or programme
+                <span class="optional">optional</span></label
+              ><input
+                id="title"
+                type="text"
+                placeholder="Course or specialization title"
+                maxlength="250"
+              />
+              <label class="label" for="phase">What are you preparing?</label
+              ><select id="phase">
+                <option value="final" selected>
+                  Placement & paste-ready fields
+                </option>
+                <option value="opportunity">
+                  Content Map stage · propose opportunities
+                </option>
+              </select>
+              <p class="stage-note" id="phase-help">
+                Use a shell capture, or current exports with source teaching
+                content. Add an existing outline or feedback when available.
+              </p>
+              <div id="drop-zone" class="drop-zone">
+                <svg viewBox="0 0 40 40" aria-hidden="true">
+                  <path
+                    d="M8 9h10l4 5h10v19H8zM20 20v9m-4-5 4-4 4 4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                  /></svg
+                ><strong>Drop your course files here</strong
+                ><span
+                  >Standalone or CTI capture JSON, IMSCC, XLSXs, map or
+                  outline</span
+                ><button id="choose" class="secondary">Choose files</button
+                ><input
+                  id="file-input"
+                  type="file"
+                  multiple
+                  accept=".imscc,.zip,.xlsx,.pdf,.docx,.pptx,.txt,.md,.xml,.qti,.html,.htm,.json,.csv,.vtt,.srt"
+                  hidden
+                />
+              </div>
+              <details class="detail-box">
+                <summary>Paste captured JSON instead</summary>
+                <textarea
+                  id="shell-json"
+                  placeholder="Paste the capture data here"
+                  aria-label="Coursera shell capture JSON"
+                  spellcheck="false"
+                ></textarea
+                ><button id="use-shell-json" class="secondary">
+                  Use capture data
+                </button>
+              </details>
+              <div class="file-toolbar">
+                <span id="file-count">No files selected</span
+                ><button id="clear" class="text-button" disabled>
+                  Clear files
+                </button>
+              </div>
+              <ul
+                id="file-list"
+                class="file-list"
+                aria-label="Selected files"
+              ></ul>
+              <div class="resume-note">
+                <strong>Returning to a title?</strong> Add its saved bundle ZIP
+                or SESSION.json with your latest exports. The original source is
+                reused.
+              </div>
+              <div class="action-row">
+                <button id="process" class="primary" disabled>
+                  Prepare files</button
+                ><button id="cancel" class="secondary" hidden>Cancel</button>
+              </div>
+              <div id="progress-wrap" hidden role="status" aria-live="polite">
+                <div class="progress-label">
+                  <strong id="progress-label">Preparing</strong
+                  ><span id="timer">0:00</span>
+                </div>
+                <progress id="progress" max="100" value="0"></progress>
+                <p id="progress-detail" class="small"></p>
+              </div>
+              <p id="error" class="error" role="alert" hidden></p>
+            </section>
+            <section class="output-card panel" aria-labelledby="output-heading">
+              <div class="section-heading">
+                <span class="number">2</span>
+                <h2 id="output-heading">Send a compact AI packet</h2>
+              </div>
+              <div id="empty-result" class="empty-result">
+                <h3>Only useful activities.</h3>
+                <p>
+                  Your AI reviews the captured teaching and existing tasks, then
+                  returns:
+                </p>
+                <ul class="supported">
+                  <li>Role Play, Dialogue, or no addition</li>
+                  <li>Exact course, module, lesson and placement</li>
+                  <li>Complete content for each Coursera field</li>
+                </ul>
+                <p class="small">
+                  This site does not call an AI model. It prepares evidence for
+                  your existing ChatGPT or Gemini chat and displays the returned
+                  result. No AI API key is used.
+                </p>
+              </div>
+              <div id="result" hidden>
+                <div class="ready-line">
+                  <span class="ready-icon" aria-hidden="true">✓</span>
+                  <div>
+                    <h3 id="result-title">Bundle ready</h3>
+                    <p id="result-subtitle"></p>
+                  </div>
+                </div>
+                <p class="handoff-next">
+                  Send two things in a fresh work-approved ChatGPT or Gemini
+                  chat: the course packet, and the short message below. Keep the
+                  short message in the chat message box, outside the attachment.
+                  Bring back the result, then repeat for the next packet in a
+                  new chat.
+                </p>
+                <div id="stats" class="stats"></div>
+                <div id="coverage-message" class="notice"></div>
+                <section class="compact-panel" aria-label="Compact AI packets">
+                  <h3>Keep each chat smaller</h3>
+                  <div class="packet-controls">
+                    <label for="packet-target"
+                      >Aim for this input size<select id="packet-target">
+                        <option value="6000">About 6,000 tokens</option>
+                        <option value="12000" selected>
+                          About 12,000 tokens
+                        </option>
+                        <option value="24000">About 24,000 tokens</option>
+                        <option value="99999999">One complete packet</option>
+                      </select></label
+                    ><label for="packet-select"
+                      >Packet<select id="packet-select"></select
+                    ></label>
+                  </div>
+                  <p id="packet-size" class="packet-size"></p>
+                  <p id="packet-note" class="small"></p>
+                  <div id="packet-actions">
+                    <h4>1. Add the packet to your AI chat</h4>
+                    <div class="action-row">
+                      <button id="copy-packet" class="secondary">
+                        Copy course packet</button
+                      ><button id="download-packet" class="secondary">
+                        Download packet
+                      </button>
+                    </div>
+                    <h4>2. Paste this short message, then send</h4>
+                    <p class="small">
+                      A long paste may appear as a text attachment. The message
+                      below tells the chat what to do with it. Send this message
+                      even when the packet already contains instructions.
+                    </p>
+                    <textarea
+                      id="packet-chat-message"
+                      readonly
+                      aria-label="Short message to send alongside the course packet"
+                    ></textarea>
+                    <div class="action-row">
+                      <button id="copy-chat-message" class="primary">
+                        Copy chat message</button
+                      ><button id="download-packets" class="text-button">
+                        Save all packets &amp; messages
+                      </button>
+                    </div>
+                    <p
+                      id="packet-handoff-status"
+                      class="small"
+                      role="status"
+                      aria-live="polite"
+                    ></p>
+                    <p class="small">
+                      <strong>Chat asking what to do?</strong> Send just this
+                      short message in the same chat. You do not need to upload
+                      the packet again.
+                    </p>
+                  </div>
+                  <p id="packet-summary" class="small"></p>
+                  <details class="detail-box">
+                    <summary>Choose modules to review</summary>
+                    <p class="small">
+                      All modules are selected by default. Unchecked modules are
+                      explicitly excluded; their teaching is not reviewed.
+                      Shared references remain included.
+                    </p>
+                    <label for="module-search">Search courses and modules</label
+                    ><input
+                      id="module-search"
+                      type="search"
+                      placeholder="Course or module name"
+                    />
+                    <div id="packet-modules"></div>
+                  </details>
+                  <details class="detail-box">
+                    <summary>View packet / copy manually</summary>
+                    <textarea
+                      id="packet-preview"
+                      readonly
+                      aria-label="Complete compact AI packet"
+                    ></textarea>
+                  </details>
+                  <p class="small">
+                    No AI call happens on this site. Send one packet at a time,
+                    not the full saved-work ZIP. A smaller target splits at
+                    module boundaries; it never silently cuts teaching text.
+                  </p>
+                </section>
+                <details class="detail-box">
+                  <summary>Full backup &amp; legacy exports</summary>
+                  <p class="small">
+                    Keep this full backup to resume later. It repeats evidence
+                    and is larger than the AI packets above.
+                  </p>
+                  <div class="download-actions">
+                    <a id="download-zip" class="primary" aria-disabled="true"
+                      >Preparing ZIP…</a
+                    ><button id="save-bundle" class="secondary" hidden>
+                      Save bundle as…</button
+                    ><button id="copy-prompt" class="secondary">
+                      Copy request
+                    </button>
+                  </div>
+                  <p
+                    id="bundle-status"
+                    class="small"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                  <div id="export-help" class="notice" hidden>
+                    <strong>Nothing saved?</strong>
+                    <p>
+                      Use “Save bundle as…” if available, or use the course text
+                      below. You can also open this activity workspace in a
+                      separate browser tab. Your selected files stay in this
+                      tab; opening another tab requires selecting them again.
+                    </p>
+                  </div>
+                  <details id="text-fallback" class="detail-box">
+                    <summary>Another way: save or copy all course text</summary>
+                    <p class="small">
+                      This contains the handoff, every context part and the
+                      coverage report. Upload the text file to your ChatGPT
+                      conversation if the ZIP will not save. SESSION.json is
+                      available separately below for resuming this title later.
+                    </p>
+                    <div class="download-actions">
+                      <a id="download-text" class="secondary"
+                        >Download course text</a
+                      ><button id="show-text" class="secondary">
+                        Show all course text</button
+                      ><button id="copy-text" class="secondary">
+                        Copy all course text
+                      </button>
+                    </div>
+                    <textarea
+                      id="export-text"
+                      readonly
+                      hidden
+                      aria-label="Complete course text"
+                    ></textarea>
+                    <p id="text-copy-status" class="small" role="status"></p>
+                  </details>
+                  <div id="download-parts"></div>
+                </details>
+                <div class="next-step">
+                  <strong>Then bring back ACTIVITY_RESULTS.json</strong>
+                  <p>
+                    Import the returned file or paste its JSON to see where to
+                    add each activity and copy its fields.
+                  </p>
+                  <button id="go-activities" class="primary">
+                    Open placement & content
+                  </button>
+                </div>
+                <details class="detail-box">
+                  <summary>
+                    What needs attention <span id="attention-count"></span>
+                  </summary>
+                  <ul id="issues" class="issues"></ul>
+                </details>
+                <details class="detail-box">
+                  <summary>Course structure & evidence</summary>
+                  <div id="tree"></div>
+                </details>
+                <details class="detail-box">
+                  <summary>Preview the AI request</summary>
+                  <textarea
+                    id="prompt-preview"
+                    readonly
+                    aria-label="GPT handoff prompt"
+                  ></textarea>
+                </details>
+              </div>
+            </section>
+          </div>
+          <div class="footnote">
+            <span
+              >Preparation is local. Downloads contain your course
+              content.</span
+            ><span
+              >New here?
+              <button class="text-button" id="setup-inline">
+                Get reusable instructions
+              </button></span
+            >
+          </div>
+        </section>
+        <section id="activities-view" hidden>
+          <div class="page-title">
+            <div>
+              <p class="eyebrow">STEP 3 / PLACEMENT & CONTENT</p>
+              <h1>Your Coursera activity cards.</h1>
+              <p>
+                Bring back the result from your AI chat. Copy each field into
+                the indicated activity.
+              </p>
+            </div>
+          </div>
+          <section class="panel result-import">
+            <div class="section-heading">
+              <h2>Import the AI result</h2>
+              <button id="choose-result" class="primary">
+                Choose result file
+              </button>
+            </div>
+            <input
+              id="result-file"
+              type="file"
+              accept=".json,.txt,.zip"
+              hidden
+            />
+            <p class="small">
+              Choose ACTIVITY_RESULTS.json or a saved work ZIP. You can also
+              paste the JSON code block from the chat below.
+            </p>
+            <label class="label" for="result-merge-mode"
+              >When importing another result</label
+            ><select id="result-merge-mode">
+              <option value="merge" selected>
+                Combine packets / replace decisions for the same modules
+              </option>
+              <option value="replace">Replace all displayed results</option>
+            </select>
+            <p class="small">
+              Combine requires the same title and saved bundle version. Save
+              work before replacing results. A saved work ZIP restores the whole
+              result.
+            </p>
+            <details id="paste-result">
+              <summary>Paste the result instead</summary>
+              <label class="label" for="result-json"
+                >JSON from your AI chat</label
+              ><textarea
+                id="result-json"
+                placeholder="Paste the complete JSON code block here"
+                spellcheck="false"
+              ></textarea
+              ><button id="import-result" class="primary">
+                Show activity cards
+              </button>
+            </details>
+            <p id="result-error" class="error" hidden role="alert"></p>
+            <button id="repair-result" class="secondary" hidden>
+              Copy correction request for the chat
+            </button>
+          </section>
+          <div id="activities-empty" class="panel result-empty">
+            <h2>No activity results yet</h2>
+            <p>
+              Prepare your course files, send one compact packet and its short
+              chat message to your AI chat, then bring its result here. The site
+              displays the AI’s draft; it does not generate activities
+              automatically.
+            </p>
+            <button id="back-to-files" class="secondary">
+              Go to files & AI handoff
+            </button>
+          </div>
+          <section id="activities-result" hidden>
+            <div class="result-toolbar">
+              <div>
+                <h2 id="activities-title"></h2>
+                <p id="activities-summary"></p>
+              </div>
+              <button id="save-results" class="secondary">Save work ZIP</button>
+            </div>
+            <p class="small">
+              Drafts for review. Nothing is inserted into Coursera. Save your
+              work before closing; this site keeps no saved course database.
+            </p>
+            <div id="result-warnings" class="notice" hidden></div>
+            <div id="activity-cards"></div>
+            <details class="panel secondary-results">
+              <summary>Other modules and coverage</summary>
+              <div id="module-decisions"></div>
+              <p id="result-coverage" class="small"></p>
+            </details>
+          </section>
+        </section>
+        <section id="setup-view" hidden>
+          <div class="page-title">
+            <div>
+              <p class="eyebrow">OPTIONAL REUSABLE SETUP</p>
+              <h1>The same instructions, every title.</h1>
+              <p>
+                Use a normal chat, or configure a GPT / Gem if your account
+                supports it. The compact AI packets already include the
+                instructions they need.
+              </p>
+            </div>
+          </div>
+          <div class="setup-grid">
+            <section class="panel">
+              <div class="section-heading">
+                <span class="number">1</span>
+                <h2>Your workflow</h2>
+              </div>
+              <ol class="setup-steps">
+                <li>
+                  <strong>Name</strong>
+                  <p>Course Activity Designer</p>
+                </li>
+                <li>
+                  <strong>Instructions</strong>
+                  <p>
+                    Copy these into your work-approved GPT or Gem instructions,
+                    if you want a reusable assistant.
+                  </p>
+                </li>
+                <li>
+                  <strong>File analysis</strong>
+                  <p>
+                    Use file analysis if available to unpack ZIPs. Otherwise
+                    attach the complete course-text file or numbered parts.
+                  </p>
+                </li>
+                <li>
+                  <strong>Authoring reference</strong>
+                  <p>
+                    The downloaded setup kit includes a field guide based on
+                    your supplied Coursera documentation.
+                  </p>
+                </li>
+                <li>
+                  <strong>Each title</strong>
+                  <p>
+                    Copy a compact packet into a fresh chat, then use Copy chat
+                    message and paste that short request outside the attachment.
+                    Send each further packet and its message in a new chat.
+                    Import its ACTIVITY_RESULTS.json in Placement & content. Add
+                    updated exports and feedback when revising.
+                  </p>
+                </li>
+              </ol>
+              <button id="download-setup" class="primary">
+                Download reusable setup kit
+              </button>
+              <p class="small">
+                These are configuration files; no GPT or Gem is installed
+                automatically. Existing chat/account limits apply.
+              </p>
+            </section>
+            <section class="panel">
+              <div class="section-heading">
+                <h2>Designer instructions</h2>
+                <button id="copy-system" class="text-button">
+                  Copy instructions
+                </button>
+              </div>
+              <textarea
+                id="system-instructions"
+                readonly
+                aria-label="Designer instructions"
+              ></textarea>
+              <div class="notice">
+                The GPT must use captured evidence, distinguish proposed content
+                from source facts, and keep partner approval separate from
+                publication readiness.
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script src="vendor/jszip.min.js"></script>
+    <script src="xml-reader.js"></script>
+    <script src="configuration.js"></script>
+    <script src="shell-capture.js"></script>
+    <script src="shell-rendered.js"></script>
+    <script src="cti-adapter.js"></script>
+    <script src="core.js"></script>
+    <script src="designer.js"></script>
+    <script src="readiness.js"></script>
+    <script src="compact.js"></script>
+    <script src="app.js"></script>
+    <script src="compact-ui.js"></script>
+    <script src="results.js"></script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+const assert=require('node:assert/strict');
+const A=require('../src/designer.js');
+const C=require('../src/core.js');
+const setup=require('../src/setup.json');
+const copy=x=>JSON.parse(JSON.stringify(x));
+const session=C.newSession('Test course','final');
+session.courses=[{filename:'current.xlsx',title:'Test course',branch_id:'b1',modules:[{id:'m1',title:'First module',lessons:[{id:'l1',title:'First lesson',items:[{id:'i1',title:'Teaching item',row:8},{id:'i2',title:'Practice item',row:9},{id:'i3',title:'Closing item',row:10}]}]}]}];
+session.sources=[{filename:'source.imscc',documents:[{path:'lessons/reading.html'}],unread:[],external_links:[]}];
+const result=copy(A.template);Object.assign(result,{title:session.title,bundle_created_at:session.created_at});
+const activity=result.activities[0];
+Object.assign(activity.placement,{course:'Test course',module:'First module',lesson:'First lesson',after:'Teaching item',before:'Practice item',branch_id:'b1',module_id:'m1',lesson_id:'l1',after_item_id:'i1',before_item_id:'i2',export_file:'current.xlsx',row:8});
+activity.evidence=[{source_path:'lessons/reading.html',locator:'paragraph 2'}];
+result.module_decisions=[{course:'Test course',module:'First module',decision:'role_play',reason:'Meaningful practice.'}];
+let parsed=A.parse(result);
+assert.equal(parsed.activities[0].fields.length,11);
+assert.deepEqual(A.issues(parsed,session).all,[]);
+assert.deepEqual(A.issues(parsed,session).cards.A01,[]);
+assert.equal(A.parse('```json\n'+JSON.stringify(result)+'\n```').title,'Test course');
+const dialogue=copy(result);dialogue.activities[0].type='dialogue';dialogue.activities[0].fields=A.required.dialogue.map(label=>({label,text:label==='Title'?activity.title:'Complete '+label}));
+assert.equal(A.parse(dialogue).activities[0].fields.length,5);
+const empty=copy(result);empty.activities=[];empty.module_decisions[0].decision='neither';assert.equal(A.parse(empty).activities.length,0);
+for(const status of ['idea','hold']){const x=copy(result);Object.assign(x.activities[0],{status,fields:[],evidence:[],placement:{}});assert.equal(A.parse(x).activities[0].status,status);}
+const malformed=mutate=>{const x=copy(result);mutate(x);return x;};
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].fields.pop())),/Communication mode/);
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].fields[0].text='Different title')),/Title field/);
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].evidence=[])),/supporting source/);
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].placement.after='')),/preceding item/);
+assert.throws(()=>A.parse(malformed(x=>x.schema_version=2)),/not a supported/);
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].type='constructor')),/use type/);
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].id='__proto__')),/unique activity IDs/);
+assert.throws(()=>A.parse(malformed(x=>x.activities.push(copy(x.activities[0])))),/unique activity IDs/);
+assert.throws(()=>A.parse(malformed(x=>x.activities[0].status='approved')),/status/);
+assert.throws(()=>A.parse('x'.repeat(8*1024*1024+1)),/too large/);
+const untrusted=copy(result);untrusted.activities[0].context.filename='../../malicious.html';untrusted.activities[0].approved=true;untrusted.activities[0].fields[1].text='<script>alert(1)</script>';
+parsed=A.parse(untrusted);assert.equal(parsed.activities[0].context.filename,'A01_context.txt');assert(!('approved' in parsed.activities[0]));assert.equal(parsed.activities[0].fields[1].text,'<script>alert(1)</script>');
+assert.match(A.text(parsed.activities[0]),/proposed, not published/);
+const stale=copy(result);stale.bundle_created_at='older';assert.match(A.issues(stale,session).all.join(' '),/different bundle/);
+assert.match(A.issues(result,null).all.join(' '),/not been checked/);
+for(const [key,value,pattern] of [['branch_id','missing',/Course branch/],['after_item_id','missing',/Preceding item/],['row',99,/row differs/],['before_item_id','i1',/not after/],['before_item_id','i3',/between/],['export_file','old.xlsx',/Export filename/]]){const x=copy(result);x.activities[0].placement[key]=value;assert.match(A.issues(x,session).cards.A01.join(' '),pattern);}
+const missingPath=copy(result);missingPath.activities[0].evidence[0].source_path='invented.html';assert.match(A.issues(missingPath,session).cards.A01.join(' '),/Source path not found/);
+// The bulk handoff must provide instructions/schema without embedding a particular subject.
+assert(setup.instructions.length<=8000);assert(!/Earthquakes/i.test(JSON.stringify(setup)));
+const minimal=C.newSession('Any course','opportunity');const bundle=C.bundleFiles(minimal,setup);assert(bundle['02_DESIGNER_INSTRUCTIONS.txt'].includes('zero is a valid result'));
+const format=JSON.parse(bundle['03_RESULT_FORMAT.json']);assert.equal(format.title,'Any course');assert.equal(format.bundle_created_at,minimal.created_at);assert.equal(format.activities[0].status,'idea');
+console.log('PASS: complete field validation, empty/idea/held results, stale and incorrect placements, safe filenames, unsupported approvals, generic stage-specific AI handoff.');
