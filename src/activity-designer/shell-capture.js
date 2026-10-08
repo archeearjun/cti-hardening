@@ -198,8 +198,30 @@
       if (!/^[A-Za-z0-9_-]+$/.test(it.id) || ids.has(it.id))
         throw Error("Captured item IDs are invalid or duplicated.");
       ids.add(it.id);
-      if (!["unread", "partial", "text_captured"].includes(it.coverage))
+      if (
+        !["unread", "partial", "text_captured", "observed_empty"].includes(
+          it.coverage,
+        )
+      )
         throw Error("Invalid item coverage.");
+      if (
+        it.coverage === "observed_empty" &&
+        it.blocks.some((b) => b.kind !== "gap" && textQuality(b.text).readable)
+      )
+        throw Error("An observed-empty item cannot contain a readable body.");
+      if (
+        it.external_resources !== undefined &&
+        (!Array.isArray(it.external_resources) ||
+          it.external_resources.length > 256 ||
+          it.external_resources.some(
+            (r) =>
+              !r ||
+              typeof r.url !== "string" ||
+              r.status !== "external_body_unread" ||
+              typeof r.action !== "string",
+          ))
+      )
+        throw Error("Invalid external resource evidence.");
       for (const a of it.ancestors)
         if (
           !a ||
@@ -237,6 +259,13 @@
       "declared_questions",
     ])
       result[key] = Number.isInteger(m[key]) && m[key] >= 0 ? m[key] : null;
+    if (
+      m.completeness === "learner_text_captured" &&
+      result.declared_questions > 0 &&
+      result.prompts_captured === result.declared_questions &&
+      !result.has_unresolved_capture_issues
+    )
+      result.completeness = "learner_text_captured";
     return result;
   }
   function summary(c) {
@@ -245,7 +274,10 @@
     return {
       items: c.items.length,
       with_text: c.items.filter(read).length,
-      unread: c.items.filter((i) => !read(i)).length,
+      unread: c.items.filter((i) => !read(i) && i.coverage !== "observed_empty")
+        .length,
+      observed_empty: c.items.filter((i) => i.coverage === "observed_empty")
+        .length,
       quizzes: c.items.filter((i) =>
         /quiz|assessment|exam|assignment/i.test(i.type),
       ).length,
@@ -348,6 +380,7 @@
         body_available: body.length > 0,
         capture_coverage: it.coverage,
         assessment_capture: assessmentMetrics(it.assessment_capture),
+        external_resources: it.external_resources || [],
         link: root.CourseCtiAdapter?.route(it.route, c.course.id, it.id) || "",
         notes: it.notes,
       });
@@ -360,7 +393,9 @@
           coverage: "partial_text",
           sha256: null,
           note:
-            "Captured from Coursera shell; text coverage is partial, not full media/question coverage. " +
+            (it.assessment_capture?.completeness === "learner_text_captured"
+              ? "All declared learner question text and applicable choices captured; media, configuration and source equivalence remain unverified. "
+              : "Captured from Coursera shell; text presence alone does not establish complete content coverage. ") +
             it.notes.join(" "),
           associations: [
             {
@@ -386,6 +421,8 @@
         source.unread.push({
           path,
           kind: it.type,
+          capture_state: it.coverage,
+          external_resources: it.external_resources || [],
           reason:
             (it.blocks.some((b) => textQuality(b.text).placeholder_only)
               ? "Only loading/viewer controls were captured; no readable teaching content. "

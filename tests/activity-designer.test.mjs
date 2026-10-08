@@ -278,7 +278,7 @@ test("readiness rejects stale snapshots, wrong IDs and false end boundaries whil
   assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
   assert(
     c.ActivityReadiness.check(r, s, a).warnings.some((x) =>
-      x.includes("assessment"),
+      x.includes("practice lacks verified learner-text coverage"),
     ),
   );
   assert.equal(
@@ -743,4 +743,250 @@ test("a detailed brief cannot make generic or disconnected Coursera fields copya
   assert.equal(check.canCopy, false);
   assert(check.blocking.some((x) => x.includes("actual Tasks")));
   assert(check.blocking.some((x) => x.includes("generic confidence")));
+});
+
+test("canonical learner-text receipts distinguish open response, choice gaps, unknown coverage and answer-only gaps", () => {
+  const c = context();
+  const raw = ctiRaw();
+  const a = {
+    declaredQuestionCount: 2,
+    questions: [
+      {
+        id: "1",
+        type: "text-entry",
+        prompt: "Convert two metres into centimetres.",
+        options: [],
+        optionTextReliable: false,
+        answerTextReliable: false,
+        correctAnswers: ["PRIVATE_KEY"],
+      },
+      {
+        id: "2",
+        type: "single-select",
+        prompt: "Which is a length unit?",
+        options: [{ label: "Metre" }, { label: "Second" }],
+        optionTextReliable: true,
+      },
+    ],
+    captureCompleteness: {
+      declared: 2,
+      declaredContentParts: 2,
+      captured: 2,
+      uniqueQuestionIds: 2,
+      questionCoverageComplete: true,
+      missingQuestionOrdinals: [],
+      requiredAnswerCoverageComplete: false,
+    },
+  };
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "i2",
+    name: "Practice",
+    typeName: "ungradedAssignment",
+    payload: { structuredAssessment: a },
+  });
+  const metrics = () =>
+    c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture;
+  assert.equal(metrics().completeness, "learner_text_captured");
+  assert.equal(metrics().has_unresolved_capture_issues, false);
+  const capture = c.CourseCtiAdapter.adapt(raw);
+  assert(!JSON.stringify(capture).includes("PRIVATE_KEY"));
+  const s = c.CourseShell.toSession(capture, "capture.json", c.CoursePrep);
+  const packet = c.CourseCompact.build(s).packets[0].data;
+  assert.equal(
+    packet.structure[0].module.lessons[0].items[1].assessment_capture
+      .completeness,
+    "learner_text_captured",
+  );
+  assert.equal(packet.coverage_audit[0].learner_text_captured_ids.join(), "i2");
+  assert.equal(
+    c.ActivityQuality.coverage(s, { branch_id: "b1", module_id: "m1" })
+      .incomplete.length,
+    0,
+  );
+  assert.equal(
+    c.CoursePrep.validateSession(JSON.parse(JSON.stringify(s))).courses[0]
+      .modules[0].lessons[0].items[1].assessment_capture.completeness,
+    "learner_text_captured",
+  );
+  for (const mutate of [
+    (a) => {
+      a.captureCompleteness.questionCoverageComplete = false;
+    },
+    (a) => {
+      a.questions[1].optionTextReliable = false;
+    },
+    (a) => {
+      a.questions[1].options = [];
+    },
+    (a) => {
+      a.questions[1].options[0].label = "";
+    },
+    (a) => {
+      a.questions[0].prompt = "";
+    },
+    (a) => {
+      a.questions[0].promptTextReliable = false;
+    },
+    (a) => {
+      a.questions[1].optionCaptureIssue = "TRUNCATED";
+    },
+  ]) {
+    const next = structuredClone(a);
+    mutate(next);
+    raw.fingerprints[1].payload.structuredAssessment = next;
+    assert.equal(metrics().has_unresolved_capture_issues, true);
+    assert.equal(metrics().completeness, "partial_unverified");
+  }
+  for (const mutate of [
+    (a) => {
+      delete a.captureCompleteness;
+    },
+    (a) => {
+      a.captureCompleteness.missingQuestionOrdinals = [2];
+    },
+    (a) => {
+      a.captureCompleteness.uniqueQuestionIds = 1;
+    },
+    (a) => {
+      a.questions[1].id = "1";
+    },
+    (a) => {
+      a.questions[0].type = "unknown";
+    },
+    (a) => {
+      a.captureCompleteness.declaredContentParts = 3;
+    },
+  ]) {
+    const next = structuredClone(a);
+    mutate(next);
+    raw.fingerprints[1].payload.structuredAssessment = next;
+    assert.equal(metrics().completeness, "partial_unverified");
+  }
+});
+
+test("observed-empty editors keep source-reconciliation holds with exact recovery links, including held AI proposals", () => {
+  const c = context(),
+    raw = ctiRaw();
+  const payload = {
+    emptyEditorEvidence: {
+      status: "OBSERVED_EMPTY_EDITOR",
+      itemId: "i2",
+      scope: "EXACT_ITEM_ASSIGNMENT_LAYOUT",
+      marker: "Content you add will show in order here.",
+      samples: 2,
+      intervalMs: 1200,
+      observedAt: raw.extractedAt,
+      route: "https://www.coursera.org/teach/test/b1/content/item/project/i2",
+    },
+    captureContract: {
+      itemId: "i2",
+      status: "UNRESOLVED_SOURCE_REVIEW",
+      reasons: ["OBSERVED_EMPTY_EDITOR_REQUIRES_SOURCE_REVIEW"],
+    },
+  };
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "i2",
+    name: "Quiz",
+    typeName: "ungradedAssignment",
+    payload,
+  });
+  const capture = c.CourseCtiAdapter.adapt(raw);
+  assert.equal(capture.items[1].coverage, "observed_empty");
+  assert.equal(c.CourseShell.summary(capture).unread, 0);
+  assert.equal(c.CourseShell.summary(capture).observed_empty, 1);
+  const s = c.CourseShell.toSession(capture, "capture.json", c.CoursePrep);
+  const { r, a } = fixture(c);
+  r.title = s.title;
+  r.bundle_created_at = s.created_at;
+  a.placement.course = s.title;
+  for (const status of ["draft", "hold"]) {
+    a.status = status;
+    const check = c.ActivityReadiness.check(r, s, a);
+    assert.equal(check.canCopy, false);
+    assert(
+      check.blocking.some((x) => x.startsWith("Source reconciliation needed:")),
+    );
+    assert(!check.blocking.some((x) => x.startsWith("Read existing practice")));
+  }
+  const cv = c.ActivityQuality.coverage(s, a.placement);
+  assert.equal(cv.empty.length, 1);
+  assert.equal(cv.unread.length, 0);
+  assert.equal(cv.empty[0].link, payload.emptyEditorEvidence.route);
+  const p = c.CourseCompact.build(s).packets[0].data;
+  assert.equal(p.coverage_audit[0].observed_empty_practice_ids.join(), "i2");
+  assert.equal(
+    p.gaps.find((x) => x.path === "coursera/b1/i2").capture_state,
+    "observed_empty",
+  );
+  for (const mutate of [
+    (p) => {
+      p.emptyEditorEvidence.samples = 1;
+    },
+    (p) => {
+      p.emptyEditorEvidence.itemId = "other";
+    },
+    (p) => {
+      p.emptyEditorEvidence.route = p.emptyEditorEvidence.route.replace(
+        "/b1/",
+        "/b2/",
+      );
+    },
+    (p) => {
+      p.captureContract.status = "UNRESOLVED";
+    },
+    (p) => {
+      p.structuredAssessment = { declaredQuestionCount: 1 };
+    },
+    (p) => {
+      p.nativeAssignment = { learnerPrompt: "Explain the calculation." };
+    },
+  ]) {
+    const next = structuredClone(payload);
+    mutate(next);
+    raw.fingerprints[1].payload = next;
+    assert.notEqual(
+      c.CourseCtiAdapter.adapt(raw).items[1].coverage,
+      "observed_empty",
+    );
+  }
+});
+
+test("unread external resources retain safe exact links without signed URLs or false text claims", () => {
+  const c = context(),
+    raw = ctiRaw(),
+    p = raw.fingerprints[0].payload;
+  p.textSample = "";
+  p.readingEditorEvidence.frames = [
+    {
+      url: "https://opentextbc.ca/mathfortrades2/?p=22/#main",
+      documentStatus: "NOT_READABLE",
+    },
+    {
+      url: "https://example.test/reading?token=PRIVATE_TOKEN",
+      documentStatus: "NOT_READABLE",
+    },
+  ];
+  const capture = c.CourseCtiAdapter.adapt(raw),
+    s = c.CourseShell.toSession(capture, "capture.json", c.CoursePrep);
+  assert.equal(capture.items[0].coverage, "unread");
+  assert.equal(s.sources[0].documents.length, 0);
+  const packet = c.CourseCompact.build(s).packets[0].data;
+  const refs =
+    packet.structure[0].module.lessons[0].items[0].external_resources;
+  assert.equal(refs[0].url, p.readingEditorEvidence.frames[0].url);
+  assert.equal(refs[1].url, "");
+  assert(!JSON.stringify(s).includes("PRIVATE_TOKEN"));
+  assert.equal(
+    packet.gaps[0].external_resources[0].status,
+    "external_body_unread",
+  );
+  for (const url of [
+    "javascript:alert(1)",
+    "https://user:pass@example.test/page",
+    "http://example.test/page",
+    "https://example.test/page?signature=x",
+  ])
+    assert.equal(c.CourseCtiAdapter.externalUrl(url), "");
 });

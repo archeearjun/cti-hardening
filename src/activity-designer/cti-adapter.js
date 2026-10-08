@@ -18,6 +18,108 @@
       return "";
     }
   }
+  function externalUrl(value) {
+    try {
+      const u = new URL(value);
+      // Preserve only recorded public resource URLs. Never export signed links,
+      // credentials or a rewritten URL that might point to a different item.
+      return u.protocol === "https:" &&
+        !u.username &&
+        !u.password &&
+        !/[?=&]/.test(u.hash) &&
+        [...u.searchParams.keys()].every((k) => /^(p|page)$/.test(k))
+        ? u.href
+        : "";
+    } catch {
+      return "";
+    }
+  }
+  function learnerMetrics(assessment, blocks) {
+    const questions = Array.isArray(assessment?.questions)
+      ? assessment.questions
+      : [];
+    const receipt = assessment?.captureCompleteness;
+    const prompts = blocks.filter((b) => /\/ Prompt$/.test(b.field)).length;
+    const options = blocks.filter((b) => /\/ Option \d+$/.test(b.field)).length;
+    const declared = Number.isInteger(assessment?.declaredQuestionCount)
+      ? assessment.declaredQuestionCount
+      : null;
+    let unresolved = receipt?.questionCoverageComplete === false;
+    let knownTypes = true;
+    for (const q of questions) {
+      const choices = Array.isArray(q.options) ? q.options : [];
+      const choiceType =
+        /^(single-select|multiple-select|multiple-choice|true-false)$/.test(
+          q.type,
+        );
+      const openType =
+        /^(text-entry|numeric|numeric-entry|essay|short-answer|free-response)$/.test(
+          q.type,
+        );
+      knownTypes &&= choiceType || openType;
+      unresolved ||=
+        q.promptTextReliable === false ||
+        !root.CourseShell.textQuality(q.prompt).readable ||
+        !!q.optionCaptureIssue ||
+        ((choiceType || choices.length > 0) &&
+          (q.optionTextReliable === false ||
+            !choices.length ||
+            choices.some(
+              (o) =>
+                !root.CourseShell.textQuality(text(o.label) || text(o.text))
+                  .readable,
+            )));
+    }
+    const ids = questions.map((q) => q.courseraQuestionId || q.id);
+    const complete =
+      !unresolved &&
+      knownTypes &&
+      declared > 0 &&
+      questions.length === declared &&
+      prompts === declared &&
+      receipt?.questionCoverageComplete === true &&
+      receipt.declared === declared &&
+      (receipt.declaredContentParts == null ||
+        receipt.declaredContentParts === declared) &&
+      receipt.captured === declared &&
+      receipt.uniqueQuestionIds === declared &&
+      Array.isArray(receipt.missingQuestionOrdinals) &&
+      !receipt.missingQuestionOrdinals.length &&
+      ids.every((id) => typeof id === "string" && id.length > 0) &&
+      new Set(ids).size === declared &&
+      questions.every(
+        (q) => !q.options?.length || q.optionTextReliable === true,
+      );
+    return {
+      prompts_captured: prompts,
+      options_captured: options,
+      declared_questions: declared,
+      has_unresolved_capture_issues:
+        unresolved || (declared != null && prompts !== declared),
+      completeness: complete ? "learner_text_captured" : "partial_unverified",
+    };
+  }
+  function observedEmpty(p, item, branch, blocks) {
+    const e = p.emptyEditorEvidence,
+      c = p.captureContract;
+    return (
+      !blocks.length &&
+      !p.structuredAssessment?.questions?.length &&
+      !(p.structuredAssessment?.declaredQuestionCount > 0) &&
+      e?.status === "OBSERVED_EMPTY_EDITOR" &&
+      e.itemId === item &&
+      e.scope === "EXACT_ITEM_ASSIGNMENT_LAYOUT" &&
+      e.marker === "Content you add will show in order here." &&
+      Number.isInteger(e.samples) &&
+      e.samples >= 2 &&
+      e.intervalMs >= 1000 &&
+      Number.isFinite(Date.parse(e.observedAt)) &&
+      !!route(e.route, branch, item) &&
+      c?.itemId === item &&
+      c.status === "UNRESOLVED_SOURCE_REVIEW" &&
+      c.reasons?.includes("OBSERVED_EMPTY_EDITOR_REQUIRES_SOURCE_REVIEW")
+    );
+  }
   function adapt(raw) {
     if (
       !matches(raw) ||
@@ -37,7 +139,7 @@
       format: "coursera-activity-capture",
       schema_version: 1,
       created_at: raw.extractedAt,
-      extractor_version: "CTI adapter 2 / " + text(raw.meta?.extractor),
+      extractor_version: "CTI adapter 3 / " + text(raw.meta?.extractor),
       course: {
         id: branch,
         title:
@@ -136,10 +238,19 @@
           "No supported identity-scoped teaching field in this CTI item. Generic authoring-page text was not used.",
         );
       const identity = (e) => e?.itemId === f.id && e?.courseId === branch;
+      const externalResources = [];
       if (!assessed && identity(p.readingEditorEvidence))
         for (const frame of p.readingEditorEvidence.frames || []) {
           if (frame.documentStatus === "TEXT_CAPTURED")
             add("Reading frame excerpt", frame.textSample, "teaching");
+          if (frame.documentStatus !== "TEXT_CAPTURED") {
+            externalResources.push({
+              url: externalUrl(frame.url),
+              status: "external_body_unread",
+              action:
+                "Open the recorded resource and supply its teaching text or original file. Another shell capture may still be unable to read a cross-origin frame.",
+            });
+          }
           notes.push(
             "Reading frame: " +
               text(frame.documentStatus) +
@@ -190,12 +301,14 @@
               })),
         blocks,
         coverage: blocks.length ? "partial" : "unread",
+        external_resources: externalResources,
         notes,
         route:
           [
             p.readingEditorEvidence?.route,
             p.typedEditorEvidence?.route,
             p.nativeAssignment?.contentBlockEvidence?.route,
+            p.emptyEditorEvidence?.route,
             ...(Array.isArray(raw.meta?.activeSpaCrawl?.targetDiagnostics)
               ? raw.meta.activeSpaCrawl.targetDiagnostics
               : []
@@ -207,27 +320,17 @@
             .find(Boolean) || "",
       };
       if (assessed || /discussion/i.test(kind))
-        item.assessment_capture = {
-          prompts_captured: blocks.filter((b) => /\/ Prompt$/.test(b.field))
-            .length,
-          options_captured: blocks.filter((b) => /\/ Option \d+$/.test(b.field))
-            .length,
-          declared_questions: Number.isInteger(
-            assessment?.declaredQuestionCount,
-          )
-            ? assessment.declaredQuestionCount
-            : null,
-          has_unresolved_capture_issues:
-            assessment?.captureCompleteness?.questionCoverageComplete ===
-              false ||
-            (assessment?.questions || []).some(
-              (q) =>
-                q.promptTextReliable === false ||
-                q.optionTextReliable === false ||
-                !!q.optionCaptureIssue,
-            ),
-          completeness: "partial_unverified",
-        };
+        item.assessment_capture = learnerMetrics(assessment, blocks);
+      if (assessed && observedEmpty(p, f.id, branch, blocks)) {
+        item.coverage = "observed_empty";
+        notes.push(
+          "Coursera's exact assignment editor was observed empty in two stable samples. Compare this item with the source LMS/IMSCC and restore intended practice or resolve its scope. Do not repeat extraction just to recover text from an empty editor. Source practice is not established absent.",
+        );
+      }
+      if (item.assessment_capture?.completeness === "learner_text_captured")
+        notes.push(
+          "All declared question prompts and applicable choice text were captured in this snapshot. Text-entry questions need no options. This receipt covers learner text only, not source equivalence, media, grading configuration or approval. Answer keys are deliberately excluded from activity design.",
+        );
       if (p.textScopeKind === "document-viewer")
         notes.push(
           "Rendered viewer excerpt only; full PDF pages, diagrams and formulas need review. Captured PDF originals are processed separately when available.",
@@ -251,5 +354,5 @@
     }
     return root.CourseShell.validate(capture);
   }
-  root.CourseCtiAdapter = { matches, adapt, route };
+  root.CourseCtiAdapter = { matches, adapt, route, externalUrl };
 })(globalThis);

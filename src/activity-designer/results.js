@@ -79,9 +79,9 @@
               : a.status === "idea"
                 ? "Proposed opportunity"
                 : "On hold") +
-            " · Estimated " +
-            a.minutes +
-            " min",
+            (a.minutes > 0
+              ? " · Estimated " + a.minutes + " min"
+              : " · Time not estimated"),
           "eyebrow",
         ),
         el("h2", a.title),
@@ -130,7 +130,7 @@
         const cv = ActivityQuality.coverage(UI.getSession(), a.placement);
         for (const item of [
           ...new Map(
-            [...cv.unread, ...cv.incomplete].map((i) => [i.id, i]),
+            [...cv.empty, ...cv.unread, ...cv.incomplete].map((i) => [i.id, i]),
           ).values(),
         ]) {
           const href = CourseCtiAdapter.route(
@@ -149,6 +149,45 @@
           }
         }
         card.append(notice);
+      }
+      const externalItems = ActivityQuality.coverage(
+        UI.getSession(),
+        a.placement,
+      ).external;
+      if (externalItems.length) {
+        const details = el("details", undefined, "detail-box");
+        details.append(
+          el(
+            "summary",
+            "Embedded resources need separate review (" +
+              externalItems.length +
+              " items)",
+          ),
+          el(
+            "p",
+            "These resources could not be read from the Coursera frame. Open the recorded resource and supply its teaching text or original file if needed for this activity. Another shell capture may have the same limitation.",
+          ),
+        );
+        for (const item of externalItems) {
+          const line = el("p", item.title + " (" + item.id + "): ");
+          for (const resource of item.external_resources) {
+            const href = CourseCtiAdapter.externalUrl(resource.url);
+            if (href) {
+              const link = el("a", "Open embedded resource");
+              link.href = href;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              line.append(link, document.createTextNode(" "));
+            } else
+              line.append(
+                document.createTextNode(
+                  "Use the recorded Coursera item; no safe public resource URL is available. ",
+                ),
+              );
+          }
+          details.append(line);
+        }
+        card.append(details);
       }
       const cardChecks = [
         ...new Set([...readiness.warnings, ...check.cards[a.id]]),
@@ -232,7 +271,8 @@
       const row = el("div", undefined, "module-decision");
       const cv = ActivityQuality.coverage(UI.getSession(), d);
       const unresolved =
-        d.decision === "neither" && (cv.unread.length || cv.incomplete.length);
+        d.decision === "neither" &&
+        (cv.empty.length || cv.unread.length || cv.incomplete.length);
       row.append(
         el("strong", d.course + " / " + d.module),
         el(
@@ -247,7 +287,7 @@
         el(
           "p",
           (unresolved
-            ? "AI suggestion only: unread/incomplete practice prevents confirming that no addition is needed. "
+            ? "AI suggestion only: unresolved source reconciliation or practice coverage prevents confirming that no addition is needed. "
             : "") + d.reason,
         ),
       );
