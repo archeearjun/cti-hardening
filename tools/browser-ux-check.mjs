@@ -220,6 +220,8 @@ const shot = async (name) => {
 };
 try {
   await page.goto(base);
+  // Owner UI mounts after the server permission check and lazy bundle load.
+  await page.getByRole("navigation", { name: "CTI workflows" }).waitFor();
   await page.keyboard.press("Tab");
   assert.equal(
     await page
