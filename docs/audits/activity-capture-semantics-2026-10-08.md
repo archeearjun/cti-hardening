@@ -24,11 +24,18 @@ no claim is made to have reviewed every diagram or to independently verify the
 AI's claimed visual review of every page.
 
 Replaying the new adapter identifies 17 observed-empty practice editors, and
-learner-text receipts for eight assessments (1, 2, 4, 9, 10, 10, 10 and 11 declared
+learner-text receipts for seven assessments (1, 2, 4, 9, 10, 10 and 11 declared
 prompts). Working with Units has 9 prompts / 8 choice texts; Volume has 10 prompts /
 12 choice texts. Their text-entry questions legitimately have no choices. Two
 other assessments still have answer-evidence gaps in canonical extraction; this
 release does not change that contract, publishability or answer checking.
+
+The final assessment also contains explicit image-creation error placeholders.
+A follow-up review caught the false promotion of those placeholders to complete
+learner-text coverage. They now remain gap blocks, reduce the captured learner
+prompt count, and preserve an explicit ingestion-failure hold. Canonical failure
+flags are retained even when the visible prompt itself is readable. The source
+images/content must be restored before practice readiness can be verified.
 
 ## Remaining evidence limits
 
@@ -50,7 +57,7 @@ release does not change that contract, publishability or answer checking.
 
 ## Verification and release
 
-`npm test`: 370 Node tests plus 7 activity unit/simulation suites passed.
+`npm test`: 371 Node tests plus 7 activity unit/simulation suites passed.
 `npm run build`: passed (existing bundle-size warnings).
 Browser verification uses actual Chromium and PDF.js under production CSP, with
 synthetic routes: canonical PDF import, hash-identical ZIP originals, saved-work
@@ -59,7 +66,7 @@ restore, malformed/stale result recovery, copy gates, held-item next steps and
 
 No extractor runtime, reconciliation engine, authentication policy, database or
 Worker configuration changed. The extractor remains v6.15.11/schema35; activity
-preview becomes v2.2.1. Re-import the existing raw JSON to regenerate corrected
+preview becomes v2.2.2. Re-import the existing raw JSON to regenerate corrected
 packet semantics. Previously exported packets/results are not rewritten by
 refreshing the site. After shell edits, obtain a fresh capture as usual.
 

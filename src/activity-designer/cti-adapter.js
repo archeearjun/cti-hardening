@@ -34,11 +34,16 @@
       return "";
     }
   }
-  function learnerMetrics(assessment, blocks) {
+  function failedImagePrompt(value) {
+    return /^\s*\[Error:\s*Image could not be created\]\s*$/i.test(text(value));
+  }
+  function learnerMetrics(assessment, blocks, ingestionFailure) {
     const questions = Array.isArray(assessment?.questions)
       ? assessment.questions
       : [];
     const receipt = assessment?.captureCompleteness;
+    const failed =
+      ingestionFailure || questions.some((q) => failedImagePrompt(q.prompt));
     const prompts = blocks.filter((b) => /\/ Prompt$/.test(b.field)).length;
     const options = blocks.filter((b) => /\/ Option \d+$/.test(b.field)).length;
     const declared = Number.isInteger(assessment?.declaredQuestionCount)
@@ -72,6 +77,7 @@
     }
     const ids = questions.map((q) => q.courseraQuestionId || q.id);
     const complete =
+      !failed &&
       !unresolved &&
       knownTypes &&
       declared > 0 &&
@@ -95,8 +101,13 @@
       options_captured: options,
       declared_questions: declared,
       has_unresolved_capture_issues:
-        unresolved || (declared != null && prompts !== declared),
-      completeness: complete ? "learner_text_captured" : "partial_unverified",
+        failed || unresolved || (declared != null && prompts !== declared),
+      has_ingestion_failure: failed,
+      completeness: failed
+        ? "ingestion_failure"
+        : complete
+          ? "learner_text_captured"
+          : "partial_unverified",
     };
   }
   function observedEmpty(p, item, branch, blocks) {
@@ -178,7 +189,7 @@
         const content = text(value).trim();
         if (
           content &&
-          (type === "assessment" || !seen.has(content)) &&
+          (type !== "teaching" || !seen.has(content)) &&
           root.CourseShell.textQuality(content).readable
         ) {
           seen.add(content);
@@ -192,7 +203,15 @@
           ? assessment.questions
           : []
         ).entries()) {
-          add("Question " + (i + 1) + " / Prompt", q.prompt, "assessment");
+          add(
+            "Question " +
+              (i + 1) +
+              (failedImagePrompt(q.prompt)
+                ? " / Ingestion error"
+                : " / Prompt"),
+            q.prompt,
+            failedImagePrompt(q.prompt) ? "gap" : "assessment",
+          );
           for (const [n, o] of (Array.isArray(q.options)
             ? q.options
             : []
@@ -320,7 +339,16 @@
             .find(Boolean) || "",
       };
       if (assessed || /discussion/i.test(kind))
-        item.assessment_capture = learnerMetrics(assessment, blocks);
+        item.assessment_capture = learnerMetrics(
+          assessment,
+          blocks,
+          p.ingestionFailure?.detected === true ||
+            p.captureContract?.status === "INGESTION_FAILURE_CAPTURED",
+        );
+      if (item.assessment_capture?.has_ingestion_failure)
+        notes.push(
+          "An ingestion failure is recorded in this item. Error placeholders are gap evidence, not learner prompts. Restore missing source content/media in Coursera and capture the repaired item before verifying practice coverage.",
+        );
       if (assessed && observedEmpty(p, f.id, branch, blocks)) {
         item.coverage = "observed_empty";
         notes.push(

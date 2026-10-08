@@ -556,6 +556,14 @@
                   "small",
                 ),
               );
+            else if (metrics?.has_ingestion_failure)
+              entry.append(
+                el(
+                  "p",
+                  "Ingestion errors captured. Error placeholders are excluded from learner prompts. Restore missing source content or diagrams, then capture the repaired item.",
+                  "small",
+                ),
+              );
             else if (metrics)
               entry.append(
                 el(

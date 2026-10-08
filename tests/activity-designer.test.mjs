@@ -990,3 +990,118 @@ test("unread external resources retain safe exact links without signed URLs or f
   ])
     assert.equal(c.CourseCtiAdapter.externalUrl(url), "");
 });
+
+test("captured ingestion failures cannot certify learner text or clear practice gates", () => {
+  const c = context(),
+    raw = ctiRaw();
+  const payload = {
+    captureContract: { status: "INGESTION_FAILURE_CAPTURED", complete: true },
+    ingestionFailure: {
+      detected: true,
+      codes: ["QUESTION_IMAGE_CREATION_ERROR"],
+    },
+    structuredAssessment: {
+      declaredQuestionCount: 2,
+      questions: [
+        {
+          id: "1",
+          type: "essay",
+          prompt:
+            "Calculate the perimeter of the plan and justify each dimension.",
+          options: [],
+        },
+        {
+          id: "2",
+          type: "essay",
+          prompt: "[Error: Image could not be created]",
+          options: [],
+        },
+      ],
+      captureCompleteness: {
+        declared: 2,
+        declaredContentParts: 2,
+        captured: 2,
+        uniqueQuestionIds: 2,
+        questionCoverageComplete: true,
+        missingQuestionOrdinals: [],
+      },
+    },
+  };
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "i2",
+    name: "Quiz",
+    typeName: "ungradedAssignment",
+    payload,
+  });
+  const capture = c.CourseCtiAdapter.adapt(raw),
+    s = c.CourseShell.toSession(capture, "capture.json", c.CoursePrep);
+  const metric = capture.items[1].assessment_capture;
+  assert.equal(metric.prompts_captured, 1);
+  assert.equal(metric.declared_questions, 2);
+  assert.equal(metric.completeness, "ingestion_failure");
+  assert.equal(
+    capture.items[1].blocks.find((b) => b.text.includes("[Error:")).kind,
+    "gap",
+  );
+  assert.equal(
+    s.courses[0].modules[0].lessons[0].items[1].assessment_capture
+      .has_ingestion_failure,
+    true,
+  );
+  const cv = c.ActivityQuality.coverage(s, {
+    branch_id: "b1",
+    module_id: "m1",
+  });
+  assert.equal(cv.failed.length, 1);
+  assert.equal(cv.incomplete.length, 0);
+  const { r, a } = fixture(c);
+  r.title = s.title;
+  r.bundle_created_at = s.created_at;
+  a.placement.course = s.title;
+  for (const status of ["draft", "hold"]) {
+    a.status = status;
+    const check = c.ActivityReadiness.check(r, s, a);
+    assert.equal(check.canCopy, false);
+    assert(
+      check.blocking.some((x) =>
+        x.startsWith("Repair captured ingestion errors:"),
+      ),
+    );
+  }
+  const p = c.CourseCompact.build(s).packets[0];
+  assert.equal(p.data.coverage_audit[0].ingestion_failure_ids.join(), "i2");
+  assert.equal(p.data.coverage_audit[0].learner_text_captured_ids.length, 0);
+  assert.equal(
+    c.CoursePrep.validateSession(JSON.parse(JSON.stringify(s))).courses[0]
+      .modules[0].lessons[0].items[1].assessment_capture.completeness,
+    "ingestion_failure",
+  );
+  payload.structuredAssessment.questions.push({
+    id: "3",
+    type: "essay",
+    prompt: "[Error: Image could not be created]",
+    options: [],
+  });
+  assert.equal(
+    c.CourseCtiAdapter.adapt(raw).items[1].blocks.filter(
+      (b) => b.kind === "gap",
+    ).length,
+    2,
+  );
+  payload.structuredAssessment.questions.pop();
+  delete payload.ingestionFailure;
+  delete payload.captureContract;
+  assert.equal(
+    c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture
+      .has_ingestion_failure,
+    true,
+  );
+  payload.structuredAssessment.questions[1].prompt =
+    "Explain why the selected dimensions describe the perimeter.";
+  payload.ingestionFailure = { detected: true };
+  assert.equal(
+    c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture.completeness,
+    "ingestion_failure",
+  );
+});
