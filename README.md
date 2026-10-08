@@ -19,6 +19,11 @@ This is a modular refactor, not a claim that every rule was rewritten in TypeScr
 Read the [development map](docs/development.md) to find the relevant source and
 focused checks. [AGENTS.md](AGENTS.md) gives concise instructions for coding agents.
 
+The gateway also exposes an isolated [Role Play & Dialogue preview](docs/activity-designer.md):
+local bulk evidence, compact packets for an approved AI chat, validated result
+cards and downloadable saved work. It does not call a model API or edit Coursera.
+Live capture coverage still requires verification; it is not generally certified.
+
 **Migration status:** the active application now has a working current
 implementation, architecture-appropriate replacement, or explicit retirement for
 every audited Apps Script function group and declared legacy capability. The
@@ -64,7 +69,7 @@ npm test
 npm run build
 ```
 
-`npm run generate` builds only the standalone extractor delivery assets. It runs
+`npm run generate` builds the extractor, extension and activity preview delivery assets. It runs
 automatically in development startup, tests and builds. Run it again after editing
 an extractor during a development session. Generated assets are ignored by Git.
 
