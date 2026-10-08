@@ -60,9 +60,13 @@
     const empty = assessments.filter(
       (i) => i.capture_coverage === "observed_empty",
     );
+    const failed = assessments.filter(
+      (i) => i.assessment_capture?.has_ingestion_failure === true,
+    );
     const unread = assessments.filter(
       (i) =>
         i.capture_coverage !== "observed_empty" &&
+        !failed.includes(i) &&
         !source(session, `coursera/${c.branch_id}/${i.id}`).readable &&
         !i.body_available,
     );
@@ -70,6 +74,7 @@
       const q = i.assessment_capture;
       return (
         q &&
+        !failed.includes(i) &&
         (q.has_unresolved_capture_issues === true ||
           (q.declared_questions != null &&
             q.prompts_captured < q.declared_questions) ||
@@ -86,6 +91,7 @@
       items,
       assessments,
       empty,
+      failed,
       unread,
       incomplete,
       external,
@@ -101,6 +107,12 @@
         "Source reconciliation needed: Coursera editors were observed empty for " +
           names(cv.empty) +
           ". Compare these items with the source LMS/IMSCC, restore intended practice or resolve its scope, then capture after changes. Repeating capture on the unchanged empty editors will not recover missing source content.",
+      );
+    if (cv.failed.length)
+      messages.push(
+        "Repair captured ingestion errors: " +
+          names(cv.failed) +
+          ". Error placeholders do not count as learner questions. Restore missing source content or diagrams in Coursera, then capture the repaired items. A captured failure is not a successful import.",
       );
     if (cv.unread.length)
       messages.push(

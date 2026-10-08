@@ -250,6 +250,7 @@
     const result = {
       completeness: "partial_unverified",
       has_unresolved_capture_issues: m.has_unresolved_capture_issues === true,
+      has_ingestion_failure: m.has_ingestion_failure === true,
     };
     for (const key of [
       "visible_question_headers",
@@ -266,6 +267,10 @@
       !result.has_unresolved_capture_issues
     )
       result.completeness = "learner_text_captured";
+    if (result.has_ingestion_failure) {
+      result.completeness = "ingestion_failure";
+      result.has_unresolved_capture_issues = true;
+    }
     return result;
   }
   function summary(c) {

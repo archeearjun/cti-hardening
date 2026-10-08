@@ -130,7 +130,9 @@
         const cv = ActivityQuality.coverage(UI.getSession(), a.placement);
         for (const item of [
           ...new Map(
-            [...cv.empty, ...cv.unread, ...cv.incomplete].map((i) => [i.id, i]),
+            [...cv.empty, ...cv.failed, ...cv.unread, ...cv.incomplete].map(
+              (i) => [i.id, i],
+            ),
           ).values(),
         ]) {
           const href = CourseCtiAdapter.route(
@@ -272,7 +274,10 @@
       const cv = ActivityQuality.coverage(UI.getSession(), d);
       const unresolved =
         d.decision === "neither" &&
-        (cv.empty.length || cv.unread.length || cv.incomplete.length);
+        (cv.empty.length ||
+          cv.failed.length ||
+          cv.unread.length ||
+          cv.incomplete.length);
       row.append(
         el("strong", d.course + " / " + d.module),
         el(
