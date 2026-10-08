@@ -79,6 +79,29 @@
           filename: "A01_context.txt",
           text: "Only needed teaching context. Empty string when unnecessary.",
         },
+        design: {
+          case_facts: [
+            {
+              text: "Complete case fact also present in the scenario.",
+              origin: "fictional",
+              source_path: "",
+            },
+          ],
+          learner_task: "Concrete learner deliverable.",
+          interaction:
+            "Persona, adaptive follow-ups, mistake response and end condition.",
+          success_criteria: [
+            "First observable task-specific action.",
+            "Second observable task-specific action.",
+          ],
+          comparison: [
+            {
+              item_id: "Existing practice ID",
+              difference:
+                "How this task adds practice beyond the captured item.",
+            },
+          ],
+        },
         evidence: [
           {
             source_path: "Exact captured source path",
@@ -231,6 +254,48 @@
         if (a.fields.find((f) => f.label === "Title").text !== a.title)
           throw Error(a.id + ": Title field must match the activity title.");
       }
+      if (x.design !== undefined) {
+        const d = x.design;
+        if (
+          !d ||
+          typeof d !== "object" ||
+          !Array.isArray(d.case_facts) ||
+          d.case_facts.length > 50 ||
+          !Array.isArray(d.success_criteria) ||
+          d.success_criteria.length > 20 ||
+          !Array.isArray(d.comparison) ||
+          d.comparison.length > 500
+        )
+          throw Error(a.id + ": malformed activity design brief.");
+        a.design = {
+          learner_task: string(
+            d.learner_task || "",
+            "Learner deliverable",
+            5000,
+          ),
+          interaction: string(d.interaction || "", "Interaction plan", 5000),
+          case_facts: d.case_facts.map((f) => {
+            if (!["source", "fictional"].includes(f.origin))
+              throw Error("Case fact origin must be source or fictional.");
+            return {
+              text: string(f.text, "Case fact", 5000),
+              origin: f.origin,
+              source_path: string(
+                f.source_path || "",
+                "Case fact source",
+                2000,
+              ),
+            };
+          }),
+          success_criteria: d.success_criteria.map((t) =>
+            string(t, "Observable success criterion", 2000),
+          ),
+          comparison: d.comparison.map((x) => ({
+            item_id: string(x.item_id, "Comparison item ID", 200),
+            difference: string(x.difference, "Practice comparison", 5000),
+          })),
+        };
+      }
       if (x.context) {
         a.context.text = string(x.context.text || "", "Additional context");
         a.context.filename =
@@ -245,6 +310,9 @@
         a.evidence.push({
           source_path: string(e.source_path, "Source path", 2000),
           locator: string(e.locator || "", "Source locator", 2000),
+          purpose: ["teaching", "comparison", "gap"].includes(e.purpose)
+            ? e.purpose
+            : "teaching",
         });
       if (a.status === "draft" && !a.evidence.length)
         throw Error(a.id + ": a draft must identify its supporting source.");
@@ -430,7 +498,22 @@
         const doc = s.sources
           .flatMap((src) => src.documents)
           .find((d) => d.path === e.source_path);
-        if (!doc && !s.references.some((ref) => ref.filename === e.source_path))
+        if (
+          !doc &&
+          !s.references.some((ref) => ref.filename === e.source_path) &&
+          !s.sources.some((src) =>
+            (src.unread || []).some((u) => u.path === e.source_path),
+          ) &&
+          !s.courses.some((c) =>
+            c.modules.some((m) =>
+              m.lessons.some((l) =>
+                l.items.some(
+                  (i) => `coursera/${c.branch_id}/${i.id}` === e.source_path,
+                ),
+              ),
+            ),
+          )
+        )
           warnings.push(
             "Source path not found in loaded bundle: " + e.source_path,
           );
@@ -507,7 +590,7 @@
       "Before: " + a.placement.before,
       "Status: " + a.status + " — proposed, not published",
       "Reason: " + a.why,
-      ...a.fields.map((f) => "\nPASTE INTO " + f.label + "\n" + f.text),
+      ...a.fields.map((f) => "\nREVIEW FIELD " + f.label + "\n" + f.text),
     ].join("\n");
   }
   root.ActivityDesigner = {

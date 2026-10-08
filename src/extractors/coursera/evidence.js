@@ -218,11 +218,11 @@ export async function fingerprintsFromMaterial(apiResponse) {
     const root = apiResponse && apiResponse.data ? apiResponse.data : apiResponse;
     let nodes = 0;
 
-    function walk(value, path) {
+    function walk(value, path, ancestors) {
       if (!value || nodes++ > MAX_WALK_NODES) return;
 
       if (Array.isArray(value)) {
-        value.forEach(child => walk(child, path));
+        value.forEach(child => walk(child, path, ancestors));
         return;
       }
 
@@ -251,6 +251,7 @@ export async function fingerprintsFromMaterial(apiResponse) {
           type: rawType ? normalizeType(rawType) : "Unknown",
           typeName: rawType,
           path: path.join(" > "),
+          ancestors: ancestors.map(a => ({...a})),
           payload,
           evidenceLevel: (payload.files.length || payload.links.length || payload.textSample) ? "item-object" : "structure-only",
           evidenceSources: ["authoringCourseMaterials"]
@@ -258,18 +259,20 @@ export async function fingerprintsFromMaterial(apiResponse) {
       }
 
       const nextPath = (!isItem && title && children.length) ? path.concat([title]) : path;
-      children.forEach(child => walk(child, nextPath));
+      const nextAncestors = (!isItem && title && children.length)
+        ? ancestors.concat([{id:String(itemId || ""),title:String(title),key:ancestors.map(a=>a.id || a.title).concat(String(itemId || title)).join("/")}]) : ancestors;
+      children.forEach(child => walk(child, nextPath, nextAncestors));
 
       Object.keys(value).forEach(key => {
         if (key === "elements" || key === "content") return;
         const child = value[key];
         if (child && typeof child === "object" && /material|module|lesson|track|section|week/i.test(key)) {
-          walk(child, nextPath);
+          walk(child, nextPath, nextAncestors);
         }
       });
     }
 
-    walk(root, []);
+    walk(root, [], []);
 
     const seen = new Set();
     const deduped = out.filter(item => {

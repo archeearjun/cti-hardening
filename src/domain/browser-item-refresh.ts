@@ -86,8 +86,8 @@ export function validateRefreshCapture(
     );
   const capture: EvidenceObject = validateItemCheck(JSON.parse(text), spec);
   if (
-    capture.extractorVersion !== "v6.15.10" ||
-    capture.extractorBuild !== "v6.15.10-item-time-estimates-20261005"
+    capture.extractorVersion !== "v6.15.11" ||
+    capture.extractorBuild !== "v6.15.11-activity-evidence-20261008"
   )
     throw Error(
       "The extension extractor is out of date. Update it before refreshing this item.",

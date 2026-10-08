@@ -18,6 +18,8 @@ function context() {
     AbortController,
     DOMParser,
     crypto,
+    atob,
+    btoa,
     JSZip,
     setTimeout,
     clearTimeout,
@@ -26,6 +28,8 @@ function context() {
     "xml-reader",
     "shell-capture",
     "cti-adapter",
+    "cti-documents",
+    "activity-quality",
     "core",
     "designer",
     "readiness",
@@ -87,6 +91,36 @@ function fixture(ctx) {
   };
   a.evidence = [{ source_path: "coursera/b1/i1", locator: "item i1" }];
   a.checks = [];
+  a.design = {
+    case_facts: [],
+    learner_task: "Explain why volume uses cubed units.",
+    interaction:
+      "Ask for a unit choice, challenge a linear unit, stop after a justified revision.",
+    success_criteria: [
+      "Distinguish linear and cubic measurements.",
+      "Justify the choice using the measured dimensions.",
+    ],
+    comparison: [
+      {
+        item_id: "i2",
+        difference:
+          "The quiz selects a unit; this conversation asks for the reasoning and correction of a mistaken unit.",
+      },
+    ],
+  };
+  a.fields.find((f) => f.label === "Purpose of activity").text =
+    a.design.learner_task + " " + a.design.interaction;
+  a.fields.find((f) => f.label === "Advanced").text =
+    a.design.success_criteria.join(" ") +
+    " Both actions are completed independently and applied to a changed example.";
+  a.fields.find((f) => f.label === "Intermediate").text =
+    "Selects cubic units but needs a prompt to connect all three dimensions to the choice.";
+  a.fields.find((f) => f.label === "Beginner").text =
+    "Still selects a linear unit after a prompt or cannot relate dimensions to volume.";
+  // This fixture is the successful path; the raw fixture deliberately models
+  // missing visible prompts/options, tested separately below.
+  s.courses[0].modules[0].lessons[0].items[1].assessment_capture.visible_question_headers = 1;
+  s.courses[0].modules[0].lessons[0].items[1].assessment_capture.choice_controls_seen = 1;
   r.module_decisions = [
     {
       course: s.title,
@@ -328,4 +362,385 @@ test("module identity resolves duplicate names, and revalidation preserves unrel
   const combined = c.ActivityDesigner.merge(r, next);
   assert.equal(combined.activities.length, 1);
   assert.equal(combined.module_decisions.length, 2);
+});
+
+function ctiRaw() {
+  return {
+    extractedAt: "2026-10-08T18:00:00Z",
+    page: {
+      courseId: "b1",
+      title: "Edit Content | Synthetic course | Coursera",
+      url: "https://www.coursera.org/teach/test/b1/content/edit",
+    },
+    meta: { extractor: "v6.15.11" },
+    fingerprints: [
+      {
+        id: "i1",
+        name: "Teaching",
+        typeName: "supplement",
+        ancestors: [
+          { id: "m1", title: "First module", key: "m1" },
+          { id: "l1", title: "Lesson", key: "m1/l1" },
+        ],
+        payload: {
+          textScopeKind: "reading-content-field",
+          textSample:
+            "Volume requires three dimensions measured in compatible units.",
+          readingEditorEvidence: {
+            courseId: "b1",
+            itemId: "i1",
+            route:
+              "https://www.coursera.org/teach/test/b1/content/item/supplement/i1",
+          },
+        },
+      },
+    ],
+  };
+}
+test("canonical adapter preserves exact hierarchy, repeated labeled choices, discussion prompts and assignment blocks", () => {
+  const c = context(),
+    raw = ctiRaw();
+  const fp = (id, typeName, payload) => ({
+    ...raw.fingerprints[0],
+    id,
+    name: id,
+    typeName,
+    payload,
+  });
+  raw.fingerprints.push(
+    fp("i2", "ungradedAssignment", {
+      structuredAssessment: {
+        declaredQuestionCount: 2,
+        questions: [1, 2].map(() => ({
+          prompt: "Choose the units.",
+          options: [
+            { label: "Cubic metres", correct: true },
+            { label: "Metres", description: "Linear distance", correct: false },
+          ],
+          correctAnswers: ["PRIVATE_KEY"],
+        })),
+      },
+    }),
+  );
+  raw.fingerprints.push(
+    fp("i3", "discussionPrompt", {
+      textScopeKind: "discussion-prompt-field",
+      textSample: "Explain a situation where units changed your estimate.",
+    }),
+  );
+  raw.fingerprints.push(
+    fp("i4", "ungradedAssignment", {
+      nativeAssignment: {
+        contentBlockEvidence: {
+          blocks: [
+            {
+              title: "Directions",
+              text: "Measure three dimensions and explain the estimate.",
+            },
+          ],
+        },
+        rubrics: [{ text: "PRIVATE_RUBRIC" }],
+      },
+    }),
+  );
+  const projected = c.CourseCtiAdapter.adapt(raw);
+  assert.equal(projected.items[0].ancestors[0].id, "m1");
+  assert.equal(projected.items[1].assessment_capture.prompts_captured, 2);
+  assert.equal(projected.items[1].assessment_capture.options_captured, 4);
+  assert.equal(projected.items[2].blocks[0].kind, "assessment");
+  assert.equal(
+    projected.items[3].blocks[0].text,
+    "Measure three dimensions and explain the estimate.",
+  );
+  assert(!JSON.stringify(projected).includes("PRIVATE_"));
+  raw.meta.activeSpaCrawl = {
+    targetDiagnostics: [
+      {
+        id: "i2",
+        route:
+          "https://www.coursera.org/teach/test/b1/content/item/ungradedAssignment/i2?token=PRIVATE_TOKEN",
+      },
+    ],
+  };
+  assert.equal(
+    c.CourseCtiAdapter.adapt(raw).items[1].route,
+    "https://www.coursera.org/teach/test/b1/content/item/ungradedAssignment/i2",
+  );
+  raw.fingerprints[1].payload.structuredAssessment.questions[0].optionTextReliable = false;
+  const session = c.CourseShell.toSession(
+    c.CourseCtiAdapter.adapt(raw),
+    "cti.json",
+    c.CoursePrep,
+  );
+  assert(
+    c.ActivityQuality.coverage(session, {
+      branch_id: "b1",
+      module_id: "m1",
+    }).incomplete.some((i) => i.id === "i2"),
+  );
+});
+test("known unread item references resolve as gaps, while missing identities and unsafe drafts remain blocked", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const hold = {
+    ...a,
+    status: "hold",
+    fields: [],
+    evidence: [
+      ...a.evidence,
+      {
+        source_path: "coursera/b1/i3",
+        locator: "Known unread item",
+        purpose: "gap",
+      },
+    ],
+  };
+  const checks = c.ActivityReadiness.check(r, s, hold);
+  assert(
+    checks.warnings.some((x) => x.includes("Known item has no readable body")),
+  );
+  assert(!checks.blocking.some((x) => x.includes("not present")));
+  assert(
+    !c.ActivityDesigner.issues({ ...r, activities: [hold] }, s).cards[
+      a.id
+    ].some((x) => x.includes("Source path not found")),
+  );
+  const invented = {
+    ...hold,
+    evidence: [{ source_path: "coursera/b1/invented", locator: "" }],
+  };
+  assert(
+    c.ActivityReadiness.check(r, s, invented).blocking.some((x) =>
+      x.includes("not present"),
+    ),
+  );
+  const legacy = { ...a };
+  delete legacy.design;
+  assert(
+    c.ActivityReadiness.check(r, s, legacy).blocking.some((x) =>
+      x.includes("Regenerate"),
+    ),
+  );
+  const item = s.courses[0].modules[0].lessons[0].items[1];
+  item.body_available = false;
+  s.sources[0].documents = s.sources[0].documents.filter(
+    (d) => d.id !== item.id,
+  );
+  assert(
+    c.ActivityReadiness.check(r, s, a).blocking.some(
+      (x) => x.includes("Read existing practice") && x.includes("i2"),
+    ),
+  );
+});
+test("self-contained original cases are permitted, missing facts and unlabelled invented data are blocked", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  a.type = "role_play";
+  a.fields = c.ActivityDesigner.required.role_play.map((label) => ({
+    label,
+    text:
+      label === "Title"
+        ? a.title
+        : label + ": Describe and justify the unit choice.",
+  }));
+  a.design.case_facts = [
+    {
+      text: "The fictional practice slab measures 2 m by 3 m by 0.1 m.",
+      origin: "fictional",
+      source_path: "",
+    },
+  ];
+  a.fields.find((f) => f.label === "Scenario definition").text =
+    a.design.case_facts[0].text + " " + a.design.interaction;
+  a.fields.find((f) => f.label === "Tasks").text = a.design.learner_task;
+  a.fields.find((f) => f.label === "Advanced").text =
+    a.design.success_criteria.join(" ");
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
+  a.fields.find((f) => f.label === "Scenario definition").text =
+    "Calculate the truckloads using the site plan.";
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, false);
+  assert(
+    c.ActivityReadiness.check(r, s, a).blocking.some((x) =>
+      x.includes("each declared case fact"),
+    ),
+  );
+});
+test("captured PDF bytes are hash verified, deduplicated, read locally and saved with exact item association", async () => {
+  const c = context(),
+    raw = ctiRaw(),
+    pdf = Buffer.from("%PDF-1.4\nSynthetic fixture bytes"),
+    sha = Buffer.from(await crypto.subtle.digest("SHA-256", pdf)).toString(
+      "hex",
+    );
+  raw.documentAssets = [
+    {
+      sha256: sha,
+      size: pdf.length,
+      mime: "application/pdf",
+      base64: pdf.toString("base64"),
+    },
+  ];
+  raw.fingerprints[0].payload.assetDetails = [
+    {
+      sha256: sha,
+      documentRef: sha,
+      name: "teaching.pdf",
+      url: "https://cdn.example/asset?Signature=PRIVATE_TOKEN",
+    },
+  ];
+  let calls = 0;
+  const s = await c.CoursePrep.processFiles([file("cti.json", raw)], {
+    phase: "final",
+    pdf: async () => {
+      calls++;
+      return {
+        text: "[PAGE 1]\nVolume is length times width times depth.\n[PAGE 2]\nInclude compatible units in all measurements.",
+        note: "Two text pages; diagrams not interpreted.",
+      };
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(s.visual_assets.length, 1);
+  assert.equal(s.visual_assets[0].source_paths[0], "coursera/b1/i1");
+  const p = c.CourseCompact.build(s).packets[0];
+  assert(p.text.includes("[PAGE 2]"));
+  assert(!p.text.includes("PRIVATE_TOKEN"));
+  assert(!p.text.includes(pdf.toString("base64")));
+  assert.equal(p.data.teaching_attachments.length, 1);
+  assert.deepEqual(Buffer.from(p.assets[`Teaching_PDFs/${sha}.pdf`]), pdf);
+  const restored = await c.CoursePrep.processFiles([file("SESSION.json", s)], {
+    phase: "final",
+  });
+  assert.deepEqual(
+    Buffer.from(c.CoursePrep.bundleFiles(restored)[`Teaching_PDFs/${sha}.pdf`]),
+    pdf,
+  );
+  raw.documentAssets[0].sha256 = "a".repeat(64);
+  await assert.rejects(
+    c.CoursePrep.processFiles([file("bad.json", raw)]),
+    /checksum/,
+  );
+});
+test("PDF parsing failures keep originals as unread visual evidence; protected attachments never enter teaching packets", async () => {
+  const c = context(),
+    raw = ctiRaw(),
+    pdf = Buffer.from("%PDF-1.4\nFixture"),
+    sha = Buffer.from(await crypto.subtle.digest("SHA-256", pdf)).toString(
+      "hex",
+    );
+  raw.documentAssets = [
+    {
+      sha256: sha,
+      size: pdf.length,
+      mime: "application/pdf",
+      base64: pdf.toString("base64"),
+    },
+  ];
+  raw.fingerprints[0].payload.assetDetails = [
+    { sha256: sha, documentRef: sha, name: "teaching.pdf" },
+  ];
+  const failed = await c.CoursePrep.processFiles([file("cti.json", raw)], {
+    pdf: async () => {
+      throw Error("parse failure");
+    },
+  });
+  assert.equal(failed.visual_assets.length, 1);
+  assert.match(failed.sources[0].documents[0].note, /could not be parsed/);
+  raw.fingerprints[0].payload.assetDetails[0].name = "answer-key.pdf";
+  const protectedSession = await c.CoursePrep.processFiles(
+    [file("cti.json", raw)],
+    {
+      pdf: async () => {
+        throw Error("must not parse");
+      },
+    },
+  );
+  assert.equal(protectedSession.visual_assets.length, 0);
+  const bad = structuredClone(raw.documentAssets[0]);
+  bad.size = 9 * 1024 * 1024;
+  assert.throws(() => c.CourseCtiDocuments.validate([bad]), /8 MiB|Invalid/);
+});
+test("XLSX placement refresh preserves same-ID capture evidence and marks new items unread", async () => {
+  const c = context(),
+    raw = ctiRaw();
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "deleted",
+    name: "Removed from current export",
+  });
+  const zip = new JSZip();
+  zip.file(
+    "xl/workbook.xml",
+    '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="FOR IMPORT" r:id="r1"/></sheets></workbook>',
+  );
+  zip.file(
+    "xl/_rels/workbook.xml.rels",
+    '<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',
+  );
+  const rows = [
+    { A: "Template" },
+    { A: "Title", B: "Synthetic course" },
+    { A: "**Branch ID", B: "b1" },
+    { A: "Module", B: "1" },
+    { A: "***Name", B: "First module" },
+    { A: "**Module ID", B: "m1" },
+    { A: "Lesson", B: "1" },
+    { A: "***Name", B: "Lesson" },
+    { A: "**Lesson ID", B: "l1" },
+    { A: "supplement", B: "Teaching", H: "i1" },
+    { A: "ungradedAssignment", B: "New task", H: "new" },
+  ];
+  zip.file(
+    "xl/worksheets/sheet1.xml",
+    "<worksheet><sheetData>" +
+      rows
+        .map(
+          (r, n) =>
+            `<row r="${n + 1}">` +
+            Object.entries(r)
+              .map(
+                ([col, value]) =>
+                  `<c r="${col}${n + 1}" t="inlineStr"><is><t>${value}</t></is></c>`,
+              )
+              .join("") +
+            "</row>",
+        )
+        .join("") +
+      "</sheetData></worksheet>",
+  );
+  const data = await zip.generateAsync({ type: "uint8array" }),
+    xlsx = {
+      name: "current.xlsx",
+      size: data.length,
+      arrayBuffer: async () => data.buffer,
+    };
+  for (const inputs of [
+    [file("cti.json", raw), xlsx],
+    [xlsx, file("cti.json", raw)],
+  ]) {
+    const s = await c.CoursePrep.processFiles(inputs, { phase: "final" });
+    assert.equal(s.courses[0].kind, "coursera_shell_capture");
+    const items = s.courses[0].modules[0].lessons[0].items;
+    assert.equal(items[0].body_available, true);
+    assert.equal(items[0].row, 10);
+    assert.equal(items[1].body_available, false);
+    assert.equal(s.sources[0].documents.length, 1);
+    assert(s.sources[0].unread.some((u) => u.path === "coursera/b1/new"));
+    const packet = c.CourseCompact.build(s).packets[0];
+    assert.equal(packet.data.coverage_audit[0].assessment_items_with_text, 0);
+    assert(!packet.data.documents.some((d) => d.id === "deleted"));
+    assert.equal(packet.data.structure[0].captured_at, raw.extractedAt);
+  }
+});
+test("a detailed brief cannot make generic or disconnected Coursera fields copyable", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  a.fields.find((f) => f.label === "Purpose of activity").text =
+    "Practice and discuss the subject with an expert.";
+  a.fields.find((f) => f.label === "Advanced").text =
+    "Shows confident understanding.";
+  const check = c.ActivityReadiness.check(r, s, a);
+  assert.equal(check.canCopy, false);
+  assert(check.blocking.some((x) => x.includes("actual Tasks")));
+  assert(check.blocking.some((x) => x.includes("generic confidence")));
 });

@@ -43,7 +43,11 @@
     $("activities-empty").hidden = true;
     $("activities-result").hidden = false;
     $("activities-title").textContent = result.title;
-    $("activities-summary").textContent = result.summary;
+    const ready = result.activities.filter(
+      (a) => ActivityReadiness.check(result, UI.getSession(), a).canCopy,
+    ).length;
+    $("activities-summary").textContent =
+      `${ready} draft(s) passed the automated evidence and structure checks; ${result.activities.length - ready} proposal(s) need review or evidence. Human content review is still required. AI recommendation: ${result.summary}`;
     $("result-warnings").replaceChildren();
     $("result-warnings").hidden = !check.all.length;
     for (const w of check.all) $("result-warnings").append(el("p", w));
@@ -69,7 +73,9 @@
           label(a) +
             " · " +
             (a.status === "draft"
-              ? "Draft for review"
+              ? readiness.canCopy
+                ? "Draft for content review"
+                : "Needs evidence / design review"
               : a.status === "idea"
                 ? "Proposed opportunity"
                 : "On hold") +
@@ -115,20 +121,50 @@
       card.append(placement, el("p", a.why, "activity-reason"));
       if (a.objective)
         card.append(el("p", "Learning goal: " + a.objective, "small"));
+      if (readiness.blocking.length) {
+        const notice = el("section", undefined, "notice");
+        notice.append(el("h3", "What to do next"));
+        const list = el("ul");
+        for (const w of readiness.blocking) list.append(el("li", w));
+        notice.append(list);
+        const cv = ActivityQuality.coverage(UI.getSession(), a.placement);
+        for (const item of [
+          ...new Map(
+            [...cv.unread, ...cv.incomplete].map((i) => [i.id, i]),
+          ).values(),
+        ]) {
+          const href = CourseCtiAdapter.route(
+            item.link,
+            cv.course.branch_id,
+            item.id,
+          );
+          if (href) {
+            const link = el("a", "Open " + item.title + " (" + item.id + ")");
+            link.href = href;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            const line = el("p");
+            line.append(link);
+            notice.append(line);
+          }
+        }
+        card.append(notice);
+      }
       const cardChecks = [
-        ...new Set([
-          ...readiness.blocking,
-          ...readiness.warnings,
-          ...check.cards[a.id],
-        ]),
-      ];
+        ...new Set([...readiness.warnings, ...check.cards[a.id]]),
+      ].filter((w) => !readiness.blocking.includes(w));
       if (cardChecks.length) {
-        const notice = el("div", undefined, "notice");
-        notice.append(el("strong", "Check before using this placement"));
+        const details = el("details", undefined, "detail-box");
+        details.append(
+          el(
+            "summary",
+            "Evidence notes and AI checks (" + cardChecks.length + ")",
+          ),
+        );
         const ul = el("ul");
         for (const w of cardChecks) ul.append(el("li", w));
-        notice.append(ul);
-        card.append(notice);
+        details.append(ul);
+        card.append(details);
       }
       if (a.status === "draft") {
         const fields = el("div", undefined, "activity-fields");
@@ -194,6 +230,9 @@
     $("module-decisions").replaceChildren();
     for (const d of result.module_decisions) {
       const row = el("div", undefined, "module-decision");
+      const cv = ActivityQuality.coverage(UI.getSession(), d);
+      const unresolved =
+        d.decision === "neither" && (cv.unread.length || cv.incomplete.length);
       row.append(
         el("strong", d.course + " / " + d.module),
         el(
@@ -203,9 +242,14 @@
             dialogue: "Dialogue",
             neither: "No addition",
             hold: "Hold",
-          }[d.decision],
+          }[d.decision] + (unresolved ? " — evidence incomplete" : ""),
         ),
-        el("p", d.reason),
+        el(
+          "p",
+          (unresolved
+            ? "AI suggestion only: unread/incomplete practice prevents confirming that no addition is needed. "
+            : "") + d.reason,
+        ),
       );
       $("module-decisions").append(row);
     }

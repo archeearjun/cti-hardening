@@ -1,14 +1,16 @@
 # Role Play & Dialogue preview
 
 The CTI gateway links to `/activity-designer/index.html`. The gateway displays
-“The complete workflow will be operational very soon.” alongside the independent
-activity preview. Existing inspection/reconciliation workspaces remain available.
+“The complete workflow will be operational very soon.” alongside the activity preview. Full CTI inspection/reconciliation is owner-only;
+other Access-permitted users can use the isolated activity workflow.
 This is a preview, not certification that every Coursera content layout is read.
 
 ## Boundary
 
 `src/activity-designer/` adapts the supplied Course Activity Designer modular
-browser source (app 1.0.4; independent capture 1.2.1). It runs on a separate page,
+browser source. The current preparation app is 2.2.0; its default capture is the
+maintained CTI Coursera v6.15.11 extractor. The separate 1.2.1 reader remains only
+as an optional one-item diagnostic and backward-compatible input. It runs on a separate page,
 isolated from React workspace state and existing extractor globals. There is no
 Apps Script runtime dependency. The supplied standalone project remains unchanged.
 
@@ -33,7 +35,9 @@ An authenticated production journey remains unverified.
    final drafting/revalidation. Opportunity mode offers concepts, not paste-ready
    authoring fields or implied partner approval.
 2. Add a current bulk capture, source package, current Coursera XLSX and useful
-   reference documents. Alternatively run the read-only console capture in an
+   reference documents. The primary Copy capture script button delivers the same
+maintained CTI extractor used by reconciliation, including bounded waits, retries
+and identity scoping. Run it in an
    already authorized Coursera tab. The one-item test is diagnostic, not a whole
    course scan. Loading a diagnostic cannot replace a saved full-course capture.
 3. Prepare evidence. Inspect the nested course/module/lesson/item tree, source
@@ -43,7 +47,9 @@ An authenticated production journey remains unverified.
 4. Search/select modules, then download compact packets and copy the separate
    chat message. The approximately 12,000-token target is characters divided by
    four, not a tokenizer or remaining-context meter. Oversized modules stay whole
-   and are flagged. Scope exclusions remain explicit.
+   and are flagged. Scope exclusions remain explicit. If a packet includes teaching
+   PDFs, download and unzip its packet ZIP, then attach the listed originals with
+   the text packet; copying text alone does not transmit the diagrams.
 5. Import `ACTIVITY_RESULTS.json`. Cards show exact placement, authoring fields,
    estimated minutes and review checks. Decisions may be Role Play, Dialogue,
    no addition or hold. Unreviewed modules are not implicitly approved.
@@ -79,8 +85,12 @@ references, not proof of current constituent course content or partner approval.
 - `readiness.js` disables copying for missing/wrong placement IDs, false next-item
   boundaries, unresolved supporting paths and absent readable teaching support.
   Assessment-only evidence and capture receipts do not justify learner drafts.
-  Assessment coverage uncertainty is a separate review warning, not a fabricated
-  completeness claim or a blanket ban caused by unrelated administrative gaps.
+  Unread practice in the proposed module, known missing prompts/options and
+  unresolved capture defects block copying until comparison is possible. Mere
+  partial/unknown completeness remains a review warning, never a completeness
+  claim or a blanket ban caused by unrelated administrative gaps. Final drafts
+  also need a self-contained case, concrete deliverable, adaptive interaction,
+  observable criteria and explicit comparison with existing practice.
 - Learner fields/context are separate result fields, never an automatic dump of
   raw evidence. Container/key detection blocks obvious leakage and whole internal
   context documents. This is not semantic answer-leak detection: a human must
@@ -103,8 +113,10 @@ Confirmed issues addressed in this integration:
 All new first-party activity modules, retained standalone tests, build boundary,
 gateway changes and relevant existing capture/package/authentication code were
 inspected. This is a focused integration review, not a new comprehensive audit of
-the unchanged CTI platform or vendor source. The original and frozen Apps Script
-code and existing CTI extractors were not modified.
+the unchanged CTI platform or vendor source. The frozen Apps Script reference is unchanged. The current repair changes the
+maintained Coursera extractor only to retain exact ancestry and bounded original
+PDF bytes; reconciliation business rules remain unchanged. See the dated repair
+record for the latest scope and verified behavior.
 
 Run `npm run test:activities`, `npm run build`, then
 `npm run test:browser:activities`. The normal `npm test` includes the new Node
@@ -118,14 +130,22 @@ rendered prompts/options, read-only traversal, wrong redirects, actual PDF.js
 text extraction, packet search, ZIP recovery, literal HTML rendering and desktop/
 mobile layouts. They do not authenticate to Coursera or certify live extraction.
 
-The supplied live regression context remains unresolved: Percentage Quiz's
-earlier one-item capture read 10 prompts and zero options. A prior diagnostic
-observed 34 radio controls. The 1.2.1 option reader needs a new authorized one-item
-capture to verify association counts and question text, followed by a representative
-full-course capture to verify navigation. Do not describe that issue as fixed on
-the basis of synthetic tests. PDFs provide text layers/link annotations only;
-diagrams, scanned images, plugins, hidden/randomized questions and external media
-may need bulk supplementation or review. No OCR/video understanding is claimed.
+The latest supplied 1.2.1 capture contains 96 items: 49 with readable text and
+47 unread; only 4 of 26 assessment items have text. Its inspected quiz has 10
+captured prompts and 34 captured option texts matching 34 visible choice
+controls. This verifies those visible counts in that supplied capture, not all
+hidden/randomized questions. The new canonical capture has not been run in the
+operator's authenticated live course during this repair.
+
+PDFs provide text layers/link annotations; original PDFs are now preserved where
+already fetched successfully (8 MiB aggregate byte archive, 30 MiB saved-session
+limit). Hash verification binds originals to exact item IDs. Assessment/key PDFs
+are excluded from teaching attachment packets; the original CTI JSON is unchanged.
+Parser failures preserve originals with an explicit warning. Diagrams, scans,
+plugins, hidden/randomized questions and media still require actual visual or
+external-content review. No OCR/video understanding or semantic AI verification
+is claimed. New drafts may use clearly labelled fictional case data where the
+method is substantively taught; they must not invent source diagram facts.
 
 The Earthquakes IMSCC could not be read in the implementation session. It is now
 listed among the supplied files, but retrieval has not completed. Current
@@ -137,3 +157,5 @@ workspace may ship as the explicitly labelled preview through CTI's normal check
 pipeline, retaining existing Access and all evidence/copy gates. Live capture
 verification is required before describing option recovery or representative
 course coverage as established; preview availability does not imply that claim.
+
+Latest implementation findings and checks: [Activity evidence repair, 2026-10-08](audits/activity-evidence-repair-2026-10-08.md).

@@ -59,8 +59,8 @@ function hashFixture(options={}){
   const delivery=c.ctiExtractorDelivery_('coursera');
   assert(delivery.success);
   new vm.Script(delivery.script);
-  assert(delivery.script.includes("v6.15.10"));
-  assert(delivery.script.includes("v6.15.10-item-time-estimates-20261005"));
+  assert(delivery.script.includes("v6.15.11"));
+  assert(delivery.script.includes("v6.15.11-activity-evidence-20261008"));
   const fs=require('node:fs'),html=fs.readFileSync(require('node:path').join(__dirname,'../archive/apps-script/Index.html'),'utf8');
   const functions=[...html.matchAll(/^ function (\w+)\(/gm)];
   const hit=functions.findIndex((x,i)=>html.slice(x.index,functions[i+1]?.index).includes('The reading check and deployed extractor do not match'));
