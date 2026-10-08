@@ -1,3 +1,4 @@
+import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,6 +44,7 @@ const context = await chromium
     fs.rmSync(profile, { recursive: true, force: true });
     throw error;
   });
+await ownerAccessFixture(context);
 const page = await context.newPage();
 page.setDefaultTimeout(15000);
 const errors = [];

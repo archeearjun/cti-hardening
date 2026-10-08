@@ -1,3 +1,4 @@
+import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
 import {
   buildOwnerTasks,
   needsOwnerAction,
@@ -53,6 +54,7 @@ const browser = await chromium.launch({
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1080 },
 });
+await ownerAccessFixture(context);
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));

@@ -6,7 +6,7 @@ const read = (path) =>
   fs.readFileSync(new URL("../" + path, import.meta.url), "utf8");
 
 test("normal CTI operator flow defaults to current local Chrome extraction", () => {
-  const app = read("web/App.tsx");
+  const app = read("web/OwnerWorkspace.tsx");
   const workspace = read("web/CourseraExtractionWorkspace.tsx");
   const local = read("web/LocalCourseraExtraction.tsx");
   const ownerAction = read("web/OwnerActionCard.tsx");
