@@ -110,40 +110,28 @@
       }
       let readableTeaching = false;
       for (const e of activity.evidence) {
-        const docs = session.sources
-            .flatMap((s) => s.documents)
-            .filter((d) => d.path === e.source_path),
-          refs = session.references.filter((r) => r.filename === e.source_path);
-        // Capture receipts and assessment-only bodies are design evidence, not
-        // proof that the underlying concept was taught. Generic source documents
-        // still require the author's substantive review.
+        const resolved = root.ActivityQuality.source(session, e.source_path);
         if (
-          docs.some(
-            (d) =>
-              root.CourseShell.textQuality(d.text).readable &&
-              (!/\[(?:TEACHING|ASSESSMENT|GAP) \|/.test(d.text) ||
-                /\[TEACHING \|/.test(d.text)),
-          ) ||
-          refs.some(
-            (r) =>
-              !/^Shell_capture_receipt_/.test(r.filename) &&
-              root.CourseShell.textQuality(r.text).readable,
-          )
+          resolved.teaching &&
+          e.purpose !== "gap" &&
+          e.purpose !== "comparison"
         )
           readableTeaching = true;
-        if (!docs.length && !refs.length)
+        if (!resolved.known)
           blocking.push(
             "Supporting source path is not present: " + e.source_path,
           );
-        if (
-          docs.length &&
-          docs.every((d) => !root.CourseShell.textQuality(d.text).readable)
-        )
-          blocking.push(
-            "Supporting source has no readable teaching content: " +
-              e.source_path,
-          );
+        else if (!resolved.readable) {
+          const message =
+            "Known item has no readable body: " +
+            e.source_path +
+            ". Capture or inspect this item before using it as evidence.";
+          if (activity.status === "draft" && e.purpose !== "gap")
+            blocking.push(message);
+          else warnings.push(message);
+        }
       }
+      blocking.push(...root.ActivityQuality.problems(activity, session));
       if (!readableTeaching)
         blocking.push(
           "No readable teaching support is cited. Capture or add the relevant teaching before drafting learner content.",

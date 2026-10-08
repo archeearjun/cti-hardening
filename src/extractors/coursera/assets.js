@@ -71,6 +71,7 @@ export function assetDescriptor(value, sourceLabel) {
       sha256: String(obj.sha256 || ""),
       perceptualHash: String(obj.perceptualHash || obj.dhash || ""),
       hashStatus: String(obj.hashStatus || ""),
+      documentRef: String(obj.documentRef || ""),
       evidenceSource: sourceLabel || String(obj.evidenceSource || "")
     };
   }
@@ -131,7 +132,21 @@ export async function hashRemoteAsset(detail, budgetState) {
         if(expired)throw Object.assign(new Error('Asset deadline'),{name:'AbortError'});
         let perceptualHash='';
         if(/^image\//i.test(mime))perceptualHash=await perceptualHashBuffer(buffer,mime);
-        return {size:buffer.byteLength,mime,sha256,perceptualHash,hashStatus:sha256?'SHA256':'UNAVAILABLE'};
+        // Reuse already fetched PDF bytes; never make an additional request for this.
+        // A bounded, hash-addressed archive lets the local activity importer read
+        // every page and provide originals for visual review without embedding keys
+        // or credential-bearing delivery URLs in AI packets.
+        let documentRef='';
+        const pdf = new Uint8Array(buffer);
+        if (budgetState.documents && sha256 && pdf.length>=5 && String.fromCharCode(...pdf.subarray(0,5))==='%PDF-') {
+          if (budgetState.documents.has(sha256)) documentRef=sha256;
+          else if (buffer.byteLength<=Number(budgetState.documentRemaining || 0)) {
+            let binary='';for(let offset=0;offset<pdf.length;offset+=16384)binary+=String.fromCharCode(...pdf.subarray(offset,offset+16384));
+            budgetState.documents.set(sha256,{sha256,size:pdf.length,mime:'application/pdf',base64:btoa(binary)});
+            budgetState.documentRemaining-=pdf.length;documentRef=sha256;
+          }
+        }
+        return {size:buffer.byteLength,mime,sha256,perceptualHash,documentRef,hashStatus:sha256?'SHA256':'UNAVAILABLE'};
       })();
       const result=await Promise.race([work,timeout]);Object.assign(detail,result);
       if(result.size!=null)budgetState.remaining-=result.size;

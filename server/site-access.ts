@@ -24,6 +24,8 @@ const activityFiles = new Set([
   "compact.js",
   "core.js",
   "cti-adapter.js",
+  "cti-documents.js",
+  "activity-quality.js",
   "designer.js",
   "inspect-current-page.js",
   "readiness.js",
@@ -38,6 +40,7 @@ const activityFiles = new Set([
   "vendor/pdf.worker.min.mjs",
   "vendor/pdfjs-LICENSE.txt",
   "downloads/Coursera_Activity_Capture.js",
+  "downloads/CTI_Coursera_Capture.js",
   "downloads/Coursera_Activity_Test_One_Item.js",
 ]);
 export function isSharedActivityPath(path: string) {

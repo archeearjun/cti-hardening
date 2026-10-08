@@ -225,7 +225,10 @@
   }
   function assessmentMetrics(m) {
     if (!m || typeof m !== "object") return null;
-    const result = { completeness: "partial_unverified" };
+    const result = {
+      completeness: "partial_unverified",
+      has_unresolved_capture_issues: m.has_unresolved_capture_issues === true,
+    };
     for (const key of [
       "visible_question_headers",
       "prompts_captured",

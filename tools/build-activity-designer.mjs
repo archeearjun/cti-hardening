@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 // The standalone UI remains isolated: external scripts and the existing CSP,
 // with pinned CTI parser dependencies. No partner data enters this build.
-export function buildActivityDesigner() {
+export function buildActivityDesigner(ctiCapture) {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const source = path.join(root, "src/activity-designer");
   const out = path.join(root, "public/activity-designer");
@@ -21,6 +21,12 @@ ${read("shell-rendered.js")}
 ${read("shell-runner.js")}
 })().catch(error=>console.error("Course Activity Capture:",error.message));\n`;
   new vm.Script(capture);
+  if (!ctiCapture) throw Error("The maintained CTI extractor is required.");
+  new vm.Script(ctiCapture);
+  fs.writeFileSync(
+    path.join(out, "downloads/CTI_Coursera_Capture.js"),
+    ctiCapture,
+  );
   fs.writeFileSync(
     path.join(out, "downloads/Coursera_Activity_Capture.js"),
     capture,
@@ -34,7 +40,7 @@ ${read("shell-runner.js")}
   );
   fs.writeFileSync(
     path.join(out, "configuration.js"),
-    `globalThis.CourseActivitySetup=${JSON.stringify(JSON.parse(read("setup.json")))};\nglobalThis.CourseActivityCaptureScript=${JSON.stringify(capture)};\n`,
+    `globalThis.CourseActivitySetup=${JSON.stringify(JSON.parse(read("setup.json")))};\nglobalThis.CourseActivityCaptureScript=${JSON.stringify(capture)};\nglobalThis.CourseCtiCaptureScript=${JSON.stringify(ctiCapture)};\n`,
   );
   for (const name of fs.readdirSync(source)) {
     if (/\.(js|css|html)$/.test(name))

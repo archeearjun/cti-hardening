@@ -3,12 +3,11 @@
   const $ = (id) => document.getElementById(id),
     C = globalThis.CoursePrep;
   const setup = globalThis.CourseActivitySetup;
-  const captureScript = globalThis.CourseActivityCaptureScript;
-  const testScript = captureScript
-    .replace(
-      "const captureScope='course';",
-      "const captureScope='current_item';",
-    )
+  const captureScript = globalThis.CourseCtiCaptureScript;
+  const testScript = globalThis.CourseActivityCaptureScript.replace(
+    "const captureScope='course';",
+    "const captureScope='current_item';",
+  )
     .replace(
       "Open your signed-in Coursera Course Outline.",
       "Open the specific signed-in Coursera authoring quiz/item to test.",
@@ -24,7 +23,7 @@
   $("capture-script-text").value = captureScript;
   $("copy-capture-script").onclick = () => copy(captureScript);
   $("download-capture-script").onclick = () =>
-    download(captureScript, "Coursera_Activity_Capture.txt");
+    download(captureScript, "CTI_Coursera_Capture.txt");
   $("use-shell-json").onclick = () => {
     try {
       const raw = $("shell-json").value;
@@ -156,7 +155,9 @@
     bulkText =
       "COURSE CONTEXT PREP — COMPLETE TEXT HANDOFF\nThis single file contains the handoff, all numbered context parts and coverage. SESSION.json is not duplicated here; the same curriculum and source text are presented below. Read every section.\n\n" +
       Object.entries(files)
-        .filter(([name]) => name !== "SESSION.json")
+        .filter(
+          ([name, body]) => name !== "SESSION.json" && typeof body === "string",
+        )
         .map(([name, text]) => `===== ${name} =====\n${text}`)
         .join("\n\n");
     bindLink(
@@ -175,9 +176,11 @@
         fileLink(
           body,
           name,
-          name.endsWith(".json")
-            ? "application/json"
-            : "text/plain;charset=utf-8",
+          name.endsWith(".pdf")
+            ? "application/pdf"
+            : name.endsWith(".json")
+              ? "application/json"
+              : "text/plain;charset=utf-8",
         ),
       );
       list.append(a);
@@ -692,6 +695,7 @@
           "Wait for file preparation to finish before restoring saved work.",
         );
       C.validateSession(saved);
+      await CourseCtiDocuments.verify(saved.visual_assets || []);
       if (!["opportunity", "final"].includes(saved.phase))
         throw Error("Saved work has an unsupported stage.");
       const restoredOutput = C.bundleFiles(saved, setup);

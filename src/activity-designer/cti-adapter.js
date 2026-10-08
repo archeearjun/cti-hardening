@@ -37,7 +37,7 @@
       format: "coursera-activity-capture",
       schema_version: 1,
       created_at: raw.extractedAt,
-      extractor_version: "CTI adapter 1 / " + text(raw.meta?.extractor),
+      extractor_version: "CTI adapter 2 / " + text(raw.meta?.extractor),
       course: {
         id: branch,
         title:
@@ -52,8 +52,8 @@
       status: "imported",
       items: [],
       issues: [
-        "CTI evidence projection: answer keys, feedback, browser metadata and credentials are omitted. Original CTI files remain unchanged.",
-        "CTI fingerprints may lack module/lesson IDs. Add the matching current XLSX to resolve placement. Captured titles alone do not establish identity.",
+        "CTI evidence projection omits explicit key/feedback fields, settings and browser credentials. Internal captured bodies can contain worked examples; never copy a source bank into learner context. Original CTI files remain unchanged.",
+        "Exact ancestry is retained when recorded. Older CTI snapshots may need a matching current XLSX to resolve module/lesson IDs.",
       ],
     };
     for (const [position, f] of raw.fingerprints.entries()) {
@@ -70,11 +70,18 @@
         kind + " " + text(f.type),
       );
       const blocks = [],
-        notes = [];
+        notes = [],
+        seen = new Set();
       const add = (field, value, type) => {
         const content = text(value).trim();
-        if (content && root.CourseShell.textQuality(content).readable)
+        if (
+          content &&
+          (type === "assessment" || !seen.has(content)) &&
+          root.CourseShell.textQuality(content).readable
+        ) {
+          seen.add(content);
           blocks.push({ field, text: content, kind: type });
+        }
       };
       if (assessed) {
         // Explicit projection only: never copy generic assessment textSample,
@@ -90,7 +97,9 @@
           ).entries())
             add(
               "Question " + (i + 1) + " / Option " + (n + 1),
-              o.text,
+              [text(o.label) || text(o.text), text(o.description)]
+                .filter(Boolean)
+                .join("\n"),
               "assessment",
             );
         }
@@ -100,15 +109,65 @@
           "learnerExpectations",
         ])
           add("Assignment / " + key, p.nativeAssignment?.[key], "assessment");
+        for (const b of p.nativeAssignment?.contentBlockEvidence?.blocks || [])
+          add(
+            "Assignment block / " + (text(b.title) || "Learner instructions"),
+            b.text,
+            "assessment",
+          );
       } else if (
         p.textScopeKind === "reading-content-field" ||
-        p.textScopeKind === "discussion-content-field"
+        [
+          "discussion-content-field",
+          "discussion-prompt",
+          "discussion-prompt-field",
+          "document-viewer",
+        ].includes(p.textScopeKind)
       ) {
-        add("CTI identity-scoped body", p.textSample, "teaching");
+        add(
+          p.textScopeKind === "document-viewer"
+            ? "Document viewer excerpt (pages not verified)"
+            : "CTI identity-scoped body",
+          p.textSample,
+          /discussion/i.test(kind) ? "assessment" : "teaching",
+        );
       } else
         notes.push(
           "No supported identity-scoped teaching field in this CTI item. Generic authoring-page text was not used.",
         );
+      const identity = (e) => e?.itemId === f.id && e?.courseId === branch;
+      if (!assessed && identity(p.readingEditorEvidence))
+        for (const frame of p.readingEditorEvidence.frames || []) {
+          if (frame.documentStatus === "TEXT_CAPTURED")
+            add("Reading frame excerpt", frame.textSample, "teaching");
+          notes.push(
+            "Reading frame: " +
+              text(frame.documentStatus) +
+              (frame.textTruncated
+                ? "; text truncated."
+                : "; full document/interaction not verified."),
+          );
+        }
+      if (
+        identity(p.typedEditorEvidence) &&
+        p.pluginEvidence?.itemId === f.id
+      ) {
+        for (const frame of p.pluginEvidence.frames || [])
+          if (
+            frame.access === "READABLE" &&
+            frame.surfaceStatus === "CONTENT_OBSERVED"
+          )
+            // Interactive plugin text can contain tasks or feedback. Keep internal,
+            // never use it as certified teaching support or learner context.
+            add(
+              "Plugin visible interaction (internal comparison only)",
+              frame.textSample,
+              "assessment",
+            );
+        notes.push(
+          "Plugin state is a visible excerpt; hidden steps, media and complete interaction remain unverified.",
+        );
+      }
       const trail = text(f.path)
         .split(/\s+>\s+/)
         .filter(Boolean);
@@ -117,23 +176,37 @@
         title: text(f.name) || f.id,
         type: kind,
         position: position + 1,
-        ancestors: trail
-          .slice(0, 2)
-          .map((title, i) => ({
-            id: "",
-            title,
-            key: trail.slice(0, i + 1).join(" > "),
-          })),
+        ancestors:
+          Array.isArray(f.ancestors) && f.ancestors.length
+            ? f.ancestors.map((a) => ({
+                id: idPattern.test(text(a.id)) ? a.id : "",
+                title: text(a.title),
+                key: text(a.key) || text(a.id) || text(a.title),
+              }))
+            : trail.slice(-2).map((title, i) => ({
+                id: "",
+                title,
+                key: trail.slice(0, i + 1).join(" > "),
+              })),
         blocks,
         coverage: blocks.length ? "partial" : "unread",
         notes,
-        route: route(
-          p.readingEditorEvidence?.route || p.typedEditorEvidence?.route,
-          branch,
-          f.id,
-        ),
+        route:
+          [
+            p.readingEditorEvidence?.route,
+            p.typedEditorEvidence?.route,
+            p.nativeAssignment?.contentBlockEvidence?.route,
+            ...(Array.isArray(raw.meta?.activeSpaCrawl?.targetDiagnostics)
+              ? raw.meta.activeSpaCrawl.targetDiagnostics
+              : []
+            )
+              .filter((d) => d.id === f.id)
+              .map((d) => d.route),
+          ]
+            .map((value) => route(value, branch, f.id))
+            .find(Boolean) || "",
       };
-      if (assessed)
+      if (assessed || /discussion/i.test(kind))
         item.assessment_capture = {
           prompts_captured: blocks.filter((b) => /\/ Prompt$/.test(b.field))
             .length,
@@ -144,8 +217,21 @@
           )
             ? assessment.declaredQuestionCount
             : null,
+          has_unresolved_capture_issues:
+            assessment?.captureCompleteness?.questionCoverageComplete ===
+              false ||
+            (assessment?.questions || []).some(
+              (q) =>
+                q.promptTextReliable === false ||
+                q.optionTextReliable === false ||
+                !!q.optionCaptureIssue,
+            ),
           completeness: "partial_unverified",
         };
+      if (p.textScopeKind === "document-viewer")
+        notes.push(
+          "Rendered viewer excerpt only; full PDF pages, diagrams and formulas need review. Captured PDF originals are processed separately when available.",
+        );
       if (p.textCaptureTruncated)
         notes.push("CTI marked its body text as truncated.");
       if (

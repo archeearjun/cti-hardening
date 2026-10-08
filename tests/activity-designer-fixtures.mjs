@@ -108,3 +108,33 @@ export function pdfFixture() {
     `trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return Buffer.from(out);
 }
+
+export function twoPageTeachingPdfFixture() {
+  const streams = [
+    "BT /F1 12 Tf 50 700 Td (Volume is length times width times depth.) Tj ET",
+    "BT /F1 12 Tf 50 700 Td (SECOND PAGE: Practice slab dimensions are 2 m by 3 m by 0.1 m.) Tj ET\n50 400 120 60 re S",
+  ];
+  const bodies = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ...streams.map((s) => `<< /Length ${s.length} >>\nstream\n${s}\nendstream`),
+  ];
+  let out = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const [i, b] of bodies.entries()) {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${b}\nendobj\n`;
+  }
+  const xref = out.length;
+  out +=
+    `xref\n0 ${bodies.length + 1}\n0000000000 65535 f \n` +
+    offsets
+      .slice(1)
+      .map((n) => String(n).padStart(10, "0") + " 00000 n \n")
+      .join("") +
+    `trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(out);
+}

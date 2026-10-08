@@ -1,6 +1,6 @@
 (function (root) {
   "use strict";
-  const VERSION = "2.1.0";
+  const VERSION = "2.2.0";
   const LIMITS = {
     input: 500 * 1024 ** 2,
     entry: 32 * 1024 ** 2,
@@ -725,18 +725,16 @@
             const n = normal(it.title);
             if (!n) continue;
             if (!titleMap.has(n)) titleMap.set(n, []);
-            titleMap
-              .get(n)
-              .push({
-                source_file: s.filename,
-                source_hash: s.sha256,
-                document_id: d.id,
-                path: d.path,
-                source_item_id: it.id,
-                resource_id: a.resource_id,
-                title: it.title,
-                hierarchy: it.path,
-              });
+            titleMap.get(n).push({
+              source_file: s.filename,
+              source_hash: s.sha256,
+              document_id: d.id,
+              path: d.path,
+              source_item_id: it.id,
+              resource_id: a.resource_id,
+              title: it.title,
+              hierarchy: it.path,
+            });
           }
     const matches = [];
     for (const c of courses)
@@ -784,6 +782,7 @@
       title,
       phase,
       input_files: [],
+      visual_assets: [],
       sources: [],
       courses: [],
       references: [],
@@ -847,6 +846,7 @@
         }
       }
     }
+    root.CourseCtiDocuments?.validate(s.visual_assets || [], true);
     let chars = 0;
     for (const src of s.sources) {
       str(src.filename, "source filename");
@@ -885,8 +885,14 @@
       throw Error(
         "Choose at least one IMSCC, XLSX, saved bundle or reference file.",
       );
-    const mergeSaved = (old) => {
+    const mergeSaved = async (old) => {
       validateSession(old);
+      await root.CourseCtiDocuments?.verify(old.visual_assets || []);
+      s.visual_assets =
+        root.CourseCtiDocuments?.merge([
+          ...s.visual_assets,
+          ...(old.visual_assets || []),
+        ]) || [];
       s.sources.push(...old.sources);
       s.references.push(...old.references);
       s.courses.push(...old.courses);
@@ -929,7 +935,7 @@
         if (ext(f.name) === "json") {
           const j = JSON.parse(decoder.decode(bytes));
           if (j.format === "course-context-prep") {
-            mergeSaved(j);
+            await mergeSaved(j);
             continue;
           }
           if (
@@ -940,7 +946,16 @@
               j.format === "coursera-activity-capture"
                 ? root.CourseShell.validate(j)
                 : root.CourseCtiAdapter.adapt(j);
-            capturedInputs.push({ capture, filename: f.name });
+            const assets = root.CourseCtiAdapter?.matches(j)
+              ? await root.CourseCtiDocuments.hydrate(j, capture, options)
+              : [];
+            capturedInputs.push({ capture, filename: f.name, assets });
+            s.input_files.push({
+              filename: f.name,
+              size: f.size,
+              sha256: hash,
+              read_at: new Date().toISOString(),
+            });
             continue;
           }
         }
@@ -950,7 +965,7 @@
             const old = JSON.parse(
               await zipText(z, "SESSION.json", { bytes: 0 }),
             );
-            mergeSaved(old);
+            await mergeSaved(old);
             if (z.file("ACTIVITY_RESULTS.json"))
               s.references.push({
                 filename: "Previous_Activity_Results.json",
@@ -968,7 +983,7 @@
       }
     }
     const capturedBranches = new Set();
-    for (const { capture, filename } of capturedInputs) {
+    for (const { capture, filename, assets } of capturedInputs) {
       if (capturedBranches.has(capture.course.id))
         throw Error(
           "Choose one current capture per course branch; multiple snapshots were selected.",
@@ -985,9 +1000,21 @@
       s.sources = s.sources.filter(
         (src) => src.course_id !== capture.course.id,
       );
-      mergeSaved(
-        root.CourseShell.toSession(capture, filename, root.CoursePrep),
+      s.visual_assets = s.visual_assets
+        .map((a) => ({
+          ...a,
+          source_paths: a.source_paths.filter(
+            (p) => !p.startsWith("coursera/" + capture.course.id + "/"),
+          ),
+        }))
+        .filter((a) => a.source_paths.length);
+      const capturedSession = root.CourseShell.toSession(
+        capture,
+        filename,
+        root.CoursePrep,
       );
+      capturedSession.visual_assets = assets;
+      await mergeSaved(capturedSession);
     }
     for (const { file: f, bytes, hash } of deferred) {
       if (options.signal?.aborted)
@@ -1023,6 +1050,72 @@
                 !(c.branch_id && x.branch_id === c.branch_id) &&
                 x.filename !== c.filename,
             );
+            const captured = prior.find(
+              (x) => x.kind === "coursera_shell_capture",
+            );
+            if (captured) {
+              const evidenceItems = new Map(
+                captured.modules
+                  .flatMap((m) => m.lessons.flatMap((l) => l.items))
+                  .map((i) => [i.id, i]),
+              );
+              for (const m of c.modules)
+                for (const l of m.lessons)
+                  for (const i of l.items) {
+                    const evidence = evidenceItems.get(i.id);
+                    Object.assign(i, {
+                      body_available: evidence?.body_available || false,
+                      capture_coverage: evidence?.capture_coverage || "unread",
+                      assessment_capture: evidence?.assessment_capture || null,
+                      notes: evidence?.notes || [
+                        "No captured body for this exported item.",
+                      ],
+                      link: evidence?.link || i.link || "",
+                    });
+                  }
+              c.kind = "coursera_shell_capture";
+              c.capture_scope = captured.capture_scope;
+              c.captured_at = captured.captured_at || captured.template_header;
+              const ids = new Set(
+                c.modules
+                  .flatMap((m) => m.lessons.flatMap((l) => l.items))
+                  .map((i) => i.id),
+              );
+              s.visual_assets = s.visual_assets
+                .map((a) => ({
+                  ...a,
+                  source_paths: a.source_paths.filter(
+                    (p) =>
+                      !p.startsWith(`coursera/${c.branch_id}/`) ||
+                      ids.has(p.split("/").at(-1)),
+                  ),
+                }))
+                .filter((a) => a.source_paths.length);
+              for (const src of s.sources.filter(
+                (x) =>
+                  x.kind === "captured_shell" && x.course_id === c.branch_id,
+              )) {
+                src.documents = src.documents.filter((d) => ids.has(d.id));
+                src.unread = src.unread.filter((u) =>
+                  ids.has(u.path.split("/").at(-1)),
+                );
+                for (const i of c.modules.flatMap((m) =>
+                  m.lessons.flatMap((l) => l.items),
+                ))
+                  if (!evidenceItems.has(i.id))
+                    src.unread.push({
+                      path: `coursera/${c.branch_id}/${i.id}`,
+                      kind: i.type,
+                      reason:
+                        "Exported item has no captured body; run a fresh full CTI capture.",
+                    });
+              }
+              s.issues.push({
+                file: f.name,
+                reason:
+                  "Placement uses this XLSX; bodies retain their capture timestamp and exact item IDs. Re-capture after shell edits; new/deleted items are not inferred from old evidence.",
+              });
+            }
             s.courses.push(c);
           } else
             s.references.push({
@@ -1205,7 +1298,7 @@ Return concise placement/content cards and ACTIVITY_RESULTS.json using the suppl
       .join("\n");
     const coverage = `COURSE CONTEXT PREP — COVERAGE\n${s.title}\n${JSON.stringify(st, null, 2)}\n\nReference coverage:\n${referenceGaps || "No partial-text warnings or external reference links recorded."}\n\nCaptured text is not proof of source correctness or current live Coursera state. Media/images/external links are listed when unread. No automatic transcription, OCR, external login or web retrieval occurred. Title matches are suggestions only.\n\n${s.issues.map((i) => `${i.file}: ${i.reason}`).join("\n")}\n\n${s.sources.flatMap((x) => [...(x.warnings || []).map((w) => `${x.filename}: ${w}`), ...x.documents.filter((d) => d.coverage === "partial_text").map((d) => `${x.filename} :: ${d.path} | ${d.note}`), ...x.unread.map((u) => `${x.filename} :: ${u.path} | ${u.kind} | ${u.reason}`), ...x.external_links.map((l) => `${x.filename} :: ${l.path} | external_not_fetched | ${l.url}`)]).join("\n")}`;
     const files = {
-      "00_START_HERE.txt": `This bundle was generated locally by Course Context Prep ${VERSION}.\nTitle: ${s.title}\nMode: ${s.phase}\n${parts.length} numbered context file(s); read all of them.\n\n01_REQUEST.txt contains the user-request handoff. COURSE_CONTEXT files contain curriculum, teaching text, reference documents, mapping candidates and gaps. SESSION.json preserves structured evidence for re-use by this converter. 99_COVERAGE.txt lists limitations. The source files were not transmitted by the converter.\n\nThis converter does not generate activities or use AI. It extracts supported text; it does not infer missing teaching, read images or transcribe media. Assessment keys are internal evidence, not learner-facing content.\n\nNext revision: load this ZIP or SESSION.json into the converter and add fresh XLSXs/reference files. You do not need to supply unchanged source packages again.\n`,
+      "00_START_HERE.txt": `This bundle was generated locally by Course Context Prep ${VERSION}.\nTitle: ${s.title}\nMode: ${s.phase}\n${parts.length} numbered context file(s); read all of them.\n\n01_REQUEST.txt contains the user-request handoff. COURSE_CONTEXT files contain curriculum, teaching text, reference documents, mapping candidates and gaps. SESSION.json preserves structured evidence for re-use by this converter. 99_COVERAGE.txt lists limitations. The source files were not transmitted by the converter. Teaching_PDFs contains hash-verified original teaching PDFs where available; attach relevant originals with the text packet for visual review. Diagram interpretation is not automatic.\n\nThis converter does not generate activities or use AI. It extracts supported text; it does not infer missing teaching, read images or transcribe media. Assessment keys are internal evidence, not learner-facing content.\n\nNext revision: load this ZIP or SESSION.json into the converter and add fresh XLSXs/reference files. You do not need to supply unchanged source packages again.\n`,
       "01_REQUEST.txt": handoff(s),
       "SESSION.json": JSON.stringify(s, null, 2),
       "99_COVERAGE.txt": coverage,
@@ -1232,6 +1325,10 @@ Return concise placement/content cards and ACTIVITY_RESULTS.json using the suppl
         2,
       );
     }
+    Object.assign(
+      files,
+      root.CourseCtiDocuments?.files(s.visual_assets || []) || {},
+    );
     return files;
   }
   root.CoursePrep = {

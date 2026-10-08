@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release adds labeled learner-time capture and preserves unknown versus zero; docs/audits/owner-scope-time-2026-10-05.md.",
+      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "6e779003f08d9767ba18746848b8c99edd27e089293ee1ea2bdbe116be81cc1b"
+      "reviewedCurrentHash": "7b4e96cc94c06b2ee4f63a4c16cc8b61d278b2ec76759f5207574ee7e1ef0440"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -3205,7 +3205,7 @@
       "path": "src/engine/matching/text.js",
       "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
       "reviewedCurrentHash": "1c45f956c621a3e5aa57364a795d729c1bc1eb7ebde616d6478d2a0dafe90479",
-      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release adds labeled learner-time capture and preserves unknown versus zero; docs/audits/owner-scope-time-2026-10-05.md."
+      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.10/schema35",
+      "current": "v6.15.11/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,12 +4324,17 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "bc9428a3bc9bebe28ff7086a0df443a642a0dc696e1e895c0660d989e4c7c8e6"
+          "reviewedCurrentHash": "5bc2766e4065256c2c7ffdf8a265a60b18b4d0300fba895d30891b27747ad508"
         },
         {
           "name": "assessmentDeadlineV61313",
           "archivedHash": "0b12f5cefbd5e3d1706e85c068c7d797254ba3ff2cfd21f08f368435ac20e584",
           "reviewedCurrentHash": "6b8dfb269d86584a6bf49a7f4fbc79821a27abd1a58f701f3df79f70704e45f2"
+        },
+        {
+          "name": "assetDescriptor",
+          "archivedHash": "e2e6b585fed1f6d6d799543afa1bd0cff9a3c50f85eecd73e915380a9fef755d",
+          "reviewedCurrentHash": "5f1a1aa611398137e1113c945b86f13f9ead222df7cba3bc3269388f114754ac"
         },
         {
           "name": "assignmentTextBlockBodyV61321",
@@ -4374,7 +4379,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "168a0e07c5135526488fb9a876d9765f837d6b5fe7006449c0787a4b65a6e720"
+          "reviewedCurrentHash": "9ea0855564b407e2ab12da1b0a27a9c2a738da3d0e3f7c5da26dde4148d6eee6"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4387,9 +4392,19 @@
           "reviewedCurrentHash": "346836dc516b51ca2c36ffc810ceade9f2bc9991ec79346f3e428ea37eab96a3"
         },
         {
+          "name": "fingerprintsFromMaterial",
+          "archivedHash": "d74cbaa5e0e1b0ded671646c65b3f1312775d953a810b093173fd06217cdbc43",
+          "reviewedCurrentHash": "d51486a5d05fae14f97edbb14a15bfdf30e4359f22d9be95adea2c574fb56704"
+        },
+        {
           "name": "getJson",
           "archivedHash": "b47f8218eef6d95d49b57d71fb9c1221d85311f603191185df4f24ec49106413",
           "reviewedCurrentHash": "45dcd1c83c7c2c3d55e900cf4fc44c0bdfad5e702184274c9b1b7e2f3541d6e2"
+        },
+        {
+          "name": "hashRemoteAsset",
+          "archivedHash": "e5833fe8e8048e47b0c85f4d385e0c16c928d148fefe718eabb2329539aafd47",
+          "reviewedCurrentHash": "28003d6bca1914c4c2caa9bcb919424e27cdfc1b8178d18447433d093babe057"
         },
         {
           "name": "hydrateOutlineSurfaceForCrawl",
@@ -4434,7 +4449,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "79f02aa5c3023cb290eb4f3b6b7ebdbb1bc230d237c0e9f62c37af3bbd85d19f"
+          "reviewedCurrentHash": "db418cb53a760ed3952c32b94a9ba58df617dbb49dd96de16eddb2006dfdfc99"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4665,11 +4680,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "2b778358b451aba22541be1e305122fd582f69d53fd01b74f4825fc91cfacd63"
+        "reviewedCurrentHash": "22174e440b52d0fd5b11b33868aefeac720be702db715c363b83278ccdb02efe"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "6e779003f08d9767ba18746848b8c99edd27e089293ee1ea2bdbe116be81cc1b"
+        "reviewedCurrentHash": "7b4e96cc94c06b2ee4f63a4c16cc8b61d278b2ec76759f5207574ee7e1ef0440"
       }
     }
   }

@@ -8,6 +8,7 @@ import JSZip from "jszip";
 import {
   captureFixture,
   pdfFixture,
+  twoPageTeachingPdfFixture,
 } from "../tests/activity-designer-fixtures.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -84,11 +85,14 @@ try {
       mimeType: "application/json",
       buffer: Buffer.from(JSON.stringify(value)),
     });
+  const completeVisibleCapture = captureFixture();
+  completeVisibleCapture.items[1].assessment_capture.visible_question_headers = 1;
+  completeVisibleCapture.items[1].assessment_capture.choice_controls_seen = 1;
   await page.locator("#file-input").setInputFiles([
     {
       name: "capture.json",
       mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(captureFixture())),
+      buffer: Buffer.from(JSON.stringify(completeVisibleCapture)),
     },
     {
       name: "instructions.pdf",
@@ -169,6 +173,36 @@ try {
     }));
     a.context = { text: "", filename: "" };
     a.checks = [];
+    a.design = {
+      case_facts: [],
+      learner_task: "Explain why volume uses cubed units.",
+      interaction:
+        "Ask for a unit choice, challenge a linear unit, stop after a justified revision.",
+      success_criteria: [
+        "Distinguish linear and cubic measurements.",
+        "Justify the choice using dimensions.",
+      ],
+      comparison: [
+        {
+          item_id: "i2",
+          difference:
+            "The quiz selects a unit; this conversation asks the learner to justify and revise a mistaken unit.",
+        },
+      ],
+    };
+    a.fields.find((f) => f.label === "Purpose of activity").text =
+      a.design.learner_task + " " + a.design.interaction;
+    a.fields.find((f) => f.label === "Advanced").text =
+      a.design.success_criteria.join(" ") +
+      " Complete both independently and apply the reasoning to a changed example.";
+    a.fields.find((f) => f.label === "Intermediate").text =
+      "Selects cubic units but needs a prompt to connect the three measured dimensions to the choice.";
+    a.fields.find((f) => f.label === "Beginner").text =
+      "Still selects linear units after a hint or cannot explain how the dimensions determine volume.";
+    a.why =
+      "The existing quiz asks for a unit; this conversation adds explanation and revision of a mistaken choice.";
+    a.objective =
+      "Choose volume units and justify them from the measured dimensions.";
     a.placement = {
       course: s.title,
       module: "First module",
@@ -216,6 +250,28 @@ try {
       .getAttribute("href"),
     captureFixture().items[0].route,
   );
+  const unsupported = structuredClone(result);
+  delete unsupported.activities[0].design;
+  await page.locator("#result-json").fill(JSON.stringify(unsupported));
+  await page.locator("#import-result").click();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  assert(
+    (await page.locator("#activity-cards").innerText()).includes(
+      "Regenerate with the current AI packet",
+    ),
+  );
+  assert(
+    (await page.locator("#activity-cards").innerText()).includes(
+      "Needs evidence / design review",
+    ),
+  );
+  await page.locator("#result-json").fill(JSON.stringify(result));
+  await page.locator("#import-result").click();
   const stale = { ...result, bundle_created_at: "2020-01-01T00:00:00Z" };
   await page.locator("#result-json").fill(JSON.stringify(stale));
   await page.locator("#import-result").click();
@@ -348,6 +404,96 @@ try {
     path: path.join(screenshots, "mobile.png"),
     fullPage: true,
   });
+  // Canonical import reads both PDF pages under the actual PDF.js worker/CSP,
+  // and ships original bytes alongside the module packet for visual review.
+  const pdfPage = await context.newPage();
+  pdfPage.on("pageerror", (e) => errors.push(e.message));
+  await pdfPage.goto(page.url());
+  await pdfPage.waitForFunction(() => !!globalThis.CoursePrepUI);
+  const pdfBytes = twoPageTeachingPdfFixture();
+  const sha = Buffer.from(
+    await crypto.subtle.digest("SHA-256", pdfBytes),
+  ).toString("hex");
+  const raw = {
+    extractedAt: "2026-10-08T18:00:00Z",
+    page: {
+      courseId: "b1",
+      title: "Edit Content | Synthetic course | Coursera",
+      url: "https://www.coursera.org/teach/test/b1/content/edit",
+    },
+    meta: { extractor: "v6.15.11" },
+    documentAssets: [
+      {
+        sha256: sha,
+        size: pdfBytes.length,
+        mime: "application/pdf",
+        base64: pdfBytes.toString("base64"),
+      },
+    ],
+    fingerprints: [
+      {
+        id: "i1",
+        name: "Teaching PDF",
+        typeName: "supplement",
+        ancestors: completeVisibleCapture.items[0].ancestors,
+        payload: {
+          textScopeKind: "document-viewer",
+          textSample: "Volume viewer excerpt",
+          assetDetails: [{ sha256: sha, documentRef: sha, name: "volume.pdf" }],
+        },
+      },
+    ],
+  };
+  await pdfPage.locator("#file-input").setInputFiles({
+    name: "cti.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(raw)),
+  });
+  await pdfPage.locator("#process").click();
+  await pdfPage.waitForFunction(
+    () =>
+      document.querySelector("#progress-label").textContent ===
+      "Preparation complete",
+  );
+  const docSession = await pdfPage.evaluate(() => CoursePrepUI.getSession());
+  assert(docSession.sources[0].documents[0].text.includes("SECOND PAGE"));
+  assert(
+    docSession.sources[0].documents[0].note.includes(
+      "diagrams were not interpreted",
+    ),
+  );
+  assert.equal(docSession.courses[0].modules[0].id, "m1");
+  const delivery = await pdfPage.evaluate(() => ({
+    packet: CoursePackets.getModel().packets[0].data,
+    files: Object.keys(CoursePackets.getModel().packets[0].assets),
+  }));
+  assert.equal(delivery.packet.teaching_attachments.length, 1);
+  assert.equal(delivery.files[0], `Teaching_PDFs/${sha}.pdf`);
+  await pdfPage.locator("#download-packet").click();
+  const pdfLink = pdfPage.getByRole("link", {
+    name: "Save AI_PACKET_P01_Unzip_First.zip",
+    exact: true,
+  });
+  await pdfLink.waitFor();
+  const pdfWait = pdfPage.waitForEvent("download");
+  await pdfLink.click();
+  const pdfDownload = await pdfWait;
+  const packetZip = await JSZip.loadAsync(
+    fs.readFileSync(await pdfDownload.path()),
+  );
+  assert.deepEqual(
+    await packetZip.file(`Teaching_PDFs/${sha}.pdf`).async("nodebuffer"),
+    pdfBytes,
+  );
+  assert(
+    (await packetZip.file("AI_PACKET_P01.txt").async("string")).includes(
+      "SECOND PAGE",
+    ),
+  );
+  await pdfPage.screenshot({
+    path: path.join(screenshots, "pdf-packet.png"),
+    fullPage: true,
+  });
   assert.deepEqual(errors, []);
   assert(
     requests
@@ -356,7 +502,7 @@ try {
   );
   assert(!requests.some((r) => /openai|gemini|coursera\.org/.test(r.url)));
   console.log(
-    "PASS: gateway, strict CSP, bulk import, packet metrics/search, failed preparation recovery, stale/wrong placement, packet merging, ZIP save/restore, literal rendering, desktop/mobile. Synthetic course; no live Coursera verification.",
+    "PASS: gateway, strict CSP, bulk import, packet metrics/search, failed preparation recovery, stale/wrong placement, packet merging, ZIP save/restore, design gates, complete two-page PDF text/original packet, literal rendering, desktop/mobile. Synthetic course; no live Coursera verification.",
   );
 } finally {
   await browser?.close();

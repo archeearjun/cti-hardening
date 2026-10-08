@@ -46,7 +46,7 @@ javascript:(async function () {
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.10"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.11"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -56,7 +56,7 @@ javascript:(async function () {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.10"
+          finishedAt: Date.now(), version: "v6.15.11"
         };
       }
     } catch (e) {}
@@ -712,8 +712,8 @@ javascript:(async function () {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.10",
-      buildId: "v6.15.10-item-time-estimates-20261005",
+      version: "v6.15.11",
+      buildId: "v6.15.11-activity-evidence-20261008",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1487,7 +1487,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.10", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.11", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1501,7 +1501,7 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.10", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.11", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1509,8 +1509,8 @@ javascript:(async function () {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.10",
-      buildId: "v6.15.10-item-time-estimates-20261005",
+      extractor: "CTI Item Fidelity Extractor v6.15.11",
+      buildId: "v6.15.11-activity-evidence-20261008",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1744,6 +1744,7 @@ javascript:(async function () {
   console.log('CTI: checking asset hashes and preparing the JSON export');
   const cooperativePartialCapture=backgroundChunkMode && Boolean((result.meta.backgroundChunk || {}).yielded);
   const hashBudget = { remaining: MAX_TOTAL_REMOTE_ASSET_BYTES, cache:new Map(),
+    documents:new Map(),documentRemaining:8*1024*1024,
     deadline:cooperativePartialCapture?Date.now():Math.min(Date.now()+ASSET_STAGE_MAX_MS,CTI_WHOLE_RUN_DEADLINE) };  // CTI_PROGRESS_BEGIN
   let progressAssetsProcessed = 0;
   ctiProgressUpdateV1({phase:"Check assets",detail:"Checking accessible file hashes and preparing evidence."});
@@ -1818,6 +1819,9 @@ javascript:(async function () {
   result.meta.itemsWithAssetEvidence = result.fingerprints.filter(fp => (fp.payload.files || []).length > 0 || (fp.payload.assetDetails || []).length > 0).length;
   result.meta.itemsWithCryptographicAssetEvidence = result.fingerprints.filter(fp => (fp.payload.assetDetails || []).some(d => d.sha256)).length;
   result.meta.itemsWithPerceptualImageEvidence = result.fingerprints.filter(fp => (fp.payload.assetDetails || []).some(d => d.perceptualHash)).length;
+  result.documentAssets=[...hashBudget.documents.values()];
+  result.meta.documentAssetBytes=8*1024*1024-hashBudget.documentRemaining;
+  result.meta.documentAssetLimit=8*1024*1024;
   result.meta.remoteAssetHashBytesUsed = MAX_TOTAL_REMOTE_ASSET_BYTES - hashBudget.remaining;
   result.meta.itemsWithLinkEvidence = result.fingerprints.filter(fp => (fp.payload.links || []).length > 0).length;
   result.meta.itemsWithTextEvidence = result.fingerprints.filter(fp => (fp.payload.textSample || "").length >= 40).length;
