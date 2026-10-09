@@ -160,8 +160,8 @@ const localCapture = {
   extractedAt: "2026-10-01T00:00:00.000Z",
   page: { courseId: "Course_id_123", title: "Synthetic Course" },
   meta: {
-    extractor: "CTI Item Fidelity Extractor v6.15.11",
-    buildId: "v6.15.11-activity-evidence-20261008",
+    extractor: "CTI Item Fidelity Extractor v6.15.12",
+    buildId: "v6.15.12-editor-identity-20261009",
     baseFingerprintCount: 1,
     captureAccounting: {
       inventoryCount: 1,
@@ -473,7 +473,7 @@ try {
     await (await extractorDownload).path(),
     "utf8",
   );
-  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.11/);
+  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.12/);
   await page.locator("#local-coursera-capture").setInputFiles({
     name: "local-schema-35.json",
     mimeType: "application/json",

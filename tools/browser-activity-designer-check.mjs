@@ -428,7 +428,7 @@ try {
       title: "Edit Content | Synthetic course | Coursera",
       url: "https://www.coursera.org/teach/test/b1/content/edit",
     },
-    meta: { extractor: "v6.15.11" },
+    meta: { extractor: "v6.15.12" },
     documentAssets: [
       {
         sha256: sha,

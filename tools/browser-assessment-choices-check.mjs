@@ -193,6 +193,30 @@ try {
   assert.equal(times.outline.timeEstimateMinutes,12);
   assert.deepEqual(times.titleOnly,{});
   assert.equal(times.merged.timeEstimateMinutes,25,'fresh editor setting replaces earlier outline estimate');
+  // Offline rendered reproduction: ordinary module text must not stand in for
+  // the published Assignment editor. No real Coursera request is made.
+  await page.route('https://www.coursera.org/teach/fixture/**',route=>route.fulfill({contentType:'text/html',body:'<main id="navigation"></main>'}));
+  await page.goto('https://www.coursera.org/teach/fixture/course-fixture/content/item/staffGraded/assessment-under-test');
+  await page.addScriptTag({content:definitions});
+  const navigation=await page.evaluate(async()=>{
+    const host=document.getElementById('navigation');
+    const fp={id:'assessment-under-test',type:'Assignment',name:'Assignment'};
+    const find=()=>findOpenedEditorSurface(fp,[host.firstElementChild],null,new Set(),true);
+    host.innerHTML='<div data-testid="module-description"><h3>Course Content &amp; Learning Resources</h3><input><p>Engage with core learning resources such as the participant workbook, review emergency vest colors, and complete practical scenario-based assignments and summative assessments.</p></div>';
+    const overviewRejected=find()===null;
+    host.innerHTML='<div><h3>Assignment</h3><input></div>';
+    const headingRejected=find()===null;
+    await new Promise(resolve=>setTimeout(resolve,50));
+    host.innerHTML='<div><aside data-testid="item-layout-left-sidebar">Assignment outline Learning objectives Content (1)<a href="#fixture~q1">Prepare the ICS 234</a></aside><section data-testid="item-layout-content"><div id="fixture~q1" data-testid="assignment-part-0"><h3>1 AI-Graded File Upload</h3><p>Question Prompt</p><p>Prepare the ICS 234 before the Tactics Meeting and present your findings.</p><p>Rubrics</p></div></section></div>';
+    const surface=find();
+    const accepted=Boolean(surface),needsReactivation=genericSurfaceNeedsPayloadUpgrade(fp,surface);
+    const otherItemRejected=findOpenedEditorSurface({...fp,id:'other-item'},[host.firstElementChild],null,new Set(),true)===null;
+    const old=host.firstElementChild;host.replaceChildren();
+    const detachedRejected=findOpenedEditorSurface(fp,[old],null,new Set(),true)===null;
+    return {overviewRejected,headingRejected,accepted,needsReactivation,otherItemRejected,detachedRejected};
+  });
+  assert.deepEqual(navigation,{overviewRejected:true,headingRejected:true,accepted:true,needsReactivation:false,otherItemRejected:true,detachedRejected:true});
+  console.log('PASS: generic title/module-description rejection, delayed published assignment layout, exact item identity and disconnected editor rejection.');
   console.log('PASS: real-browser labeled time controls, unit conversion, explicit zero, stale-outline replacement, conflicts and rejected ambiguous/prose values.');
   console.log('PASS: real-browser boxless question containers, disabled radio/checkbox choices, unknown keys, zero points, hidden ancestry, mixed controls, prompt boundaries, full outline traversal, strict completion, and bounded diagnostics.');
 } finally {

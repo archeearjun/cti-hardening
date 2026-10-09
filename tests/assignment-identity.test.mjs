@@ -8,6 +8,45 @@ const qa=require('../tools/check.cjs');
 import {buildPostQaText_} from '../src/reporting/owner-report.js';
 
 const reflection='Answer the following 3 questions: 1. What did you observe? 2. What would you change? 3. Explain your reasoning in one journal entry.';
+
+test('Generic item titles in a module overview cannot stop item navigation',()=>{
+  const f=fixture({count:1});f.envelope.remove();
+  f.c.URL=URL;f.c.location={href:'https://www.coursera.org/teach/fixture/course-fixture/content/edit',origin:'https://www.coursera.org'};
+  const overview=new El('div',{'data-testid':'module-description'});
+  overview.append(new El('h3',{},'Course Content & Learning Resources'),new El('input'),new El('p',{},
+    'Engage with core learning resources such as the participant workbook, review emergency vest colors, and complete practical scenario-based assignments and summative assessments.'));
+  f.c.document.body.append(overview);
+  const fp={id:'blyBd',type:'Assignment',typeName:'staffGraded',name:'Assignment'};
+  assert.equal(f.c.findOpenedEditorSurface(fp,[overview],null,new Set(),true),null);
+  assert.equal(f.c.genericSurfaceNeedsPayloadUpgrade(fp,null),true,'the existing safe navigation fallback must remain eligible');
+  for(const name of ['Assignment','Assessment','Quiz','New Reading','Untitled']) {
+    overview.replaceChildren(new El('h3',{},name),new El('input'));
+    assert.equal(f.c.findOpenedEditorSurface({...fp,name},[overview],null,new Set(),true),null,`${name}: a generic heading is not an item editor`);
+  }
+});
+
+test('An exact published assignment layout is accepted without editable inputs or reactivation',()=>{
+  const f=fixture({count:1});f.fp.name='Assignment';
+  f.c.URL=URL;
+  f.c.location={href:'https://www.coursera.org/teach/fixture/course-fixture/content/item/staffGraded/assessment-under-test',pathname:'/teach/fixture/course-fixture/content/item/staffGraded/assessment-under-test',origin:'https://www.coursera.org'};
+  const surface=f.c.findOpenedEditorSurface(f.fp,[f.content],null,new Set(),true);
+  assert(surface,'a bounded published layout on the exact course/item route is usable');
+  assert.equal(f.c.genericSurfaceNeedsPayloadUpgrade(f.fp,surface),false);
+  assert.equal(f.c.findOpenedEditorSurface({...f.fp,id:'another-item'},[f.content],null,new Set(),true),null,'a different item route does not prove this generic assignment');
+  f.envelope.remove();
+  assert.equal(f.c.findOpenedEditorSurface(f.fp,[f.content],null,new Set(),true),null,'a disconnected old editor cannot be reused');
+});
+
+test('Generic dialog fallback still requires a strong item session and independent editor signals',()=>{
+  const f=fixture({count:1});f.envelope.remove();
+  const dialog=new El('div',{role:'dialog','aria-label':'Reading editor'});
+  dialog.append(new El('textarea',{},'Teaching content. '.repeat(12)));
+  f.c.document.body.append(dialog);
+  const fp={id:'reading-under-test',type:'Reading',name:'New Reading'};
+  assert(f.c.findOpenedEditorSurface(fp,[dialog],null,new Set(),true));
+  assert.equal(f.c.findOpenedEditorSurface(fp,[dialog],null,new Set(),false),null);
+});
+
 function reflectivePart(n=1,{type='Reflective text answer',bounded=true}={}) {
   const p=new El('div',{id:'assessment~q'+n,'data-testid':'assignment-part-'+(n-1)});
   p.append(new El('h3',{},n+'Auto-Graded 1 point'),new El('h3',{'data-testid':'read-only-label'},'Question Type'),

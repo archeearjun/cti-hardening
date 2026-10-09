@@ -19,6 +19,13 @@ c.CTI_TEST_editorRecoveryFixture_=function(sourceOverride){
  const fixture=originalRecoveryFixture(sourceOverride);
  const functions=require('./extractor-functions.cjs').extractorFunctions(sourceOverride || c.ctiCanonicalCourseraExtractorSource_());
  fixture.code=name=>{if(!functions.has(name))throw Error('Missing extractor function: '+name);return functions.get(name);};
+ // Retain the archived identity assertions and DOM predicates, but load the
+ // current helper dependencies as well as the functions its frozen list knew.
+ const predicates=['isVisibleElement','isGlobalChromeElement','isLikelyWholeOutlineSurface'];
+ const definitions=[...functions].filter(([name])=>!predicates.includes(name)).map(([,code])=>code).join('\n');
+ fixture.find=new Function('document',...predicates,'URL','location',definitions+'\nreturn findCurrentEditorSurface;')(
+   fixture.document,el=>!!el.visible,el=>!!el.chrome,el=>!!el.outline,URL,
+   {href:'https://www.coursera.org/teach/fixture/course-fixture/content/edit',origin:'https://www.coursera.org'});
  return fixture;
 };
 module.exports=c;
