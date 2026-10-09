@@ -491,7 +491,7 @@
           c.modules.flatMap((m) =>
             m.lessons.flatMap((l) =>
               l.items
-                .filter((i) => /quiz|exam|assessment|assignment/i.test(i.type))
+                .filter((i) => CourseShell.isAssessmentType(i.type))
                 .map((i) => c.branch_id + ":" + i.id),
             ),
           ),

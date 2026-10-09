@@ -93,9 +93,7 @@
             blocking.push("The placement row differs from this snapshot.");
           const items = m.lessons
             .flatMap((x) => x.items)
-            .filter((i) =>
-              /quiz|exam|assessment|assignment|project/i.test(i.type),
-            );
+            .filter((i) => root.CourseShell.isAssessmentType(i.type));
           if (
             items.some(
               (i) =>

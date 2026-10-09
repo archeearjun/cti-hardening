@@ -86,6 +86,7 @@ try {
       buffer: Buffer.from(JSON.stringify(value)),
     });
   const completeVisibleCapture = captureFixture();
+  completeVisibleCapture.items[1].type = "staffGraded";
   completeVisibleCapture.items[1].assessment_capture.visible_question_headers = 1;
   completeVisibleCapture.items[1].assessment_capture.choice_controls_seen = 1;
   await page.locator("#file-input").setInputFiles([
@@ -120,6 +121,12 @@ try {
   );
   const packet = await page.evaluate(() => CoursePackets.getModel().packets[0]);
   assert.equal(packet.data.structure.length, 2);
+  assert.equal(packet.data.coverage_audit[0].assessment_items, 1);
+  assert.equal(packet.data.coverage_audit[0].assessment_items_with_text, 1);
+  assert.match(
+    await page.locator("#coverage-message").textContent(),
+    /Assessments with text: 1\/1/,
+  );
   assert.equal(
     packet.data.structure[0].module.lessons[0].items[1].assessment_capture
       .options_captured,
