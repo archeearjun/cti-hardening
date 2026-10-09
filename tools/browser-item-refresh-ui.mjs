@@ -26,8 +26,8 @@ export async function checkItemRefreshUi(page, capture, shots) {
           ...spec,
           expectations: spec.checks,
           openedUrl: spec.url,
-          extractorVersion: "v6.15.11",
-          extractorBuild: "v6.15.11-activity-evidence-20261008",
+          extractorVersion: "v6.15.12",
+          extractorBuild: "v6.15.12-editor-identity-20261009",
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
           crawl: {

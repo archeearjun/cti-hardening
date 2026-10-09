@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md.",
+      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "7b4e96cc94c06b2ee4f63a4c16cc8b61d278b2ec76759f5207574ee7e1ef0440"
+      "reviewedCurrentHash": "4acf8fe3982554ee0bb7713e87cbc7b211d7693d7d689c1f1cf4190bc3d9ad52"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.11/schema35",
+      "current": "v6.15.12/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "5bc2766e4065256c2c7ffdf8a265a60b18b4d0300fba895d30891b27747ad508"
+          "reviewedCurrentHash": "5d84c1dcf2d953309b5ab50d648c81a63e7769f3de31ddb22b71d7a005a0d7f1"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4379,7 +4379,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "9ea0855564b407e2ab12da1b0a27a9c2a738da3d0e3f7c5da26dde4148d6eee6"
+          "reviewedCurrentHash": "7d86752c3ecff8f9543214353334ca7141ac9d28b76e6f5b1864f776126f6b78"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4410,6 +4410,11 @@
           "name": "hydrateOutlineSurfaceForCrawl",
           "archivedHash": "a28f0e8f840cb72915010e9b9c27f382505eedb1586914827c55f34bf8f16cfc",
           "reviewedCurrentHash": "863eada47869d80c6352f28200c847ad383b312ba2b36843d51cfe95ed3a420e"
+        },
+        {
+          "name": "isGenericSmartIngestionName",
+          "archivedHash": "724c077e22237eab7151af9780032a1dd45aa399ee7a88f4a7bf0255ff5dc3eb",
+          "reviewedCurrentHash": "ac5c5c41d04a8ef404f742e1acd79d7e387693ca21cb25da1adf40d5972e555d"
         },
         {
           "name": "mergeEvidence",
@@ -4449,7 +4454,12 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "db418cb53a760ed3952c32b94a9ba58df617dbb49dd96de16eddb2006dfdfc99"
+          "reviewedCurrentHash": "56bfdc0b049155749eb9c14734961e514631a5d799ec799bccc07864062fb162"
+        },
+        {
+          "name": "scoreSurfaceForFingerprint",
+          "archivedHash": "f5998557a6ec827f972f6a227b6e460770ce23179090d6e00cc6e08329a5ea3d",
+          "reviewedCurrentHash": "7cf7e9621971abccded141456b36dfc2694f21d5a668ec251406100cb7b39590"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4680,11 +4690,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "22174e440b52d0fd5b11b33868aefeac720be702db715c363b83278ccdb02efe"
+        "reviewedCurrentHash": "12f1e6577468c7189805d58c18a0f1c70cd9d858fb377875ef577df1fb00629f"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "7b4e96cc94c06b2ee4f63a4c16cc8b61d278b2ec76759f5207574ee7e1ef0440"
+        "reviewedCurrentHash": "4acf8fe3982554ee0bb7713e87cbc7b211d7693d7d689c1f1cf4190bc3d9ad52"
       }
     }
   }

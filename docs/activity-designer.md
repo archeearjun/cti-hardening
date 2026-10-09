@@ -9,7 +9,7 @@ This is a preview, not certification that every Coursera content layout is read.
 
 `src/activity-designer/` adapts the supplied Course Activity Designer modular
 browser source. The current preparation app is 2.2.4; its default capture is the
-maintained CTI Coursera v6.15.11 extractor. The separate 1.2.1 reader remains only
+maintained CTI Coursera v6.15.12 extractor. The separate 1.2.1 reader remains only
 as an optional one-item diagnostic and backward-compatible input. It runs on a separate page,
 isolated from React workspace state and existing extractor globals. There is no
 Apps Script runtime dependency. The supplied standalone project remains unchanged.

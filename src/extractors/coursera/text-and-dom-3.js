@@ -73,7 +73,7 @@ export function surfaceRoleBonus(el) {
 
 export function isGenericSmartIngestionName(fp) {
     const name = normalizeName(fp && fp.name);
-    return /^(untitled(?: item)?|new reading|new discussion prompt|new plugin item|new assignment|new quiz|new item)$/.test(name);
+    return /^(untitled(?: item)?|new reading|new discussion prompt|new plugin item|new assignment|new quiz|new item|assignment|assessment|quiz|reading|discussion)$/.test(name);
   }
 
 export function editorSurfaceSignalScore(root, fp) {

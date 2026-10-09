@@ -365,16 +365,19 @@ export function scoreSurfaceForFingerprint(root, fp, strongSessionIdentity) {
     if (!root || !isVisibleElement(root)) return 0;
     const id = String((fp && fp.id) || "").toLowerCase();
     const name = normalizeName(fp && fp.name);
+    const genericName = isGenericSmartIngestionName(fp);
     const attrs = elementAttributeBlob(root);
     const textRaw = String(root.innerText || root.textContent || "").slice(0, 40000);
     const text = normalizeName(textRaw);
     let score = surfaceRoleBonus(root);
     if (id && attrs.includes(id)) score = Math.max(score, 0.99);
-    if (name && text === name) score = Math.max(score, 0.98);
-    else if (name && text.includes(name)) score = Math.max(score, 0.93);
+    // Common labels are not identity: a module description mentioning
+    // "assignments" must not satisfy navigation to the item named "Assignment".
+    if (!genericName && name && text === name) score = Math.max(score, 0.98);
+    else if (!genericName && name && text.includes(name)) score = Math.max(score, 0.93);
     try {
       const headingText = normalizeName([...root.querySelectorAll("h1,h2,h3,[role='heading']")].map(x => x.innerText || x.textContent || "").join(" "));
-      if (name && headingText.includes(name)) score = Math.max(score, 0.97);
+      if (!genericName && name && headingText.includes(name)) score = Math.max(score, 0.97);
     } catch (e) {}
     try {
       if (root.querySelector("textarea,[contenteditable='true'],iframe,input,select")) score += 0.02;
@@ -383,7 +386,10 @@ export function scoreSurfaceForFingerprint(root, fp, strongSessionIdentity) {
     // (Untitled/New Reading) even though the exact outline row was identified by a
     // stable Coursera item ID. In that bounded strong-ID session, accept a newly
     // opened surface only when it also has independent editor/type signals.
-    if (strongSessionIdentity && isGenericSmartIngestionName(fp)) {
+    if (strongSessionIdentity && genericName) {
+      // Published assignments need no editable inputs. Accept their mounted
+      // outline/content pair only when the route proves the course and item.
+      if (exactAssessmentLayoutV61313(root, fp)) score = Math.max(score, 0.99);
       const editorSignal = editorSurfaceSignalScore(root, fp);
       if (editorSignal >= 0.55) score = Math.max(score, Math.min(0.97, 0.90 + editorSignal * 0.07));
     }
