@@ -122,8 +122,11 @@
             "Supporting source path is not present: " + e.source_path,
           );
         else if (!resolved.readable) {
-          const message =
-            resolved.item?.capture_coverage === "observed_empty"
+          const message = resolved.asset
+            ? "Original PDF is present, but has no readable text layer: " +
+              e.source_path +
+              ". Review its cited pages and provide a checked transcription of any facts needed for the activity. CTI cannot verify an AI claim of visual review."
+            : resolved.item?.capture_coverage === "observed_empty"
               ? "Observed-empty Coursera editor: " +
                 e.source_path +
                 ". Reconcile intended practice with the source LMS/IMSCC; this is not an unread editor."
@@ -134,6 +137,10 @@
             blocking.push(message);
           else warnings.push(message);
         }
+        if (resolved.asset && resolved.readable)
+          warnings.push(
+            "Cited original PDFs and their extracted text are present. Page references, diagrams and the AI’s visual-review claims still need content review.",
+          );
       }
       // Held proposals need the same concrete recovery instructions as drafts.
       blocking.push(
@@ -142,7 +149,11 @@
       blocking.push(...root.ActivityQuality.problems(activity, session));
       if (!readableTeaching)
         blocking.push(
-          "No readable teaching support is cited. Capture or add the relevant teaching before drafting learner content.",
+          activity.evidence.some(
+            (e) => root.ActivityQuality.source(session, e.source_path).asset,
+          )
+            ? "Original PDFs are present, but no readable teaching text is established by these citations. Review the originals and add checked teaching text before drafting learner content."
+            : "No readable teaching support is cited. Capture or add the relevant teaching before drafting learner content.",
         );
     }
     if (result.mode === "opportunity" && activity.status === "draft")
@@ -152,7 +163,7 @@
     blocking.push(...safetyProblems(activity, session));
     return {
       blocking: [...new Set(blocking)],
-      warnings,
+      warnings: [...new Set(warnings)],
       canCopy: activity.status === "draft" && !blocking.length,
     };
   }

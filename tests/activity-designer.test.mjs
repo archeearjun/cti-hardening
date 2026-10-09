@@ -608,6 +608,35 @@ test("captured PDF bytes are hash verified, deduplicated, read locally and saved
   assert(!p.text.includes(pdf.toString("base64")));
   assert.equal(p.data.teaching_attachments.length, 1);
   assert.deepEqual(Buffer.from(p.assets[`Teaching_PDFs/${sha}.pdf`]), pdf);
+  const citedPath = `Teaching_PDFs/${sha}.pdf`;
+  const resolved = c.ActivityQuality.source(s, citedPath);
+  assert.equal(resolved.known, true);
+  assert.equal(resolved.teaching, true);
+  assert.match(resolved.docs[0].text, /\[PAGE 2\]/);
+  assert(!resolved.docs[0].text.includes("Document viewer excerpt"));
+  const { r, a } = fixture(c);
+  a.status = "hold";
+  a.fields = [];
+  a.evidence = [
+    { source_path: citedPath, locator: "pages 1–2", purpose: "teaching" },
+  ];
+  const checked = c.ActivityReadiness.check(r, s, a);
+  assert(
+    !checked.blocking.some((x) => /source path|No readable teaching/.test(x)),
+  );
+  assert(
+    !c.ActivityDesigner.issues(r, s).cards[a.id].some((x) =>
+      /source path/i.test(x),
+    ),
+  );
+  assert(checked.warnings.some((x) => /visual-review claims/.test(x)));
+  for (const wrongPath of [
+    `Teaching_PDFs/${"f".repeat(64)}.pdf`,
+    `${sha}.pdf`,
+    `other/Teaching_PDFs/${sha}.pdf`,
+    `${citedPath}?download=1`,
+  ])
+    assert.equal(c.ActivityQuality.source(s, wrongPath).known, false);
   const restored = await c.CoursePrep.processFiles([file("SESSION.json", s)], {
     phase: "final",
   });
@@ -615,6 +644,7 @@ test("captured PDF bytes are hash verified, deduplicated, read locally and saved
     Buffer.from(c.CoursePrep.bundleFiles(restored)[`Teaching_PDFs/${sha}.pdf`]),
     pdf,
   );
+  assert.equal(c.ActivityQuality.source(restored, citedPath).teaching, true);
   raw.documentAssets[0].sha256 = "a".repeat(64);
   await assert.rejects(
     c.CoursePrep.processFiles([file("bad.json", raw)]),
@@ -646,6 +676,32 @@ test("PDF parsing failures keep originals as unread visual evidence; protected a
   });
   assert.equal(failed.visual_assets.length, 1);
   assert.match(failed.sources[0].documents[0].note, /could not be parsed/);
+  const pdfPath = `Teaching_PDFs/${sha}.pdf`;
+  // The item has a readable viewer excerpt, which must not masquerade as the
+  // failed PDF's own text layer.
+  const resolved = c.ActivityQuality.source(failed, pdfPath);
+  assert.equal(resolved.known, true);
+  assert.equal(resolved.readable, false);
+  assert.equal(resolved.teaching, false);
+  const { r, a } = fixture(c);
+  a.evidence = [
+    { source_path: pdfPath, locator: "page 1", purpose: "teaching" },
+  ];
+  const check = c.ActivityReadiness.check(r, failed, a);
+  assert.equal(check.canCopy, false);
+  assert(check.blocking.some((x) => /Original PDF is present/.test(x)));
+  assert(!check.blocking.some((x) => /source path is not present/.test(x)));
+  const imageOnly = await c.CoursePrep.processFiles([file("cti.json", raw)], {
+    pdf: async () => ({
+      text: "[PAGE 1]\n[No text layer on this page]\n\n[PAGE 2]\n[No text layer on this page]",
+    }),
+  });
+  assert.equal(imageOnly.visual_assets.length, 1);
+  assert.equal(c.ActivityQuality.source(imageOnly, pdfPath).readable, false);
+  assert.equal(
+    c.CourseShell.textQuality("[PAGE 1]\nSubstantive teaching text.").readable,
+    true,
+  );
   raw.fingerprints[0].payload.assetDetails[0].name = "answer-key.pdf";
   const protectedSession = await c.CoursePrep.processFiles(
     [file("cti.json", raw)],
@@ -660,6 +716,125 @@ test("PDF parsing failures keep originals as unread visual evidence; protected a
   bad.size = 9 * 1024 * 1024;
   assert.throws(() => c.CourseCtiDocuments.validate([bad]), /8 MiB|Invalid/);
 });
+test("PDF evidence cannot borrow readable text from a sibling attachment or item", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const sha = "a".repeat(64),
+    other = "b".repeat(64);
+  s.visual_assets = [{ sha256: sha, source_paths: ["coursera/b1/i1"] }];
+  s.sources[0].documents[0].text += `\n\n[TEACHING | Captured PDF ${other} (text layer)]\nReadable text from a different file.`;
+  const path = `Teaching_PDFs/${sha}.pdf`;
+  assert.equal(c.ActivityQuality.source(s, path).readable, false);
+  s.sources[0].documents[0].text += `\n\n[TEACHING | Captured PDF ${sha} (text layer)]\nUse all three dimensions for volume.`;
+  const resolved = c.ActivityQuality.source(s, path);
+  assert.equal(resolved.readable, true);
+  assert.equal(resolved.docs[0].text, "Use all three dimensions for volume.");
+  a.evidence = [{ source_path: path, purpose: "teaching", locator: "page 1" }];
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
+  a.design.case_facts = [
+    {
+      text: "Use all three dimensions for volume.",
+      origin: "source",
+      source_path: path,
+    },
+  ];
+  a.fields.find((f) => f.label === "Purpose of activity").text +=
+    " Use all three dimensions for volume.";
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
+  const withoutText = structuredClone(s);
+  withoutText.sources[0].documents[0].text = "Unrelated readable item text.";
+  assert.equal(c.ActivityReadiness.check(r, withoutText, a).canCopy, false);
+  assert.equal(
+    c.ActivityReadiness.check({ ...r, bundle_created_at: "different" }, s, a)
+      .canCopy,
+    false,
+  );
+});
+
+test("editor placeholders remain gap evidence and cannot certify learner choice coverage", async () => {
+  const c = context(),
+    raw = ctiRaw();
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "i2",
+    name: "Quiz",
+    typeName: "ungradedAssignment",
+    payload: {
+      structuredAssessment: {
+        declaredQuestionCount: 1,
+        questions: [
+          {
+            id: "1",
+            courseraQuestionId: "q1",
+            type: "single-select",
+            prompt: "13.963 + 335.021 + 2267.123 =",
+            options: [
+              { label: "Enter an option..." },
+              { text: "\u200bEnter an option…" },
+            ],
+            optionTextReliable: true,
+            answerTextReliable: true,
+            correctAnswers: ["PRIVATE_KEY"],
+          },
+        ],
+        captureCompleteness: {
+          declared: 1,
+          captured: 1,
+          uniqueQuestionIds: 1,
+          questionCoverageComplete: true,
+          missingQuestionOrdinals: [],
+        },
+      },
+    },
+  });
+  const capture = c.CourseCtiAdapter.adapt(raw),
+    item = capture.items[1];
+  assert.equal(item.assessment_capture.completeness, "partial_unverified");
+  assert.equal(item.assessment_capture.options_captured, 0);
+  assert.equal(item.assessment_capture.placeholder_options, 2);
+  assert.equal(item.assessment_capture.prompts_captured, 1);
+  assert.equal(item.blocks.filter((b) => b.kind === "gap").length, 2);
+  assert(!JSON.stringify(capture).includes("PRIVATE_KEY"));
+  const s = c.CourseShell.toSession(capture, "cti.json", c.CoursePrep);
+  const restored = await c.CoursePrep.processFiles([file("SESSION.json", s)], {
+    phase: "final",
+  });
+  assert.equal(
+    restored.courses[0].modules[0].lessons[0].items[1].assessment_capture
+      .placeholder_options,
+    2,
+  );
+  assert(
+    c.ActivityQuality.recovery(s, { branch_id: "b1", module_id: "m1" }).some(
+      (x) => /Choice editor placeholders/.test(x),
+    ),
+  );
+  const { r, a } = fixture(c);
+  r.bundle_created_at = s.created_at;
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, false);
+  assert(
+    !c.CourseCompact.build(
+      s,
+    ).packets[0].data.coverage_audit[0].learner_text_captured_ids.includes(
+      "i2",
+    ),
+  );
+  // Similar prose, valid zero values and legitimate state-label choices are
+  // not blanket-filtered as placeholders.
+  for (const labels of [
+    ["Correct", "Incorrect"],
+    ["0", "1"],
+    ["Enter an option to proceed", "Cancel"],
+  ]) {
+    raw.fingerprints[1].payload.structuredAssessment.questions[0].options =
+      labels.map((label) => ({ label }));
+    assert.equal(
+      c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture.completeness,
+      "learner_text_captured",
+    );
+  }
+});
+
 test("XLSX placement refresh preserves same-ID capture evidence and marks new items unread", async () => {
   const c = context(),
     raw = ctiRaw();

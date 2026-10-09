@@ -9,6 +9,8 @@
   function textQuality(raw) {
     const text = String(raw || "")
       .replace(/^\[(?:TEACHING|ASSESSMENT|GAP) \|[^\n]*\]\s*/gm, "")
+      .replace(/^\[PAGE \d+\]\s*$/gm, "")
+      .replace(/^\[No text layer on this page\]\s*$/gm, "")
       .replace(/[\u200b\ufeff]/g, "")
       .trim();
     const lines = text
@@ -257,9 +259,12 @@
       "prompts_captured",
       "choice_controls_seen",
       "options_captured",
+      "placeholder_options",
       "declared_questions",
     ])
       result[key] = Number.isInteger(m[key]) && m[key] >= 0 ? m[key] : null;
+    if (result.placeholder_options > 0)
+      result.has_unresolved_capture_issues = true;
     if (
       m.completeness === "learner_text_captured" &&
       result.declared_questions > 0 &&

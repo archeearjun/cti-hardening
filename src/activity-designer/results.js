@@ -243,8 +243,30 @@
       }
       const details = el("details", undefined, "detail-box");
       details.append(el("summary", "Source references & export IDs"));
-      for (const e of a.evidence)
+      for (const e of a.evidence) {
         details.append(el("p", e.source_path + " · " + e.locator, "small"));
+        const resolved =
+          UI.getSession() &&
+          ActivityQuality.source(UI.getSession(), e.source_path);
+        if (resolved?.asset) {
+          details.append(
+            el(
+              "p",
+              resolved.readable
+                ? "Original PDF available; text layer captured. Review the cited pages and diagrams."
+                : "Original PDF available; no readable text layer. Visual review is still required.",
+              "small",
+            ),
+            button("Download cited PDF", () =>
+              UI.download(
+                CourseCtiDocuments.bytes(resolved.asset),
+                resolved.asset.sha256 + ".pdf",
+                "application/pdf",
+              ),
+            ),
+          );
+        }
+      }
       const p = a.placement;
       details.append(
         el(

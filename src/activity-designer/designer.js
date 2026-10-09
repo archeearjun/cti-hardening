@@ -373,39 +373,17 @@
       for (const d of r.module_decisions.filter(
         (d) => d.decision === "neither",
       )) {
-        const c = s.courses.find(
-            (c) => c.kind === "coursera_shell_capture" && c.title === d.course,
-          ),
-          m = c?.modules.find((m) => m.title === d.module);
-        if (!m) continue;
-        const docs = s.sources
-            .filter(
-              (src) =>
-                src.kind === "captured_shell" && src.course_id === c.branch_id,
-            )
-            .flatMap((src) => src.documents),
-          read = new Set(
-            docs
-              .filter(
-                (x) =>
-                  root.CourseShell?.textQuality(x.text).readable ??
-                  !!x.text?.trim(),
-              )
-              .map((x) => x.id),
-          ),
-          unread = m.lessons
-            .flatMap((l) => l.items)
-            .filter(
-              (i) =>
-                /quiz|exam|assessment|assignment/i.test(i.type) &&
-                !read.has(i.id),
-            );
-        if (unread.length)
+        const { course: c, module: m } = root.ActivityQuality.coverage(s, d);
+        if (!m || c.kind !== "coursera_shell_capture") continue;
+        const recovery = root.ActivityQuality.recovery(s, {
+          branch_id: c.branch_id,
+          module_id: m.id,
+        });
+        if (recovery.length)
           all.push(
             d.module +
-              ": the “No addition” decision has not been checked against " +
-              unread.length +
-              " unread assessment item(s). Item counts/titles do not establish that existing practice is sufficient.",
+              ": the “No addition” decision still needs existing-practice review. " +
+              recovery.join(" "),
           );
       }
     }
@@ -428,43 +406,23 @@
         continue;
       }
       if (c.kind === "coursera_shell_capture") {
-        const docs = s.sources
-            .filter(
-              (src) =>
-                src.kind === "captured_shell" && src.course_id === c.branch_id,
-            )
-            .flatMap((src) => src.documents),
-          read = new Set(
-            docs
-              .filter(
-                (d) =>
-                  root.CourseShell?.textQuality(d.text).readable ??
-                  !!d.text?.trim(),
-              )
-              .map((d) => d.id),
-          );
-        const items = m.lessons.flatMap((x) => x.items),
-          missing = items.filter((i) => !read.has(i.id)),
-          assessments = items.filter((i) =>
-            /quiz|exam|assessment|assignment/i.test(i.type),
-          ),
-          unreadAssessments = assessments.filter((i) => !read.has(i.id));
-        if (missing.length)
+        const cv = root.ActivityQuality.coverage(s, p);
+        const unread = cv.items.filter(
+          (i) =>
+            i.capture_coverage !== "observed_empty" &&
+            !i.body_available &&
+            !root.ActivityQuality.source(s, `coursera/${c.branch_id}/${i.id}`)
+              .readable,
+        );
+        if (unread.length)
           warnings.push(
             "Evidence check required: " +
-              missing.length +
+              unread.length +
               " of " +
-              items.length +
-              " items in this module lack readable body text. Correct placement IDs do not establish complete teaching or practice coverage.",
+              cv.items.length +
+              " items in this module have no readable body text. Observed-empty editors are listed separately. Exact placement does not establish complete teaching or practice coverage.",
           );
-        if (unreadAssessments.length)
-          warnings.push(
-            "Practice comparison unresolved: " +
-              unreadAssessments.length +
-              " of " +
-              assessments.length +
-              " assessment items are unread. Do not treat the AI’s confidence or non-duplication claim as verified.",
-          );
+        warnings.push(...root.ActivityQuality.recovery(s, p));
       }
       if (m.title !== p.module || l.title !== p.lesson)
         warnings.push("Module or lesson title differs from the recorded IDs.");
@@ -495,29 +453,16 @@
           warnings.push("Following item title differs from its exported ID.");
       }
       for (const e of a.evidence) {
-        const doc = s.sources
-          .flatMap((src) => src.documents)
-          .find((d) => d.path === e.source_path);
+        const resolved = root.ActivityQuality.source(s, e.source_path);
+        if (!resolved.known)
+          warnings.push(
+            "Supporting source path is not present: " + e.source_path,
+          );
         if (
-          !doc &&
-          !s.references.some((ref) => ref.filename === e.source_path) &&
-          !s.sources.some((src) =>
-            (src.unread || []).some((u) => u.path === e.source_path),
-          ) &&
-          !s.courses.some((c) =>
-            c.modules.some((m) =>
-              m.lessons.some((l) =>
-                l.items.some(
-                  (i) => `coursera/${c.branch_id}/${i.id}` === e.source_path,
-                ),
-              ),
-            ),
+          resolved.docs.some(
+            (doc) => root.CourseShell.textQuality(doc.text).placeholder_only,
           )
         )
-          warnings.push(
-            "Source path not found in loaded bundle: " + e.source_path,
-          );
-        if (doc && root.CourseShell?.textQuality(doc.text).placeholder_only)
           warnings.push(
             "Cited source contains only loading/viewer controls, not teaching: " +
               e.source_path,
