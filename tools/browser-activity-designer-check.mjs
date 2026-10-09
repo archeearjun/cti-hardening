@@ -490,8 +490,82 @@ try {
       "SECOND PAGE",
     ),
   );
+  assert.match(
+    await packetZip.file("READ_ME_FIRST.txt").async("string"),
+    /smaller batches in the same chat/,
+  );
+  // Reproduce a result citing the exported PDF filename, not its parent item.
+  const pdfResult = structuredClone(result);
+  pdfResult.bundle_created_at = docSession.created_at;
+  pdfResult.title = docSession.title;
+  pdfResult.mode = docSession.phase;
+  const pdfActivity = pdfResult.activities[0];
+  pdfActivity.placement.after = "Teaching PDF";
+  pdfActivity.placement.before = "End of lesson";
+  pdfActivity.placement.before_item_id = "";
+  pdfActivity.design.comparison = [];
+  pdfActivity.evidence = [
+    {
+      source_path: `Teaching_PDFs/${sha}.pdf`,
+      locator: "pages 1–2",
+      purpose: "teaching",
+    },
+  ];
+  await pdfPage.locator("#nav-activities").click();
+  await pdfPage.locator("#paste-result summary").click();
+  await pdfPage.locator("#result-json").fill(JSON.stringify(pdfResult));
+  await pdfPage.locator("#import-result").click();
+  assert.equal(await pdfPage.locator("#result-error").isVisible(), false);
+  await pdfPage
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
+  assert(
+    !/source path is not present|No readable teaching/.test(
+      await pdfPage.locator("#activity-cards").textContent(),
+    ),
+  );
+  await pdfPage
+    .getByText("Source references & export IDs", { exact: true })
+    .click();
+  assert(
+    (await pdfPage.locator("#activity-cards").innerText()).includes(
+      "Original PDF available; text layer captured",
+    ),
+  );
+  await pdfPage
+    .getByRole("button", { name: "Download cited PDF", exact: true })
+    .click();
+  const citedDownloadWait = pdfPage.waitForEvent("download");
+  await pdfPage
+    .getByRole("link", { name: `Save ${sha}.pdf`, exact: true })
+    .click();
+  assert.deepEqual(
+    fs.readFileSync(await (await citedDownloadWait).path()),
+    pdfBytes,
+  );
+  await pdfPage
+    .locator("#activity-cards details")
+    .filter({ hasText: "Evidence notes and AI checks" })
+    .locator("summary")
+    .click();
+  const noteItems = await pdfPage
+    .locator("#activity-cards details li")
+    .allTextContents();
+  assert(
+    noteItems.length > 0 && noteItems.every((text) => text.trim().length > 0),
+  );
   await pdfPage.screenshot({
-    path: path.join(screenshots, "pdf-packet.png"),
+    path: path.join(screenshots, "pdf-citation-desktop.png"),
+    fullPage: true,
+  });
+  await pdfPage.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await pdfPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    ),
+  );
+  await pdfPage.screenshot({
+    path: path.join(screenshots, "pdf-citation-mobile.png"),
     fullPage: true,
   });
   // Empty-editor holds must show source reconciliation even with no draft fields.

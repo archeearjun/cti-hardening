@@ -1,3 +1,5 @@
+require('../src/shell-capture.js');
+require('../src/activity-quality.js');
 const assert=require('node:assert/strict');
 const A=require('../src/designer.js');
 const C=require('../src/core.js');
@@ -37,7 +39,7 @@ assert.match(A.text(parsed.activities[0]),/proposed, not published/);
 const stale=copy(result);stale.bundle_created_at='older';assert.match(A.issues(stale,session).all.join(' '),/different bundle/);
 assert.match(A.issues(result,null).all.join(' '),/not been checked/);
 for(const [key,value,pattern] of [['branch_id','missing',/Course branch/],['after_item_id','missing',/Preceding item/],['row',99,/row differs/],['before_item_id','i1',/not after/],['before_item_id','i3',/between/],['export_file','old.xlsx',/Export filename/]]){const x=copy(result);x.activities[0].placement[key]=value;assert.match(A.issues(x,session).cards.A01.join(' '),pattern);}
-const missingPath=copy(result);missingPath.activities[0].evidence[0].source_path='invented.html';assert.match(A.issues(missingPath,session).cards.A01.join(' '),/Source path not found/);
+const missingPath=copy(result);missingPath.activities[0].evidence[0].source_path='invented.html';assert.match(A.issues(missingPath,session).cards.A01.join(' '),/Supporting source path is not present/);
 // The bulk handoff must provide instructions/schema without embedding a particular subject.
 assert(setup.instructions.length<=8000);assert(!/Earthquakes/i.test(JSON.stringify(setup)));
 const minimal=C.newSession('Any course','opportunity');const bundle=C.bundleFiles(minimal,setup);assert(bundle['02_DESIGNER_INSTRUCTIONS.txt'].includes('zero is a valid result'));

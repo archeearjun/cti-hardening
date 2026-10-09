@@ -37,6 +37,13 @@
   function failedImagePrompt(value) {
     return /^\s*\[Error:\s*Image could not be created\]\s*$/i.test(text(value));
   }
+  function placeholderOption(value) {
+    return /^Enter an option(?:\.{3}|…)?$/i.test(
+      text(value)
+        .replace(/[\u200b-\u200d\ufeff]/g, "")
+        .trim(),
+    );
+  }
   function learnerMetrics(assessment, blocks, ingestionFailure) {
     const questions = Array.isArray(assessment?.questions)
       ? assessment.questions
@@ -50,9 +57,14 @@
       ? assessment.declaredQuestionCount
       : null;
     let unresolved = receipt?.questionCoverageComplete === false;
+    let placeholderOptions = 0;
     let knownTypes = true;
     for (const q of questions) {
       const choices = Array.isArray(q.options) ? q.options : [];
+      const placeholders = choices.filter((o) =>
+        placeholderOption(text(o.label) || text(o.text)),
+      ).length;
+      placeholderOptions += placeholders;
       const choiceType =
         /^(single-select|multiple-select|multiple-choice|true-false)$/.test(
           q.type,
@@ -63,6 +75,7 @@
         );
       knownTypes &&= choiceType || openType;
       unresolved ||=
+        placeholders > 0 ||
         q.promptTextReliable === false ||
         !root.CourseShell.textQuality(q.prompt).readable ||
         !!q.optionCaptureIssue ||
@@ -99,6 +112,7 @@
     return {
       prompts_captured: prompts,
       options_captured: options,
+      placeholder_options: placeholderOptions,
       declared_questions: declared,
       has_unresolved_capture_issues:
         failed || unresolved || (declared != null && prompts !== declared),
@@ -215,14 +229,19 @@
           for (const [n, o] of (Array.isArray(q.options)
             ? q.options
             : []
-          ).entries())
+          ).entries()) {
+            const label = text(o.label) || text(o.text);
             add(
-              "Question " + (i + 1) + " / Option " + (n + 1),
-              [text(o.label) || text(o.text), text(o.description)]
-                .filter(Boolean)
-                .join("\n"),
-              "assessment",
+              "Question " +
+                (i + 1) +
+                (placeholderOption(label)
+                  ? " / Unresolved option placeholder "
+                  : " / Option ") +
+                (n + 1),
+              [label, text(o.description)].filter(Boolean).join("\n"),
+              placeholderOption(label) ? "gap" : "assessment",
             );
+          }
         }
         for (const key of [
           "learnerPrompt",

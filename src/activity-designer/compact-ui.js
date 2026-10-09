@@ -5,6 +5,8 @@
   let model = null,
     currentSession = null,
     chosen = null;
+  const batchHelp =
+    " If your chat limits attachments, upload this packet’s files in smaller batches in the same chat. Ask the AI to wait for all files; send the review message after the final batch.";
   const number = (n) => n.toLocaleString("en-US");
   function el(tag, text) {
     const n = document.createElement(tag);
@@ -33,7 +35,8 @@
           (Object.keys(p.assets).length
             ? " This packet also has " +
               Object.keys(p.assets).length +
-              " original PDF(s): download, unzip and attach them with the packet for visual review."
+              " original PDF(s): download, unzip and attach them with the packet for visual review." +
+              batchHelp
             : "")
         : "";
   }
@@ -121,6 +124,14 @@
           {
             [p.filename]: p.text,
             [`CHAT_MESSAGE_${p.id}.txt`]: chatMessage(p),
+            "READ_ME_FIRST.txt":
+              "Unzip first. Attach " +
+              p.filename +
+              " and the listed Teaching_PDFs. " +
+              batchHelp +
+              " Then paste CHAT_MESSAGE_" +
+              p.id +
+              ".txt into the message box to begin review.",
             ...p.assets,
           },
           `AI_PACKET_${p.id}_Unzip_First.zip`,
@@ -128,7 +139,8 @@
         );
       else UI.download(p.text, p.filename);
       $("packet-handoff-status").textContent =
-        "Next: unzip if needed, attach the packet and any Teaching_PDFs in your chat, then paste the short message below into the chat message box.";
+        "Next: unzip if needed, attach the packet and any Teaching_PDFs in your chat, then paste the short message below into the chat message box." +
+        (Object.keys(p.assets).length ? batchHelp : "");
     }
   };
   $("copy-chat-message").onclick = () => {
@@ -149,7 +161,8 @@
       );
       for (const p of model.packets) Object.assign(files, p.assets);
       files["READ_ME_FIRST.txt"] =
-        "Unzip first. For each packet, open a fresh AI chat. Attach or paste AI_PACKET_Pxx.txt AND attach the PDFs listed in its teaching_attachments (from Teaching_PDFs), then COPY the contents of CHAT_MESSAGE_Pxx.txt into the message box and send. Do not send only the packet attachment. Bring the returned ACTIVITY_RESULTS.json back to the app. Each packet has its own short message.";
+        "Unzip first. For each packet, open a fresh AI chat. Attach or paste AI_PACKET_Pxx.txt AND attach the PDFs listed in its teaching_attachments (from Teaching_PDFs), then COPY the contents of CHAT_MESSAGE_Pxx.txt into the message box and send. Do not send only the packet attachment. Bring the returned ACTIVITY_RESULTS.json back to the app. Each packet has its own short message." +
+        batchHelp;
       return UI.zipDownload(
         files,
         "AI_Packets_Unzip_First.zip",

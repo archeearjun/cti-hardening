@@ -5,6 +5,38 @@
       i.type || "",
     );
   function source(session, path) {
+    // PDF filenames are evidence identities exported by this app. Resolve only
+    // the exact retained hash and its recorded items, never a matching basename
+    // or all the text from an item that happens to contain several PDFs.
+    const asset = (session.visual_assets || []).find(
+      (a) => path === `Teaching_PDFs/${a.sha256}.pdf`,
+    );
+    if (asset) {
+      const marker = `[TEACHING | Captured PDF ${asset.sha256} (text layer)]\n`;
+      const docs = (session.sources || [])
+        .flatMap((s) => s.documents || [])
+        .filter((d) => asset.source_paths.includes(d.path))
+        .map((d) => ({
+          ...d,
+          path,
+          text: d.text
+            .split(/\n\n(?=\[(?:TEACHING|ASSESSMENT|GAP) \|)/)
+            .filter((block) => block.startsWith(marker))
+            .map((block) => block.slice(marker.length))
+            .join("\n\n"),
+        }))
+        .filter((d) => root.CourseShell.textQuality(d.text).readable);
+      return {
+        known: true,
+        readable: docs.length > 0,
+        teaching: docs.length > 0,
+        asset,
+        docs,
+        refs: [],
+        gaps: [],
+        item: null,
+      };
+    }
     const docs = (session.sources || [])
       .flatMap((s) => s.documents || [])
       .filter((d) => d.path === path);
@@ -120,10 +152,22 @@
           names(cv.unread) +
           ". Open the exact items to inspect their learner content. Capture again after resolving the recorded loading/content issue, or supply the original resource. Unread is not absent.",
       );
-    if (cv.incomplete.length)
+    const placeholders = cv.incomplete.filter(
+      (i) => i.assessment_capture?.placeholder_options > 0,
+    );
+    if (placeholders.length)
+      messages.push(
+        "Choice editor placeholders were captured for " +
+          names(placeholders) +
+          ". “Enter an option...” is not substantive learner choice text. Inspect those options in Coursera and compare with the source; restore intended choices if needed, then capture after changes. The snapshot alone does not establish whether the editor was unfilled or the choice text failed to load.",
+      );
+    const otherIncomplete = cv.incomplete.filter(
+      (i) => !placeholders.includes(i),
+    );
+    if (otherIncomplete.length)
       messages.push(
         "Question/option coverage is incomplete for " +
-          names(cv.incomplete) +
+          names(otherIncomplete) +
           ". Capture the missing visible prompts or applicable choices before deciding this adds new practice. Text-entry questions do not require options.",
       );
     return messages;

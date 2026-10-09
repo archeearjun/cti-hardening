@@ -8,7 +8,7 @@ This is a preview, not certification that every Coursera content layout is read.
 ## Boundary
 
 `src/activity-designer/` adapts the supplied Course Activity Designer modular
-browser source. The current preparation app is 2.2.0; its default capture is the
+browser source. The current preparation app is 2.2.3; its default capture is the
 maintained CTI Coursera v6.15.11 extractor. The separate 1.2.1 reader remains only
 as an optional one-item diagnostic and backward-compatible input. It runs on a separate page,
 isolated from React workspace state and existing extractor globals. There is no
@@ -49,7 +49,9 @@ and identity scoping. Run it in an
    four, not a tokenizer or remaining-context meter. Oversized modules stay whole
    and are flagged. Scope exclusions remain explicit. If a packet includes teaching
    PDFs, download and unzip its packet ZIP, then attach the listed originals with
-   the text packet; copying text alone does not transmit the diagrams.
+   the text packet; copying text alone does not transmit the diagrams. If the chat
+   limits attachments, upload smaller batches in the same chat, ask the AI to wait,
+   and send the review request only after the final batch.
 5. Import `ACTIVITY_RESULTS.json`. Cards show exact placement, authoring fields,
    estimated minutes and review checks. Decisions may be Role Play, Dialogue,
    no addition or hold. Unreviewed modules are not implicitly approved.
@@ -85,6 +87,16 @@ references, not proof of current constituent course content or partner approval.
 - `readiness.js` disables copying for missing/wrong placement IDs, false next-item
   boundaries, unresolved supporting paths and absent readable teaching support.
   Assessment-only evidence and capture receipts do not justify learner drafts.
+  `Teaching_PDFs/<sha256>.pdf` citations resolve against retained hash-verified
+  assets and their exact associated PDF text blocks, without borrowing viewer
+  excerpts or another attachment's text. Image-only/failed-parse originals are
+  available for visual review, not nonexistent files or verified teaching text.
+  Cards offer the cited original PDF for download; AI page-review claims still
+  need human content review. Both validation paths use the same source resolver.
+  Exact `Enter an option...` editor placeholders are preserved as gap evidence,
+  excluded from substantive choice counts and cannot receive learner-text
+  certification. Reprepare old raw captures to update those derived metrics;
+  this does not change the canonical extractor or its saved raw receipts.
   Unread practice in the proposed module, known missing prompts/options and
   unresolved capture defects block copying until comparison is possible. Mere
   partial/unknown completeness remains a review warning, never a completeness
