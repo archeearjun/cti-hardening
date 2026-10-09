@@ -166,9 +166,7 @@ function add(it, blocks, source) {
       ...b,
       field,
       kind:
-        /quiz|exam|assessment|assignment/i.test(it.type) && b.kind !== "gap"
-          ? "assessment"
-          : b.kind,
+        S.isAssessmentType(it.type) && b.kind !== "gap" ? "assessment" : b.kind,
     });
   }
 }
@@ -249,9 +247,7 @@ function readEditor(doc, it, label) {
     blocks.push({
       field: label + " / " + field,
       text,
-      kind: /quiz|exam|assessment|assignment/i.test(it.type)
-        ? "assessment"
-        : "teaching",
+      kind: S.isAssessmentType(it.type) ? "assessment" : "teaching",
     });
   }
   add(it, blocks, "Editor");
@@ -267,7 +263,7 @@ function questionButtons(doc) {
     );
 }
 function readRendered(doc, it) {
-  if (!/quiz|exam|assessment|assignment/i.test(it.type)) return false;
+  if (!S.isAssessmentType(it.type)) return false;
   const r = R.read(doc);
   if (!r.metrics.visible_question_headers) return false;
   if (
@@ -354,7 +350,7 @@ async function visit(it, current = false) {
     await pause(900);
     readEditor(doc, it, label);
   }
-  if (/quiz|exam|assessment|assignment/i.test(it.type))
+  if (S.isAssessmentType(it.type))
     it.notes.push(
       "Assessment editor text is internal design evidence. " +
         seenQuestions.size +

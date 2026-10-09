@@ -1,6 +1,6 @@
 (function (root) {
   "use strict";
-  const VERSION = "2.2.3";
+  const VERSION = "2.2.4";
   const LIMITS = {
     input: 500 * 1024 ** 2,
     entry: 32 * 1024 ** 2,

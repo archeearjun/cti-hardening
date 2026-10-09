@@ -70,7 +70,7 @@
           q.type,
         );
       const openType =
-        /^(text-entry|numeric|numeric-entry|essay|short-answer|free-response)$/.test(
+        /^(text-entry|numeric|numeric-entry|essay|short-answer|free-response|file-upload)$/.test(
           q.type,
         );
       knownTypes &&= choiceType || openType;
@@ -193,9 +193,9 @@
       const p = f.payload,
         assessment = p.structuredAssessment;
       const kind = text(f.typeName) || text(f.type) || "unknown";
-      const assessed = /quiz|exam|assessment|assignment|project/i.test(
-        kind + " " + text(f.type),
-      );
+      const assessed =
+        root.CourseShell.isAssessmentType(kind) ||
+        root.CourseShell.isAssessmentType(text(f.type));
       const blocks = [],
         notes = [],
         seen = new Set();
@@ -376,7 +376,7 @@
       }
       if (item.assessment_capture?.completeness === "learner_text_captured")
         notes.push(
-          "All declared question prompts and applicable choice text were captured in this snapshot. Text-entry questions need no options. This receipt covers learner text only, not source equivalence, media, grading configuration or approval. Answer keys are deliberately excluded from activity design.",
+          "All declared question prompts and applicable choice text were captured in this snapshot. Text-entry and file-upload questions need no choice options. This receipt covers learner text only, not source equivalence, media, grading configuration or approval. Answer keys are deliberately excluded from activity design.",
         );
       if (p.textScopeKind === "document-viewer")
         notes.push(

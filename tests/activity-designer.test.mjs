@@ -835,6 +835,165 @@ test("editor placeholders remain gap evidence and cannot certify learner choice 
   }
 });
 
+test("graded assignment types remain assessments through projection, packet counts and draft gates", () => {
+  for (const typeName of ["staffGraded", "peerGraded"]) {
+    const c = context(),
+      raw = ctiRaw();
+    raw.fingerprints.push({
+      ...raw.fingerprints[0],
+      id: "i2",
+      name: "Assignment",
+      typeName,
+      payload: {
+        textSample: "Unscoped authoring text must not become teaching.",
+      },
+    });
+    const capture = c.CourseCtiAdapter.adapt(raw);
+    assert.equal(
+      capture.items[1].assessment_capture.completeness,
+      "partial_unverified",
+    );
+    assert.equal(capture.items[1].blocks.length, 0);
+    assert.equal(c.CourseShell.summary(capture).quizzes, 1);
+    const s = c.CourseShell.toSession(capture, "cti.json", c.CoursePrep);
+    const audit = c.CourseCompact.build(s).packets[0].data.coverage_audit[0];
+    assert.equal(audit.assessment_items, 1);
+    assert.equal(audit.assessment_items_with_text, 0);
+    assert.equal(audit.unread_practice_ids.join(), "i2");
+    const { r, a } = fixture(c);
+    Object.assign(r, { title: s.title, bundle_created_at: s.created_at });
+    Object.assign(a.placement, { course: s.title, before: "Assignment" });
+    const check = c.ActivityReadiness.check(r, s, a);
+    assert.equal(check.canCopy, false);
+    assert(
+      check.blocking.some(
+        (x) => x.includes("Read existing practice") && x.includes("i2"),
+      ),
+    );
+    assert(
+      check.warnings.some((x) => x.includes("verified learner-text coverage")),
+    );
+  }
+});
+
+test("file-upload learner-text coverage uses the complete question receipt without requiring choices or an answer key", () => {
+  const c = context(),
+    raw = ctiRaw();
+  const assessment = {
+    declaredQuestionCount: 1,
+    questions: [
+      {
+        id: "1",
+        courseraQuestionId: "q1",
+        type: "file-upload",
+        prompt: "Upload your plan and explain the resource choices.",
+        options: [],
+        optionTextReliable: false,
+        answerTextReliable: false,
+        correctAnswers: [],
+        responseTypeEvidence: {
+          method: "OBSERVED_EDITOR_HEADING",
+          text: "AI-Graded File Upload Question",
+        },
+      },
+    ],
+    captureCompleteness: {
+      declared: 1,
+      declaredContentParts: 1,
+      captured: 1,
+      uniqueQuestionIds: 1,
+      questionCoverageComplete: true,
+      missingQuestionOrdinals: [],
+      answerCoverageComplete: false,
+      requiredAnswerCoverageComplete: true,
+      answerKeyNotApplicableQuestionOrdinals: [1],
+    },
+  };
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "i2",
+    name: "Task",
+    typeName: "staffGraded",
+    payload: { structuredAssessment: assessment },
+  });
+  const metrics = () =>
+    c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture;
+  assert.equal(metrics().completeness, "learner_text_captured");
+  assert.equal(metrics().options_captured, 0);
+  const s = c.CourseShell.toSession(
+    c.CourseCtiAdapter.adapt(raw),
+    "cti.json",
+    c.CoursePrep,
+  );
+  const audit = c.CourseCompact.build(s).packets[0].data.coverage_audit[0];
+  assert.equal(audit.assessment_items_with_text, 1);
+  assert.equal(audit.learner_text_captured_ids.join(), "i2");
+  for (const mutate of [
+    (a) => {
+      a.questions[0].type = "unknown-upload-widget";
+    },
+    (a) => {
+      a.questions[0].prompt = "";
+    },
+    (a) => {
+      a.questions[0].promptTextReliable = false;
+    },
+    (a) => {
+      a.captureCompleteness.questionCoverageComplete = false;
+    },
+    (a) => {
+      a.captureCompleteness.declaredContentParts = 2;
+    },
+    (a) => {
+      a.questions[0].options = [{ label: "Unverified choice" }];
+    },
+  ]) {
+    const copy = structuredClone(assessment);
+    mutate(copy);
+    raw.fingerprints[1].payload.structuredAssessment = copy;
+    assert.equal(metrics().completeness, "partial_unverified");
+  }
+});
+
+test("graded assignment PDF attachments cannot be packaged as teaching", async () => {
+  for (const typeName of ["staffGraded", "peerGraded"]) {
+    const c = context(),
+      raw = ctiRaw();
+    const pdf = Buffer.from("%PDF-1.4\nSynthetic assessment attachment");
+    const sha = Buffer.from(
+      await crypto.subtle.digest("SHA-256", pdf),
+    ).toString("hex");
+    raw.documentAssets = [
+      {
+        sha256: sha,
+        size: pdf.length,
+        mime: "application/pdf",
+        base64: pdf.toString("base64"),
+      },
+    ];
+    raw.fingerprints.push({
+      ...raw.fingerprints[0],
+      id: "i2",
+      name: "Task",
+      typeName,
+      payload: {
+        assetDetails: [{ sha256: sha, documentRef: sha, name: "document.pdf" }],
+      },
+    });
+    const s = await c.CoursePrep.processFiles([file("cti.json", raw)], {
+      phase: "final",
+      pdf: async () => {
+        throw Error("Assessment PDF must not be parsed as teaching");
+      },
+    });
+    assert.equal(s.visual_assets.length, 0);
+    assert.equal(
+      c.CourseCompact.build(s).packets[0].data.teaching_attachments.length,
+      0,
+    );
+  }
+});
+
 test("XLSX placement refresh preserves same-ID capture evidence and marks new items unread", async () => {
   const c = context(),
     raw = ctiRaw();

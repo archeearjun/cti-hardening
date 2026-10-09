@@ -109,9 +109,7 @@
           continue;
         }
         if (
-          /quiz|exam|assessment|assignment|project|discussion/i.test(
-            item.type,
-          ) ||
+          root.CourseShell.isPracticeType(item.type) ||
           /answer[ _-]*key|solutions?|rubric|instructor/i.test(
             String(detail.name || "") + " " + item.title,
           )

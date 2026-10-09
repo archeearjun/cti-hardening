@@ -1,9 +1,6 @@
 (function (root) {
   "use strict";
-  const practice = (i) =>
-    /quiz|exam|assessment|assignment|project|discussion|peer|role.?play|dialogue/i.test(
-      i.type || "",
-    );
+  const practice = (i) => root.CourseShell.isPracticeType(i.type);
   function source(session, path) {
     // PDF filenames are evidence identities exported by this app. Resolve only
     // the exact retained hash and its recorded items, never a matching basename
@@ -168,7 +165,7 @@
       messages.push(
         "Question/option coverage is incomplete for " +
           names(otherIncomplete) +
-          ". Capture the missing visible prompts or applicable choices before deciding this adds new practice. Text-entry questions do not require options.",
+          ". Capture the missing visible prompts or applicable choices before deciding this adds new practice. Text-entry and file-upload questions do not require choice options.",
       );
     return messages;
   }

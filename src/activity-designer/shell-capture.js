@@ -6,6 +6,20 @@
     str = (x) => (typeof x === "string" ? x : "");
   const protectedField =
     /(correct|answer|solution|feedback|explanation|score|rubric|grading|password|token|secret|cookie|authorization|email|learner|student|submission)/i;
+  function isAssessmentType(type) {
+    return (
+      typeof type === "string" &&
+      (/quiz|exam|assessment|assignment|project/i.test(type) ||
+        /^(staffGraded|peerGraded)$/.test(type))
+    );
+  }
+  function isPracticeType(type) {
+    return (
+      isAssessmentType(type) ||
+      (typeof type === "string" &&
+        /discussion|peer|role.?play|dialogue/i.test(type))
+    );
+  }
   function textQuality(raw) {
     const text = String(raw || "")
       .replace(/^\[(?:TEACHING|ASSESSMENT|GAP) \|[^\n]*\]\s*/gm, "")
@@ -288,11 +302,9 @@
         .length,
       observed_empty: c.items.filter((i) => i.coverage === "observed_empty")
         .length,
-      quizzes: c.items.filter((i) =>
-        /quiz|assessment|exam|assignment/i.test(i.type),
-      ).length,
+      quizzes: c.items.filter((i) => isAssessmentType(i.type)).length,
       assessments_with_text: c.items.filter(
-        (i) => /quiz|assessment|exam|assignment/i.test(i.type) && read(i),
+        (i) => isAssessmentType(i.type) && read(i),
       ).length,
     };
   }
@@ -485,6 +497,8 @@
     toSession,
     protectedField,
     textQuality,
+    isAssessmentType,
+    isPracticeType,
   };
   if (typeof module !== "undefined" && module.exports)
     module.exports = root.CourseShell;
