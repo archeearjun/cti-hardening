@@ -14,6 +14,7 @@ import { migrationTextInfo } from "../src/domain/migration-files.ts";
 import { writeWorkbook } from "../src/adapters/workbook.ts";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
+import { courseraSource } from "../src/generated/extractor-sources.js";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -473,7 +474,11 @@ try {
     await (await extractorDownload).path(),
     "utf8",
   );
-  assert.match(extractorText, /CTI Item Fidelity Extractor v6\.15\.13/);
+  assert.equal(
+    extractorText,
+    courseraSource,
+    "The local download must contain the complete current extractor bundle.",
+  );
   await page.locator("#local-coursera-capture").setInputFiles({
     name: "local-schema-35.json",
     mimeType: "application/json",
