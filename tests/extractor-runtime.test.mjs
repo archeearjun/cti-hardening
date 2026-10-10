@@ -1,17 +1,66 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { CTI_NETWORK_MAX_RETAINED_CHARS, CTI_NETWORK_MAX_RETAINED_RECORDS, CTI_NETWORK_MAX_PENDING_REQUESTS, CTI_NETWORK_MAX_RESPONSE_COPIES } from '../src/extractors/coursera/config.js';
+import { captureContractV6150, finalCaptureAccountingV6150 } from '../src/extractors/coursera/completion.js';
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES } from '../src/extractors/coursera/config.js';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {functionCode}=require('../tools/assessment-fixture.cjs');
 
-function recorderFor(response,limit=1024){
-  const nativeFetch=async()=>response;
+function localSessionFixture(heap=0){
+  let now=1000;
+  const context={window:{performance:{memory:{usedJSHeapSize:heap}}},Date:{now:()=>now},
+    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES};
+  vm.createContext(context);vm.runInContext(functionCode('createLocalCaptureSessionV61514'),context);
+  return {context,session:context.createLocalCaptureSessionV61514(),advance:ms=>{now+=ms;}};
+}
+test('Local primary, retry and repeat invocations share a renderer visit budget',()=>{
+  const f=localSessionFixture();
+  for(let i=0;i<CTI_LOCAL_BATCH_MAX_VISITS-2;i++){
+    assert.equal(f.session.beforeItem(),'');f.session.startItem();f.session.checkpointWritten(true);
+  }
+  const retry=f.context.createLocalCaptureSessionV61514();
+  for(let i=0;i<2;i++){assert.equal(retry.beforeItem(),'');retry.startItem();retry.checkpointWritten(true);}
+  assert.equal(retry.beforeItem(),'LOCAL_RENDERER_VISIT_LIMIT');
+  assert.equal(f.context.createLocalCaptureSessionV61514().beforeItem(),'LOCAL_RENDERER_VISIT_LIMIT');
+  assert.equal(f.session.snapshot().visits,CTI_LOCAL_BATCH_MAX_VISITS);
+  assert.equal(localSessionFixture().session.beforeItem(),'','A fresh document can resume');
+});
+test('Local time and heap yields happen at the next item boundary',()=>{
+  const timed=localSessionFixture();timed.session.startItem();
+  timed.advance(CTI_LOCAL_BATCH_MAX_MS+1);timed.session.checkpointWritten(true);
+  assert.equal(timed.session.beforeItem(),'LOCAL_RENDERER_TIME_LIMIT');
+  const memory=localSessionFixture();memory.session.startItem();memory.session.checkpointWritten(true);
+  memory.context.window.performance.memory.usedJSHeapSize=CTI_LOCAL_HEAP_YIELD_BYTES;
+  assert.equal(memory.session.beforeItem(),'LOCAL_RENDERER_HEAP_LIMIT');
+  assert.equal(memory.session.snapshot().visits,1);
+});
+test('High initial heap still allows one item; unavailable memory readings use visit limits',()=>{
+  const f=localSessionFixture(CTI_LOCAL_HEAP_YIELD_BYTES+1);
+  assert.equal(f.session.beforeItem(),'');f.session.startItem();f.session.checkpointWritten(true);
+  assert.equal(f.session.beforeItem(),'LOCAL_RENDERER_HEAP_LIMIT');
+  const unavailable=localSessionFixture();delete unavailable.context.window.performance.memory;
+  assert.equal(unavailable.session.beforeItem(),'');unavailable.session.startItem();
+  assert.equal(unavailable.session.beforeItem(),'');assert.equal(unavailable.session.snapshot().observedHeapBytes,0);
+});
+test('Failed checkpoint writes stop new visits and cannot be reset by repasting',()=>{
+  const f=localSessionFixture();f.session.startItem();f.session.checkpointWritten(false);
+  assert.equal(f.session.beforeItem(),'LOCAL_CHECKPOINT_UNAVAILABLE');
+  f.session.checkpointWritten(true);
+  assert.equal(f.context.createLocalCaptureSessionV61514().beforeItem(),'LOCAL_CHECKPOINT_UNAVAILABLE');
+  assert.equal(f.session.snapshot().checkpointFailed,true);assert.equal(f.session.snapshot().visits,1);
+});
+
+function recorderFor(response,limit=1024,overrides={}){
+  const nativeFetch=typeof response==='function'?response:async()=>response;
   const context={window:{fetch:nativeFetch},location:{origin:'https://example.test'},
     URL,URLSearchParams,FormData,TextDecoder,Promise,
     setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,60)),clearTimeout,
     MAX_CAPTURED_RESPONSE_CHARS:limit,isPerItemNetworkNoise:()=>false,
-    isCourseWideNetworkResponse:()=>false,isSessionScopedPayloadEndpoint:()=>true};
+    isCourseWideNetworkResponse:()=>false,isSessionScopedPayloadEndpoint:()=>true,
+    CTI_NETWORK_MAX_RETAINED_CHARS, CTI_NETWORK_MAX_RETAINED_RECORDS,
+    CTI_NETWORK_MAX_PENDING_REQUESTS, CTI_NETWORK_MAX_RESPONSE_COPIES,...overrides};
   vm.createContext(context);vm.runInContext(functionCode('installReadOnlyNetworkRecorder'),context);
   return {context,recorder:context.installReadOnlyNetworkRecorder(),nativeFetch};
 }
@@ -58,6 +107,127 @@ test('A stalled response copy times out and leaves the original readable',async(
   assert.equal(f.recorder.stats().activeResponseCopies,0);
   controller.enqueue(new TextEncoder().encode('{}'));controller.close();
   assert.equal(await original.text(),'{}');assert.equal(f.recorder.takeFor({id:'item'}).length,0);f.recorder.restore();
+});
+
+test('Cumulative response retention stops before exhausting the shared character budget',async()=>{
+  const raw=JSON.stringify({content:'x'.repeat(400)});
+  const f=recorderFor(async()=>new Response(raw,{headers:{'content-type':'application/json'}}),1024,{CTI_NETWORK_MAX_RETAINED_CHARS:1700});
+  const fp={id:'item'};f.recorder.setActive(fp);
+  try{
+    for(let i=0;i<20;i++){
+      assert.equal(await (await f.context.window.fetch('https://example.test/api/item')).text(),raw);
+      await until(()=>f.recorder.stats().pendingRequests===0);
+      const s=f.recorder.stats();assert(s.retainedChars+s.reservedChars<=1700);
+    }
+    assert.equal(f.recorder.stats().retainedRecords,2);
+    assert.equal(f.recorder.stats().resourceLimits.retainedCharacters,18);
+    assert.equal(fp.payload.networkCaptureGap.skippedResponses,18);
+    assert(fp.payload.networkCaptureGap.reasons.includes('retainedCharacters'));
+    f.recorder.releaseFor(fp);assert.equal(f.recorder.stats().retainedChars,0);
+    f.recorder.setActive({id:'next'});
+    assert.equal(await (await f.context.window.fetch('https://example.test/api/next')).text(),raw);
+    await until(()=>f.recorder.stats().retainedRecords===1);
+  }finally{f.recorder.restore();}
+});
+
+test('The recorder enforces the record-count ceiling during acquisition',async()=>{
+  const f=recorderFor(async()=>new Response('{}',{headers:{'content-type':'application/json'}}),1024,{CTI_NETWORK_MAX_RETAINED_RECORDS:3});
+  const fp={id:'item'};f.recorder.setActive(fp);
+  try{
+    for(let i=0;i<10;i++){
+      assert.equal(await (await f.context.window.fetch('https://example.test/api/item')).text(),'{}');
+      await until(()=>f.recorder.stats().pendingRequests===0);
+    }
+    assert.equal(f.recorder.takeFor(fp).length,3);
+    assert.equal(f.recorder.stats().resourceLimits.retainedRecords,7);
+  }finally{f.recorder.restore();}
+});
+
+test('Concurrent copies reserve aggregate space and releasing an item frees every reservation',async()=>{
+  const controllers=[];
+  const f=recorderFor(async()=>new Response(new ReadableStream({start(c){controllers.push(c);}}),{headers:{'content-type':'application/json'}}),1024,{CTI_NETWORK_MAX_RETAINED_CHARS:2048,CTI_NETWORK_MAX_RESPONSE_COPIES:8});
+  const fp={id:'item'};f.recorder.setActive(fp);
+  const originals=await Promise.all(Array.from({length:8},()=>f.context.window.fetch('https://example.test/api/item')));
+  try{
+    const s=f.recorder.stats();assert.equal(s.activeResponseCopies,2);assert.equal(s.reservedChars,2048);
+    assert.equal(s.resourceLimits.retainedCharacters,6);
+    f.recorder.releaseFor(fp);
+    assert.equal(f.recorder.stats().reservedChars,0);assert.equal(f.recorder.stats().reservedRecords,0);
+    assert.equal(f.recorder.stats().activeCopies,0);assert.equal(f.recorder.stats().pendingRequests,0);
+    for(const c of controllers){c.enqueue(new TextEncoder().encode('{}'));c.close();}
+    assert.deepEqual(await Promise.all(originals.map(r=>r.text())),Array(8).fill('{}'));
+  }finally{f.recorder.restore();}
+});
+
+test('Response-copy concurrency has its own ceiling without aborting original responses',async()=>{
+  const controllers=[];
+  const f=recorderFor(async()=>new Response(new ReadableStream({start(c){controllers.push(c);}}),{headers:{'content-type':'application/json'}}),1024,{CTI_NETWORK_MAX_RESPONSE_COPIES:1});
+  const fp={id:'item'};f.recorder.setActive(fp);
+  const originals=await Promise.all(Array.from({length:4},()=>f.context.window.fetch('https://example.test/api/item')));
+  try{
+    assert.equal(f.recorder.stats().activeResponseCopies,1);assert.equal(f.recorder.stats().resourceLimits.responseCopies,3);
+    for(const c of controllers){c.enqueue(new TextEncoder().encode('{}'));c.close();}
+    assert.deepEqual(await Promise.all(originals.map(r=>r.text())),Array(4).fill('{}'));
+    await until(()=>f.recorder.stats().reservedChars===0);
+  }finally{f.recorder.restore();}
+});
+
+test('Pending request limits preserve fetch behavior and expose missed capture',async()=>{
+  const complete=[];
+  const f=recorderFor(()=>new Promise(resolve=>complete.push(resolve)),1024,{CTI_NETWORK_MAX_PENDING_REQUESTS:2});
+  const fp={id:'item'};f.recorder.setActive(fp);
+  const requests=Array.from({length:3},()=>f.context.window.fetch('https://example.test/api/item'));
+  try{
+    assert.equal(f.recorder.stats().pendingRequests,2);
+    assert.equal(f.recorder.stats().resourceLimits.pendingRequests,1);
+    assert(fp.payload.networkCaptureGap.reasons.includes('pendingRequests'));
+    for(const resolve of complete)resolve(new Response('{}',{headers:{'content-type':'application/json'}}));
+    assert.deepEqual(await Promise.all((await Promise.all(requests)).map(r=>r.text())),Array(3).fill('{}'));
+    await until(()=>f.recorder.stats().pendingRequests===0);
+    assert.equal(f.recorder.stats().retainedRecords,2);
+  }finally{f.recorder.restore();}
+});
+
+test('Ineligible GET and POST requests are not cloned or attached to the active item',async()=>{
+  let clones=0;
+  const f=recorderFor(async()=>{
+    const response=new Response('{}',{headers:{'content-type':'application/json'}}),clone=response.clone.bind(response);
+    response.clone=()=>{clones++;return clone();};return response;
+  },1024,{isSessionScopedPayloadEndpoint:()=>false});
+  const fp={id:'item'};f.recorder.setActive(fp);
+  try{
+    for(const [url,method] of [['https://example.test/api/unrelated','GET'],['https://example.test/api/item','POST']]){
+      assert.equal(await (await f.context.window.fetch(url,{method})).text(),'{}');
+    }
+    assert.equal(clones,0);assert.equal(f.recorder.takeFor(fp).length,0);assert.equal(fp.payload,undefined);
+    assert.equal(await (await f.context.window.fetch('https://example.test/api/item')).text(),'{}');
+    await until(()=>f.recorder.stats().retainedRecords===1);assert.equal(clones,1);
+  }finally{f.recorder.restore();}
+});
+
+test('A network resource gap cannot certify otherwise complete reading evidence',()=>{
+  const fp={id:'item',type:'Reading',typeName:'supplement',payload:{captureAttempts:1,
+    textCaptureEvidence:{method:'EXACT_READING_FIELD',itemId:'item',observedCharacters:10,capturedCharacters:10}}};
+  assert.equal(captureContractV6150(fp).complete,true);
+  fp.payload.networkCaptureGap={status:'NETWORK_CAPTURE_LIMIT_REACHED',skippedResponses:1,reasons:['retainedCharacters']};
+  const retry=captureContractV6150(fp);assert.equal(retry.complete,false);assert.equal(retry.retryable,true);
+  assert(retry.reasons.includes('NETWORK_CAPTURE_LIMIT_REACHED'));
+  fp.payload.captureAttempts=2;assert.equal(captureContractV6150(fp).retryable,false);
+  const accounting=finalCaptureAccountingV6150([fp],{});assert.equal(accounting.complete,false);assert.equal(accounting.technicalUnresolvedCount,1);
+});
+
+test('JSON serialization failure preserves checkpoints; successful export clears them afterward',async()=>{
+  const events=[];
+  const c={downloadJson:()=>{events.push('export');throw Error('serialization failed');}};
+  vm.createContext(c);vm.runInContext(functionCode('exportCaptureWithCheckpoints'),c);
+  const manager={clear:async()=>events.push('clear')};
+  await assert.rejects(c.exportCaptureWithCheckpoints('capture.json',{},manager,false),/serialization failed/);
+  assert.deepEqual(events,['export']);
+  c.downloadJson=()=>events.push('prepared');
+  await c.exportCaptureWithCheckpoints('capture.json',{},manager,false);
+  assert.deepEqual(events,['export','prepared','clear']);
+  await c.exportCaptureWithCheckpoints('partial.json',{},manager,true);
+  assert.deepEqual(events,['export','prepared','clear','prepared']);
 });
 function routes(){
   const location={href:'https://example.test/teach/course/content/edit'};

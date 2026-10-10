@@ -3,7 +3,7 @@ import { collectCourseraNativeAssignment } from "./assessments-5.js";
 import { collectCourseraTimeEstimate } from "./time-estimates.js";
 import { isStructuredAssessmentFingerprint } from "./assessments.js";
 import { assetDescriptor, fileNameFromUrl, isCourseraUiAssetUrl, uniqueAssetDetails } from "./assets.js";
-import { MAX_CAPTURED_RESPONSE_CHARS, MAX_TEXT_SAMPLE } from "./config.js";
+import { MAX_CAPTURED_RESPONSE_CHARS, MAX_TEXT_SAMPLE, CTI_NETWORK_MAX_RETAINED_CHARS, CTI_NETWORK_MAX_RETAINED_RECORDS, CTI_NETWORK_MAX_PENDING_REQUESTS, CTI_NETWORK_MAX_RESPONSE_COPIES } from "./config.js";
 import { harvestEvidence, mergeEvidence, mergeExactReadingEvidenceV61318 } from "./evidence.js";
 import { collectPluginEvidenceV6139 } from "./plugins.js";
 import { elementAttributeBlob, hasVisibleLoadingIndicator, isCourseWideNetworkResponse, isPerItemNetworkNoise, readingBodyGuardV61312 } from "./text-and-dom-2.js";
@@ -36,12 +36,37 @@ export function installReadOnlyNetworkRecorder() {
     const records=[],pending=new Set(),ownersByItem=new Map();
     const bodyReaders=new Map();
     const copyStats={oversize:0,timedOut:0,released:0,unreadable:0};
+    const limitStats={retainedCharacters:0,retainedRecords:0,pendingRequests:0,responseCopies:0};
+    let reservedChars=0,reservedRecords=0,activeCopies=0;
     let activeItem=null,stopped=false,ignoredNoise=0,ignoredCourseWide=0;
     // Counts are retained string characters, not a measurement of browser heap.
     let retainedChars=0,peakRetainedChars=0,releasedRecords=0,releasedChars=0,lateResponsesIgnored=0;
     function releasedOwner(owner) {
       if(owner && owner.released){lateResponsesIgnored++;return true;}
       return false;
+    }
+    function noteGap(owner,reason) {
+      if(!owner || owner.released || stopped)return;
+      const payload=owner.fingerprint.payload || (owner.fingerprint.payload={});
+      const gap=payload.networkCaptureGap || (payload.networkCaptureGap={status:'NETWORK_CAPTURE_LIMIT_REACHED',reasons:[],skippedResponses:0});
+      if(!gap.reasons.includes(reason))gap.reasons.push(reason);
+      gap.skippedResponses++;
+    }
+    function finishRequest(token) {
+      if(!token || token.done)return;
+      token.done=true;pending.delete(token);
+      if(token.reservation){reservedChars-=token.reservation;reservedRecords--;activeCopies--;token.reservation=0;}
+    }
+    function reserveCopy(token,requestBody) {
+      if(!token || token.done || stopped || token.owner.released)return false;
+      let reason='';
+      const reservation=MAX_CAPTURED_RESPONSE_CHARS+requestBody.length;
+      if(activeCopies>=CTI_NETWORK_MAX_RESPONSE_COPIES)reason='responseCopies';
+      else if(records.length+reservedRecords>=CTI_NETWORK_MAX_RETAINED_RECORDS)reason='retainedRecords';
+      else if(retainedChars+reservedChars+reservation>CTI_NETWORK_MAX_RETAINED_CHARS)reason='retainedCharacters';
+      if(reason){limitStats[reason]++;noteGap(token.owner,reason);return false;}
+      token.reservation=reservation;reservedChars+=reservation;reservedRecords++;activeCopies++;
+      return true;
     }
     function releaseFor(fp) {
       const id=String(fp && fp.id || ''),owners=ownersByItem.get(id);
@@ -56,7 +81,7 @@ export function installReadOnlyNetworkRecorder() {
         // objects referenced by the just-finished item's temporary arrays.
         rec.text='';rec.requestBody='';records.splice(i,1);
       }
-      for(const token of pending)if(token.owner.id===id){pendingAtRelease++;pending.delete(token);}
+      for(const token of pending)if(token.owner.id===id){pendingAtRelease++;finishRequest(token);}
       retainedChars-=chars;releasedRecords+=count;releasedChars+=chars;
       return {releasedRecords:count,releasedChars:chars,pendingAtRelease,retainedRecords:records.length,retainedChars};
     }
@@ -72,6 +97,20 @@ export function installReadOnlyNetworkRecorder() {
         return JSON.stringify(body).slice(0,120000);
       }catch(_){return '';}
     }
+    function boundedJsonResponse(value) {
+      // A JSON XHR is already parsed by the browser. Stop walking oversized
+      // objects before allocating an unbounded second serialization of them.
+      let chars=0;
+      const text=JSON.stringify(value,(key,entry)=>{
+        chars+=key.length+8;
+        if(typeof entry==='string')chars+=entry.length;
+        else if(typeof entry==='number')chars+=String(entry).length;
+        if(chars>MAX_CAPTURED_RESPONSE_CHARS)throw new RangeError('CTI response copy limit');
+        return entry;
+      });
+      if(text && text.length>MAX_CAPTURED_RESPONSE_CHARS)throw new RangeError('CTI response copy limit');
+      return text || '';
+    }
     function startRequest(owner,url,method) {
       if(!owner || stopped || owner.released)return null;
       try {
@@ -79,24 +118,29 @@ export function installReadOnlyNetworkRecorder() {
         if(parsed.origin!==location.origin || method!=='GET' || isPerItemNetworkNoise(parsed.href) || isCourseWideNetworkResponse(parsed.href))return null;
         const direct=parsed.pathname.split('/').some(x=>decodeURIComponent(x)===owner.id) || [...parsed.searchParams.values()].some(x=>x===owner.id);
         if(!direct && !isSessionScopedPayloadEndpoint({url:parsed.href,method}))return null;
-        const token={owner};pending.add(token);return token;
+        if(pending.size>=CTI_NETWORK_MAX_PENDING_REQUESTS){limitStats.pendingRequests++;noteGap(owner,'pendingRequests');return null;}
+        const token={owner,done:false,reservation:0};pending.add(token);return token;
       }catch(_){return null;}
     }
-    function capture(owner,url,method,reqBody,status,type,text,source) {
-      if(!owner || stopped || releasedOwner(owner) || !text || text.length>MAX_CAPTURED_RESPONSE_CHARS)return;
+    function capture(token,url,method,reqBody,status,type,text,source) {
+      const owner=token && token.owner;
+      if(!owner || token.done || stopped || releasedOwner(owner) || !text || text.length>MAX_CAPTURED_RESPONSE_CHARS)return;
       try {
         const parsed=new URL(url,location.origin);
         if(parsed.origin!==location.origin)return;
         if(isPerItemNetworkNoise(parsed.href)){ignoredNoise++;return;}
         if(isCourseWideNetworkResponse(parsed.href)){ignoredCourseWide++;return;}
         if(!/(json|text|javascript|html|xml)/.test(type))return;
+        // Swap the in-flight reservation for the actual stored characters.
+        finishRequest(token);
         records.push({itemId:owner.id,itemName:owner.name,url:parsed.href,status,method,
           requestBody:reqBody,contentType:type,text,source,capturedAt:Date.now(),sessionStartedAt:owner.startedAt});
         retainedChars+=text.length+reqBody.length;peakRetainedChars=Math.max(peakRetainedChars,retainedChars);
       }catch(_){}
     }
-    async function recordFetchResponse(owner,response,url,method,reqBody) {
-      if(!owner || stopped || releasedOwner(owner))return;
+    async function recordFetchResponse(token,response,url,method,reqBody) {
+      const owner=token && token.owner;
+      if(!owner || stopped || releasedOwner(owner) || token.done)return;
       try {
         const parsed=new URL(url || response.url,location.origin);
         if(parsed.origin!==location.origin)return;
@@ -105,25 +149,29 @@ export function installReadOnlyNetworkRecorder() {
         const type=String(response.headers.get('content-type') || '').toLowerCase();
         if(!/(json|text|javascript|html|xml)/.test(type))return;
         const declared=Number(response.headers.get('content-length') || 0);
-        if(declared>MAX_CAPTURED_RESPONSE_CHARS){copyStats.oversize++;return;}
-        const text=await readResponseCopy(owner,response);
-        capture(owner,parsed.href,method,reqBody,response.status,type,text,'fetch');
-      }catch(_){}
+        if(declared>MAX_CAPTURED_RESPONSE_CHARS){copyStats.oversize++;noteGap(owner,'oversize');return;}
+        if(!reserveCopy(token,reqBody))return;
+        const text=await readResponseCopy(token,response);
+        capture(token,parsed.href,method,reqBody,response.status,type,text,'fetch');
+      }catch(_){copyStats.unreadable++;noteGap(owner,'unreadable');}
     }
-    async function readResponseCopy(owner,response) {
+    async function readResponseCopy(token,response) {
+      const owner=token.owner;
       // Bound the copied stream before materializing its body. Cancelling a
       // clone's reader must never abort Coursera's original response/request.
       let reader,timer,ended=false,cancelled=false;
       function cancel(reason) {
         if(ended || cancelled)return;
         cancelled=true;copyStats[reason]++;
+        if(reason!=='released')noteGap(owner,reason);
         try {Promise.resolve(reader.cancel()).catch(()=>{});}catch(_){}
         if(reader)bodyReaders.delete(reader);
+        finishRequest(token);
       }
       try {
         const clone=response.clone();
         if(!clone.body || typeof clone.body.getReader!=='function' || typeof TextDecoder!=='function'){
-          copyStats.unreadable++;return null;
+          copyStats.unreadable++;noteGap(owner,'unreadable');return null;
         }
         reader=clone.body.getReader();bodyReaders.set(reader,{owner,cancel});
         timer=setTimeout(()=>cancel('timedOut'),12000);
@@ -149,30 +197,39 @@ export function installReadOnlyNetworkRecorder() {
       const owner=activeItem;
       const method=String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
       const url=typeof input==='string'?input:(input && input.url) || (input instanceof URL?input.href:'');
-      const reqBody=requestBodyText(init && init.body);
       const token=startRequest(owner,url,method);
+      const reqBody=token?requestBodyText(init && init.body):'';
       try {
         const response=await nativeFetch.call(window,input,init);
-        recordFetchResponse(owner,response,url || response.url,method,reqBody).finally(()=>pending.delete(token));
+        if(token)recordFetchResponse(token,response,url || response.url,method,reqBody).finally(()=>finishRequest(token));
         return response;
-      }catch(error){pending.delete(token);throw error;}
+      }catch(error){finishRequest(token);throw error;}
     };
     window.fetch=wrappedFetch;
     let wrappedOpen,wrappedSend;
     if(xhrProto && nativeXhrOpen && nativeXhrSend) {
       wrappedOpen=function(method,url){this.__ctiMethod=String(method || 'GET').toUpperCase();this.__ctiUrl=String(url || '');return nativeXhrOpen.apply(this,arguments);};
       wrappedSend=function(body) {
-        const owner=activeItem,url=this.__ctiUrl,method=this.__ctiMethod || 'GET',reqBody=requestBodyText(body);
+        const owner=activeItem,url=this.__ctiUrl,method=this.__ctiMethod || 'GET';
         const token=startRequest(owner,url,method),xhr=this;
+        if(!token)return nativeXhrSend.apply(this,arguments);
+        const reqBody=requestBodyText(body);
         function loaded(){
-          if(!owner || stopped || releasedOwner(owner))return;
+          if(stopped || releasedOwner(owner) || token.done)return;
           try {
             const type=String(xhr.getResponseHeader('content-type') || '').toLowerCase();
-            const text=!xhr.responseType || xhr.responseType==='text'?String(xhr.responseText || ''):xhr.responseType==='json'?JSON.stringify(xhr.response || null):'';
-            capture(owner,url,method,reqBody,xhr.status,type,text,'xhr');
-          }catch(_){}
+            if(!/(json|text|javascript|html|xml)/.test(type))return;
+            if(Number(xhr.getResponseHeader('content-length') || 0)>MAX_CAPTURED_RESPONSE_CHARS){copyStats.oversize++;noteGap(owner,'oversize');return;}
+            if(!reserveCopy(token,reqBody))return;
+            const text=!xhr.responseType || xhr.responseType==='text'?String(xhr.responseText || ''):xhr.responseType==='json'?boundedJsonResponse(xhr.response || null):'';
+            if(text.length>MAX_CAPTURED_RESPONSE_CHARS){copyStats.oversize++;noteGap(owner,'oversize');return;}
+            capture(token,url,method,reqBody,xhr.status,type,text,'xhr');
+          }catch(error){
+            const reason=error instanceof RangeError?'oversize':'unreadable';
+            copyStats[reason]++;noteGap(owner,reason);
+          }finally{finishRequest(token);}
         }
-        function cleanup(){pending.delete(token);xhr.removeEventListener('load',loaded);xhr.removeEventListener('loadend',cleanup);}
+        function cleanup(){finishRequest(token);xhr.removeEventListener('load',loaded);xhr.removeEventListener('loadend',cleanup);}
         xhr.addEventListener('load',loaded);xhr.addEventListener('loadend',cleanup);
         try{return nativeXhrSend.apply(this,arguments);}catch(error){cleanup();throw error;}
       };
@@ -181,7 +238,7 @@ export function installReadOnlyNetworkRecorder() {
     return {
       setActive(fp){
         if(stopped)return;
-        activeItem=fp?{id:String(fp.id || ''),name:String(fp.name || ''),startedAt:Date.now(),released:false}:null;
+        activeItem=fp?{id:String(fp.id || ''),name:String(fp.name || ''),fingerprint:fp,startedAt:Date.now(),released:false}:null;
         if(activeItem){
           if(!ownersByItem.has(activeItem.id))ownersByItem.set(activeItem.id,new Set());
           ownersByItem.get(activeItem.id).add(activeItem);
@@ -197,6 +254,9 @@ export function installReadOnlyNetworkRecorder() {
       pendingFor(fp){let count=0;for(const request of pending)if(request.owner.id===String(fp && fp.id || ''))count++;return count;},
       stats(){return {ignoredNoise,ignoredCourseWide,pendingRequests:pending.size,
         activeResponseCopies:bodyReaders.size,responseCopyLimits:Object.assign({},copyStats),
+        reservedChars,reservedRecords,activeCopies,resourceLimits:Object.assign({},limitStats),
+        maxRetainedChars:CTI_NETWORK_MAX_RETAINED_CHARS,maxRetainedRecords:CTI_NETWORK_MAX_RETAINED_RECORDS,
+        maxPendingRequests:CTI_NETWORK_MAX_PENDING_REQUESTS,maxResponseCopies:CTI_NETWORK_MAX_RESPONSE_COPIES,
         retainedRecords:records.length,retainedChars,peakRetainedChars,releasedRecords,releasedChars,lateResponsesIgnored};},
       restore(){stopped=true;for(const id of [...ownersByItem.keys()])releaseFor({id});activeItem=null;pending.clear();if(window.fetch===wrappedFetch)window.fetch=nativeFetch;if(xhrProto && xhrProto.open===wrappedOpen)xhrProto.open=nativeXhrOpen;if(xhrProto && xhrProto.send===wrappedSend)xhrProto.send=nativeXhrSend;}
     };

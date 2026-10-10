@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md.",
+      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md. Runtime acquisition limits, native scrolling and export checkpoint ordering: docs/extractor-runtime-stability.md. Coursera v6.15.14 adds checkpointed local batches and reload continuation; see docs/extractor-runtime-stability.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "4acf8fe3982554ee0bb7713e87cbc7b211d7693d7d689c1f1cf4190bc3d9ad52"
+      "reviewedCurrentHash": "e2ac47bb8540aad10938dc9b992663c73611cea697a726d6a1b0d9b98d5bb651"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.12/schema35",
+      "current": "v6.15.14/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "5d84c1dcf2d953309b5ab50d648c81a63e7769f3de31ddb22b71d7a005a0d7f1"
+          "reviewedCurrentHash": "a9300b2df823681c924bca9186a2bbfa183bd5454c5f376b7f871817bf3fc76b"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4379,7 +4379,12 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "7d86752c3ecff8f9543214353334ca7141ac9d28b76e6f5b1864f776126f6b78"
+          "reviewedCurrentHash": "278434ac3095f58191f81084866fb41b9280ab80a275dbb2fada361b23602562"
+        },
+        {
+          "name": "downloadJson",
+          "archivedHash": "65ec30135b07406d90a9acccfa5af6b7f16f2acb5c70bf93dbed28bc03d33dfd",
+          "reviewedCurrentHash": "162053b970006a384bab5ac79e2209621f81fe117ac54ba3dcfa8843f65b0066"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4410,6 +4415,11 @@
           "name": "hydrateOutlineSurfaceForCrawl",
           "archivedHash": "a28f0e8f840cb72915010e9b9c27f382505eedb1586914827c55f34bf8f16cfc",
           "reviewedCurrentHash": "863eada47869d80c6352f28200c847ad383b312ba2b36843d51cfe95ed3a420e"
+        },
+        {
+          "name": "installReadOnlyNetworkRecorder",
+          "archivedHash": "07e7cca13b3a69d6be3d6c0e7d0e4f1ca53db2f5d922a2a5e9bb9c2c36cf0a5c",
+          "reviewedCurrentHash": "11a9897aff791cb8af61ae5eb520bcaf119f238efbc10bef64609de79bed0b9f"
         },
         {
           "name": "isGenericSmartIngestionName",
@@ -4454,12 +4464,17 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "56bfdc0b049155749eb9c14734961e514631a5d799ec799bccc07864062fb162"
+          "reviewedCurrentHash": "3fd23132a90a9db538c3608cb5bb626a30821f44835f6266486149be0989ea48"
         },
         {
           "name": "scoreSurfaceForFingerprint",
           "archivedHash": "f5998557a6ec827f972f6a227b6e460770ce23179090d6e00cc6e08329a5ea3d",
           "reviewedCurrentHash": "7cf7e9621971abccded141456b36dfc2694f21d5a668ec251406100cb7b39590"
+        },
+        {
+          "name": "setScrollRootPosition",
+          "archivedHash": "0ba682fcfc34653da93ddb49aad8482cab8c64d1f6c109526dfbbf0d9cf2c826",
+          "reviewedCurrentHash": "54a012173b681c30eff18d17f23e2eb2749cc252f2d705c68cd02225ddb079c2"
         },
         {
           "name": "targetedItemPayloadProbes",
@@ -4489,7 +4504,7 @@
         },
         {
           "name": "captureContractV6150",
-          "reviewedCurrentHash": "1a994c7884ac759cfd17673a60473e85987d69f4fe3d63d8d7442c4b99f96e0e"
+          "reviewedCurrentHash": "bafdf568832cf4de2f138c55e6237a756b509582ccb354438f28228f22e4a84e"
         },
         {
           "name": "checkpointSessionIdV6150",
@@ -4509,7 +4524,15 @@
         },
         {
           "name": "createCheckpointManagerV6150",
-          "reviewedCurrentHash": "6c08764786fbbe127e9e4895a58815f410c60b47dfc551e3a4f9471bef5d88a3"
+          "reviewedCurrentHash": "aac643cfab0e88ee5ddb2e87a0726324089cfc93d48164c4d7e61f2154cb4a05"
+        },
+        {
+          "name": "createLocalCaptureSessionV61514",
+          "reviewedCurrentHash": "32de4624df69de7062a36c828a9f097b53e41fba78e74bf2d5c8087eaccc74e5"
+        },
+        {
+          "name": "exportCaptureWithCheckpoints",
+          "reviewedCurrentHash": "02baabdb67a4c63bd5bfaffd61e78c2982a18e22021524fc4c2da9f8f95cbbb5"
         },
         {
           "name": "fetchWithTimeoutV6150",
@@ -4522,6 +4545,10 @@
         {
           "name": "itemAttemptBudgetV6153",
           "reviewedCurrentHash": "e68599a675cd33571435ec31fdaa2d20549cccc1d38cada9ab8f69a2d2c405cb"
+        },
+        {
+          "name": "offerCheckpointContinuationV61514",
+          "reviewedCurrentHash": "a75fab40bbee1b17dd9e7c4bbdd58914902bd5a5d5c962cc49350f541b2ff7af"
         },
         {
           "name": "openCheckpointDbV6150",
@@ -4621,10 +4648,52 @@
           "reviewedCurrentHash": "95d3f4b35086eec0f32a7e99de0733d18016ee76804a07dbe5fa97cd95f49cde"
         },
         {
+          "name": "CTI_LOCAL_BATCH_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "64d3cad0be064842a96e2aeebcef18df119d5d37dbbab81165b16771d8bd1158"
+        },
+        {
+          "name": "CTI_LOCAL_BATCH_MAX_VISITS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "56340a7aef535b5553a73350df6f8ed2f7806d7eb80aebe0650eb98ae7fc0940"
+        },
+        {
+          "name": "CTI_LOCAL_HEAP_YIELD_BYTES",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "8779dbbe768b39ef687e5eb87b05b5a9f0e7ecb89339ab93c3f8b36b2aa4c48d"
+        },
+        {
           "name": "CTI_MAX_ITEM_ATTEMPTS",
           "status": "added",
           "archivedHash": null,
           "reviewedCurrentHash": "94a2460a2c7da59bcce655af86db4ef0cf5f1bdc7e3e99e201f71ca152f78115"
+        },
+        {
+          "name": "CTI_NETWORK_MAX_PENDING_REQUESTS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "6d838b9f534db6983da0c988c77a271f3e1d2464c7a10359826b1834c3945d14"
+        },
+        {
+          "name": "CTI_NETWORK_MAX_RESPONSE_COPIES",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "73f9578bc9f504b6422e9600b5c8fad9fca2ef63f0c55baf2990fa3ddb3146c2"
+        },
+        {
+          "name": "CTI_NETWORK_MAX_RETAINED_CHARS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "8f72d5a4936213b588a60df770641d1f5bf988b6cf71d556bf95c2cb21a59fa1"
+        },
+        {
+          "name": "CTI_NETWORK_MAX_RETAINED_RECORDS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "ba5bc85fe694640cfb18016df0a01aae303e44da28c83778bbeea5f1a05aa00c"
         },
         {
           "name": "CTI_PLUGIN_PRIMARY_ATTEMPT_MS",
@@ -4690,11 +4759,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "12f1e6577468c7189805d58c18a0f1c70cd9d858fb377875ef577df1fb00629f"
+        "reviewedCurrentHash": "be2e9de1eb180fa2e40e6f20c408a6f644a2ced82680d82aa86bbcb078e40219"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "4acf8fe3982554ee0bb7713e87cbc7b211d7693d7d689c1f1cf4190bc3d9ad52"
+        "reviewedCurrentHash": "e2ac47bb8540aad10938dc9b992663c73611cea697a726d6a1b0d9b98d5bb651"
       }
     }
   }

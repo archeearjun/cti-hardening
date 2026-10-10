@@ -18,7 +18,7 @@ export async function checkItemRefreshUi(page, capture, shots) {
         test = window.ctiRefreshTest;
       let response = { ok: true };
       if (body.type === "PING")
-        response = { ok: true, version: "1.0.1", protocol: 1 };
+        response = { ok: true, version: "1.0.3", protocol: 1 };
       if (body.type === "START") {
         spec = body.spec;
         result = {
@@ -26,8 +26,8 @@ export async function checkItemRefreshUi(page, capture, shots) {
           ...spec,
           expectations: spec.checks,
           openedUrl: spec.url,
-          extractorVersion: "v6.15.12",
-          extractorBuild: "v6.15.12-editor-identity-20261009",
+          extractorVersion: "v6.15.14",
+          extractorBuild: "v6.15.14-checkpointed-batches-20261011",
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
           crawl: {

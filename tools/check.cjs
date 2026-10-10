@@ -18,7 +18,16 @@ const originalRecoveryFixture=c.CTI_TEST_editorRecoveryFixture_;
 c.CTI_TEST_editorRecoveryFixture_=function(sourceOverride){
  const fixture=originalRecoveryFixture(sourceOverride);
  const functions=require('./extractor-functions.cjs').extractorFunctions(sourceOverride || c.ctiCanonicalCourseraExtractorSource_());
- fixture.code=name=>{if(!functions.has(name))throw Error('Missing extractor function: '+name);return functions.get(name);};
+ fixture.code=name=>{
+  if(!functions.has(name))throw Error('Missing extractor function: '+name);
+  // The frozen recorder harness passes its old dependencies positionally.
+  // Supply the new literal limits without changing its historical assertions.
+  const config=require('../src/extractors/coursera/config.js');
+  const limits=name==='installReadOnlyNetworkRecorder'
+   ? ['CTI_NETWORK_MAX_RETAINED_CHARS','CTI_NETWORK_MAX_RETAINED_RECORDS','CTI_NETWORK_MAX_PENDING_REQUESTS','CTI_NETWORK_MAX_RESPONSE_COPIES']
+      .map(key=>'const '+key+'='+JSON.stringify(config[key])+';').join('\n')+'\n' : '';
+  return limits+functions.get(name);
+ };
  // Retain the archived identity assertions and DOM predicates, but load the
  // current helper dependencies as well as the functions its frozen list knew.
  const predicates=['isVisibleElement','isGlobalChromeElement','isLikelyWholeOutlineSurface'];

@@ -82,6 +82,8 @@ jobs:
         run: npm run test:browser:owner
       - name: Verify assessment choice layout in Chromium
         run: npm run test:browser:choices
+      - name: Verify extractor scrolling, memory limits and copied delivery
+        run: npm run test:browser:extractor
       - name: Verify isolated activity designer and capture reader
         run: npm run test:browser:activities
       - name: Verify owner-only CTI and colleague activity access

@@ -412,6 +412,14 @@ export default function App() {
                   Close
                 </button>
               </div>
+              {extractor.platform === "COURSERA" && (
+                <p className="hint">
+                  Paste in Coursera’s Console. Large courses use short batches.
+                  Save each batch JSON, copy the continuation script, reload
+                  Coursera, and paste again when the extractor prompts you.
+                  Completed items are restored from browser checkpoints.
+                </p>
+              )}
               <div className="button-row">
                 <button className="primary" onClick={() => void copyScript()}>
                   Copy script

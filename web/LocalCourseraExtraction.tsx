@@ -122,13 +122,17 @@ export default function LocalCourseraExtraction({
           <strong>Copy the current extractor.</strong>
           <span>
             Paste it once in DevTools → Console. The extractor shows its own
-            progress panel and saves per-item checkpoints in this browser.
+            progress panel and saves per-item checkpoints in this browser. Large
+            courses run in short batches: save each batch JSON, use Copy
+            continuation script, reload Coursera, and paste again when prompted.
+            Saved items are restored after reload.
           </span>
         </li>
         <li>
           <strong>Keep the Coursera tab open while it runs.</strong>
           <span>
             Slow Readings, assessments and plugins can legitimately take time.
+            The batch limit is checked between items so a slow editor can finish.
           </span>
         </li>
         <li>
@@ -164,7 +168,7 @@ export default function LocalCourseraExtraction({
                 await navigator.clipboard.writeText(current.script);
                 setCopyStatus(
                   current.version +
-                    " copied. Paste once in the Coursera tab's DevTools Console and keep that tab open while it runs.",
+                    " copied. Paste in Coursera's DevTools Console, keep that tab open, and follow the reload instructions between batches.",
                 );
               } catch {
                 setCopyStatus(

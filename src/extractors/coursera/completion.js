@@ -42,6 +42,18 @@ export function captureContractV6150(fp) {
     });
   }
 
+  if (p.networkCaptureGap && Number(p.networkCaptureGap.skippedResponses) > 0) {
+    reasons.push("NETWORK_CAPTURE_LIMIT_REACHED");
+    reasons.push(...(p.networkCaptureGap.reasons || []).slice(0, 8));
+    return Object.assign(result, {
+      accounted: attempts > 0,
+      needsEditor: attempts < CTI_MAX_ITEM_ATTEMPTS,
+      retryable: attempts < CTI_MAX_ITEM_ATTEMPTS,
+      status: attempts >= CTI_MAX_ITEM_ATTEMPTS
+        ? "UNRESOLVED_AFTER_MAX_ATTEMPTS" : "RETRY_REQUIRED",
+    });
+  }
+
   const text = String(p.textSample || "");
   const textComplete =
     String(p.textConfidence || "").toLowerCase() === "high" &&
@@ -585,6 +597,7 @@ export async function createCheckpointManagerV6150(courseId) {
     restored: 0,
     saved: 0,
   };
+  manager.close = () => { if (db) db.close(); };
   manager.restore = async (fingerprints) => {
     if (!db) return { available: false, restored: 0, error };
     let rows = [];

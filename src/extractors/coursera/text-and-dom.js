@@ -40,12 +40,14 @@ export function downloadJson(name, data) {
       panel.style.cssText = "position:fixed;top:16px;right:16px;z-index:2147483647;background:#111827;color:#fff;padding:14px;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.35);font:13px/1.4 system-ui,-apple-system,sans-serif;max-width:340px";
 
       const title = document.createElement("div");
-      title.textContent = "CTI extraction complete";
+      const accounting=data && data.meta && data.meta.captureAccounting;
+      const partial=accounting && accounting.complete!==true;
+      title.textContent = partial?"CTI partial capture saved":"CTI extraction complete";
       title.style.cssText = "font-weight:700;margin-bottom:8px";
       panel.appendChild(title);
 
       const note = document.createElement("div");
-      note.textContent = "If the JSON did not download automatically, click below.";
+      note.textContent = partial?"Save this batch JSON. It includes explicit evidence gaps; follow the continuation panel if more items remain.":"If the JSON did not download automatically, click below.";
       note.style.cssText = "margin-bottom:10px;color:#D1D5DB";
       panel.appendChild(note);
 
@@ -81,6 +83,13 @@ export function downloadJson(name, data) {
     }
 
     console.log("CTI result retained as window.__CTI_LAST_RESULT and window.__CTI_LAST_JSON");
+  }
+
+export async function exportCaptureWithCheckpoints(name, data, checkpointManager, retainCheckpoint) {
+    // Serialization and download setup can throw. Keep persistent item evidence
+    // until the JSON and its download fallback have actually been prepared.
+    downloadJson(name, data);
+    if(checkpointManager && !retainCheckpoint)await checkpointManager.clear();
   }
 
 export function absolute(url) {
@@ -212,7 +221,7 @@ export function ctiCourseraExportName(courseIdValue, suffix = "ITEM_FINGERPRINT"
   const label = ctiSafeFileToken(ctiCourseraCourseLabel(), 110);
   const idToken = ctiSafeFileToken(courseIdValue || "UNKNOWN", 80);
   const stamp = ctiLocalFileTimestamp(new Date());
-  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.12_s35__${suffix}.json`;
+  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.14_s35__${suffix}.json`;
 }
 
 export function inferPublished(obj) {

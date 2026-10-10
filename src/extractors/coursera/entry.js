@@ -1,6 +1,7 @@
 import { createCtiProgressPanelV1 } from "./progress.js";
+import { createLocalCaptureSessionV61514, offerCheckpointContinuationV61514 } from "./runtime.js";
 import { collectOutlineTimeEstimate } from "./time-estimates.js";
-import { downloadJson, absolute, getJson, courseId, normalizeType, normalizeName, unique, stripHtml, sha256, sha256Buffer, ctiCourseraCourseLabel, ctiCourseraExportName, inferPublished, safeSourceLabel, enrichFromObservedObject, collectFieldValues, isAuthoringChromeUrl, extractConfiguredExternalUrls, shouldUseDomResourceElement, objectAssociationScore, discoverObservedItemTemplates, instantiateObservedTemplate, automaticDeepVerify } from "./text-and-dom.js";
+import { downloadJson, exportCaptureWithCheckpoints, absolute, getJson, courseId, normalizeType, normalizeName, unique, stripHtml, sha256, sha256Buffer, ctiCourseraCourseLabel, ctiCourseraExportName, inferPublished, safeSourceLabel, enrichFromObservedObject, collectFieldValues, isAuthoringChromeUrl, extractConfiguredExternalUrls, shouldUseDomResourceElement, objectAssociationScore, discoverObservedItemTemplates, instantiateObservedTemplate, automaticDeepVerify } from "./text-and-dom.js";
 import { perceptualHashBuffer, ctiSafeFileToken, ctiLocalFileTimestamp, fileNameFromUrl, assetDescriptor, uniqueAssetDetails, canonicalRemoteAssetKeyV614, hashRemoteAsset, isCourseraUiAssetUrl, readingAssetRequestsV61324, recoverReadingAssetUrlsV61324, attachmentFileTypeFromText } from "./assets.js";
 import { harvestEvidence, textEvidenceSourcePriority, mergeEvidence, fingerprintsFromMaterial, collectCurrentDomEvidence, matchCurrentPageToFingerprint, fetchHtmlEvidence, mergeExactReadingEvidenceV61318, finalizeCapturedTextV61318, readingFrameEvidenceV61311, readingNetworkRecordsV61323, mergeReadingNetworkV61312 } from "./evidence.js";
 import { collectEmbeddedPageState, visiblePluginConfigurationV61316, clearTypedPluginChromeV61317, pluginReadinessV6147, collectPluginEvidenceV6139, mergePluginEvidenceV6139 } from "./plugins.js";
@@ -21,7 +22,7 @@ import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function () {
+javascript:(async function ctiCourseraCaptureV61514() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -30,6 +31,7 @@ javascript:(async function () {
   const nowForLock = Date.now();
   const backgroundChunkDeadline=Number(window.__CTI_BACKGROUND_CHUNK_DEADLINE_MS || 0);
   const backgroundChunkMode=Number.isFinite(backgroundChunkDeadline) && backgroundChunkDeadline>nowForLock;
+  const localCaptureSession=backgroundChunkMode?null:createLocalCaptureSessionV61514();
   // The final chunk may spend up to 120 s hashing assets. Keep another minute
   // for normalization/JSON/checkpoint handoff so acquisition never consumes it.
   const CTI_BACKGROUND_FINALIZE_RESERVE_MS=backgroundChunkMode?3*60*1000:0;
@@ -44,9 +46,14 @@ javascript:(async function () {
     console.warn("CTI Item Fidelity Extractor is already running. Second invocation blocked.", existingRunLock);
     return;
   }
+  if(localCaptureSession && localCaptureSession.beforeItem()){
+    console.warn("CTI: reload Coursera before starting another batch in this page.");
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61514.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    return;
+  }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.12"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.14"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -56,7 +63,7 @@ javascript:(async function () {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.12"
+          finishedAt: Date.now(), version: "v6.15.14"
         };
       }
     } catch (e) {}
@@ -712,8 +719,8 @@ javascript:(async function () {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.12",
-      buildId: "v6.15.12-editor-identity-20261009",
+      version: "v6.15.14",
+      buildId: "v6.15.14-checkpointed-batches-20261011",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -795,7 +802,11 @@ javascript:(async function () {
     const checkpointItem=async (fp,diag)=>{
       compactDiagnosticV6150(diag,fp);
       if(typeof options.checkpoint==='function'){
-        try{await options.checkpoint(fp,diag,retryPass?'retry':'primary');meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;}catch(e){meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;}
+        let saved=false;
+        try{saved=await options.checkpoint(fp,diag,retryPass?'retry':'primary');}catch(_){}
+        if(saved===true)meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;
+        else meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
+        if(options.localSession)options.localSession.checkpointWritten(saved);
       }
     };
 
@@ -825,6 +836,14 @@ javascript:(async function () {
           meta.visibilityPauseCount++;
           meta.visibilityPausedMs+=visibilityPausedMs;
         }
+        const localYieldReason=options.localSession && options.localSession.beforeItem();
+        if(localYieldReason){
+          meta.timeBudgetExhausted=true;meta.cooperativeChunkYielded=true;
+          meta.cooperativeYieldReason=localYieldReason;
+          meta.unvisitedDueToBudget=targets.length-index;
+          meta.nextItemId=String(targets[index].id || "");
+          break;
+        }
         const fp = targets[index];
         const itemBoundaryNow=Date.now();
         const courseAttemptDeadline=crawlStartedAt+crawlBudgetMs;
@@ -841,12 +860,15 @@ javascript:(async function () {
           break;
         }
         const itemStartedAt=Date.now();
+        if(options.localSession)options.localSession.startItem();
         try {
           window.__CTI_ACTIVE_ITEM_ID=String(fp.id || "");
           window.__CTI_ACTIVE_ITEM_TYPE=String(fp.typeName || fp.type || "");
         } catch (_) {}
         let itemAttemptDeadline=Math.min(courseAttemptDeadline,itemStartedAt+requiredAttemptBudgetMs);
         fp.payload=fp.payload || {};
+        // Keep earlier missed observations explicit through retries and resume.
+        // A later visit cannot prove it re-observed every omitted response.
         fp.payload.captureAttempts=Math.min(CTI_MAX_ITEM_ATTEMPTS,Math.max(0,Number(fp.payload.captureAttempts || 0))+1);
         fp.payload.lastCaptureAttemptAt=new Date(itemStartedAt).toISOString();  // CTI_PROGRESS_BEGIN
         if (typeof ctiProgressUpdateV1 === "function") ctiProgressUpdateV1({phase:retryPass ? "Recovery editors" : "Primary editors",
@@ -855,6 +877,7 @@ javascript:(async function () {
   // CTI_PROGRESS_END
 
         console.log('CTI '+(retryPass?'recovery':'primary')+': item '+(index+1)+'/'+targets.length+'; '+Math.round((Date.now()-crawlStartedAt)/1000)+' seconds elapsed');
+        if(options.localSession)console.log('CTI renderer batch:',options.localSession.snapshot());
         const typedPreviousNameFields=new Set(typedEditorNameFieldsV61317());
         const certifiedDirectRoute=fp.typeName==='supplement'
           ? readingRouteForTargetV61311(fp,courseOrBranchId,readingRouteTemplate)
@@ -1487,7 +1510,7 @@ javascript:(async function () {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.12", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.14", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1501,7 +1524,7 @@ javascript:(async function () {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.12", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.14", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1509,8 +1532,8 @@ javascript:(async function () {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.12",
-      buildId: "v6.15.12-editor-identity-20261009",
+      extractor: "CTI Item Fidelity Extractor v6.15.14",
+      buildId: "v6.15.14-checkpointed-batches-20261011",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1520,6 +1543,7 @@ javascript:(async function () {
     embeddedFiles: []
   };
   ctiCheckpointManager=await createCheckpointManagerV6150(id);
+  if(localCaptureSession && !ctiCheckpointManager.available)localCaptureSession.checkpointWritten(false);
   result.meta.checkpoint={available:Boolean(ctiCheckpointManager && ctiCheckpointManager.available),runId:ctiCheckpointManager && ctiCheckpointManager.runId || '',error:ctiCheckpointManager && ctiCheckpointManager.error || ''};
 
   result.meta.filterSelfTest = {
@@ -1646,7 +1670,7 @@ javascript:(async function () {
     backgroundChunkMode ? {deadline:preCrawlDeadline} : undefined
   );
   result.meta.preCrawlChunkBudgetExhausted=backgroundChunkMode && Date.now()>=preCrawlDeadline;
-  console.log("CTI exhaustive crawl: adaptive primary budget up to " + (ACTIVE_CRAWL_MAX_TOTAL_MS / 60000) + " minutes; bounded recovery visits untouched items first.");
+  console.log(backgroundChunkMode?"CTI background crawl: bounded recovery visits untouched items first.":"CTI local capture: checkpointed batches of up to 20 editor visits or 5 minutes; reload between batches to continue.");
   const primaryStartedAt=Date.now();
   const checkpointWriter=ctiCheckpointManager ? ((fp,diag,pass)=>ctiCheckpointManager.save(fp,diag,pass)) : null;
   const crawlBudgetRemaining=()=>Math.max(0,evidenceWorkDeadline()-Date.now());
@@ -1663,6 +1687,7 @@ javascript:(async function () {
     onlyIds:firstAttemptIds,
     maxItems:firstAttemptIds.length,
     checkpoint:checkpointWriter,
+    localSession:localCaptureSession,
     cooperativeChunk:backgroundChunkMode,
     budgetMs:crawlBudgetRemaining()
   });
@@ -1693,6 +1718,7 @@ javascript:(async function () {
       onlyIds:retryPlan.map(x => x.id),
       maxItems:retryPlan.length,
       checkpoint:checkpointWriter,
+      localSession:localCaptureSession,
       cooperativeChunk:backgroundChunkMode,
       budgetMs:crawlBudgetRemaining()
     });
@@ -1720,8 +1746,11 @@ javascript:(async function () {
     enabled:backgroundChunkMode,
     deadlineMs:backgroundChunkMode?backgroundChunkDeadline:0,
     finalizeReserveMs:CTI_BACKGROUND_FINALIZE_RESERVE_MS,
-    yielded:Boolean(combinedCrawl.cooperativeChunkYielded)
+    yielded:backgroundChunkMode && Boolean(combinedCrawl.cooperativeChunkYielded)
   };
+  result.meta.localCaptureBatch=localCaptureSession
+    ? Object.assign({enabled:true},localCaptureSession.snapshot(),{yielded:Boolean(yieldedCrawl)})
+    : {enabled:false};
 
   // If the script is run while an individual Reading/Assignment/Discussion is
   // open, capture the actual rendered learner-facing DOM and attach it only to
@@ -1742,7 +1771,7 @@ javascript:(async function () {
   // an asset comparison into cryptographic proof instead of filename guessing.
   const assetPhaseStartedAt=Date.now();
   console.log('CTI: checking asset hashes and preparing the JSON export');
-  const cooperativePartialCapture=backgroundChunkMode && Boolean((result.meta.backgroundChunk || {}).yielded);
+  const cooperativePartialCapture=Boolean(yieldedCrawl);
   const hashBudget = { remaining: MAX_TOTAL_REMOTE_ASSET_BYTES, cache:new Map(),
     documents:new Map(),documentRemaining:8*1024*1024,
     deadline:cooperativePartialCapture?Date.now():Math.min(Date.now()+ASSET_STAGE_MAX_MS,CTI_WHOLE_RUN_DEADLINE) };  // CTI_PROGRESS_BEGIN
@@ -1846,18 +1875,20 @@ javascript:(async function () {
   const retainCheckpoint=Boolean((result.meta.activeSpaCrawl || {}).timeBudgetExhausted || Number(accounting.unvisitedCount || 0)>0);
   result.meta.checkpointRetainedForResume=retainCheckpoint;
   result.meta.checkpointSavedItems=ctiCheckpointManager ? Number(ctiCheckpointManager.saved || 0) : 0;
-  if(ctiCheckpointManager && !retainCheckpoint)await ctiCheckpointManager.clear();
   // CTI_PROGRESS_BEGIN
   result.meta.progressTiming = {elapsedMs:ctiProgress.snapshot().elapsedMs, phaseDurationsMs:ctiProgress.snapshot().phaseDurationsMs};
   // CTI_PROGRESS_END
-  console.log("%cExtraction complete", "color:#059669;font-size:16px;font-weight:bold");
+  console.log(retainCheckpoint?"%cCapture batch saved; continuation required":"%cExtraction complete", "color:#059669;font-size:16px;font-weight:bold");
   console.table(result.meta);
   console.log(result);
-  downloadJson(result.meta.exportFileName, result);
+  await exportCaptureWithCheckpoints(result.meta.exportFileName, result, ctiCheckpointManager, retainCheckpoint);
+  if(localCaptureSession && retainCheckpoint){
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61514.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+  }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;
   ctiProgressUpdateV1({phase:progressGaps ? "Capture finished · review gaps" : "Capture finished"});
-  ctiProgress.finish(progressGaps ? "review" : "success", retainCheckpoint ? (backgroundChunkMode ? "Background chunk checkpointed; CTI will continue automatically." : "Run limit reached. Item checkpoints were kept; rerun in this tab to continue.") : "JSON prepared; every inventory item has an explicit final capture state.",
+  ctiProgress.finish(progressGaps ? "review" : "success", retainCheckpoint ? (backgroundChunkMode ? "Background chunk checkpointed; CTI will continue automatically." : "Batch JSON prepared. Save it, reload Coursera, and paste the continuation script. Checkpoints restore the saved items.") : "JSON prepared; every inventory item has an explicit final capture state.",
     Number(accounting.completeCount || 0) + "/" + Number(accounting.inventoryCount || 0) + " complete · " +
     Number(accounting.sourceReviewCount || 0) + " source review · " +
     Number(accounting.answerApplicabilityReviewCount || 0) + " answer review · " +
@@ -1872,6 +1903,7 @@ javascript:(async function () {
       ctiProgress.finish("error", "The run did not reach the JSON export. See the console for the error; this is not a completed capture.");
     }
   // CTI_PROGRESS_END
+    if(ctiCheckpointManager && ctiCheckpointManager.close)ctiCheckpointManager.close();
     releaseCtiRunLock();
   }
 })();

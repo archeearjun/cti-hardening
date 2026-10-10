@@ -494,11 +494,11 @@ export function scrollRootPosition(root) {
 
 export async function setScrollRootPosition(root, y) {
     try {
+      if (scrollRootPosition(root) === Math.round(y)) return;
+      // Changing scrollTop already produces a native scroll event. An extra
+      // bubbling event activates handlers twice and overlaps ViewTransitions.
       if (isDocumentScrollRoot(root)) window.scrollTo(0, y);
-      else {
-        root.scrollTop = y;
-        root.dispatchEvent(new Event("scroll", { bubbles:true }));
-      }
+      else root.scrollTop = y;
     } catch (e) {}
     await sleepMs(350); // allow virtualized React question rows to mount after each scroll step
   }

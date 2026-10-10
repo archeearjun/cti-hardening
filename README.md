@@ -80,7 +80,7 @@ automatically in development startup, tests and builds. Run it again after editi
 an extractor during a development session. Generated assets are ignored by Git.
 
 Browser checks are available as `test:browser:package`, `test:browser:workspace`,
-`test:browser:ux`, and `test:browser:owner`. Install Playwright Chromium or set `CTI_CHROMIUM_PATH`
+`test:browser:ux`, `test:browser:owner`, and `test:browser:extractor`. Install Playwright Chromium or set `CTI_CHROMIUM_PATH`
 to an installed binary. Tests use synthetic course evidence; private course
 captures are never committed to this public repository.
 
@@ -120,8 +120,13 @@ recorded modules and lessons and shows baseline/latest learner-time totals for
 content maps. See [scope and time behavior](docs/audits/owner-scope-time-2026-10-05.md)
 for refresh steps and evidence limits.
 
-Coursera extraction is **v6.15.10/schema 35** and Brightspace remains
-**v1.0.8/schema 2**. Coursera v6.15.10 adds explicitly labeled learner-time capture and retains rendered choice labels. It reads rendered choice labels across boxless question and option containers without inferring answer keys. Uncaptured choices remain technical capture gaps. It keeps explicit no-silent-miss accounting, bounded slow-item waits,
+Coursera extraction is **v6.15.14/schema 35** and Brightspace remains
+**v1.0.8/schema 2**. Coursera v6.15.14 uses short, durable local capture batches
+and requires a reload between batches to release accumulated page state. Saved
+items are restored on the next paste; primary and retry visits share the same
+renderer budget. Aggregate network capture remains bounded.
+See [runtime stability](docs/extractor-runtime-stability.md) for the validation and
+live-run limits. It retains explicitly labeled learner-time capture and rendered choice labels. It reads rendered choice labels across boxless question and option containers without inferring answer keys. Uncaptured choices remain technical capture gaps. It keeps explicit no-silent-miss accounting, bounded slow-item waits,
 strict assessment/plugin/empty-reading contracts and checkpointable browser traversal. Certified
 direct-editor routing avoids redundant outline round-trips. Collapsed assignment text blocks are bound
 to their exact visible assignment outline by fragment identity even when Coursera portals the outline

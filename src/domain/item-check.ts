@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.15.12" ||
-    delivery.buildId !== "v6.15.12-editor-identity-20261009"
+    delivery.version !== "v6.15.14" ||
+    delivery.buildId !== "v6.15.14-checkpointed-batches-20261011"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",
