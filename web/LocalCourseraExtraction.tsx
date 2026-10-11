@@ -4,6 +4,7 @@ import {
   inspectLocalCourseraCaptureFile,
   readLocalCourseraCaptureFile,
   createSavedCourseraResumeScript,
+  createAutomaticLocalCourseraCommand,
   type LocalCourseraCaptureInspection,
 } from "../src/domain/coursera-local-extraction.ts";
 import type { ExtractorDelivery } from "../src/domain/types.ts";
@@ -14,11 +15,13 @@ export default function LocalCourseraExtraction({
   onUseCapture,
   initialUrl = "",
   onUrlChange,
+  captureInputId = "local-coursera-capture",
 }: {
   disabled?: boolean;
   onUseCapture?: (file: File) => void;
   initialUrl?: string;
   onUrlChange?: (url: string) => void;
+  captureInputId?: string;
 }) {
   const [shellUrl, setShellUrl] = useState(initialUrl);
   const [extractor, setExtractor] = useState<ExtractorDelivery | null>(null);
@@ -30,6 +33,7 @@ export default function LocalCourseraExtraction({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [resumeSource, setResumeSource] = useState("");
+  const [automaticCommand, setAutomaticCommand] = useState("");
 
   useEffect(() => {
     if (initialUrl) setShellUrl(initialUrl);
@@ -78,8 +82,8 @@ export default function LocalCourseraExtraction({
           <h2>Extract Coursera in your own Chrome</h2>
           <p>
             CTI runs the current extractor inside the Coursera tab where you are
-            already signed in. Your computer supplies the browser runtime;
-            Cloudflare Browser Run is not required.
+            already signed in. Chrome's built-in debugger continues across
+            automatic reloads. One final JSON downloads when capture finishes.
           </p>
         </div>
         <span className="badge">No paid browser service</span>
@@ -99,6 +103,7 @@ export default function LocalCourseraExtraction({
             setInspection(null);
             setCapture(null);
             setResumeSource("");
+            setAutomaticCommand("");
             setCopyStatus("");
           }}
           placeholder="https://www.coursera.org/teach/.../.../content/edit"
@@ -124,21 +129,23 @@ export default function LocalCourseraExtraction({
           <span>Use the Chrome profile where Coursera/Okta already works.</span>
         </li>
         <li>
-          <strong>Copy the current extractor.</strong>
+          <strong>Enable Protocol monitor once in Chrome.</strong>
           <span>
-            Paste it once in DevTools → Console. The extractor shows its own
-            progress panel and saves per-item checkpoints in this browser. Large
-            courses run in short batches: save each batch JSON, use Copy
-            continuation script, reload Coursera, and paste again when prompted.
-            Saved items are restored after reload.
+            In the Coursera tab, open DevTools → Settings → Experiments →
+            Protocol Monitor. Reopen DevTools, then use its command menu
+            (Ctrl+Shift+P; Mac: Command+Shift+P) to show Protocol monitor.
+            Turn off Preserve log in Console and Network. This is built into
+            Chrome; no extension or software install.
           </span>
         </li>
         <li>
-          <strong>Keep the Coursera tab open while it runs.</strong>
+          <strong>Copy the automatic local capture command.</strong>
           <span>
-            Slow Readings, assessments and plugins can legitimately take time.
-            The batch limit is checked between items so a slow editor can
-            finish.
+            In Protocol monitor, turn Record off and clear its log to avoid
+            retaining browser traffic. Select the Coursera page in its target
+            dropdown. Paste the command into the command input
+            at the bottom and press Enter. Keep that tab and DevTools open.
+            Paste this command in Protocol monitor, not Console.
           </span>
         </li>
         <li>
@@ -148,6 +155,15 @@ export default function LocalCourseraExtraction({
           </span>
         </li>
       </ol>
+      <p className="hint">
+        CTI checkpoints each item and reloads between short renderer batches;
+        slow assessments finish before that boundary. It restores saved work
+        without intermediate downloads or repeated pastes. If Chrome actually
+        shows “Aw, Snap!”, reload the tab and copy a new command to resume from
+        checkpoints. Closing DevTools also requires a new command.
+        {" "}<a href="https://developer.chrome.com/docs/devtools/protocol-monitor"
+          target="_blank" rel="noopener noreferrer">Chrome's official instructions ↗</a>
+      </p>
 
       <div className="action-links">
         {shellTarget ? (
@@ -166,6 +182,29 @@ export default function LocalCourseraExtraction({
         )}
         <button
           className="primary"
+          disabled={disabled || !!busy || !shellTarget}
+          onClick={() => void act("Preparing automatic local capture", async () => {
+            const current = await currentExtractor();
+            const command = createAutomaticLocalCourseraCommand(shellUrl, current.script,
+              crypto.randomUUID(), capture && inspection?.resumeAvailable ?
+                await readLocalCourseraCaptureFile(capture) : undefined);
+            setAutomaticCommand(command);
+            try {
+              await navigator.clipboard.writeText(command);
+              setCopyStatus(current.version + " automatic command copied. Paste into Protocol monitor's bottom command input, press Enter, and keep DevTools open.");
+            } catch {
+              setCopyStatus("Select the full automatic command in the fallback below, copy it, and paste into Protocol monitor.");
+            }
+          })}
+        >
+          {capture && inspection?.resumeAvailable ? "Copy automatic resume command" : "Copy automatic local capture command"}
+        </button>
+      </div>
+      <details className="scope">
+        <summary>Manual Console capture (requires reloads between batches)</summary>
+      <div className="action-links">
+        <button
+          className="secondary"
           disabled={disabled || !!busy || !shellTarget}
           onClick={() =>
             void act("Preparing local extractor", async () => {
@@ -204,11 +243,20 @@ export default function LocalCourseraExtraction({
           Download extractor
         </button>
       </div>
+      </details>
 
       {copyStatus && (
         <p className="success-notice" role="status">
           {copyStatus}
         </p>
+      )}
+      {automaticCommand && (
+        <details className="scope">
+          <summary>Automatic command copy fallback</summary>
+          <p className="hint">Click inside, then Ctrl+A and Ctrl+C (Mac: Command+A and Command+C). Paste into Protocol monitor's command input.</p>
+          <textarea className="extractor-source" aria-label="Automatic local capture command"
+            readOnly value={automaticCommand} onFocus={event => event.currentTarget.select()} />
+        </details>
       )}
 
       {extractor && (
@@ -230,7 +278,7 @@ export default function LocalCourseraExtraction({
 
       <div className="section-divider">
         <h3>Check the downloaded capture</h3>
-        <label className="file-picker" htmlFor="local-coursera-capture">
+        <label className="file-picker" htmlFor={captureInputId}>
           <span className="file-icon" aria-hidden="true">
             ↥
           </span>
@@ -239,7 +287,7 @@ export default function LocalCourseraExtraction({
               ? capture.name
               : "Choose the Coursera JSON downloaded by the extractor"}
           </strong>
-          <span id="local-coursera-capture-help">
+          <span id={captureInputId + "-help"}>
             {capture
               ? (capture.size / 1024 / 1024).toFixed(2) + " MiB"
               : shellTarget
@@ -248,12 +296,12 @@ export default function LocalCourseraExtraction({
           </span>
         </label>
         <input
-          id="local-coursera-capture"
+          id={captureInputId}
           className="visually-hidden-file"
           type="file"
           accept=".json,application/json"
           disabled={disabled || !!busy}
-          aria-describedby="local-coursera-capture-help"
+          aria-describedby={captureInputId + "-help"}
           onChange={(event) => {
             const file = event.target.files?.[0] || null;
             setCapture(file);
@@ -339,10 +387,9 @@ export default function LocalCourseraExtraction({
             </p>
             {inspection.resumeAvailable && (
               <p>
-                Reload the matching Coursera tab, then paste the resume script
-                from the button below. CTI restores saved observations and
-                continues with missing evidence. Repeated batches may be needed;
-                external content can still require review.
+                Use Copy automatic resume command above in Protocol monitor.
+                CTI restores saved observations and continues missing evidence
+                across automatic reloads. External content can still require review.
               </p>
             )}
             {!inspection.currentSchema && (
@@ -376,7 +423,7 @@ export default function LocalCourseraExtraction({
           <div className="action-links">
             {inspection.resumeAvailable && capture && (
               <button
-                className="primary"
+                className="secondary"
                 disabled={disabled || !!busy || courseMismatch || !shellTarget}
                 onClick={() =>
                   void act("Preparing saved capture resume", async () => {
@@ -402,7 +449,7 @@ export default function LocalCourseraExtraction({
                   })
                 }
               >
-                Copy resume script
+                Copy manual resume script
               </button>
             )}
             {onUseCapture && capture && (

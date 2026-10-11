@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md. Runtime acquisition limits, native scrolling and export checkpoint ordering: docs/extractor-runtime-stability.md. Coursera v6.15.14 adds checkpointed local batches and reload continuation; see docs/extractor-runtime-stability.md. Coursera v6.15.15 preserves stable-empty Reading receipts, bounds heap growth and restores saved JSON against current identities; see docs/extractor-runtime-stability.md. v6.15.16 applies the existing renderer guard to remote sessions, suppresses internal batch downloads and adds durable final-download intent without changing fidelity decisions.",
+      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md. Runtime acquisition limits, native scrolling and export checkpoint ordering: docs/extractor-runtime-stability.md. Coursera v6.15.14 adds checkpointed local batches and reload continuation; see docs/extractor-runtime-stability.md. Coursera v6.15.15 preserves stable-empty Reading receipts, bounds heap growth and restores saved JSON against current identities; see docs/extractor-runtime-stability.md. v6.15.16 applies the existing renderer guard to remote sessions, suppresses internal batch downloads and adds durable final-download intent without changing fidelity decisions. v6.15.17 adds local built-in debugger continuation, compact final export and unused API-root release; raw item snapshots and strict fidelity decisions are preserved. See docs/local-coursera-extraction.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "0ddaf4bbbb5ec83353c0dac03a0668618b1d165be95048ab6155ed205663c647"
+      "reviewedCurrentHash": "8ee8a794135f75694984331a8990209bd4c7054ae3b74b215a9c10b916572be3"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.16/schema35",
+      "current": "v6.15.17/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "a52140df9c65646bdb22c102dee4d9e8df4d82bc09c4db4489eba2b3e516489f"
+          "reviewedCurrentHash": "f1f3e2544b9b232792c6fb03ac4acdb58395683376edbb46601e6eb59ca40076"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4379,12 +4379,12 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "dd485cb7e7cf73aa2c8112ee366e53619f873989d65aa684b0e7a47e576e8b97"
+          "reviewedCurrentHash": "ba54cfbb7218977fe389c526de4581c49fdfc90f3598e41b3891689517860c27"
         },
         {
           "name": "downloadJson",
           "archivedHash": "65ec30135b07406d90a9acccfa5af6b7f16f2acb5c70bf93dbed28bc03d33dfd",
-          "reviewedCurrentHash": "31d8795213a816539cf4bb8c7ce482f044a4b499e34c79946481f6f4e065d305"
+          "reviewedCurrentHash": "4b8dfe1aafd78038a6da980619f83cc85adab6556bc756f0ade1109409c91a85"
         },
         {
           "name": "expandAllSafeOutlineDisclosures",
@@ -4469,7 +4469,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "83be49c8ed23b263ef43eb1495009255089fdd42c771389b74c17f2d8f6c53a8"
+          "reviewedCurrentHash": "443a2bf095032db59287de54bfd4180846eb564096bf7458257b1c994fa0fc2a"
         },
         {
           "name": "scoreSurfaceForFingerprint",
@@ -4504,6 +4504,10 @@
       ],
       "added": [
         {
+          "name": "advanceAutomaticLocalCaptureV61517",
+          "reviewedCurrentHash": "51bbb7159e7ce8f25edf69083b617ddd9abbb5dbaa79ae54f82074e09aa2cefd"
+        },
+        {
           "name": "captureContractSummaryV6150",
           "reviewedCurrentHash": "d46558e416d0d1b289fde78dafd9d7b3099be468a1e5ab0e307e3082d2f05371"
         },
@@ -4524,6 +4528,10 @@
           "reviewedCurrentHash": "307c5ca78477536ef8470e31b73b1bdfea83a212e104c4ae6362269b59004804"
         },
         {
+          "name": "compactCaptureBlobV61517",
+          "reviewedCurrentHash": "5c37f6f01f4930a192bd53082f336cf68d350caff173b7b9ba84475e0a0ae905"
+        },
+        {
           "name": "compactDiagnosticV6150",
           "reviewedCurrentHash": "7f7615563627f76670c0959810a0cdfe30193724b201d3ee1c77ec0525c54962"
         },
@@ -4537,7 +4545,7 @@
         },
         {
           "name": "exportCaptureWithCheckpoints",
-          "reviewedCurrentHash": "02baabdb67a4c63bd5bfaffd61e78c2982a18e22021524fc4c2da9f8f95cbbb5"
+          "reviewedCurrentHash": "7e8b10e918a5f3d1492a25f25a2d34aaa18d8a52f0c3446ca9fb5a096bf586bb"
         },
         {
           "name": "fetchWithTimeoutV6150",
@@ -4774,11 +4782,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "2e84d12b36b41044c0fa11436275764e56c3252d4c8d2e36342eb718975c4060"
+        "reviewedCurrentHash": "b0763679f79a5976942512f0a3d2ed88b70094bd8f786cd814132023ada189c8"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "0ddaf4bbbb5ec83353c0dac03a0668618b1d165be95048ab6155ed205663c647"
+        "reviewedCurrentHash": "8ee8a794135f75694984331a8990209bd4c7054ae3b74b215a9c10b916572be3"
       }
     }
   }

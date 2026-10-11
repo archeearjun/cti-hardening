@@ -7,19 +7,51 @@ import { elementAttributeBlob, isCourseWideNetworkResponse, isPerItemNetworkNois
 import { isGlobalChromeElement } from "./text-and-dom-4.js";
 import { fetchWithTimeoutV6150 } from "./network.js";
 
-export function downloadJson(name, data) {
-    const json = JSON.stringify(data, null, 2);
+export function compactCaptureBlobV61517(data) {
+    // Serialize inventory items separately: avoid a second course-sized UTF-16
+    // string alongside the object graph and the browser's UTF-8 download Blob.
+    const parts=['{'];
+    let first=true;
+    for(const key of Object.keys(data)){
+      const value=data[key];
+      if(value===undefined || typeof value==='function')continue;
+      if(!first)parts.push(',');
+      first=false;parts.push(JSON.stringify(key),':');
+      if(key==='fingerprints' && Array.isArray(value)){
+        parts.push('[');
+        for(let i=0;i<value.length;i++){
+          if(i)parts.push(',');
+          parts.push(JSON.stringify(value[i]) || 'null');
+        }
+        parts.push(']');
+      }else parts.push(JSON.stringify(value));
+    }
+    parts.push('}');
+    return new Blob(parts,{type:'application/json;charset=utf-8'});
+  }
+
+export function downloadJson(name, data, options={}) {
     window.__CTI_LAST_RESULT = data;
-    window.__CTI_LAST_JSON = json;
     window.__CTI_LAST_FILENAME = name;
+    if(options.checkpointOnly){
+      // The durable item store is the handoff. Intermediate local batches need
+      // neither a serialized course copy nor a download/continuation panel.
+      delete window.__CTI_LAST_JSON;
+      return;
+    }
 
     // Remote captures are handed to the durable controller. Intermediate
     // checkpoints must not create browser downloads or member-facing panels.
     const backgroundDeadline=Number(window.__CTI_BACKGROUND_CHUNK_DEADLINE_MS || 0);
-    if(Number.isFinite(backgroundDeadline) && backgroundDeadline>0)return;
+    const backgroundMode=Number.isFinite(backgroundDeadline) && backgroundDeadline>0;
+    const json=options.compactExport && !backgroundMode?null:JSON.stringify(data,null,2);
+    const preparedBlob=json===null?compactCaptureBlobV61517(data):null;
+    window.__CTI_LAST_JSON=json;
+    window.__CTI_LAST_JSON_BLOB=preparedBlob;
+    if(backgroundMode)return;
 
     function triggerDownload() {
-      const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+      const blob = preparedBlob || new Blob([json], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -52,7 +84,9 @@ export function downloadJson(name, data) {
       panel.appendChild(title);
 
       const note = document.createElement("div");
-      note.textContent = partial?"Save this batch JSON. It includes explicit evidence gaps; follow the continuation panel if more items remain.":"If the JSON did not download automatically, click below.";
+      note.textContent = data.meta && data.meta.automaticLocalCapture?
+        "Final capture prepared. Explicit evidence gaps remain visible. If the download was blocked, click below.":
+        partial?"Save this batch JSON. It includes explicit evidence gaps; follow the continuation panel if more items remain.":"If the JSON did not download automatically, click below.";
       note.style.cssText = "margin-bottom:10px;color:#D1D5DB";
       panel.appendChild(note);
 
@@ -67,10 +101,10 @@ export function downloadJson(name, data) {
       copyBtn.style.cssText = "background:#374151;color:white;border:0;border-radius:7px;padding:9px 12px;font-weight:600;cursor:pointer";
       copyBtn.onclick = async () => {
         try {
-          await navigator.clipboard.writeText(json);
+          await navigator.clipboard.writeText(json===null?await preparedBlob.text():json);
           copyBtn.textContent = "Copied ✓";
         } catch (e) {
-          console.log("CTI JSON is available as window.__CTI_LAST_JSON");
+          console.log("CTI JSON is available as window.__CTI_LAST_RESULT or window.__CTI_LAST_JSON_BLOB");
           copyBtn.textContent = "Use console fallback";
         }
       };
@@ -90,10 +124,10 @@ export function downloadJson(name, data) {
     console.log("CTI result retained as window.__CTI_LAST_RESULT and window.__CTI_LAST_JSON");
   }
 
-export async function exportCaptureWithCheckpoints(name, data, checkpointManager, retainCheckpoint) {
+export async function exportCaptureWithCheckpoints(name, data, checkpointManager, retainCheckpoint, options={}) {
     // Serialization and download setup can throw. Keep persistent item evidence
     // until the JSON and its download fallback have actually been prepared.
-    downloadJson(name, data);
+    downloadJson(name, data, options);
     if(checkpointManager && !retainCheckpoint)await checkpointManager.clear();
   }
 
@@ -226,7 +260,7 @@ export function ctiCourseraExportName(courseIdValue, suffix = "ITEM_FINGERPRINT"
   const label = ctiSafeFileToken(ctiCourseraCourseLabel(), 110);
   const idToken = ctiSafeFileToken(courseIdValue || "UNKNOWN", 80);
   const stamp = ctiLocalFileTimestamp(new Date());
-  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.16_s35__${suffix}.json`;
+  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.17_s35__${suffix}.json`;
 }
 
 export function inferPublished(obj) {

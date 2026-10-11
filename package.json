@@ -31,7 +31,8 @@
     "worker:deploy": "npm run generate && npx --yes wrangler@4.143.0 deploy --config workers/coursera-extractor/wrangler.jsonc",
     "audit:extractor-changes": "npm run generate && node tools/extractor-review-manifest.mjs",
     "test:activities": "npm run generate && node tools/test-activity-designer.mjs && node --test tests/activity-designer.test.mjs",
-    "test:browser:activities": "node tools/test-activity-designer.mjs --browser && node tools/browser-activity-designer-check.mjs"
+    "test:browser:activities": "node tools/test-activity-designer.mjs --browser && node tools/browser-activity-designer-check.mjs",
+    "test:browser:local-capture": "node tools/browser-coursera-local-auto-check.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

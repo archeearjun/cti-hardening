@@ -94,12 +94,18 @@ Browser Run and durable Workflows are Worker capabilities. It is intended only
 for deployments that provision sufficient remote-browser quota; it is not a
 requirement for the Pages application or shared workspace.
 
-When the authenticated capture service is configured, Extract offers **Start full-course capture** and
-requests one final download after automatic browser continuation. Manual local
-Chrome capture remains available in a disclosure and is the only mode offered
-without the capture service. Service availability and editor permission are
-checked independently of local/shared record storage. No extension is required
-for the automatic flow.
+The primary local workflow uses Chrome's built-in Protocol monitor to register
+`Page.addScriptToEvaluateOnNewDocument`. The canonical entry owns durable run
+metadata, IndexedDB checkpoints and automatic reloads. Intermediate documents
+skip JSON serialization/download; the final capture uses item-by-item Blob
+serialization. A closed debugger or real renderer crash requires re-registering
+a local command. See [local setup and limits](local-coursera-extraction.md).
+`npm run test:browser:local-capture` checks this boundary in Chromium.
+
+The authenticated remote service remains an optional disclosure, even when
+configured. Service availability and editor permission are checked independently
+of local/shared record storage. No paid browser is a prerequisite for local
+capture.
 
 The Pages API authenticates the CTI user first and forwards only the verified
 email/role to the Worker. Coursera login occurs in a temporary remote Live View;

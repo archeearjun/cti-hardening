@@ -37,6 +37,22 @@ c.CTI_TEST_editorRecoveryFixture_=function(sourceOverride){
    {href:'https://www.coursera.org/teach/fixture/course-fixture/content/edit',origin:'https://www.coursera.org'});
  return fixture;
 };
+// The frozen progress assertion selects text up to the next comment marker.
+// New entry-point awaits make that span include unrelated orchestration. Keep
+// every original assertion, but give it the actual complete helper declaration.
+const originalProgressClockFixture=c.CTI_TEST_progressClockFailure_;
+c.CTI_TEST_progressClockFailure_=function(){
+ const names=['ctiCanonicalCourseraExtractorSource_','ctiCanonicalBrightspaceExtractorSource_'];
+ const original=names.map(name=>c[name]);
+ try{
+  names.forEach((name,index)=>{
+   const helper=require('./extractor-functions.cjs').extractorFunctions(original[index]()).get('createCtiProgressPanelV1');
+   if(!helper)throw Error('Missing current progress helper');
+   c[name]=()=> '  '+helper+'\n  // CTI_PROGRESS_END';
+  });
+  return originalProgressClockFixture();
+ }finally{names.forEach((name,index)=>{c[name]=original[index];});}
+};
 module.exports=c;
 if(require.main===module){
  if(!fs.readFileSync(path.join(root,'Index.html')).equals(fs.readFileSync(path.join(root,'Index_COPYABLE.txt'))))throw Error('Copyable Index is stale');

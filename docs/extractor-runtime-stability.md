@@ -1,5 +1,21 @@
 # Coursera extractor runtime stability
 
+## v6.15.17: automatic local Chrome continuation
+
+Local Chrome is the primary workflow again, including when the optional remote
+service is configured. The built-in DevTools debugger registers the current
+extractor across document reloads. Short checkpointed batches continue without
+manual pastes or intermediate downloads; one final raw JSON preserves every
+completion gap. No extension or separate automation runtime is required.
+
+Intermediate local batches avoid full JSON serialization. Final export builds
+a compact Blob item by item, and Console logging no longer retains the entire
+result object. Unused setup API roots are released after item probes. The
+shared per-editor observation bounds and strict completion rules remain intact.
+Read [local capture setup and limits](local-coursera-extraction.md), including
+DevTools recording settings and the distinction between automatic planned
+reloads and a renderer crash that needs browser-level recovery.
+
 ## v6.15.16: automatic cloud continuation and one final download
 
 The console workaround deliberately yields and asks the operator to reload.

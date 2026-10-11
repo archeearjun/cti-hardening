@@ -375,7 +375,7 @@ try {
     })
     .click();
   await page
-    .getByText("Current v6.15.16 item check copied.", { exact: false })
+    .getByText("Current v6.15.17 item check copied.", { exact: false })
     .waitFor();
   const script = await page.evaluate(() => navigator.clipboard.readText());
   assert(script.includes("owner-action-audit"));

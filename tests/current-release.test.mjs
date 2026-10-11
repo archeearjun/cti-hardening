@@ -22,7 +22,7 @@ test("current QA build and retained workflow identities have explicit provenance
       CTI_RELEASE_REGISTRY_.courseraExtractor.version,
       CTI_RELEASE_REGISTRY_.courseraExtractor.schema,
     ],
-    ["v6.15.16", 35],
+    ["v6.15.17", 35],
   );
   assert.deepEqual(
     [

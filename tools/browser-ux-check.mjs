@@ -488,6 +488,7 @@ try {
     "Saved JSON can fill the matching authoring URL",
   );
   await shellInput.fill("https://example.test/not-coursera");
+  await page.getByText("Manual Console capture (requires reloads between batches)", {exact:true}).click();
   assert(
     await page
       .getByRole("button", { name: "Copy current Coursera extractor" })
@@ -548,8 +549,15 @@ try {
     .getByText("BATCH SAVED — continue capture", { exact: true })
     .waitFor();
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", {name:"Copy automatic resume command",exact:true}).click();
+  await page.getByText("automatic command copied.", {exact:false}).waitFor();
+  const automatic=JSON.parse(await page.evaluate(()=>navigator.clipboard.readText()));
+  assert.equal(automatic.cmd,"Page.addScriptToEvaluateOnNewDocument");
+  assert(automatic.args.source.includes(courseraSource.slice("javascript:".length)));
+  assert(automatic.args.source.includes("__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse("));
+  new Function(automatic.args.source);
   await page
-    .getByRole("button", { name: "Copy resume script", exact: true })
+    .getByRole("button", { name: "Copy manual resume script", exact: true })
     .click();
   await page.getByText("resume script copied.", { exact: false }).waitFor();
   const resume = await page.evaluate(() => navigator.clipboard.readText());
@@ -571,7 +579,7 @@ try {
     });
   });
   await page
-    .getByRole("button", { name: "Copy resume script", exact: true })
+    .getByRole("button", { name: "Copy manual resume script", exact: true })
     .click();
   const manualResume = page.getByLabel("Saved Coursera resume script", {
     exact: true,

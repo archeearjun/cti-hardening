@@ -143,13 +143,17 @@ try {
       .getByRole("button", { name: "Extract", exact: true })
       .click();
     await page
+      .getByRole("heading", { name: "Extract Coursera in your own Chrome" })
+      .waitFor();
+    await page.getByText("Optional remote background extraction (uses funded browser quota)", {exact:true}).click();
+    await page
       .getByRole("heading", { name: "Automatic full-course capture" })
       .waitFor();
   };
   const start = async () => {
     await page
       .getByLabel("Coursera authoring-shell URL", { exact: true })
-      .first()
+      .last()
       .fill(
         "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
       );

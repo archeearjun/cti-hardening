@@ -124,10 +124,43 @@ export function inspectLocalCourseraCapture(
     currentSchema: schemaVersion === current.schema,
     currentVersion,
     resumeAvailable,
-    pausedBatch: meta.localCaptureBatch?.requiresReload === true,
+    pausedBatch: meta.localCaptureBatch?.requiresReload === true &&
+      meta.automaticLocalCapture?.state !== "FINISHED",
     batchVisits: Number(meta.localCaptureBatch?.visits || 0),
     authoringShellUrl,
   };
+}
+
+export function createAutomaticLocalCourseraCommand(
+  shellUrl: string,
+  currentScript: string,
+  token = crypto.randomUUID(),
+  savedCapture?: unknown,
+): string {
+  const target = parseCourseraShellUrl(shellUrl);
+  if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
+    throw new Error("The current Coursera extractor is unavailable. Reload CTI.");
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(token))
+    throw new Error("Invalid local capture identifier.");
+  const config = JSON.stringify({
+    token, courseId: target.courseId, shellUrl: target.shellUrl,
+  });
+  // Chrome owns this registration outside the page's JavaScript context. The
+  // extractor checks the durable run state before every subsequent invocation.
+  const source = "(()=>{\nif(window!==window.top || location.origin!==" +
+    JSON.stringify("https://www.coursera.org") +
+    " || !location.pathname.startsWith(" +
+    JSON.stringify(new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content")) +
+    "))return;\nwindow.__CTI_AUTOMATIC_LOCAL_CONFIG__=" + config + ";\n" +
+    (savedCapture === undefined ? "" :
+      "try{if(!JSON.parse(localStorage.getItem(" +
+      JSON.stringify("__CTI_AUTOMATIC_LOCAL_V61517_" + token) +
+      ")||'null')?.seeded)window.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
+      savedCourseraResumeLiteral(savedCapture, shellUrl) + ");}catch{}\n") +
+    currentScript.slice("javascript:".length) + "\n})();";
+  return JSON.stringify({cmd: "Page.addScriptToEvaluateOnNewDocument", args: {
+    source, runImmediately: true,
+  }});
 }
 
 export async function readLocalCourseraCaptureFile(
@@ -162,16 +195,18 @@ export function createSavedCourseraResumeScript(
   shellUrl: string,
   currentScript: string,
 ): string {
+  const literal = savedCourseraResumeLiteral(value, shellUrl);
+  if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
+    throw new Error("The current Coursera extractor is unavailable. Reload CTI and try again.");
+  return "javascript:(()=>{\nwindow.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
+    literal + ");\n" + currentScript.slice("javascript:".length) + "\n})();";
+}
+
+function savedCourseraResumeLiteral(value: unknown, shellUrl: string): string {
   const courseId = parseCourseraShellUrl(shellUrl).courseId;
   const capture = record(value);
   inspectLocalCourseraCapture(capture, shellUrl);
   validateSavedCaptureResumeV61515(capture, courseId);
-  if (
-    !currentScript.startsWith("javascript:(async function ctiCourseraCapture")
-  )
-    throw new Error(
-      "The current Coursera extractor is unavailable. Reload CTI and try again.",
-    );
   // Retain observations, not exported accounting claims. The extractor checks
   // these against the live inventory and recalculates every completion verdict.
   const snapshot = JSON.stringify({
@@ -189,11 +224,5 @@ export function createSavedCourseraResumeScript(
     /[<>&\u2028\u2029]/g,
     (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
   );
-  return (
-    "javascript:(()=>{\nwindow.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
-    literal +
-    ");\n" +
-    currentScript.slice("javascript:".length) +
-    "\n})();"
-  );
+  return literal;
 }

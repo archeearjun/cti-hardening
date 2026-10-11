@@ -298,7 +298,11 @@ export default function CourseraExtractionWorkspace({
 
   return (
     <>
-      <section className="card remote-extraction-advanced">
+      <LocalCourseraExtraction disabled={disabled} onUseCapture={onUseCapture}
+        initialUrl={shellUrl} onUrlChange={setShellUrl} />
+      <details className="card remote-extraction-advanced">
+        <summary>Optional remote background extraction (uses funded browser quota)</summary>
+      <section>
         <div className="section-heading">
           <div>
             <h2>Automatic full-course capture</h2>
@@ -655,16 +659,6 @@ export default function CourseraExtractionWorkspace({
           </p>
         )}
       </section>
-      <details className="card">
-        <summary>
-          Use local Chrome instead (manual batches, no browser-service cost)
-        </summary>
-        <LocalCourseraExtraction
-          disabled={disabled}
-          onUseCapture={onUseCapture}
-          initialUrl={shellUrl}
-          onUrlChange={setShellUrl}
-        />
       </details>
     </>
   );

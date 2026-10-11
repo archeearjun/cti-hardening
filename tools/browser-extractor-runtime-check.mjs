@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61516')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61517')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -355,6 +355,14 @@ try{
   await app.goto(base);
   await app.getByRole('button',{name:'Review a capture',exact:true}).click();
   await app.getByRole('button',{name:'Coursera extractor',exact:false}).click();
+  const quickLocal=app.locator('.script-panel .local-extraction-card');
+  await quickLocal.getByLabel('Coursera authoring-shell URL',{exact:true}).fill('https://www.coursera.org/teach/synthetic/Native_local_fixture_123/content/edit');
+  await quickLocal.getByRole('button',{name:'Copy automatic local capture command',exact:true}).click();
+  await quickLocal.getByText('automatic command copied.',{exact:false}).waitFor();
+  const nativeCommand=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
+  assert.equal(nativeCommand.cmd,'Page.addScriptToEvaluateOnNewDocument');
+  assert(nativeCommand.args.source.includes(courseraSource.slice('javascript:'.length)));
+  await app.getByText('Manual extractor script',{exact:true}).click();
   await app.getByRole('button',{name:'Copy script',exact:true}).click();
   await app.getByText(CTI_RELEASE_REGISTRY_.courseraExtractor.version+' copied.',{exact:true}).waitFor();
   const copied=await app.evaluate(()=>navigator.clipboard.readText());

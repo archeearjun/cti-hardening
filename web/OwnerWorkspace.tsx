@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
+import LocalCourseraExtraction from "./LocalCourseraExtraction";
 import type {
   ExtractorDelivery,
   ReviewOptions,
@@ -413,13 +414,10 @@ export default function App() {
                 </button>
               </div>
               {extractor.platform === "COURSERA" && (
-                <p className="hint">
-                  Paste in Coursera’s Console. Large courses use short batches.
-                  Save each batch JSON, copy the continuation script, reload
-                  Coursera, and paste again when the extractor prompts you.
-                  Completed items are restored from browser checkpoints.
-                </p>
+                <LocalCourseraExtraction disabled={busy} captureInputId="quick-coursera-capture" />
               )}
+              <details open={extractor.platform !== "COURSERA"}>
+                <summary>Manual extractor script</summary>
               <div className="button-row">
                 <button className="primary" onClick={() => void copyScript()}>
                   Copy script
@@ -450,6 +448,7 @@ export default function App() {
                   value={extractor.script}
                   onFocus={(e) => e.currentTarget.select()}
                 />
+              </details>
               </details>
             </section>
           )}
