@@ -135,6 +135,45 @@ try{
  assert(imported.visits.every(id=>Number(id.split('-')[1])>=25));
  for(let i=0;i<25;i++)assert.equal(imported.result.fingerprints[i].payload.textSample,downloaded.fingerprints[i].payload.textSample);
  await importContext.close();
+ // Reproduce a recovery budget ending after every primary item was visited.
+ // The real entry/controller must retain checkpoints and finish pending retries
+ // in another document, rather than downloading and clearing the partial run.
+ inventoryCount=3;
+ const retryContext=await browser.newContext({acceptDownloads:true});
+ await retryContext.route('https://www.coursera.org/**',fulfillFixture);
+ const retryPage=await retryContext.newPage(),retryDownloads=[];
+ retryPage.on('download',download=>retryDownloads.push(download));retryPage.on('pageerror',error=>errors.push(error.message));
+ await retryPage.goto(shell);
+ const retryProgram=fixtureProgram.replace(substitutes.recoverReadingRouteV61311,`async function recoverReadingRouteV61311(fp){
+  const visits=JSON.parse(sessionStorage.getItem('fixture-visits') || '[]');
+  const attempt=visits.filter(id=>id===fp.id).length+1;visits.push(fp.id);sessionStorage.setItem('fixture-visits',JSON.stringify(visits));
+  const text='Observed learner content café 日本語 '+fp.id;
+  if(attempt===1)return {attempted:true,captured:true,route:'fixture:'+fp.id,dwellMs:1,samples:3,
+   evidence:{textSample:text,textConfidence:'medium',textEvidenceCompleteness:0.5,textScopeKind:'reading-content-field'}};
+  if(!sessionStorage.getItem('fixture-recovery-budget-ended')){
+   sessionStorage.setItem('fixture-recovery-budget-ended','true');const actualNow=Date.now.bind(Date);Date.now=()=>actualNow()+1300000;
+  }
+  return {attempted:true,captured:true,route:'fixture:'+fp.id,dwellMs:1,samples:3,
+   evidence:{textSample:text,textConfidence:'high',textEvidenceCompleteness:1,textScopeKind:'reading-content-field',
+    readingEditorEvidence:{itemId:fp.id},textCaptureEvidence:{method:'EXACT_READING_FIELD',scope:'EXACT_READING_FIELD',itemId:fp.id,observedCharacters:text.length,capturedCharacters:text.length}}};
+ }`);
+ const retrySession=await retryContext.newCDPSession(retryPage);await retrySession.send('Page.enable');
+ const retryCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,retryProgram,'pending_retries_token_123'));
+ await retrySession.send(retryCommand.cmd,retryCommand.args);
+ await retryPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.batches===1,{},{timeout:10000});
+ const pending=await retryPage.evaluate(()=>({accounting:window.__CTI_LAST_RESULT.meta.captureAccounting,
+  controller:window.__CTI_LAST_RESULT.meta.automaticLocalCapture,retained:window.__CTI_LAST_RESULT.meta.checkpointRetainedForResume}));
+ assert.equal(pending.accounting.unvisitedCount,0);assert.equal(pending.accounting.retryableUnresolvedCount,2);
+ assert.equal(pending.controller.state,'RUNNING');assert.equal(pending.retained,true);assert.equal(retryDownloads.length,0);
+ await retryPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:10000});
+ if(!retryDownloads.length)await retryPage.waitForEvent('download',{timeout:10000});
+ const retried=JSON.parse(fs.readFileSync(await retryDownloads[0].path(),'utf8'));
+ assert.equal(retryDownloads.length,1);assert.equal(retried.meta.automaticLocalCapture.batches,2);
+ assert.equal(retried.meta.captureAccounting.complete,true);assert.equal(retried.meta.captureAccounting.retryableUnresolvedCount,0);
+ assert.equal(evaluateCourseraCapture(retried,courseId).complete,true);
+ const retryVisits=await retryPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
+ assert.equal(retryVisits.length,6);assert(retryVisits.every(id=>retryVisits.filter(other=>other===id).length===2));
+ await retryContext.close();
  assert.deepEqual(errors,[]);
- console.log('Native Chrome debugger: 188 items / 10 automatic documents, one final lossless JSON, no repeat visits, course guard, checkpoint-failure stop and debugger-disconnect recovery, saved-file import and unavailable-inventory stop verified.');
+ console.log('Native Chrome debugger: 188 items / 10 automatic documents, one final lossless JSON, no repeat visits, course guard, checkpoint-failure stop and debugger-disconnect recovery, saved-file import, unavailable-inventory stop and recovery-budget continuation with pending retries verified.');
 }finally{await browser.close()}

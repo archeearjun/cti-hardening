@@ -1,5 +1,29 @@
 # Coursera extractor runtime stability
 
+## v6.15.19: finish pending recovery visits before the final download
+
+A first live automatic capture ran 41 batches and exported 188 accounted items,
+155 complete and 33 explicitly unresolved. Five items still had a permitted
+recovery attempt. A recovery time budget ended after three visits, while the
+primary inventory had no unvisited items. Final checkpoint retention previously
+looked only at primary unvisited items and crawl exhaustion, so the controller
+declared acquisition finished and removed the resumable item store too early.
+
+One pure continuation decision now covers both unvisited work and pending retry
+contracts. The entry uses it to retain checkpoints, and the automatic controller
+uses it before finalization. Completed items remain skipped. Terminal gaps such
+as cross-origin content and exhausted attempts remain incomplete and do not
+cause endless reloads. Existing checkpoint-failure, three-stall, two-attempt,
+500-batch and eight-hour limits are preserved.
+
+The native Chromium regression simulates a recovery budget ending after all
+primary visits, verifies that two retries trigger another document without an
+intermediate download, and checks that one final complete JSON follows their
+successful observations. Pure tests also reproduce the aggregate 188/155/33/5
+case and terminal incomplete completion. Private course content is not embedded
+in fixtures. This patch does not reconstruct missing questions or answer keys
+in already exported files.
+
 ## v6.15.18: efficient assessment traversal and durable question progress
 
 A reported 100-question capture showed question-level progress while its course

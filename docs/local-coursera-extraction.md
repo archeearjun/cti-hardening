@@ -110,3 +110,10 @@ unavailable inventory. This is not a live authenticated Coursera acceptance test
 committed, and verifies restoration without repeated question clicks. It checks
 raw and Unicode preservation and the strict distinction between an unfinished
 visit and the completed assessment. External content remains synthetic.
+
+From v6.15.19, a fully visited inventory continues automatically while any item
+has a recovery attempt available. Recovery budget exhaustion therefore retains
+the checkpoint store and proceeds in a new document. The final download follows
+completion of those visits or an explicit safety stop. Terminal incomplete
+items remain reported gaps and do not trigger repeated capture. The native
+local-capture check verifies this recovery-budget boundary and one final JSON.
