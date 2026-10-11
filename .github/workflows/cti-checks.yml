@@ -84,6 +84,8 @@ jobs:
         run: npm run test:browser:owner
       - name: Verify assessment choice layout in Chromium
         run: npm run test:browser:choices
+      - name: Verify interrupted assessment question capture in Chromium
+        run: npm run test:browser:assessment-progress
       - name: Verify extractor scrolling, memory limits and copied delivery
         run: npm run test:browser:extractor
       - name: Native Chrome automatic local capture

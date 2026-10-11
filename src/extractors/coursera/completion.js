@@ -33,6 +33,16 @@ export function captureContractV6150(fp) {
     externalBodyVerified: null,
   };
 
+  if (p.assessmentCaptureInProgress && p.assessmentCaptureInProgress.state === "IN_PROGRESS") {
+    reasons.push("ASSESSMENT_QUESTION_COLLECTION_INTERRUPTED");
+    return Object.assign(result, {
+      accounted: true,
+      needsEditor: attempts < CTI_MAX_ITEM_ATTEMPTS,
+      retryable: attempts < CTI_MAX_ITEM_ATTEMPTS,
+      status: attempts >= CTI_MAX_ITEM_ATTEMPTS ? "UNRESOLVED_AFTER_MAX_ATTEMPTS" : "RETRY_REQUIRED",
+    });
+  }
+
   if (p.ingestionFailure && p.ingestionFailure.detected === true) {
     return Object.assign(result, {
       complete: true,

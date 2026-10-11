@@ -9,14 +9,16 @@ import { isDangerousEditorControl, isGlobalChromeElement, objectTextV664 } from 
 import { reactSignalsForElement } from "./text-and-dom-5.js";
 import { courseId } from "./text-and-dom.js";
 
-export function assessmentOutlineCandidatesV613(sidebar, declared) {
+export function assessmentOutlineCandidatesV613(sidebar, declared, requestedId) {
     const found = new Map();
     if (!sidebar) return [];
     for (const anchor of sidebar.querySelectorAll('a[href^="#"]')) {
-      if (!isVisibleElement(anchor)) continue;
       const href = String(anchor.getAttribute('href') || '').trim();
       if (!href || /^(?:#|#for-content|#learning-objectives)$/.test(href)) continue;
       let id; try { id = decodeURIComponent(href.slice(1)); } catch (_) { continue; }
+      // Refresh one live question without forcing layout for the whole rail.
+      if (requestedId && id !== requestedId) continue;
+      if (!isVisibleElement(anchor)) continue;
       const target = document.getElementById(id);
       const row = anchor.closest('[data-testid="assignment-outline"]');
       const targetTestId = String(target && target.getAttribute('data-testid') || '');
@@ -32,6 +34,26 @@ export function assessmentOutlineCandidatesV613(sidebar, declared) {
         label:String(anchor.innerText || anchor.textContent || '').replace(/\s+/g,' ').trim(), targetTestId, dragId});
     }
     return [...found.values()].sort((a,b)=>(a.ordinal || Infinity)-(b.ordinal || Infinity));
+  }
+
+export function assessmentQuestionCheckpointV61518(fp, assessment, observedAt) {
+    const payload=fp.payload || {};
+    const prior=payload.assessmentCaptureInProgress?.assessment;
+    const byId=new Map();
+    for(const model of [prior,assessment])for(const q of model?.questions || []) {
+      if(q.courseraQuestionId && q.questionOrdinalObserved)byId.set(q.courseraQuestionId,q);
+    }
+    const questions=[...byId.values()].sort((a,b)=>Number(a.id)-Number(b.id));
+    const declared=Math.max(Number(prior?.declaredQuestionCount || 0),Number(assessment.declaredQuestionCount || 0),questions.length);
+    const coverage=assessmentCaptureCoverageV613(questions,declared,'IN_PROGRESS',assessment.captureCompleteness);
+    const retained=Object.assign({},assessment,{questions,questionCount:questions.length,declaredQuestionCount:declared,
+      answerEvidenceQuestionCount:coverage.answerEvidence,captureCompleteness:coverage});
+    // An interrupted collection is not a completed editor attempt. Keep the
+    // previous raw model intact; the independently observed progress is separate.
+    return Object.assign({},fp,{payload:Object.assign({},payload,{
+      captureAttempts:Math.max(0,Number(payload.captureAttempts || 0)-1),
+      assessmentCaptureInProgress:{state:'IN_PROGRESS',itemId:String(fp.id),savedAt:observedAt,assessment:retained}
+    })});
   }
 
 export function assessmentScrollRootsV613(sidebar, envelope) {

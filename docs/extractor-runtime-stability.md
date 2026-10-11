@@ -1,5 +1,33 @@
 # Coursera extractor runtime stability
 
+## v6.15.18: efficient assessment traversal and durable question progress
+
+A reported 100-question capture showed question-level progress while its course
+visit counter remained at zero. The progress card now identifies the active item
+and finished visits separately, and reports saved question observations.
+
+Refreshing a live question previously repeated visibility/layout checks for the
+entire outline. Refresh now limits those checks to the requested identity. DOM
+hydration caches its parsed question while rendered text, markup, field values
+and ancestor visibility remain unchanged; it still observes loading and answer
+evidence within the original budget. A completely observed, identified mounted
+assessment returns directly instead of traversing it again. Missing questions,
+keys and uncertain types remain explicit gaps.
+
+The collector persists incremental identified question observations to the
+existing IndexedDB checkpoint store. Interrupted visits stay incomplete and do
+not spend a completed attempt. Resume validates each saved question against the
+live outline. Earlier saved questions survive another interruption before their
+entire prefix is rediscovered. The raw preexisting model is preserved separately.
+Automatic planned reloads and the single final course JSON are unchanged.
+
+Deterministic regressions cover delayed 100-question hydration, bounded rail
+layout/parsing counts, matching and changed question identities, partial-save
+failure and complete mounted assessments. A real Chromium check commits 31
+questions, interrupts the document, and finishes all 100 after restoring them
+without repeated clicks. This is synthetic editor verification; the reported
+private course must still be rerun in the user's authenticated browser.
+
 ## v6.15.17: automatic local Chrome continuation
 
 Local Chrome is the primary workflow again, including when the optional remote

@@ -449,14 +449,31 @@ export async function hydrateAssignmentPartV666(candidate, existingTarget, deadl
       const key=assessmentPromptKey_(String(candidate.label || '').replace(/^\d+\s*[.)]?\s*/, '').replace(/[.…]+$/, ''));
       return key.length<18 || /^question \d+$/.test(key) || assessmentPromptKey_(target && (target.innerText || target.textContent) || '').includes(key);
     };
+    let parsedTarget=null,parsedSignature='',parsedQuestion=null,parseCount=0;
+    const parsed = target => {
+      if(!target)return null;
+      // Attribute and field-value changes matter even when visible text is
+      // unchanged (for example an answer status arriving after its option).
+      const fields=[...target.querySelectorAll('input,textarea,select')].map(el=>[el.value,el.checked]);
+      const visibility=[];
+      for(let node=target,depth=0;node && depth<8;node=node.parentElement,depth++){
+        const style=getComputedStyle(node);visibility.push([style.display,style.visibility,style.opacity]);
+      }
+      const signature=String(target.outerHTML || target.textContent || '')+'\n'+String(target.innerText || '')+JSON.stringify([fields,visibility]);
+      if(target!==parsedTarget || signature!==parsedSignature){
+        parsedTarget=target;parsedSignature=signature;parseCount++;
+        parsedQuestion=parseAssignmentPartDomV665(target,{type:'Assignment'},candidate.ordinal,candidate.label);
+      }
+      return parsedQuestion;
+    };
     const ready=target=>{
       if(!target || !aligns(target) || hasVisibleLoadingIndicator(target))return false;
-      const parsed=parseAssignmentPartDomV665(target,{type:'Assignment'},candidate.ordinal,candidate.label);
-      return Boolean(parsed && assessmentOutlinePromptAlignedV613(candidate.label,parsed.prompt) && questionEvidenceReadyV6138(parsed));
+      const question=parsed(target);
+      return Boolean(question && assessmentOutlinePromptAlignedV613(candidate.label,question.prompt) && questionEvidenceReadyV6138(question));
     };
     let target=resolve();
     waitBudget.observe([target?String(target.innerText || target.textContent || '').length:0,assignmentPartEvidenceScoreV666(target)]);
-    if (ready(target)) return {target,evidenceScore:assignmentPartEvidenceScoreV666(target),clicked:false};
+    if (ready(target)) return {target,question:parsed(target),parseCount,evidenceScore:assignmentPartEvidenceScoreV666(target),clicked:false};
     let clicked=false;
     const anchor=candidate.anchor;
     // The observed hash anchor belongs to the assignment question index. Its
@@ -480,5 +497,5 @@ export async function hydrateAssignmentPartV666(candidate, existingTarget, deadl
       if (ready(target) && stable>=1) break;
     }
     target=resolve();
-    return {target,evidenceScore:assignmentPartEvidenceScoreV666(target),clicked,waitBudget:waitBudget.snapshot()};
+    return {target,question:parsed(target),parseCount,evidenceScore:assignmentPartEvidenceScoreV666(target),clicked,waitBudget:waitBudget.snapshot()};
   }

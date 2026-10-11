@@ -144,8 +144,11 @@ export default function LocalCourseraExtraction({
             In Protocol monitor, turn Record off and clear its log to avoid
             retaining browser traffic. Select the Coursera page in its target
             dropdown. Paste the command into the command input
-            at the bottom and press Enter. Keep that tab and DevTools open.
+            at the bottom and press Enter once. Keep that tab and DevTools open.
             Paste this command in Protocol monitor, not Console.
+            A CTI progress card should appear in Coursera. If it does not,
+            refresh Coursera once with DevTools open and check that the course
+            matches the URL entered here.
           </span>
         </li>
         <li>
@@ -158,7 +161,10 @@ export default function LocalCourseraExtraction({
       <p className="hint">
         CTI checkpoints each item and reloads between short renderer batches;
         slow assessments finish before that boundary. It restores saved work
-        without intermediate downloads or repeated pastes. If Chrome actually
+        without intermediate downloads or repeated pastes. Large assessments
+        also save identified question observations during collection. The
+        progress card shows the active item and its question count; a course
+        visit finishes after the whole item has been read. If Chrome actually
         shows “Aw, Snap!”, reload the tab and copy a new command to resume from
         checkpoints. Closing DevTools also requires a new command.
         {" "}<a href="https://developer.chrome.com/docs/devtools/protocol-monitor"

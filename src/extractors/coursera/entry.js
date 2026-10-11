@@ -16,14 +16,14 @@ import { waitForRouteChange, isLikelyWholeOutlineSurface, findRouteScopedItemEdi
 import { scopedWaitBudgetV61321, sessionEndpointContentKey, sessionAtomIsRelationPaired, isVisibleElement, surfaceRoleBonus, isGenericSmartIngestionName, editorSurfaceSignalScore, candidateSurfaceAncestors, snapshotOpenSurfaceRoots, findOpenedEditorSurface, estimateTextCompleteness, cleanDiscussionPromptTextV6612, collectSurfaceBodyText, textWithoutExactBadges, splitCarryDescriptionAndLabel, isObservedWrittenResponseV6138, parseWrittenResponsePartV6136, feedbackCoreV6611, stateSearchBudgetV61313, stateSearchStepV61313, ownStateValueV61313, ctiPlainTextV664, reactFiberForElementV664, findNamedValueV664 } from "./text-and-dom-3.js";
 import { assessmentPromptKey_, mergeCourseraAssessmentEvidence, isAssessmentLikeFingerprintV662, assessmentPartCountV8, assessmentDeclaredCountV662, assessmentEnvelopeRootV662, assessmentQuestionNavCandidatesV662, expandAssessmentContentShellV663, assessmentQuestionDetailRootV662, inferSelectedQuestionTypeV662, questionEvidenceReadyV6138, parseSelectedAssessmentQuestionV662, assessmentCycleKeyV613, mergeQuestionIntoCycleV662 } from "./assessments-2.js";
 import { mergeAssessmentModelIntoCycleV662, safeClickAssessmentQuestionV662, cleanAssignmentOptionFieldV6610, cleanAssignmentOptionAliasesV6610, ctiSeparateJoinedOptionFeedback_, ctiOptionLabelLooksLikeFeedback_, ctiOptionFeedbackRisk_, ctiGuardOptionEvidence_, ctiGuardAssessmentOptionEvidence_, normalizeAssignmentOptionRowsV6610, assignmentEntryTypeFromDomV6611, dropFeedbackPseudoOptionsV6611, parseAssignmentPartDomV665, assignmentPartEvidenceScoreV666, assessmentOutlinePromptAlignedV613, hydrateAssignmentPartV666 } from "./assessments-3.js";
-import { assessmentOutlineCandidatesV613, assessmentScrollRootsV613, assessmentOutlineMoreV613, assessmentCaptureCoverageV613, assessmentLayoutV61313, exactAssessmentLayoutV61313, emptyAssessmentSnapshotV61313, assessmentDeadlineV61313, assessmentSurfaceDiagnosticsV61313, assessmentStateSeedsV664, parseOptionStateV664, parseQuestionStateV664, collectReactAssessmentStateV664, assessmentControlDiagnosticsV664, assessmentAnswerEvidenceCountV667, assessmentIsFullyAnswerHydratedV667, assessmentFromCycleMapV667, collectAssessmentSelectionPolicyFromText_, collectCourseraStructuredAssessment } from "./assessments-4.js";
+import { assessmentOutlineCandidatesV613, assessmentQuestionCheckpointV61518, assessmentScrollRootsV613, assessmentOutlineMoreV613, assessmentCaptureCoverageV613, assessmentLayoutV61313, exactAssessmentLayoutV61313, emptyAssessmentSnapshotV61313, assessmentDeadlineV61313, assessmentSurfaceDiagnosticsV61313, assessmentStateSeedsV664, parseOptionStateV664, parseQuestionStateV664, collectReactAssessmentStateV664, assessmentControlDiagnosticsV664, assessmentAnswerEvidenceCountV667, assessmentIsFullyAnswerHydratedV667, assessmentFromCycleMapV667, collectAssessmentSelectionPolicyFromText_, collectCourseraStructuredAssessment } from "./assessments-4.js";
 import { objectTextV664, exactPointElements, cleanAttachmentDisplayName, collectCourseraAttachmentFacts, courseraControlValue, findLabeledCourseraControlValue, stripCourseraAttachmentBadgesFromLearnerText, detectCourseraIngestionFailure, typedEditorIdentityV61316, typedEditorTitleAnchorsV61316, typedEditorFieldsV61316, typedEditorSurfaceV61316, typedEditorDiagnosticsV61316, typedEditorNameFieldsV61317, typedEditorProductionSurfaceV61317, isDangerousEditorControl, isGlobalChromeElement, countNormalizedOccurrence, clickableAncestor, isStrongItemIdentityNode, interactiveAncestor, elementsAreNear, reactPropsForElement } from "./text-and-dom-4.js";
 import { nativeAssignmentSectionsFromText, trimCourseraAssignmentLearnerText, normalizeAssignmentMetadataV61325, collectCourseraNativeAssignment, retainAssessmentSurfaceEvidenceV6138, assessmentTextReceiptV6146, genericAssessmentTextHeuristicNotApplicableV6146 } from "./assessments-5.js";
 import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61517() {
+javascript:(async function ctiCourseraCaptureV61518() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -117,12 +117,12 @@ javascript:(async function ctiCourseraCaptureV61517() {
       try{localStorage.setItem(automaticLocalPlanKey,JSON.stringify(automaticLocalPlan));}catch(_){}
     }
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61517.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61518.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.17"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.18"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -132,7 +132,7 @@ javascript:(async function ctiCourseraCaptureV61517() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.17"
+          finishedAt: Date.now(), version: "v6.15.18"
         };
       }
     } catch (e) {}
@@ -334,9 +334,10 @@ javascript:(async function ctiCourseraCaptureV61517() {
     // Only the same in-memory run supplies seeds. Each reused question must be
     // rediscovered in this editor with the same ID, ordinal and prompt prefix.
     const seeds=new Map();let reusedQuestions=0;
-    for(const q of options.seedAssessment?.questions || []) {
+    for(const model of [options.seedAssessment,options.mountedAssessment])for(const q of model?.questions || []) {
       if(q.courseraQuestionId && q.questionOrdinalObserved && questionEvidenceReadyV6138(q))seeds.set(String(q.courseraQuestionId),q);
     }
+    let lastCheckpointQuestions=0,lastCheckpointAt=start,questionCheckpointFailed=false;
     let idle = 0, turn = 0, stopReason = 'NO_FURTHER_QUESTIONS';
     function discover(sidebar) {
       const count = assessmentPartCountV8(sidebar);
@@ -347,11 +348,30 @@ javascript:(async function ctiCourseraCaptureV61517() {
       for (const candidate of live) known.set(candidate.id, {id:candidate.id,ordinal:candidate.ordinal,
         href:candidate.href,label:candidate.label,targetTestId:candidate.targetTestId});
       for(const candidate of live)if(/~textBlock!~/i.test(candidate.id)||isAssignmentTextBlockV61321(candidate.target))textPartOrdinals.add(candidate.ordinal);
-      return live;
+      return live.map(candidate=>({id:candidate.id,ordinal:candidate.ordinal,href:candidate.href,label:candidate.label}));
     }
     function currentQuestions() { return [...questions.values()].sort((a,b)=>Number(a.id)-Number(b.id)); }
     function complete() { return assessmentCaptureCoverageV613(currentQuestions(), Math.max(0,declared-textPartOrdinals.size),'',{declaredContentParts:declared,nonQuestionPartOrdinals:[...textPartOrdinals]}).requiredAnswerCoverageComplete; }
     function score(q) { return q ? (q.answerTextReliable ? 1000 : 0) + (q.optionTextReliable ? 100 : 0) + Number(q.parserConfidence || 0)*10 : -1; }
+    function progressModel() {
+      const captured=currentQuestions().map(q=>{const x=JSON.parse(JSON.stringify(q));delete x._cycleOrdinal;return x;});
+      const finalDeclared=Math.max(0,declared-textPartOrdinals.size);
+      const coverage=assessmentCaptureCoverageV613(captured,finalDeclared,'IN_PROGRESS',
+        {declaredContentParts:declared,nonQuestionPartOrdinals:[...textPartOrdinals]});
+      return {schemaVersion:6,parser:'coursera-assignment-outline-dom-v2-dynamic',origin:'coursera-authoring-dom',
+        declaredQuestionCount:finalDeclared,questionCount:captured.length,answerEvidenceQuestionCount:coverage.answerEvidence,
+        questions:captured,captureCompleteness:coverage,parserConfidence:0.84,
+        warnings:['Question collection is in progress; the editor visit has not finished.'],
+        selectionPolicy:collectAssessmentSelectionPolicyFromText_(String(liveSidebar()?.textContent || ''),finalDeclared)};
+    }
+    async function checkpointQuestions(force) {
+      if(!questions.size || questionCheckpointFailed || typeof options.onCheckpoint!=='function')return;
+      if(!force && lastCheckpointQuestions>0 && questions.size-lastCheckpointQuestions<5 && Date.now()-lastCheckpointAt<5000)return;
+      if(!force && questions.size===lastCheckpointQuestions)return;
+      const saved=await options.onCheckpoint(progressModel());
+      if(saved===true){lastCheckpointQuestions=questions.size;lastCheckpointAt=Date.now();}
+      else questionCheckpointFailed=true;
+    }
     try {
       while (Date.now() < deadline) {
         const sidebar = liveSidebar();
@@ -367,13 +387,14 @@ javascript:(async function ctiCourseraCaptureV61517() {
           const seed=seeds.get(candidate.id);
           if(!questions.has(candidate.id) && seed && Number(seed.id)===candidate.ordinal && assessmentOutlinePromptAlignedV613(candidate.label,seed.prompt)) {
             questions.set(candidate.id,JSON.parse(JSON.stringify(seed)));reusedQuestions++;
+            await checkpointQuestions(false);
           }
           const previous = questions.get(candidate.id);
           if (questionEvidenceReadyV6138(previous)) continue;
           if (Number(attempts.get(candidate.id) || 0) >= 2) continue;
           // A prior activation may have virtualized this row away. Rediscover it
           // before clicking; detached cached nodes are not navigation controls.
-          const fresh = discover(liveSidebar()).find(c=>c.id===candidate.id);
+          const fresh = assessmentOutlineCandidatesV613(liveSidebar(),declared,candidate.id).find(c=>c.id===candidate.id);
           if (!fresh) continue;
           attempts.set(fresh.id, Number(attempts.get(fresh.id) || 0)+1);
           out.hydrationAttempts++;
@@ -385,7 +406,7 @@ javascript:(async function ctiCourseraCaptureV61517() {
           if (!panelNumber) continue;
           const ordinal = Number(panelNumber[1])+1;
           if (fresh.ordinal && ordinal!==fresh.ordinal) continue;
-          let q = parseAssignmentPartDomV665(target, fp, ordinal, fresh.label);
+          let q = hydrated.question || parseAssignmentPartDomV665(target, fp, ordinal, fresh.label);
           if (!q || !q.prompt) continue;
           if (!assessmentOutlinePromptAlignedV613(fresh.label,q.prompt)) {
             if (out.errors.length<20) out.errors.push({ordinal,reason:'PROMPT_NOT_ALIGNED_WITH_OUTLINE'});
@@ -393,9 +414,13 @@ javascript:(async function ctiCourseraCaptureV61517() {
           }
           q.courseraQuestionId = fresh.id;
           q.questionOrdinalObserved = true;
+          q.observedAtMs=Date.now();
           q.id = String(ordinal);
           q._cycleOrdinal = ordinal;
-          if (score(q)>score(previous)) questions.set(fresh.id,q);
+          if (score(q)>score(previous)) {
+            questions.set(fresh.id,q);
+            await checkpointQuestions(false);
+          }
         }
         if (complete()) { stopReason='COMPLETE'; break; }
         const refreshed = liveSidebar();
@@ -440,6 +465,7 @@ javascript:(async function ctiCourseraCaptureV61517() {
       // are edited, and the saved question evidence survives DOM unmounting.
       for (const [root,state] of scrolls) if (root.isConnected) await setScrollRootPosition(root,state.original);
     }
+    await checkpointQuestions(true);
     out.elapsedMs=Date.now()-start; out.stopReason=stopReason;
     out.anchors=known.size; out.resolvedTargets=questions.size;
     out.preview=[...known.values()].slice(0,12).map(c=>({ordinal:c.ordinal,href:c.href,label:c.label.slice(0,180),targetFound:questions.has(c.id),targetTestId:c.targetTestId}));
@@ -499,13 +525,22 @@ javascript:(async function ctiCourseraCaptureV61517() {
     let declared = Math.max(assessmentDeclaredCountV662(envelope), Number(wideModel && wideModel.declaredQuestionCount || 0));
     stats.declared = declared;
 
+    // Already mounted, identified questions are current DOM observations. Do
+    // not walk and parse the same complete assessment a second time.
+    if(wideModel?.captureCompleteness?.requiredAnswerCoverageComplete===true && assessmentIsFullyAnswerHydratedV667(wideModel,declared)) {
+      stats.attempted=true;stats.captured=wideModel.questionCount;stats.assessment=wideModel;
+      stats.captureCompleteness=wideModel.captureCompleteness;stats.stopReason='MOUNTED_QUESTIONS_COMPLETE';
+      return stats;
+    }
+
     const questionMap = new Map();
     mergeAssessmentModelIntoCycleV662(questionMap, wideModel);
 
     // v6.6.11: first use Coursera's own assignment outline as a deterministic
     // index into the matching question panels. This is read-only DOM evidence and
     // avoids guessing from generic React children.
-    const outlineProbe = await collectAssessmentFromOutlineDomV665(envelope, fp, declared, {deadline:cycleDeadline,seedAssessment:options.seedAssessment});
+    const outlineProbe = await collectAssessmentFromOutlineDomV665(envelope, fp, declared, {deadline:cycleDeadline,
+      seedAssessment:options.seedAssessment,mountedAssessment:wideModel,onCheckpoint:options.onCheckpoint});
     stats.outlineDomAttempted = Boolean(outlineProbe && outlineProbe.attempted);
     stats.attempted = stats.outlineDomAttempted;
     stats.clicks += Number(outlineProbe && outlineProbe.navigationClicks || 0);
@@ -792,8 +827,8 @@ javascript:(async function ctiCourseraCaptureV61517() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.17",
-      buildId: "v6.15.17-automatic-local-chrome-20261011",
+      version: "v6.15.18",
+      buildId: "v6.15.18-assessment-progress-20261011",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -873,6 +908,10 @@ javascript:(async function ctiCourseraCaptureV61517() {
       targetDiagnostics: []
     };
     const checkpointItem=async (fp,diag)=>{
+      if(diag.completed===true){
+        delete fp.payload.assessmentCaptureInProgress;
+        diag.captureContract=captureContractSummaryV6150(fp);
+      }
       compactDiagnosticV6150(diag,fp);
       if(typeof options.checkpoint==='function'){
         let saved=false;
@@ -944,9 +983,9 @@ javascript:(async function ctiCourseraCaptureV61517() {
         // A later visit cannot prove it re-observed every omitted response.
         fp.payload.captureAttempts=Math.min(CTI_MAX_ITEM_ATTEMPTS,Math.max(0,Number(fp.payload.captureAttempts || 0))+1);
         fp.payload.lastCaptureAttemptAt=new Date(itemStartedAt).toISOString();  // CTI_PROGRESS_BEGIN
-        if (typeof ctiProgressUpdateV1 === "function") ctiProgressUpdateV1({phase:retryPass ? "Recovery editors" : "Primary editors",
+        if (typeof ctiProgressUpdateV1 === "function") ctiProgressUpdateV1({phase:retryPass ? "Checking remaining gaps" : "Capturing course items",
           detail:String(fp.name || fp.id) + " · Opening editor", completed:index, total:targets.length,
-          count:index + "/" + targets.length + " visits processed · " + meta.targetDiagnostics.filter(d => d.domCaptured || d.editorSurfaceCaptured).length + " editors observed"});
+          count:"Item " + (index+1) + "/" + targets.length + " in progress · " + index + " visits finished"});
   // CTI_PROGRESS_END
 
         console.log('CTI '+(retryPass?'recovery':'primary')+': item '+(index+1)+'/'+targets.length+'; '+Math.round((Date.now()-crawlStartedAt)/1000)+' seconds elapsed');
@@ -1324,7 +1363,28 @@ javascript:(async function ctiCourseraCaptureV61517() {
             itemAttemptDeadline=Math.min(courseAttemptDeadline,Math.max(itemAttemptDeadline,itemStartedAt+Math.min(CTI_ASSESSMENT_ATTEMPT_MAX_MS,60000+assessmentWork)));
             diag.itemAttemptBudgetMs=Math.max(0,itemAttemptDeadline-itemStartedAt);
           }
-          const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {seedAssessment:retryPass?fp.payload.structuredAssessment:null,deadline:Math.min(itemAttemptDeadline,assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1,declaredForBudget)),
+          const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {
+            seedAssessment:fp.payload.assessmentCaptureInProgress?.assessment || fp.payload.structuredAssessment,
+            onCheckpoint:typeof options.checkpoint==='function'?async assessment=>{
+              const snapshot=assessmentQuestionCheckpointV61518(fp,assessment,new Date().toISOString());
+              let saved=false;try{saved=await options.checkpoint(snapshot,diag,'assessment-progress');}catch(_){}
+              if(saved===true){
+                meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;
+                diag.questionCheckpointWrites=Number(diag.questionCheckpointWrites || 0)+1;
+                diag.questionCheckpointCount=assessment.questionCount;
+                // Preserve the prior high-water mark if another interruption
+                // happens before every saved question has been rediscovered.
+                fp.payload.assessmentCaptureInProgress=snapshot.payload.assessmentCaptureInProgress;
+              }else{
+                meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
+                diag.questionCheckpointErrors=Number(diag.questionCheckpointErrors || 0)+1;
+              }
+              if(options.localSession)options.localSession.checkpointWritten(saved);
+              ctiProgressUpdateV1({count:'Item '+(index+1)+'/'+targets.length+' in progress · '+index+' visits finished · '+
+                (saved?assessment.questionCount+' question observations saved':'local question save unavailable')});
+              return saved;
+            }:null,
+            deadline:Math.min(itemAttemptDeadline,assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1,declaredForBudget)),
             certifiedItem:strongIdentitySeed && isItemSpecificCourseRoute(location.href,fp,courseOrBranchId)});
           diag.assessmentMs=Date.now()-assessmentStartedAt;
           diag.questionCycleReactStateMs=Number(cycle.reactStateElapsedMs || 0);
@@ -1583,7 +1643,7 @@ javascript:(async function ctiCourseraCaptureV61517() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.17", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.18", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
@@ -1597,7 +1657,7 @@ javascript:(async function ctiCourseraCaptureV61517() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.17", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.18", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1605,8 +1665,8 @@ javascript:(async function ctiCourseraCaptureV61517() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.17",
-      buildId: "v6.15.17-automatic-local-chrome-20261011",
+      extractor: "CTI Item Fidelity Extractor v6.15.18",
+      buildId: "v6.15.18-assessment-progress-20261011",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1990,7 +2050,7 @@ javascript:(async function ctiCourseraCaptureV61517() {
   await exportCaptureWithCheckpoints(result.meta.exportFileName, result, ctiCheckpointManager, retainCheckpoint,
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61517.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61518.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;
