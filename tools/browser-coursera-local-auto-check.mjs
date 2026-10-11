@@ -5,6 +5,7 @@ import {courseraSource} from '../src/generated/extractor-sources.js';
 import {createAutomaticLocalCourseraCommand} from '../src/domain/coursera-local-extraction.ts';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
 import {extractorFunctions} from './extractor-functions.cjs';
+import {CTI_CHECKPOINT_DB,CTI_CHECKPOINT_STORE,CTI_CHECKPOINT_SESSION_PREFIX} from '../src/extractors/coursera/config.js';
 
 // Run the maintained entry, checkpoint store, completion accounting, renderer
 // bounds, automatic controller and export in Chromium. Substitute only the
@@ -174,6 +175,72 @@ try{
  const retryVisits=await retryPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
  assert.equal(retryVisits.length,6);assert(retryVisits.every(id=>retryVisits.filter(other=>other===id).length===2));
  await retryContext.close();
+ // A fresh full-course run must ignore an interrupted run's real IndexedDB
+ // records, retain them unchanged, and reset only once across all ten documents.
+ inventoryCount=188;
+ const freshContext=await browser.newContext({acceptDownloads:true});
+ await freshContext.route('https://www.coursera.org/**',fulfillFixture);
+ const freshPage=await freshContext.newPage(),freshDownloads=[];
+ freshPage.on('download',download=>freshDownloads.push(download));freshPage.on('pageerror',error=>errors.push(error.message));
+ await freshPage.goto(shell);
+ const oldSession=await freshContext.newCDPSession(freshPage);await oldSession.send('Page.enable');
+ const oldCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,'old_partial_token_123'));
+ await oldSession.send(oldCommand.cmd,oldCommand.args);
+ await freshPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.batches===1,{},{timeout:10000});
+ const oldRunId=await freshPage.evaluate(()=>window.__CTI_LAST_RESULT.meta.checkpoint.runId);
+ await oldSession.detach();await freshPage.waitForEvent('domcontentloaded',{timeout:5000});
+ const readRecords=async()=>freshPage.evaluate(async ({dbName,storeName})=>{
+  const db=await new Promise((resolve,reject)=>{const request=indexedDB.open(dbName);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)});
+  try{return await new Promise((resolve,reject)=>{const request=db.transaction(storeName,'readonly').objectStore(storeName).getAll();request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}finally{db.close()}
+ },{dbName:CTI_CHECKPOINT_DB,storeName:CTI_CHECKPOINT_STORE});
+ const oldRecords=await readRecords();assert.equal(oldRecords.length,20);
+ await freshPage.evaluate(()=>{localStorage.setItem('unrelated-app-setting','keep');sessionStorage.setItem('fixture-visits','[]')});
+ await freshContext.addCookies([{name:'fixture-login',value:'keep',domain:'www.coursera.org',path:'/'}]);
+ const freshSession=await freshContext.newCDPSession(freshPage);await freshSession.send('Page.enable');
+ const freshCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,'fresh_full_token_123',undefined,{freshRun:true}));
+ await freshSession.send(freshCommand.cmd,freshCommand.args);
+ await freshPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.batches===1,{},{timeout:10000});
+ const freshFirst=await freshPage.evaluate(()=>window.__CTI_LAST_RESULT);
+ assert.equal(freshFirst.meta.checkpointResume.restored,0);assert.equal(freshFirst.meta.automaticLocalCapture.captureMode,'FRESH_FULL_COURSE');
+ assert.equal(freshFirst.meta.checkpoint.runId,'fresh-fresh_full_token_123');assert.notEqual(freshFirst.meta.checkpoint.runId,oldRunId);
+ assert.equal(freshDownloads.length,0,'Fresh capture still has no intermediate download');
+ const competingPage=await freshContext.newPage();await competingPage.goto(shell);
+ const competingSession=await freshContext.newCDPSession(competingPage);await competingSession.send('Page.enable');
+ const competing=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,'competing_fresh_token_123',undefined,{freshRun:true}));
+ await competingSession.send(competing.cmd,competing.args);
+ assert.equal(await competingPage.evaluate(()=>JSON.parse(localStorage.getItem('__CTI_AUTOMATIC_LOCAL_V61517_competing_fresh_token_123')).reason),'ANOTHER_LOCAL_CAPTURE_RUNNING');
+ assert.equal(await competingPage.evaluate(key=>JSON.parse(localStorage.getItem(key)).id,CTI_CHECKPOINT_SESSION_PREFIX+courseId),freshFirst.meta.checkpoint.runId);
+ await competingSession.detach();await competingPage.close();
+ await freshPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:90000});
+ if(!freshDownloads.length)await freshPage.waitForEvent('download',{timeout:10000});
+ const freshResult=JSON.parse(fs.readFileSync(await freshDownloads[0].path(),'utf8'));
+ const freshVisits=await freshPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
+ assert.equal(freshDownloads.length,1);assert.equal(freshResult.meta.automaticLocalCapture.batches,10);
+ assert.equal(freshResult.meta.checkpoint.runId,freshFirst.meta.checkpoint.runId,'Reloads keep this fresh run rather than restarting it');
+ assert.equal(freshResult.meta.checkpointResume.restored,180);assert.equal(evaluateCourseraCapture(freshResult,courseId).complete,true);
+ assert.equal(freshVisits.length,188);assert.equal(new Set(freshVisits).size,188);
+ assert(freshResult.fingerprints.every(fp=>fp.payload.captureAttempts===1));
+ assert.deepEqual(await readRecords(),oldRecords,'Earlier item snapshots remain untouched');
+ assert.equal(await freshPage.evaluate(()=>localStorage.getItem('unrelated-app-setting')),'keep');
+ assert((await freshContext.cookies()).some(cookie=>cookie.name==='fixture-login' && cookie.value==='keep'));
+ // Run the entire course again in the same browser. A finished registration
+ // remains inert; another fresh command gets another namespace and one JSON.
+ await freshSession.detach();await freshPage.reload();
+ await freshPage.evaluate(()=>sessionStorage.setItem('fixture-visits','[]'));
+ const rerunSession=await freshContext.newCDPSession(freshPage);await rerunSession.send('Page.enable');
+ const rerun=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,'fresh_rerun_token_123',undefined,{freshRun:true}));
+ await rerunSession.send(rerun.cmd,rerun.args);
+ await freshPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.batches===1,{},{timeout:10000});
+ assert.equal(await freshPage.evaluate(()=>window.__CTI_LAST_RESULT.meta.checkpointResume.restored),0);
+ await freshPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:90000});
+ if(freshDownloads.length<2)await freshPage.waitForEvent('download',{timeout:10000});
+ const rerunResult=JSON.parse(fs.readFileSync(await freshDownloads[1].path(),'utf8'));
+ assert.equal(freshDownloads.length,2);assert.equal(rerunResult.meta.automaticLocalCapture.batches,10);
+ assert.equal(rerunResult.meta.checkpoint.runId,'fresh-fresh_rerun_token_123');
+ assert.equal(evaluateCourseraCapture(rerunResult,courseId).complete,true);
+ const rerunVisits=await freshPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
+ assert.equal(rerunVisits.length,188);assert.equal(new Set(rerunVisits).size,188);assert.deepEqual(await readRecords(),oldRecords);
+ await freshContext.close();
  assert.deepEqual(errors,[]);
- console.log('Native Chrome debugger: 188 items / 10 automatic documents, one final lossless JSON, no repeat visits, course guard, checkpoint-failure stop and debugger-disconnect recovery, saved-file import, unavailable-inventory stop and recovery-budget continuation with pending retries verified.');
+ console.log('Native Chrome debugger: 188 items / 10 automatic documents, one final lossless JSON, no repeat visits, course guard, checkpoint-failure stop and debugger-disconnect recovery, saved-file import, unavailable-inventory stop, recovery-budget continuation and two fresh full-course reruns with old checkpoints/cookies preserved and concurrent fresh capture blocked verified.');
 }finally{await browser.close()}

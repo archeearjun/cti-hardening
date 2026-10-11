@@ -23,7 +23,7 @@ import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61519() {
+javascript:(async function ctiCourseraCaptureV61520() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -45,6 +45,9 @@ javascript:(async function ctiCourseraCaptureV61519() {
     if(backgroundChunkMode || window!==window.top || location.origin!=='https://www.coursera.org' ||
       !/^\/teach\/[^/]+\/[^/]+\/content(?:\/|$)/.test(location.pathname) ||
       courseId()!==automaticLocalConfig.courseId || !/^[A-Za-z0-9_-]{8,100}$/.test(automaticLocalConfig.token || ''))return;
+    if(automaticLocalConfig.freshRun===true && localResumeCapture){
+      console.error('CTI fresh capture cannot import a saved capture. Copy a fresh full-course command.');return;
+    }
     try{
       const shell=new URL(automaticLocalConfig.shellUrl);
       if(shell.origin!==location.origin || !shell.pathname.match(/^\/teach\/[^/]+\/([^/]+)\/content(?:\/|$)/) ||
@@ -67,7 +70,9 @@ javascript:(async function ctiCourseraCaptureV61519() {
         localStorage.setItem(automaticLocalPlanKey,JSON.stringify({state:'REJECTED',reason:'ANOTHER_EXTRACTOR_RUNNING'}));return;
       }
       automaticLocalPlan=automaticLocalPlan || {state:'RUNNING',token:automaticLocalConfig.token,
-        courseId:courseId(),startedAt:Date.now(),batches:0,stalled:0};
+        courseId:courseId(),startedAt:Date.now(),batches:0,stalled:0,
+        captureMode:automaticLocalConfig.freshRun===true?'FRESH_FULL_COURSE':'RESUME_AVAILABLE_WORK',
+        checkpointRunId:automaticLocalConfig.freshRun===true?'fresh-'+automaticLocalConfig.token:''};
       localStorage.setItem(automaticLocalPlanKey,JSON.stringify(automaticLocalPlan));
       localStorage.setItem(activeKey,automaticLocalConfig.token);
       sessionStorage.setItem(activeKey,automaticLocalConfig.token);
@@ -107,7 +112,7 @@ javascript:(async function ctiCourseraCaptureV61519() {
     if(automaticLocalPlan && !localCaptureSession.snapshot().checkpointFailed){
       // Starting after an older manual batch must also create a fresh document;
       // registering a command cannot reset the existing renderer's budget.
-      const existingCheckpoints=await createCheckpointManagerV6150(courseId());
+      const existingCheckpoints=await createCheckpointManagerV6150(courseId(),automaticLocalPlan.checkpointRunId || '');
       const canReload=existingCheckpoints.available;
       existingCheckpoints.close();
       if(canReload){setTimeout(()=>location.replace(automaticLocalConfig.shellUrl),50);return;}
@@ -117,12 +122,12 @@ javascript:(async function ctiCourseraCaptureV61519() {
       try{localStorage.setItem(automaticLocalPlanKey,JSON.stringify(automaticLocalPlan));}catch(_){}
     }
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61519.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61520.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.19"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.20"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -132,7 +137,7 @@ javascript:(async function ctiCourseraCaptureV61519() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.19"
+          finishedAt: Date.now(), version: "v6.15.20"
         };
       }
     } catch (e) {}
@@ -827,8 +832,8 @@ javascript:(async function ctiCourseraCaptureV61519() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.19",
-      buildId: "v6.15.19-pending-retry-continuation-20261011",
+      version: "v6.15.20",
+      buildId: "v6.15.20-fresh-full-course-20261011",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1643,8 +1648,10 @@ javascript:(async function ctiCourseraCaptureV61519() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.19", {key:"__CTI_COURSERA_PROGRESS__"});
-  ctiProgressUpdateV1({phase:"Read course structure",detail:"Finding the course and its authoring outline."});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.20", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
+    "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
+    "Finding the course and its authoring outline."});
   // CTI_PROGRESS_END
   const id = courseId();
   const readingRouteTemplate=readingRouteTemplateV61312(id);
@@ -1657,7 +1664,7 @@ javascript:(async function ctiCourseraCaptureV61519() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.19", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.20", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1665,8 +1672,8 @@ javascript:(async function ctiCourseraCaptureV61519() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.19",
-      buildId: "v6.15.19-pending-retry-continuation-20261011",
+      extractor: "CTI Item Fidelity Extractor v6.15.20",
+      buildId: "v6.15.20-fresh-full-course-20261011",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -1675,7 +1682,7 @@ javascript:(async function ctiCourseraCaptureV61519() {
     fingerprints: [],
     embeddedFiles: []
   };
-  ctiCheckpointManager=await createCheckpointManagerV6150(id);
+  ctiCheckpointManager=await createCheckpointManagerV6150(id,automaticLocalPlan && automaticLocalPlan.checkpointRunId || '');
   if(!ctiCheckpointManager.available)rendererCaptureSession.checkpointWritten(false);
   result.meta.checkpoint={available:Boolean(ctiCheckpointManager && ctiCheckpointManager.available),runId:ctiCheckpointManager && ctiCheckpointManager.runId || '',error:ctiCheckpointManager && ctiCheckpointManager.error || ''};
 
@@ -2050,7 +2057,7 @@ javascript:(async function ctiCourseraCaptureV61519() {
   await exportCaptureWithCheckpoints(result.meta.exportFileName, result, ctiCheckpointManager, retainCheckpoint,
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61519.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61520.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;

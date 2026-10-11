@@ -5,6 +5,7 @@ import {createAutomaticLocalCourseraCommand} from '../src/domain/coursera-local-
 import {automaticLocalCaptureNeedsContinuationV61519,advanceAutomaticLocalCaptureV61517} from '../src/extractors/coursera/automatic-local.js';
 import {compactCaptureBlobV61517} from '../src/extractors/coursera/text-and-dom.js';
 import {courseraSource} from '../src/generated/extractor-sources.js';
+import {createCheckpointManagerV6150} from '../src/extractors/coursera/completion.js';
 const shell='https://www.coursera.org/teach/synthetic/Course_id_123/content/edit';
 const initial={state:'RUNNING',startedAt:100,batches:0,stalled:0};
 const capture=(n=20)=>({fingerprints:Array.from({length:n},(_,i)=>({id:String(i),payload:{captureAttempts:1}})),meta:{captureAccounting:{complete:false,completeCount:n}}});
@@ -71,4 +72,25 @@ test('automatic saved-file seed is guarded after a verified first import',()=>{
  const source=JSON.parse(createAutomaticLocalCourseraCommand(shell,courseraSource,'fixture_token_123',saved)).args.source;
  assert(source.includes('?.seeded'));assert(source.includes('__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse('));new vm.Script(source);
  assert.throws(()=>createAutomaticLocalCourseraCommand(shell,courseraSource,'fixture_token_123',{...saved,page:{courseId:'Other_course_123'}}),/course/i);
+});
+test('fresh full-course commands use an isolated run and cannot import an old JSON',()=>{
+ const source=JSON.parse(createAutomaticLocalCourseraCommand(shell,courseraSource,'fresh_fixture_token_123',undefined,{freshRun:true})).args.source;
+ assert(source.includes('"freshRun":true'));new vm.Script(source);
+ const saved={schemaVersion:35,page:{courseId:'Course_id_123'},fingerprints:[]};
+ assert.throws(()=>createAutomaticLocalCourseraCommand(shell,courseraSource,'fresh_fixture_token_123',saved,{freshRun:true}),/cannot import/);
+});
+test('a failed fresh namespace write stops instead of restoring earlier checkpoints',async()=>{
+ const previous=globalThis.localStorage;
+ let opened=false;
+ const oldIndexedDB=globalThis.indexedDB;
+ globalThis.localStorage={getItem:()=>JSON.stringify({id:'older-run',createdAt:Date.now()}),setItem:()=>{throw Error('Storage is full')}};
+ globalThis.indexedDB={open:()=>{opened=true;throw Error('Must not open an older namespace')}};
+ try{
+  const manager=await createCheckpointManagerV6150('Course_id_123','fresh-fixture_token_123');
+  assert.equal(manager.available,false);assert.match(manager.error,/Fresh capture checkpoint session/);assert.equal(opened,false);
+  assert.equal((await manager.restore([])).restored,0);
+ }finally{
+  if(previous===undefined)delete globalThis.localStorage;else globalThis.localStorage=previous;
+  if(oldIndexedDB===undefined)delete globalThis.indexedDB;else globalThis.indexedDB=oldIndexedDB;
+ }
 });

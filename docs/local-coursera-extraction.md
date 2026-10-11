@@ -65,6 +65,23 @@ and use **Copy automatic resume command**. The initial import matches the live
 inventory and keeps newer checkpoints; subsequent automatic documents restore
 IndexedDB rather than parsing the old file again.
 
+## Test the whole course again
+
+From v6.15.20, use **Copy fresh full-course command** for a complete rerun.
+It collects fresh course observations without importing a selected JSON or
+earlier browser checkpoints. Close DevTools, refresh Coursera, and reopen
+Protocol monitor before pasting, so an earlier registration cannot compete
+with the new run. Keep DevTools open after pressing Enter once.
+
+The fresh run has its own checkpoint namespace. It restores that progress across
+automatic reloads and requests one final JSON download. Earlier checkpoint
+records, downloaded files and login cookies remain intact. The final JSON records
+`meta.automaticLocalCapture.captureMode: "FRESH_FULL_COURSE"` and the new run's
+checkpoint identifier. A fresh rerun still reports incomplete evidence when an
+editor or external item cannot provide everything required by the strict gate.
+After an interruption, use the normal automatic command to resume this run;
+copying another fresh command intentionally starts a separate rerun.
+
 ## Recovery and resource limits
 
 Closing DevTools ends its registration. Reload the matching course and copy a

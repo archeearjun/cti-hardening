@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md.",
+      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "47348d5de51a40592c60fdf20a97610688804d6246cf8549428f4deb931d5c1e"
+      "reviewedCurrentHash": "10ff6f8a3620da4b2cc1fa0ef63d298a847be1d526a1d50a7584a4398e0f134a"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.19/schema35",
+      "current": "v6.15.20/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "619aed318ac381a1f35895c7cddaa0210140494a191c37a542946cd9ca3ef258"
+          "reviewedCurrentHash": "ae85291ae9c289304c87064eccc61bc1fb9ad9b699e8e9af37d7e8e977f1c72f"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4394,7 +4394,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "dec2303f64c63a134e9f23524d5beb64c9e9de74f4cc062c2930000ece79351d"
+          "reviewedCurrentHash": "9efb253410b10a79e63a2998746af2d3150e0bfdf465960385789a76760f567f"
         },
         {
           "name": "downloadJson",
@@ -4489,7 +4489,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "e53aaa4c8be6ba2707d40becdeaa041e6d71aa27701848b5922b3b67245873cd"
+          "reviewedCurrentHash": "78edf0499f917c7fe0c69e3a15a7e959b2dd1c3fd9bff73912f0969912127de8"
         },
         {
           "name": "scoreSurfaceForFingerprint",
@@ -4545,7 +4545,7 @@
         },
         {
           "name": "checkpointSessionIdV6150",
-          "reviewedCurrentHash": "4d901613e82e9c7f76b973435c8834e574f4960e6122ca54564da57d883cd58e"
+          "reviewedCurrentHash": "bcd62b848080fabbe1902a3f73f0d01f988b371b671df5673d3dfb255725ab7c"
         },
         {
           "name": "collectCourseraTimeEstimate",
@@ -4565,7 +4565,7 @@
         },
         {
           "name": "createCheckpointManagerV6150",
-          "reviewedCurrentHash": "180adf034c5285fdda8683992f7f97da2aa8ab90d6674f3d0839f7ce2fb1540e"
+          "reviewedCurrentHash": "741229e710887657e34608bd3ed106edf4edb8cfbe6057bb3ac9c982ee4e4bc3"
         },
         {
           "name": "createLocalCaptureSessionV61514",
@@ -4810,11 +4810,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "786d58a07ce374ac0de0c7b9656de01f7d0e592e79962e4b9da12c26a53ea802"
+        "reviewedCurrentHash": "07ac79198c7fd34a23a7123440554528e81755deea3a0d82fb8ae89770ad92e2"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "47348d5de51a40592c60fdf20a97610688804d6246cf8549428f4deb931d5c1e"
+        "reviewedCurrentHash": "10ff6f8a3620da4b2cc1fa0ef63d298a847be1d526a1d50a7584a4398e0f134a"
       }
     }
   }

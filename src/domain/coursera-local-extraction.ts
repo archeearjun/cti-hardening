@@ -136,14 +136,18 @@ export function createAutomaticLocalCourseraCommand(
   currentScript: string,
   token = crypto.randomUUID(),
   savedCapture?: unknown,
+  options: { freshRun?: boolean } = {},
 ): string {
   const target = parseCourseraShellUrl(shellUrl);
   if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
     throw new Error("The current Coursera extractor is unavailable. Reload CTI.");
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(token))
     throw new Error("Invalid local capture identifier.");
+  if (options.freshRun && savedCapture !== undefined)
+    throw new Error("A fresh full-course capture cannot import a saved capture.");
   const config = JSON.stringify({
     token, courseId: target.courseId, shellUrl: target.shellUrl,
+    ...(options.freshRun ? { freshRun: true } : {}),
   });
   // Chrome owns this registration outside the page's JavaScript context. The
   // extractor checks the durable run state before every subsequent invocation.

@@ -74,6 +74,26 @@ export default function LocalCourseraExtraction({
     return next;
   }
 
+  async function copyAutomaticCommand(freshRun = false) {
+    await act(freshRun ? "Preparing fresh full-course capture" : "Preparing automatic local capture", async () => {
+      const current = await currentExtractor();
+      const command = createAutomaticLocalCourseraCommand(shellUrl, current.script,
+        crypto.randomUUID(), !freshRun && capture && inspection?.resumeAvailable ?
+          await readLocalCourseraCaptureFile(capture) : undefined, { freshRun });
+      setAutomaticCommand(command);
+      try {
+        await navigator.clipboard.writeText(command);
+        setCopyStatus(current.version + (freshRun ?
+          " fresh full-course command copied. Close DevTools, refresh Coursera, reopen Protocol monitor, paste into its bottom command input and press Enter. Keep DevTools open for automatic capture." :
+          " automatic command copied. Paste into Protocol monitor's bottom command input, press Enter, and keep DevTools open."));
+      } catch {
+        setCopyStatus(freshRun ?
+          "Select and copy the full command below. Close DevTools, refresh Coursera, reopen Protocol monitor and paste into its bottom command input." :
+          "Select the full automatic command in the fallback below, copy it, and paste into Protocol monitor.");
+      }
+    });
+  }
+
   return (
     <section className="card local-extraction-card">
       <div className="section-heading">
@@ -189,23 +209,26 @@ export default function LocalCourseraExtraction({
         <button
           className="primary"
           disabled={disabled || !!busy || !shellTarget}
-          onClick={() => void act("Preparing automatic local capture", async () => {
-            const current = await currentExtractor();
-            const command = createAutomaticLocalCourseraCommand(shellUrl, current.script,
-              crypto.randomUUID(), capture && inspection?.resumeAvailable ?
-                await readLocalCourseraCaptureFile(capture) : undefined);
-            setAutomaticCommand(command);
-            try {
-              await navigator.clipboard.writeText(command);
-              setCopyStatus(current.version + " automatic command copied. Paste into Protocol monitor's bottom command input, press Enter, and keep DevTools open.");
-            } catch {
-              setCopyStatus("Select the full automatic command in the fallback below, copy it, and paste into Protocol monitor.");
-            }
-          })}
+          onClick={() => void copyAutomaticCommand()}
         >
           {capture && inspection?.resumeAvailable ? "Copy automatic resume command" : "Copy automatic local capture command"}
         </button>
+        <button
+          className="secondary"
+          disabled={disabled || !!busy || !shellTarget}
+          onClick={() => void copyAutomaticCommand(true)}
+        >
+          Copy fresh full-course command
+        </button>
       </div>
+      <p className="hint">
+        To test the whole course again, use <strong>Copy fresh full-course command</strong>.
+        It collects new observations without importing your selected JSON or
+        earlier checkpoints, then continues its own progress across automatic
+        reloads. Before pasting, close DevTools, refresh Coursera and reopen
+        Protocol monitor to end any earlier registration. Keep your previous
+        JSON files for comparison.
+      </p>
       <details className="scope">
         <summary>Manual Console capture (requires reloads between batches)</summary>
       <div className="action-links">

@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61519')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61520')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -362,6 +362,26 @@ try{
   const nativeCommand=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
   assert.equal(nativeCommand.cmd,'Page.addScriptToEvaluateOnNewDocument');
   assert(nativeCommand.args.source.includes(courseraSource.slice('javascript:'.length)));
+  const previousCapture={schemaVersion:35,extractedAt:new Date().toISOString(),
+    page:{courseId:'Native_local_fixture_123'},fingerprints:[{id:'previous-reading',name:'Previous reading',typeName:'supplement',
+      payload:{captureAttempts:1,textSample:'Previously observed learner content.'}}]};
+  await quickLocal.locator('input[type="file"]').setInputFiles({name:'previous-capture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(previousCapture))});
+  await quickLocal.getByRole('button',{name:'Copy automatic resume command',exact:true}).waitFor();
+  await quickLocal.getByRole('button',{name:'Copy fresh full-course command',exact:true}).click();
+  await quickLocal.getByText('fresh full-course command copied.',{exact:false}).waitFor();
+  const freshCommand=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
+  assert.equal(freshCommand.cmd,'Page.addScriptToEvaluateOnNewDocument');
+  assert(freshCommand.args.source.includes('"freshRun":true'));
+  assert(freshCommand.args.source.includes(courseraSource.slice('javascript:'.length)));
+  assert.equal(freshCommand.args.source.includes('previous-reading'),false,'Fresh button ignores a selected saved capture');
+  await quickLocal.getByRole('button',{name:'Copy automatic resume command',exact:true}).waitFor();
+  await app.evaluate(()=>Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:async()=>{throw Error('Fixture permission denial')}}));
+  await quickLocal.getByRole('button',{name:'Copy fresh full-course command',exact:true}).click();
+  await quickLocal.getByText('Select and copy the full command below.',{exact:false}).waitFor();
+  const freshFallback=JSON.parse(await quickLocal.getByLabel('Automatic local capture command',{exact:true}).inputValue());
+  assert(freshFallback.args.source.includes('"freshRun":true'));
+  assert(freshFallback.args.source.includes(courseraSource.slice('javascript:'.length)));
+  await app.evaluate(()=>delete navigator.clipboard.writeText);
   await app.getByText('Manual extractor script',{exact:true}).click();
   await app.getByRole('button',{name:'Copy script',exact:true}).click();
   await app.getByText(CTI_RELEASE_REGISTRY_.courseraExtractor.version+' copied.',{exact:true}).waitFor();
@@ -386,6 +406,7 @@ try{
       'failed checkpoint write stops further editor visits',
       'actual pasted bundle refuses repeat work until reload and copies a complete standalone continuation',
       'continuation clipboard denial offers manual copy outside course evidence',
+      'built automatic and fresh full-course copy buttons, selected-file isolation and complete clipboard-denial fallback',
       'built Copy script, download and manual copy match fixed bundle'],
     retainedRecords:retained.stats.retainedRecords,retainedCharacters:retained.stats.retainedChars,pageErrors:errors},null,2));
 }finally{

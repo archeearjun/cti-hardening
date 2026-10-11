@@ -1,5 +1,31 @@
 # Coursera extractor runtime stability
 
+## v6.15.20: fresh full-course reruns
+
+The normal automatic command restores browser checkpoints, which is useful for
+recovery but cannot prove that a rerun collected fresh course observations.
+CTI now offers **Copy fresh full-course command** beside that command. It ignores
+selected saved JSON and gives the accepted run a separate checkpoint namespace.
+The durable controller owns the namespace, so automatic reloads restore only
+this run's progress rather than restarting acquisition. Its mode and checkpoint
+identifier are recorded in the final JSON. Existing raw checkpoint records,
+other local settings and authentication cookies are preserved.
+
+The operator closes DevTools, refreshes Coursera and reopens Protocol monitor
+before registering a fresh command. This ends previous debugger registrations.
+An active capture in another tab blocks the new run before checkpoint changes.
+A failed fresh namespace write stops with explicit partial evidence rather than
+falling back to earlier records. Standard resume commands still recover the
+currently selected course checkpoint session after an actual interruption.
+
+The native Chromium check retains an interrupted 20-item checkpoint set, runs
+all 188 items in ten automatic documents twice, and verifies one lossless final
+JSON per fresh run, no repeat visits within either run, unchanged old records,
+preserved cookies and blocked concurrent fresh capture. The built UI check
+verifies that selecting an old JSON does not seed the fresh command, and that
+clipboard denial exposes the complete command. These fixtures do not replace
+an authenticated rerun of the user's course or change the strict evidence gate.
+
 ## v6.15.19: finish pending recovery visits before the final download
 
 A first live automatic capture ran 41 batches and exported 188 accounted items,

@@ -543,12 +543,21 @@ export function compactDiagnosticV6150(diag, fp) {
   return diag;
 }
 
-export function checkpointSessionIdV6150(courseId) {
+export function checkpointSessionIdV6150(courseId, requestedRunId = "") {
   const key = CTI_CHECKPOINT_SESSION_PREFIX + String(courseId || "unknown");
   try {
     const now = Date.now();
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) {}
+    if (requestedRunId) {
+      if (!/^fresh-[A-Za-z0-9_-]{8,100}$/.test(requestedRunId))
+        throw new Error("Invalid fresh checkpoint identifier.");
+      // A fresh command owns a separate namespace. Keep old records intact,
+      // and reuse this same namespace on every automatic document reload.
+      localStorage.setItem(key, JSON.stringify({ id: requestedRunId,
+        createdAt: saved && saved.id === requestedRunId ? saved.createdAt : now }));
+      return { id: requestedRunId, key };
+    }
     let id =
       saved &&
       typeof saved.id === "string" &&
@@ -590,12 +599,14 @@ export function openCheckpointDbV6150() {
   });
 }
 
-export async function createCheckpointManagerV6150(courseId) {
-  const session = checkpointSessionIdV6150(courseId);
+export async function createCheckpointManagerV6150(courseId, requestedRunId = "") {
+  const session = checkpointSessionIdV6150(courseId, requestedRunId);
   const runKey = session.id + "|" + String(courseId || "");
   let db = null;
   let error = "";
   try {
+    if (requestedRunId && !session.key)
+      throw new Error("Fresh capture checkpoint session could not be saved.");
     db = await openCheckpointDbV6150();
   } catch (e) {
     error = String((e && e.message) || e);

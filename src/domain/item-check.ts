@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.15.19" ||
-    delivery.buildId !== "v6.15.19-pending-retry-continuation-20261011"
+    delivery.version !== "v6.15.20" ||
+    delivery.buildId !== "v6.15.20-fresh-full-course-20261011"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",
