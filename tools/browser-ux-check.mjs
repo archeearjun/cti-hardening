@@ -310,14 +310,26 @@ try {
   await waitIdle();
   await page.getByRole("heading", { name: "Explore what is inside" }).waitFor();
   await page.getByLabel("Find source content").fill("Reading");
-  assert.equal(await page.locator(".source-items li > details > summary").filter({hasText:"Reading"}).count(), 1);
+  assert.equal(
+    await page
+      .locator(".source-items li > details > summary")
+      .filter({ hasText: "Reading" })
+      .count(),
+    1,
+  );
   assert.equal(
     await page.locator(".source-explorer .evidence-json").count(),
     0,
     "Closed evidence should not be formatted yet",
   );
-  await page.locator(".source-items li > details > summary").filter({hasText:"Reading"}).click();
-  await page.locator(".source-items blockquote").filter({hasText:"Learning about quantities"}).waitFor();
+  await page
+    .locator(".source-items li > details > summary")
+    .filter({ hasText: "Reading" })
+    .click();
+  await page
+    .locator(".source-items blockquote")
+    .filter({ hasText: "Learning about quantities" })
+    .waitFor();
   await page.getByText("Full entry evidence", { exact: true }).click();
   await page.locator(".source-items .evidence-json").waitFor();
   await page.getByText("Full entry evidence", { exact: true }).click();
@@ -442,6 +454,39 @@ try {
   const shellInput = page.getByLabel("Coursera authoring-shell URL", {
     exact: true,
   });
+  await shellInput.fill("");
+  const inferredShell =
+    "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit";
+  await page
+    .locator("#local-coursera-capture")
+    .setInputFiles({
+      name: "saved-first.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify({
+          ...localCapture,
+          page: { ...localCapture.page, url: inferredShell },
+          meta: { localCaptureBatch: { requiresReload: true, visits: 1 } },
+          fingerprints: [
+            {
+              id: "reading-1",
+              name: "Reading",
+              type: "Reading",
+              typeName: "supplement",
+              payload: { captureAttempts: 1 },
+            },
+          ],
+        }),
+      ),
+    });
+  await page
+    .getByText("BATCH SAVED — continue capture", { exact: true })
+    .waitFor();
+  assert.equal(
+    await shellInput.inputValue(),
+    inferredShell,
+    "Saved JSON can fill the matching authoring URL",
+  );
   await shellInput.fill("https://example.test/not-coursera");
   assert(
     await page
@@ -478,6 +523,71 @@ try {
     extractorText,
     courseraSource,
     "The local download must contain the complete current extractor bundle.",
+  );
+  const partialCapture = {
+    ...localCapture,
+    meta: { localCaptureBatch: { requiresReload: true, visits: 1 } },
+    fingerprints: [
+      {
+        id: "reading-1",
+        name: "Reading",
+        type: "Reading",
+        typeName: "supplement",
+        payload: { captureAttempts: 1 },
+      },
+    ],
+  };
+  await page
+    .locator("#local-coursera-capture")
+    .setInputFiles({
+      name: "saved-batch.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(partialCapture)),
+    });
+  await page
+    .getByText("BATCH SAVED — continue capture", { exact: true })
+    .waitFor();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page
+    .getByRole("button", { name: "Copy resume script", exact: true })
+    .click();
+  await page.getByText("resume script copied.", { exact: false }).waitFor();
+  const resume = await page.evaluate(() => navigator.clipboard.readText());
+  assert(
+    resume.includes(courseraSource.slice("javascript:".length)),
+    "Resume must contain the complete current canonical extractor",
+  );
+  assert(resume.includes("__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse("));
+  new Function(resume);
+  await page.evaluate(() => {
+    window.fixtureNativeClipboardWrite = navigator.clipboard.writeText.bind(
+      navigator.clipboard,
+    );
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: async () => {
+        throw Error("Synthetic permission denial");
+      },
+    });
+  });
+  await page
+    .getByRole("button", { name: "Copy resume script", exact: true })
+    .click();
+  const manualResume = page.getByLabel("Saved Coursera resume script", {
+    exact: true,
+  });
+  await manualResume.waitFor();
+  assert.equal(await manualResume.inputValue(), resume);
+  await manualResume.focus();
+  assert.equal(
+    await manualResume.evaluate((el) => el.selectionEnd - el.selectionStart),
+    resume.length,
+  );
+  await page.evaluate(() =>
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: window.fixtureNativeClipboardWrite,
+    }),
   );
   await page.locator("#local-coursera-capture").setInputFiles({
     name: "local-schema-35.json",
@@ -618,7 +728,13 @@ try {
   await page
     .getByRole("button", { name: "Download comparison", exact: true })
     .waitFor();
-  assert((await page.getByRole("region", { name: "Scrollable data table", exact: true }).innerText()).includes("Reading"));
+  assert(
+    (
+      await page
+        .getByRole("region", { name: "Scrollable data table", exact: true })
+        .innerText()
+    ).includes("Reading"),
+  );
   await tab("Analytics");
   assert.equal(
     await page

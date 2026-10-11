@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
 import {
   inspectLocalCourseraCaptureFile,
+  readLocalCourseraCaptureFile,
+  createSavedCourseraResumeScript,
   type LocalCourseraCaptureInspection,
 } from "../src/domain/coursera-local-extraction.ts";
 import type { ExtractorDelivery } from "../src/domain/types.ts";
@@ -27,6 +29,7 @@ export default function LocalCourseraExtraction({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [resumeSource, setResumeSource] = useState("");
 
   useEffect(() => {
     if (initialUrl) setShellUrl(initialUrl);
@@ -74,9 +77,9 @@ export default function LocalCourseraExtraction({
           <p className="eyebrow">ZERO-COST CAPTURE</p>
           <h2>Extract Coursera in your own Chrome</h2>
           <p>
-            CTI runs the current extractor inside the Coursera
-            tab where you are already signed in. Your computer supplies the
-            browser runtime; Cloudflare Browser Run is not required.
+            CTI runs the current extractor inside the Coursera tab where you are
+            already signed in. Your computer supplies the browser runtime;
+            Cloudflare Browser Run is not required.
           </p>
         </div>
         <span className="badge">No paid browser service</span>
@@ -95,6 +98,8 @@ export default function LocalCourseraExtraction({
             onUrlChange?.(value);
             setInspection(null);
             setCapture(null);
+            setResumeSource("");
+            setCopyStatus("");
           }}
           placeholder="https://www.coursera.org/teach/.../.../content/edit"
           autoComplete="off"
@@ -132,7 +137,8 @@ export default function LocalCourseraExtraction({
           <strong>Keep the Coursera tab open while it runs.</strong>
           <span>
             Slow Readings, assessments and plugins can legitimately take time.
-            The batch limit is checked between items so a slow editor can finish.
+            The batch limit is checked between items so a slow editor can
+            finish.
           </span>
         </li>
         <li>
@@ -238,7 +244,7 @@ export default function LocalCourseraExtraction({
               ? (capture.size / 1024 / 1024).toFixed(2) + " MiB"
               : shellTarget
                 ? "Inspection happens in this browser before the file enters Compare."
-                : "Enter the matching Coursera authoring-shell URL first so CTI can verify course identity."}
+                : "Choose your saved JSON. CTI can fill the authoring URL from its recorded course identity."}
           </span>
         </label>
         <input
@@ -246,12 +252,14 @@ export default function LocalCourseraExtraction({
           className="visually-hidden-file"
           type="file"
           accept=".json,application/json"
-          disabled={disabled || !!busy || !shellTarget}
+          disabled={disabled || !!busy}
           aria-describedby="local-coursera-capture-help"
           onChange={(event) => {
             const file = event.target.files?.[0] || null;
             setCapture(file);
             setInspection(null);
+            setResumeSource("");
+            setCopyStatus("");
             setError("");
             setNotice("");
             if (file)
@@ -260,11 +268,17 @@ export default function LocalCourseraExtraction({
                   file,
                   shellUrl,
                 );
+                if (!shellUrl.trim() && checked.authoringShellUrl) {
+                  setShellUrl(checked.authoringShellUrl);
+                  onUrlChange?.(checked.authoringShellUrl);
+                }
                 setInspection(checked);
                 setNotice(
                   checked.verdict.complete
                     ? "Local capture passed CTI's strict no-miss completion gate."
-                    : "Local capture is usable evidence, but CTI will not certify it as complete while required evidence remains unresolved.",
+                    : checked.pausedBatch
+                      ? "This batch saved your progress. Resume from this JSON to capture the remaining items."
+                      : "Local capture is usable evidence, but required evidence remains unresolved.",
                 );
               });
           }}
@@ -315,12 +329,22 @@ export default function LocalCourseraExtraction({
             <strong>
               {inspection.verdict.complete
                 ? "COMPLETE — strict capture gate passed"
-                : "INCOMPLETE — evidence retained, certification withheld"}
+                : inspection.pausedBatch
+                  ? "BATCH SAVED — continue capture"
+                  : "INCOMPLETE — evidence retained, certification withheld"}
             </strong>
             <p>
               Course <code>{inspection.courseId}</code> · schema{" "}
               {inspection.schemaVersion} · {inspection.extractor}
             </p>
+            {inspection.resumeAvailable && (
+              <p>
+                Reload the matching Coursera tab, then paste the resume script
+                from the button below. CTI restores saved observations and
+                continues with missing evidence. Repeated batches may be needed;
+                external content can still require review.
+              </p>
+            )}
             {!inspection.currentSchema && (
               <p className="hint">
                 This is an older compatible schema. Existing evidence remains
@@ -336,17 +360,51 @@ export default function LocalCourseraExtraction({
               </p>
             )}
             {!!reasons.length && (
-              <ul>
-                {reasons.slice(0, 30).map((reason) => (
-                  <li key={reason}>
-                    <code>{reason}</code>
-                  </li>
-                ))}
-              </ul>
+              <details>
+                <summary>Evidence gaps ({reasons.length})</summary>
+                <ul>
+                  {reasons.slice(0, 30).map((reason) => (
+                    <li key={reason}>
+                      <code>{reason}</code>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </div>
 
           <div className="action-links">
+            {inspection.resumeAvailable && capture && (
+              <button
+                className="primary"
+                disabled={disabled || !!busy || courseMismatch || !shellTarget}
+                onClick={() =>
+                  void act("Preparing saved capture resume", async () => {
+                    const current = await currentExtractor();
+                    const source = createSavedCourseraResumeScript(
+                      await readLocalCourseraCaptureFile(capture),
+                      shellUrl,
+                      current.script,
+                    );
+                    try {
+                      await navigator.clipboard.writeText(source);
+                      setResumeSource("");
+                      setCopyStatus(
+                        current.version +
+                          " resume script copied. Reload the matching Coursera tab, then paste in Console.",
+                      );
+                    } catch {
+                      setResumeSource(source);
+                      setCopyStatus(
+                        "Clipboard access is unavailable. Select and copy the full resume script below.",
+                      );
+                    }
+                  })
+                }
+              >
+                Copy resume script
+              </button>
+            )}
             {onUseCapture && capture && (
               <button
                 className="primary"
@@ -363,6 +421,18 @@ export default function LocalCourseraExtraction({
               </p>
             )}
           </div>
+          {resumeSource && (
+            <label>
+              Resume script — click inside, select all, and copy
+              <textarea
+                className="extractor-source"
+                aria-label="Saved Coursera resume script"
+                readOnly
+                value={resumeSource}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </label>
+          )}
         </>
       )}
     </section>

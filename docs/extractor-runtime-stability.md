@@ -1,5 +1,52 @@
 # Coursera extractor runtime stability
 
+## v6.15.15: stable empty Readings and resume from a saved JSON
+
+A supplied schema 35 capture retained 125 checkpoints and captured one new item
+before the v6.15.14 absolute 256 MiB guard yielded. The observed heap was about
+292 MiB, including the course application and restored evidence. Its inventory
+had 81 complete items, 62 unvisited items and 23 empty Reading observations without
+stable-empty receipts. The original file is private diagnostic input and is not
+included in this repository.
+
+The Reading recovery loop created `emptyReadingEvidence`, but the exact-evidence
+merge discarded that receipt. The merge now preserves only a receipt for the
+same exact item/course observation, with at least ten seconds of stable field
+observation, settled network samples, no attachment labels or frames, and zero
+untruncated observed/captured characters. A later exact observation replaces the
+receipt. Approximate editor snapshots cannot end an empty capture after the
+shorter two-second nonempty dwell. Existing files without the receipt are not
+retroactively declared empty: those fields must be observed again in Coursera.
+
+Local batches retain the shared 20-visit/five-minute bounds. Heap checks now yield
+at either 64 MiB of growth from the first editor's starting baseline or 384 MiB
+of total used heap. A repeat paste cannot reset the baseline or a yielded session;
+the limits are checked between checkpointed items. This permits useful progress
+when restored evidence already exceeds 256 MiB while bounding new renderer
+growth. Missing Chrome memory readings still use the visit/time bounds. These
+are acquisition guards, not a reproduction or guarantee against browser crashes.
+
+The **Extract** panel accepts a saved JSON before URL entry and can fill its
+matching recorded authoring URL. Incomplete schema 35 captures offer **Copy resume
+script**. The program contains the current complete extractor plus literal saved
+observations; it never sends the file to a remote browser. Clipboard denial offers
+a full selectable textarea. Paste after reloading the matching Coursera authoring
+tab. The extractor consumes the snapshot once, verifies origin/course identity
+before capture or storage work, and seeds only observed items matching the current
+inventory's IDs, names and raw types. Newer browser checkpoints take precedence;
+untouched, renamed or removed items are not seeded. It recalculates completion
+from restored payload evidence instead of importing accounting claims. Saved
+observations keep their timestamps and do not prove that old content is unchanged.
+Partial batches are labelled **BATCH SAVED — continue capture**, with detailed
+evidence reasons under a disclosure. External and untyped gaps remain explicit;
+similar titles with distinct item/ancestor identities are preserved.
+
+Regression checks exercise the real ten-second Reading recovery loop, its merge,
+IndexedDB reload, saved-file import with newer/renamed/unvisited items, wrong-course
+program guards, and built UI copy/fallback equality. Run `npm test`, `npm run build`,
+`npm run worker:check`, and the browser extractor/UX/choice checks. The item-refresh
+extension is version 1.0.4 and uses the same current v6.15.15 parsers.
+
 ## v6.15.14: local batches with reload and durable continuation
 
 The follow-up v6.15.13 log stops at primary item 126/188 at 1,691 seconds,

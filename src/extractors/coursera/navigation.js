@@ -132,11 +132,19 @@ export async function recoverReadingRouteV61311(fp, courseOrBranchId, template, 
         const itemAssets=(evidence.assetDetails || []).length;
         const scopedPayloadAbsent=Number(snapshot.files || 0)===0 && Number(snapshot.links || 0)===0 && Number(snapshot.frames || 0)===0 &&
           attachmentState.references.length===0 && scopedAssets.length===0;
+        // Editor chrome can make the quick snapshot look nonempty while the
+        // learner field is empty. Wait for the full empty-field dwell instead
+        // of returning a two-second observation that can never prove emptiness.
+        if(exactObservedCharacters===0 && itemAssets===0 && scopedPayloadAbsent && frames.length===0 &&
+            Date.now()-fieldStarted<10000 && !atLimit) {
+          await sleepMs(Math.min(400,Math.max(0,deadline-Date.now())));
+          continue;
+        }
         if(exactObservedCharacters===0 && itemAssets===0 && scopedPayloadAbsent && frames.length===0 &&
            attachments.unresolvedLabels.length===0 && !network.pendingRequests && stable>=3 && networkStable>=2 && Date.now()-fieldStarted>=10000) {
           evidence.emptyReadingEvidence={status:'OBSERVED_STABLE_EMPTY_READING',itemId:String(fp.id),courseId:String(courseOrBranchId),
             scope:'EXACT_READING_FIELD',observedAt:new Date().toISOString(),stableSamples:stable,
-            dwellMs:Date.now()-started,networkStableSamples:networkStable,unresolvedAttachmentLabels:0,frameCount:0};
+            dwellMs:Date.now()-fieldStarted,networkStableSamples:networkStable,unresolvedAttachmentLabels:0,frameCount:0};
         }
         if (!/document-viewer|reading-loading-placeholder/.test(evidence.textScopeKind || '')) evidence.textScopeKind = 'reading-content-field';
         if (evidence.readingEditorEvidence.unreadFrameCount) evidence.textEvidenceCompleteness = Math.min(0.72,Number(evidence.textEvidenceCompleteness || 0));

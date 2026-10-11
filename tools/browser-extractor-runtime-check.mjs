@@ -9,6 +9,7 @@ import { CTI_RELEASE_REGISTRY_ } from '../src/engine/release.js';
 import { courseraSource } from '../src/generated/extractor-sources.js';
 import { extractorFunctions } from './extractor-functions.cjs';
 import { ownerAccessFixture } from './browser-owner-fixture.mjs';
+import { createSavedCourseraResumeScript } from '../src/domain/coursera-local-extraction.ts';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const definitions=[...extractorFunctions(courseraSource).values()].join('\n');
@@ -198,6 +199,74 @@ try{
   }
   assert.equal(new Set(batchResults.flat()).size,45);
 
+  // An imported JSON recovers a lost session without downgrading newer work,
+  // copying untouched records into checkpoints, or crossing live identities.
+  await prepareBatchPage();
+  const imported=await batchPage.evaluate(async()=>{
+    const fresh=makeInventory().slice(0,4),saved=JSON.parse(JSON.stringify(fresh));
+    function complete(fp,text){fp.payload={captureAttempts:1,textSample:text,textConfidence:'high',
+      textEvidenceCompleteness:1,textScopeKind:'reading-content-field',
+      textCaptureEvidence:{method:'EXACT_READING_FIELD',itemId:fp.id,observedCharacters:text.length,capturedCharacters:text.length}};}
+    complete(saved[0],'Older saved observation.');complete(saved[1],'Saved observation recovered.');
+    saved[0].payload.lastCaptureAttemptAt=new Date(Date.now()-60000).toISOString();
+    saved[3].name='Different old title';complete(saved[3],'Cannot match the renamed item.');
+    const absent={...saved[1],id:'deleted-item'};
+    const capture={schemaVersion:35,extractedAt:new Date(Date.now()+1000).toISOString(),page:{courseId:'browser-batch-fixture'},fingerprints:[...saved,absent]};
+    const manager=await createCheckpointManagerV6150('browser-batch-fixture');
+    const newer=JSON.parse(JSON.stringify(fresh[0]));complete(newer,'Newer checkpoint observation.');
+    await manager.save(newer,null,'primary');
+    const seed=await manager.seed(capture,fresh),restored=await manager.restore(fresh);
+    let mismatchBlocked=false;
+    try{await manager.seed({...capture,page:{courseId:'different'}},fresh);}catch(_){mismatchBlocked=true;}
+    const meta=await activeSpaCrawl(fresh,'browser-batch-fixture',{readingRouteTemplate:{fixture:true},
+      localSession:createLocalCaptureSessionV61514(),checkpoint:(fp,diag,pass)=>manager.save(fp,diag,pass)});
+    const result={seed,restored,mismatchBlocked,newerText:fresh[0].payload.textSample,
+      importedText:fresh[1].payload.textSample,visited:meta.targetDiagnostics.map(d=>d.id)};
+    await manager.clear();manager.close();return result;
+  });
+  assert.equal(imported.seed.imported,1);assert.equal(imported.seed.keptNewer,1);assert.equal(imported.seed.skipped,3);
+  assert.equal(imported.restored.restored,2);assert.equal(imported.mismatchBlocked,true);
+  assert.equal(imported.newerText,'Newer checkpoint observation.');assert.equal(imported.importedText,'Saved observation recovered.');
+  assert.deepEqual(imported.visited,['reading-2','reading-3'],'Completed saved items must not be captured again');
+
+  const emptyPage=await browser.newPage();emptyPage.on('pageerror',error=>errors.push(error.message));
+  const emptyCourse='synthetic_empty_course',emptyItem='empty_reading';
+  await emptyPage.route('https://www.coursera.org/**',route=>route.fulfill({contentType:'text/html',body:
+    `<div style="width:300px;height:40px" contenteditable="true" role="textbox" aria-label="Reading Content" data-testid="${emptyCourse}+${emptyItem}"></div>`}));
+  await emptyPage.goto(`https://www.coursera.org/teach/synthetic/${emptyCourse}/content/item/supplement/${emptyItem}`);
+  await emptyPage.addScriptTag({content:constants+'\n'+definitions});
+  const emptyCapture=await emptyPage.evaluate(async({courseId,itemId})=>{
+    const fp={id:itemId,name:'Empty Reading',type:'Reading',typeName:'supplement',payload:{captureAttempts:1}};
+    // Reproduce an approximate snapshot that includes editor chrome, while
+    // keeping the real exact-field extraction and stability loop unchanged.
+    const quick=quickRootEvidenceSnapshot;
+    window.quickRootEvidenceSnapshot=(...args)=>({...quick(...args),textLength:1});
+    const recovery=await recoverReadingRouteV61311(fp,courseId,readingRouteTemplateV61312(courseId),
+      {reuseMounted:true,deadline:Date.now()+14000});
+    mergeReadingRecoveryV61311(fp,recovery);
+    const manager=await createCheckpointManagerV6150(courseId);await manager.save(fp,null,'primary');manager.close();
+    return {captured:recovery.captured,proof:fp.payload.emptyReadingEvidence,contract:captureContractV6150(fp)};
+  },{courseId:emptyCourse,itemId:emptyItem});
+  assert.equal(emptyCapture.captured,true);assert(emptyCapture.proof.dwellMs>=10000);
+  assert.equal(emptyCapture.contract.status,'COMPLETE_EMPTY_READING');
+  await emptyPage.reload();await emptyPage.addScriptTag({content:constants+'\n'+definitions});
+  const emptyRestored=await emptyPage.evaluate(async({courseId,itemId})=>{
+    const fp={id:itemId,name:'Empty Reading',type:'Reading',typeName:'supplement',payload:{}};
+    const manager=await createCheckpointManagerV6150(courseId),restored=await manager.restore([fp]);
+    const result={restored,proof:fp.payload.emptyReadingEvidence,status:captureContractV6150(fp).status};
+    await manager.clear();manager.close();return result;
+  },{courseId:emptyCourse,itemId:emptyItem});
+  assert.equal(emptyRestored.restored.restored,1);assert.deepEqual(emptyRestored.proof,emptyCapture.proof);
+  assert.equal(emptyRestored.status,'COMPLETE_EMPTY_READING');
+  const wrongCourseResume=createSavedCourseraResumeScript({schemaVersion:35,extractedAt:'2026-10-11T00:00:00Z',
+    page:{courseId:'different_course'},fingerprints:[{id:'reading',name:'Reading',type:'Reading',typeName:'supplement',payload:{}}]},
+    'https://www.coursera.org/teach/synthetic/different_course/content/edit',courseraSource);
+  const wrongCourse=await emptyPage.evaluate(async program=>{
+    await (0,eval)(program);return {locked:!!window.__CTI_ITEM_FIDELITY_RUN_LOCK,
+      resumeDataRetained:!!window.__CTI_LOCAL_CAPTURE_RESUME__};
+  },wrongCourseResume);
+  assert.equal(wrongCourse.locked,false);assert.equal(wrongCourse.resumeDataRetained,false);
+
   await prepareBatchPage();
   const failedCheckpoint=await batchPage.evaluate(async()=>{
     const session=createLocalCaptureSessionV61514(),fingerprints=makeInventory();
@@ -241,7 +310,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61514')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61515')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -266,6 +335,9 @@ try{
       'original fetch/XHR responses and Unicode preserved','unknown-length oversized JSON XHR copy bounded',
       'ineligible requests excluded','release restores capacity',
       '45-item capture across three fresh documents restores IndexedDB checkpoints without duplicate visits',
+      'saved JSON restores matching observed items, keeps newer checkpoints and visits only remaining items',
+      'real exact-empty Reading waits ten seconds, merges its proof and survives IndexedDB reload',
+      'actual saved-file resume blocks a different Coursera course before capture/storage work',
       'repasting cannot bypass renderer limits; partial exports remain incomplete',
       'failed checkpoint write stops further editor visits',
       'actual pasted bundle refuses repeat work until reload and copies a complete standalone continuation',

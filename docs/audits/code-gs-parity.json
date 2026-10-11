@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md. Runtime acquisition limits, native scrolling and export checkpoint ordering: docs/extractor-runtime-stability.md. Coursera v6.15.14 adds checkpointed local batches and reload continuation; see docs/extractor-runtime-stability.md.",
+      "note": "Current release metadata intentionally reports GENERATED_BROWSER_BUNDLE for maintained extractors; the archived Apps Script value remains hash-protected. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Generic assignment navigation correction: docs/audits/assignment-editor-navigation-2026-10-09.md. Runtime acquisition limits, native scrolling and export checkpoint ordering: docs/extractor-runtime-stability.md. Coursera v6.15.14 adds checkpointed local batches and reload continuation; see docs/extractor-runtime-stability.md. Coursera v6.15.15 preserves stable-empty Reading receipts, bounds heap growth and restores saved JSON against current identities; see docs/extractor-runtime-stability.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "e2ac47bb8540aad10938dc9b992663c73611cea697a726d6a1b0d9b98d5bb651"
+      "reviewedCurrentHash": "1fffce968dac8e7fce455136413cdf82a8073be35481f4eaeb4478e2f46d98f6"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.14/schema35",
+      "current": "v6.15.15/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "a9300b2df823681c924bca9186a2bbfa183bd5454c5f376b7f871817bf3fc76b"
+          "reviewedCurrentHash": "f4d7674a8d8d357ace8a774f99332520bea83a4c84eb276cdd55060f3f2f02eb"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4379,7 +4379,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "278434ac3095f58191f81084866fb41b9280ab80a275dbb2fada361b23602562"
+          "reviewedCurrentHash": "0bfa8a4b774313cca4137ac5f9d9a98d031718159d112c513d11eb306ecf4b5e"
         },
         {
           "name": "downloadJson",
@@ -4432,6 +4432,11 @@
           "reviewedCurrentHash": "332e24f304958fa46a0261ecee8dbfdc8ee33f4a1676ce9d21fc1ac7668ba77b"
         },
         {
+          "name": "mergeExactReadingEvidenceV61318",
+          "archivedHash": "cd1bc94bd8b69d90cd22d978316b7d4435ab01ddddbe0de736cd8e37d7693fd5",
+          "reviewedCurrentHash": "619b4fc2b6f2128812c19434cb2116a625da801f4a1b5875e376b17ad29c6e3d"
+        },
+        {
           "name": "parseAssignmentPartDomV665",
           "archivedHash": "e3067b840154f1d4f7d8fce1ce59ca8d9b92e7e7f900bd680174c659687faf28",
           "reviewedCurrentHash": "94933d0b9fae69fc3dd5de7b3aafd00bc53799349da66a2dce9c7317f63adace"
@@ -4449,7 +4454,7 @@
         {
           "name": "recoverReadingRouteV61311",
           "archivedHash": "618019da45b6116400b96e89e785b128478e5fda97f2163b7164fe89211ff96e",
-          "reviewedCurrentHash": "fcc7b9c4b0c6bed5d293970e410a45441127d347abd3c9721cd2fecde6da427e"
+          "reviewedCurrentHash": "1a892d28f107586633800c6d81e4352292441502c94ec694287d2628230016d5"
         },
         {
           "name": "recoverTypedEditorV61317",
@@ -4464,7 +4469,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "3fd23132a90a9db538c3608cb5bb626a30821f44835f6266486149be0989ea48"
+          "reviewedCurrentHash": "9c76c077b26b08e86d7d16c878d2b7ff170c7a2f675af6156c2815ff8d417e4e"
         },
         {
           "name": "scoreSurfaceForFingerprint",
@@ -4524,11 +4529,11 @@
         },
         {
           "name": "createCheckpointManagerV6150",
-          "reviewedCurrentHash": "aac643cfab0e88ee5ddb2e87a0726324089cfc93d48164c4d7e61f2154cb4a05"
+          "reviewedCurrentHash": "180adf034c5285fdda8683992f7f97da2aa8ab90d6674f3d0839f7ce2fb1540e"
         },
         {
           "name": "createLocalCaptureSessionV61514",
-          "reviewedCurrentHash": "32de4624df69de7062a36c828a9f097b53e41fba78e74bf2d5c8087eaccc74e5"
+          "reviewedCurrentHash": "18b559cc80b561754fa119e933b00f822147cbf0421c5874a5c1dc7add6b2a91"
         },
         {
           "name": "exportCaptureWithCheckpoints",
@@ -4561,6 +4566,10 @@
         {
           "name": "renderedChoiceLabelV6159",
           "reviewedCurrentHash": "d526eeb3e8920859aca89719c3b7eb4c77691aa9c85e36cf50842c4185f1aa22"
+        },
+        {
+          "name": "validateSavedCaptureResumeV61515",
+          "reviewedCurrentHash": "bca9afe6b99d55056a031e4f6e69f6d9bfacf1d471dc3d2eb5375207453b1a31"
         },
         {
           "name": "waitForVisibleV6154",
@@ -4660,10 +4669,16 @@
           "reviewedCurrentHash": "56340a7aef535b5553a73350df6f8ed2f7806d7eb80aebe0650eb98ae7fc0940"
         },
         {
+          "name": "CTI_LOCAL_HEAP_GROWTH_BYTES",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "5ecd187d275f2283e455117d3c65e9acf413cd1f2cdafc1d163b977a04204708"
+        },
+        {
           "name": "CTI_LOCAL_HEAP_YIELD_BYTES",
           "status": "added",
           "archivedHash": null,
-          "reviewedCurrentHash": "8779dbbe768b39ef687e5eb87b05b5a9f0e7ecb89339ab93c3f8b36b2aa4c48d"
+          "reviewedCurrentHash": "0022a2ea97d809c60d1b335b331462ef0c9d0aa633534ef75d1e48e6369ea69a"
         },
         {
           "name": "CTI_MAX_ITEM_ATTEMPTS",
@@ -4759,11 +4774,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "be2e9de1eb180fa2e40e6f20c408a6f644a2ced82680d82aa86bbcb078e40219"
+        "reviewedCurrentHash": "0c1284f3d9747a66e7d17ce7210a10f96813532793c916a8d4295887c6e79d48"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "e2ac47bb8540aad10938dc9b992663c73611cea697a726d6a1b0d9b98d5bb651"
+        "reviewedCurrentHash": "1fffce968dac8e7fce455136413cdf82a8073be35481f4eaeb4478e2f46d98f6"
       }
     }
   }

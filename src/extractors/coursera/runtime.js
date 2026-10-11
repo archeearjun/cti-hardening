@@ -1,4 +1,22 @@
-import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES } from "./config.js";
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from "./config.js";
+
+export function validateSavedCaptureResumeV61515(capture, expectedCourseId) {
+  if(!capture || capture.schemaVersion!==35 || capture.notForCourseAudit===true || capture.kind ||
+      !capture.page || String(capture.page.courseId || '')!==String(expectedCourseId || '') || !expectedCourseId ||
+      !Number.isFinite(Date.parse(capture.extractedAt || capture.capturedAt || '')) ||
+      !Array.isArray(capture.fingerprints) || !capture.fingerprints.length || capture.fingerprints.length>20000) {
+    throw new Error('Resume requires an original schema 35 capture for this Coursera course.');
+  }
+  const ids=new Set();
+  for(const fp of capture.fingerprints) {
+    if(!fp || typeof fp.id!=='string' || !fp.id || ids.has(fp.id) ||
+        !fp.payload || typeof fp.payload!=='object' || Array.isArray(fp.payload)) {
+      throw new Error('The saved capture contains invalid or duplicate item identities.');
+    }
+    ids.add(fp.id);
+  }
+  return capture;
+}
 
 export function createLocalCaptureSessionV61514() {
   // A second invocation in the same document cannot reset renderer pressure.
@@ -16,14 +34,16 @@ export function createLocalCaptureSessionV61514() {
       else if(state.visits>=CTI_LOCAL_BATCH_MAX_VISITS)state.yieldReason="LOCAL_RENDERER_VISIT_LIMIT";
       else if(state.startedAt && Date.now()-state.startedAt>=CTI_LOCAL_BATCH_MAX_MS)state.yieldReason="LOCAL_RENDERER_TIME_LIMIT";
       else if(state.visits>0 && heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_LIMIT";
+      else if(state.visits>0 && state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_GROWTH_LIMIT";
       return state.yieldReason;
     },
-    startItem() { if(!state.startedAt)state.startedAt=Date.now();state.visits++; },
+    startItem() { if(!state.startedAt){state.startedAt=Date.now();state.baselineHeapBytes=heapBytes();}state.visits++; },
     checkpointWritten(saved) { if(saved!==true)state.checkpointFailed=true; },
     snapshot() {
       return {visits:state.visits,elapsedMs:state.startedAt?Date.now()-state.startedAt:0,
         maxVisits:CTI_LOCAL_BATCH_MAX_VISITS,maxMs:CTI_LOCAL_BATCH_MAX_MS,
         observedHeapBytes:heapBytes(),heapYieldBytes:CTI_LOCAL_HEAP_YIELD_BYTES,
+        baselineHeapBytes:state.baselineHeapBytes || 0,heapGrowthLimitBytes:CTI_LOCAL_HEAP_GROWTH_BYTES,
         requiresReload:Boolean(state.yieldReason),yieldReason:state.yieldReason,
         checkpointFailed:state.checkpointFailed};
     }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { CTI_NETWORK_MAX_RETAINED_CHARS, CTI_NETWORK_MAX_RETAINED_RECORDS, CTI_NETWORK_MAX_PENDING_REQUESTS, CTI_NETWORK_MAX_RESPONSE_COPIES } from '../src/extractors/coursera/config.js';
 import { captureContractV6150, finalCaptureAccountingV6150 } from '../src/extractors/coursera/completion.js';
-import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES } from '../src/extractors/coursera/config.js';
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from '../src/extractors/coursera/config.js';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {functionCode}=require('../tools/assessment-fixture.cjs');
@@ -11,7 +11,7 @@ const {functionCode}=require('../tools/assessment-fixture.cjs');
 function localSessionFixture(heap=0){
   let now=1000;
   const context={window:{performance:{memory:{usedJSHeapSize:heap}}},Date:{now:()=>now},
-    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES};
+    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES,CTI_LOCAL_HEAP_GROWTH_BYTES};
   vm.createContext(context);vm.runInContext(functionCode('createLocalCaptureSessionV61514'),context);
   return {context,session:context.createLocalCaptureSessionV61514(),advance:ms=>{now+=ms;}};
 }
@@ -50,6 +50,17 @@ test('Failed checkpoint writes stop new visits and cannot be reset by repasting'
   f.session.checkpointWritten(true);
   assert.equal(f.context.createLocalCaptureSessionV61514().beforeItem(),'LOCAL_CHECKPOINT_UNAVAILABLE');
   assert.equal(f.session.snapshot().checkpointFailed,true);assert.equal(f.session.snapshot().visits,1);
+});
+test('A large restored course baseline can progress until bounded heap growth',()=>{
+  const baseline=280*1024*1024,f=localSessionFixture(baseline);
+  f.session.startItem();f.session.checkpointWritten(true);
+  f.context.window.performance.memory.usedJSHeapSize=baseline+10*1024*1024;
+  assert.equal(f.session.beforeItem(),'','A baseline above the former 256 MiB guard is not new renderer growth');
+  const resumed=f.context.createLocalCaptureSessionV61514();resumed.startItem();resumed.checkpointWritten(true);
+  f.context.window.performance.memory.usedJSHeapSize=baseline+CTI_LOCAL_HEAP_GROWTH_BYTES;
+  assert.equal(resumed.beforeItem(),'LOCAL_RENDERER_HEAP_GROWTH_LIMIT');
+  assert.equal(resumed.snapshot().baselineHeapBytes,baseline,'Repasting must not reset the baseline');
+  assert.equal(resumed.snapshot().heapGrowthLimitBytes,CTI_LOCAL_HEAP_GROWTH_BYTES);
 });
 
 function recorderFor(response,limit=1024,overrides={}){

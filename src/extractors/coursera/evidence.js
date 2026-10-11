@@ -405,6 +405,18 @@ export function mergeExactReadingEvidenceV61318(fp, evidence) {
     }
     mergeEvidence(p,evidence,'active-editor-surface');
     if(certified && String(p.textSample || '')===String(evidence.textSample || '')) {
+      // The empty-field receipt belongs to this exact observation. Generic
+      // evidence merging intentionally does not copy arbitrary payload fields.
+      delete p.emptyReadingEvidence;
+      const empty=evidence.emptyReadingEvidence;
+      if(empty && empty.status==='OBSERVED_STABLE_EMPTY_READING' && empty.itemId===String(fp.id) &&
+          empty.scope==='EXACT_READING_FIELD' && empty.courseId===receipt.courseId &&
+          Number(receipt.observedCharacters)===0 && Number(receipt.capturedCharacters)===0 &&
+          evidence.textCaptureTruncated!==true && Number(empty.dwellMs)>=10000 &&
+          Number(empty.stableSamples)>=3 && Number(empty.networkStableSamples)>=2 &&
+          Number(empty.unresolvedAttachmentLabels)===0 && Number(empty.frameCount)===0) {
+        p.emptyReadingEvidence=empty;
+      }
       p.textCaptureEvidence=receipt;p.textCaptureLimit=evidence.textCaptureLimit;
       p.textCaptureTruncated=Boolean(evidence.textCaptureTruncated);
       p.fullObservedTextLength=Number(evidence.fullObservedTextLength || 0);

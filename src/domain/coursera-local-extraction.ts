@@ -1,4 +1,5 @@
 import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
+import { validateSavedCaptureResumeV61515 } from "../extractors/coursera/runtime.js";
 import {
   evaluateCourseraCapture,
   parseCourseraShellUrl,
@@ -16,6 +17,10 @@ export interface LocalCourseraCaptureInspection {
   verdict: CourseraCaptureVerdict;
   currentSchema: boolean;
   currentVersion: boolean;
+  resumeAvailable: boolean;
+  pausedBatch: boolean;
+  batchVisits: number;
+  authoringShellUrl: string;
 }
 
 const record = (value: unknown): Record<string, any> => {
@@ -93,8 +98,21 @@ export function inspectLocalCourseraCapture(
   const capturedAt = String(
     capture.capturedAt || capture.extractedAt || meta.capturedAt || "",
   );
-  const currentVersion =
-    (extractor + " " + buildId).includes(current.version);
+  const currentVersion = (extractor + " " + buildId).includes(current.version);
+  let resumeAvailable = false;
+  try {
+    validateSavedCaptureResumeV61515(capture, expectedCourseId);
+    resumeAvailable = !verdict.complete;
+  } catch {
+    /* Older evidence remains inspectable without a resume claim. */
+  }
+  let authoringShellUrl = "";
+  try {
+    const target = parseCourseraShellUrl(String(page.url || ""));
+    if (target.courseId === courseId) authoringShellUrl = target.shellUrl;
+  } catch {
+    /* A capture can be inspected without a recorded authoring URL. */
+  }
 
   return {
     courseId,
@@ -105,15 +123,17 @@ export function inspectLocalCourseraCapture(
     verdict,
     currentSchema: schemaVersion === current.schema,
     currentVersion,
+    resumeAvailable,
+    pausedBatch: meta.localCaptureBatch?.requiresReload === true,
+    batchVisits: Number(meta.localCaptureBatch?.visits || 0),
+    authoringShellUrl,
   };
 }
 
-export async function inspectLocalCourseraCaptureFile(
+export async function readLocalCourseraCaptureFile(
   file: File,
-  expectedShellUrl = "",
-): Promise<LocalCourseraCaptureInspection> {
-  if (file.size < 1)
-    throw new Error("The selected capture file is empty.");
+): Promise<unknown> {
+  if (file.size < 1) throw new Error("The selected capture file is empty.");
   if (file.size > MAX_LOCAL_COURSERA_CAPTURE_BYTES)
     throw new Error(
       "The selected Coursera capture exceeds the 40 MiB local inspection limit.",
@@ -124,5 +144,56 @@ export async function inspectLocalCourseraCaptureFile(
   } catch {
     throw new Error("The selected Coursera capture is not valid JSON.");
   }
-  return inspectLocalCourseraCapture(parsed, expectedShellUrl);
+  return parsed;
+}
+
+export async function inspectLocalCourseraCaptureFile(
+  file: File,
+  expectedShellUrl = "",
+): Promise<LocalCourseraCaptureInspection> {
+  return inspectLocalCourseraCapture(
+    await readLocalCourseraCaptureFile(file),
+    expectedShellUrl,
+  );
+}
+
+export function createSavedCourseraResumeScript(
+  value: unknown,
+  shellUrl: string,
+  currentScript: string,
+): string {
+  const courseId = parseCourseraShellUrl(shellUrl).courseId;
+  const capture = record(value);
+  inspectLocalCourseraCapture(capture, shellUrl);
+  validateSavedCaptureResumeV61515(capture, courseId);
+  if (
+    !currentScript.startsWith("javascript:(async function ctiCourseraCapture")
+  )
+    throw new Error(
+      "The current Coursera extractor is unavailable. Reload CTI and try again.",
+    );
+  // Retain observations, not exported accounting claims. The extractor checks
+  // these against the live inventory and recalculates every completion verdict.
+  const snapshot = JSON.stringify({
+    schemaVersion: capture.schemaVersion,
+    extractedAt: capture.extractedAt || capture.capturedAt,
+    page: { courseId },
+    fingerprints: capture.fingerprints,
+  });
+  if (
+    new TextEncoder().encode(snapshot).byteLength >
+    MAX_LOCAL_COURSERA_CAPTURE_BYTES
+  )
+    throw new Error("The saved capture exceeds the 40 MiB resume limit.");
+  const literal = JSON.stringify(snapshot).replace(
+    /[<>&\u2028\u2029]/g,
+    (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+  return (
+    "javascript:(()=>{\nwindow.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
+    literal +
+    ");\n" +
+    currentScript.slice("javascript:".length) +
+    "\n})();"
+  );
 }

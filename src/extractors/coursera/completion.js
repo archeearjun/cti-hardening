@@ -2,6 +2,7 @@ import { isAssessmentLikeFingerprintV662 } from "./assessments-2.js";
 import { assessmentTypeKey } from "./assessments.js";
 import { isObservedWrittenResponseV6138 } from "./text-and-dom-3.js";
 import { uniqueAssetDetails } from "./assets.js";
+import { validateSavedCaptureResumeV61515 } from "./runtime.js";
 import {
   CTI_CHECKPOINT_DB,
   CTI_CHECKPOINT_SESSION_PREFIX,
@@ -598,6 +599,39 @@ export async function createCheckpointManagerV6150(courseId) {
     saved: 0,
   };
   manager.close = () => { if (db) db.close(); };
+  manager.seed = async (capture, fingerprints) => {
+    validateSavedCaptureResumeV61515(capture, courseId);
+    if(!db)throw new Error('Browser checkpoints are unavailable. Enable Coursera browser storage before resuming.');
+    const current=new Map((fingerprints || []).map(fp=>[String(fp.id),fp]));
+    const capturedAt=Date.parse(capture.extractedAt || capture.capturedAt);
+    let imported=0,keptNewer=0,skipped=0;
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(CTI_CHECKPOINT_STORE,'readwrite');
+      const store=tx.objectStore(CTI_CHECKPOINT_STORE);
+      for(const saved of capture.fingerprints) {
+        const fresh=current.get(saved.id),p=saved.payload;
+        const observed=Number(p.captureAttempts || 0)>0 || p.checkpointRestored===true || captureContractV6150(saved).complete;
+        if(!fresh || String(saved.name || '')!==String(fresh.name || '') ||
+            String(saved.typeName || '')!==String(fresh.typeName || '') || !observed) {skipped++;continue;}
+        // A later batch export can contain older restored item observations.
+        // Compare the item's observation time before falling back to file time.
+        const observedAt=Date.parse(p.lastCaptureAttemptAt || '');
+        const savedAt=Number.isFinite(observedAt)?observedAt:capturedAt;
+        const key=runKey+'|'+saved.id;
+        const req=store.get(key);
+        req.onsuccess=()=>{
+          if(req.result && Number(req.result.savedAt)>=savedAt) {keptNewer++;return;}
+          store.put({key,runKey,itemId:saved.id,savedAt,pass:'saved-json-resume',fingerprint:saved});
+          imported++;
+        };
+      }
+      tx.oncomplete=()=>resolve();
+      tx.onerror=()=>reject(tx.error || new Error('Saved capture checkpoint import failed.'));
+      tx.onabort=()=>reject(tx.error || new Error('Saved capture checkpoint import was aborted.'));
+    });
+    return {available:true,imported,keptNewer,skipped,capturedAt:new Date(capturedAt).toISOString(),
+      meaning:'Saved observations restored against current item identities; remaining evidence must still be captured.'};
+  };
   manager.restore = async (fingerprints) => {
     if (!db) return { available: false, restored: 0, error };
     let rows = [];
