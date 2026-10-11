@@ -1414,6 +1414,7 @@ export default {
           artifactBinding: !!env.ARTIFACTS,
           workflowBinding: !!env.EXTRACTION_WORKFLOW,
           sessionEncryption: !!env.CTI_SESSION_KEY,
+          editable: ["admin", "editor"].includes(caller.role),
         });
 
       if (path[0] === "session" && method === "GET") {

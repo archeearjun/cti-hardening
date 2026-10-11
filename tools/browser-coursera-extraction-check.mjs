@@ -41,7 +41,7 @@ try {
   await ownerAccessFixture(context);
   await context.addInitScript(() => {
     if (/^https?:$/.test(location.protocol))
-      localStorage.setItem("cti-workspace-mode", "team");
+      localStorage.setItem("cti-workspace-mode", "local");
   });
   const jobs = [],
     downloads = [],
@@ -73,6 +73,17 @@ try {
           connected: sessionConnected,
           connectedAt: "2026-10-11T00:00:00Z",
           verifiedCourseId: "Course_id_123",
+        },
+      });
+    if (pathname === "/api/extraction/health")
+      return route.fulfill({
+        json: {
+          ok: true,
+          editable: true,
+          browserBinding: true,
+          artifactBinding: true,
+          workflowBinding: true,
+          sessionEncryption: true,
         },
       });
     if (pathname === "/api/extraction/jobs") {

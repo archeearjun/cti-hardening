@@ -7,6 +7,28 @@ export interface CourseraConnectionSummary {
   verifiedCourseId: string;
 }
 
+export async function courseraExtractorService(signal?: AbortSignal) {
+  const response = await fetch("/api/extraction/health", {
+    credentials: "same-origin",
+    cache: "no-store",
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+      : AbortSignal.timeout(5000),
+  });
+  if (!response.ok || response.redirected)
+    return { available: false, editable: false };
+  const health = await response.json();
+  return {
+    available:
+      health?.ok === true &&
+      health.browserBinding === true &&
+      health.artifactBinding === true &&
+      health.workflowBinding === true &&
+      health.sessionEncryption === true,
+    editable: health?.editable === true,
+  };
+}
+
 export async function courseraConnection(
   signal?: AbortSignal,
 ): Promise<CourseraConnectionSummary> {

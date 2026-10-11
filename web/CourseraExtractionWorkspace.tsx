@@ -10,6 +10,7 @@ import {
   courseraCaptureDownloadUrl,
   courseraCaptureFile,
   courseraConnection,
+  courseraExtractorService,
   disconnectCoursera,
   readCourseraExtractionJob,
   recentCourseraExtractions,
@@ -42,6 +43,12 @@ export default function CourseraExtractionWorkspace({
   onUseCapture?: (file: File) => void;
   initialUrl?: string;
 }) {
+  const [service, setService] = useState<{
+    available: boolean;
+    editable: boolean;
+  } | null>(null);
+  const remoteEnabled = service?.available === true;
+  const remoteEditable = editable && service?.editable === true;
   const [shellUrl, setShellUrl] = useState(initialUrl);
   const [session, setSession] = useState<CourseraConnectionSummary | null>(
     null,
@@ -66,9 +73,21 @@ export default function CourseraExtractionWorkspace({
   useEffect(() => {
     if (initialUrl) setShellUrl(initialUrl);
   }, [initialUrl]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void courseraExtractorService(controller.signal)
+      .then((service) => {
+        if (mounted.current && !controller.signal.aborted) setService(service);
+      })
+      .catch(() => {
+        if (mounted.current && !controller.signal.aborted)
+          setService({ available: false, editable: false });
+      });
+    return () => controller.abort();
+  }, [enabled]);
 
   async function refreshSession(signal?: AbortSignal) {
-    if (!enabled) {
+    if (!remoteEnabled) {
       setSession(null);
       return;
     }
@@ -77,7 +96,7 @@ export default function CourseraExtractionWorkspace({
   }
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!remoteEnabled) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -102,10 +121,10 @@ export default function CourseraExtractionWorkspace({
       }
     })();
     return () => controller.abort();
-  }, [enabled]);
+  }, [remoteEnabled]);
 
   useEffect(() => {
-    if (!enabled || !extractionJob || !running(extractionJob)) return;
+    if (!remoteEnabled || !extractionJob || !running(extractionJob)) return;
     const controller = new AbortController();
     const poll = async () => {
       try {
@@ -174,10 +193,10 @@ export default function CourseraExtractionWorkspace({
       clearInterval(timer);
       controller.abort();
     };
-  }, [enabled, extractionJob?.id, extractionJob?.state]);
+  }, [remoteEnabled, extractionJob?.id, extractionJob?.state]);
 
   useEffect(() => {
-    if (!enabled || !extractionJob || !terminal(extractionJob)) return;
+    if (!remoteEnabled || !extractionJob || !terminal(extractionJob)) return;
     const controller = new AbortController();
     const job = extractionJob;
     const attempt = () =>
@@ -228,7 +247,7 @@ export default function CourseraExtractionWorkspace({
       });
     return () => controller.abort();
   }, [
-    enabled,
+    remoteEnabled,
     extractionJob?.id,
     extractionJob?.state,
     extractionJob?.artifactAvailable,
@@ -252,7 +271,7 @@ export default function CourseraExtractionWorkspace({
     }
   }
 
-  if (!enabled)
+  if (!remoteEnabled)
     return (
       <>
         <LocalCourseraExtraction
@@ -264,15 +283,17 @@ export default function CourseraExtractionWorkspace({
         <details className="card remote-extraction-advanced">
           <summary>Optional remote background extraction</summary>
           <p className="empty-state">
-            The shared remote Browser Run service is not configured in this
-            workspace. Local Chrome extraction above remains available and does
-            not require a paid browser service.
+            {service === null
+              ? "Checking automatic capture availability. "
+              : "The shared remote Browser Run service is not configured in this "}
+            {service === null ? "" : "workspace. "}Local Chrome extraction above
+            remains available and does not require a paid browser service.
           </p>
         </details>
       </>
     );
 
-  const locked = disabled || !!busy || !editable,
+  const locked = disabled || !!busy || !remoteEditable,
     extractionActive = running(extractionJob);
 
   return (
@@ -626,7 +647,7 @@ export default function CourseraExtractionWorkspace({
           </details>
         )}
 
-        {!editable && (
+        {!remoteEditable && (
           <p className="hint">
             Your shared CTI account is read-only. An editor or administrator can
             start remote extraction jobs; local Chrome extraction below does not

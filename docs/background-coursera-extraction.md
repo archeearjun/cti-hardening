@@ -141,7 +141,8 @@ the UI does not pretend background extraction exists.
 
 ## Operator flow
 
-1. Open **Full CTI workspace → Extract** in the connected team workspace.
+1. Open **Full CTI workspace → Extract**. CTI checks the authenticated capture
+   service directly; records may remain in local workspace mode.
 2. Paste the Coursera authoring-shell URL and choose **Start full-course capture**.
 3. Complete organization SSO/MFA in the temporary sign-in view if prompted.
 4. CTI captures and resumes automatically. Intermediate batches remain internal.

@@ -52,7 +52,7 @@ const load = new Function(
   "finalCaptureAccountingV6150",
   "evaluateCourseraCapture",
   "parseCourseraShellUrl",
-  executable + ";return {CourseraExtractionWorkflow};",
+  executable + ";return {CourseraExtractionWorkflow,worker};",
 );
 const payload = {
   kind: "extract",
@@ -121,6 +121,7 @@ async function harness(captures, { launchError } = {}) {
   const env = {
     CTI_SESSION_KEY: "synthetic-test-secret-at-least-32-characters",
     BROWSER: {},
+    EXTRACTION_WORKFLOW: {},
     ARTIFACTS: {
       async put(key, value) {
         objects.set(key, value);
@@ -213,7 +214,7 @@ async function harness(captures, { launchError } = {}) {
       },
     };
   };
-  const { CourseraExtractionWorkflow } = load(
+  const { CourseraExtractionWorkflow, worker } = load(
     launch,
     async () => ({
       allowedBrowserAcquisitions: 1,
@@ -243,7 +244,23 @@ async function harness(captures, { launchError } = {}) {
         },
       },
     );
-  return { run, objects, receipts };
+  return {
+    run,
+    objects,
+    receipts,
+    health: async (role) =>
+      (
+        await worker.fetch(
+          new Request("https://internal/health", {
+            headers: {
+              "x-cti-user": "synthetic@example.test",
+              "x-cti-role": role,
+            },
+          }),
+          env,
+        )
+      ).json(),
+  };
 }
 
 test("Worker resumes encrypted checkpoints in a fresh browser and publishes only the final verdict", async () => {
@@ -304,4 +321,18 @@ test("unavailable item checkpoint storage stops rather than silently continuing"
   assert.equal(h.receipts.closed, 1);
   assert.equal(h.receipts.statuses.at(-1).state, "FAILED");
   assert.equal(h.receipts.statuses.at(-1).artifactAvailable, true);
+});
+
+test("capture service discovery reports availability and trusted read-only permission independently of record storage", async () => {
+  const h = await harness([capture(2, false)]);
+  const viewer = await h.health("viewer"),
+    editor = await h.health("editor");
+  assert.equal(viewer.ok, true);
+  assert.equal(viewer.editable, false);
+  assert.equal(editor.editable, true);
+  assert.equal(editor.browserBinding, true);
+  assert.equal(editor.artifactBinding, true);
+  assert.equal(editor.workflowBinding, true);
+  assert.equal(editor.sessionEncryption, true);
+  assert.equal(h.receipts.launches, 0);
 });
