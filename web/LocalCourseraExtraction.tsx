@@ -5,6 +5,7 @@ import {
   readLocalCourseraCaptureFile,
   createSavedCourseraResumeScript,
   createAutomaticLocalCourseraCommand,
+  createSavedCourseraCheckpointExportCommand,
   type LocalCourseraCaptureInspection,
 } from "../src/domain/coursera-local-extraction.ts";
 import type { ExtractorDelivery } from "../src/domain/types.ts";
@@ -94,6 +95,20 @@ export default function LocalCourseraExtraction({
     });
   }
 
+  async function copySavedProgressCommand() {
+    await act("Preparing saved-progress export", async () => {
+      const current = await currentExtractor();
+      const command = createSavedCourseraCheckpointExportCommand(shellUrl, current.script);
+      setAutomaticCommand(command);
+      try {
+        await navigator.clipboard.writeText(command);
+        setCopyStatus("Saved-progress export command copied. Close DevTools, reload the matching Coursera authoring shell, reopen Protocol monitor, turn Record off, clear its log and paste into the bottom command input. This exports saved observations without opening item editors.");
+      } catch {
+        setCopyStatus("Copy the complete command below. Close DevTools, reload Coursera and paste into Protocol monitor with Record off to export saved progress.");
+      }
+    });
+  }
+
   return (
     <section className="card local-extraction-card">
       <div className="section-heading">
@@ -179,14 +194,17 @@ export default function LocalCourseraExtraction({
         </li>
       </ol>
       <p className="hint">
-        CTI checkpoints each item and reloads between short renderer batches;
-        slow assessments finish before that boundary. It restores saved work
+        CTI checkpoints each item and reloads between short renderer batches.
+        Long assessments also pause at saved question boundaries, so one large
+        item can continue across several reloads. It restores saved work
         without intermediate downloads or repeated pastes. Large assessments
         also save identified question observations during collection. The
         progress card shows the active item and its question count; a course
         visit finishes after the whole item has been read. If Chrome actually
-        shows “Aw, Snap!”, reload the tab and copy a new command to resume from
-        checkpoints. Closing DevTools also requires a new command.
+        shows “Aw, Snap!”, close DevTools and reload the authoring shell.
+        Export saved progress first, then use the regular automatic command to
+        resume. Reopen Protocol monitor with Record off and clear its log before
+        pasting. Closing DevTools also requires a new command.
         {" "}<a href="https://developer.chrome.com/docs/devtools/protocol-monitor"
           target="_blank" rel="noopener noreferrer">Chrome's official instructions ↗</a>
       </p>
@@ -220,6 +238,10 @@ export default function LocalCourseraExtraction({
         >
           Copy fresh full-course command
         </button>
+        <button className="secondary" disabled={disabled || !!busy || !shellTarget}
+          onClick={() => void copySavedProgressCommand()}>
+          Copy saved-progress export command
+        </button>
       </div>
       <p className="hint">
         To test the whole course again, use <strong>Copy fresh full-course command</strong>.
@@ -228,6 +250,12 @@ export default function LocalCourseraExtraction({
         reloads. Before pasting, close DevTools, refresh Coursera and reopen
         Protocol monitor to end any earlier registration. Keep your previous
         JSON files for comparison.
+      </p>
+      <p className="hint">
+        After a crash, <strong>Copy saved-progress export command</strong> recovers
+        this course's saved item and question observations into a JSON without
+        opening editors. It keeps checkpoints available for the regular resume
+        command. A saved-progress export shows unfinished items explicitly.
       </p>
       <details className="scope">
         <summary>Manual Console capture (requires reloads between batches)</summary>

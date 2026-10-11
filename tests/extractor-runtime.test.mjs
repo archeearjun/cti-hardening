@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { CTI_NETWORK_MAX_RETAINED_CHARS, CTI_NETWORK_MAX_RETAINED_RECORDS, CTI_NETWORK_MAX_PENDING_REQUESTS, CTI_NETWORK_MAX_RESPONSE_COPIES } from '../src/extractors/coursera/config.js';
 import { captureContractV6150, finalCaptureAccountingV6150 } from '../src/extractors/coursera/completion.js';
-import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from '../src/extractors/coursera/config.js';
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS, CTI_LOCAL_ASSESSMENT_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from '../src/extractors/coursera/config.js';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {functionCode}=require('../tools/assessment-fixture.cjs');
@@ -11,7 +11,7 @@ const {functionCode}=require('../tools/assessment-fixture.cjs');
 function localSessionFixture(heap=0){
   let now=1000;
   const context={window:{performance:{memory:{usedJSHeapSize:heap}}},Date:{now:()=>now},
-    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES,CTI_LOCAL_HEAP_GROWTH_BYTES};
+    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,CTI_LOCAL_ASSESSMENT_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES,CTI_LOCAL_HEAP_GROWTH_BYTES};
   vm.createContext(context);vm.runInContext(functionCode('createLocalCaptureSessionV61514'),context);
   return {context,session:context.createLocalCaptureSessionV61514(),advance:ms=>{now+=ms;}};
 }

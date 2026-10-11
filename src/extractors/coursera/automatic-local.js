@@ -16,7 +16,8 @@ export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvai
   const progress=JSON.stringify([fingerprints.length,
     fingerprints.filter(fp=>Number(fp.payload && fp.payload.captureAttempts || 0)>0 || fp.payload && fp.payload.checkpointRestored).length,
     fingerprints.reduce((n,fp)=>n+Number(fp.payload && fp.payload.captureAttempts || 0),0),
-    Number(accounting.completeCount || 0)]);
+    Number(accounting.completeCount || 0),
+    fingerprints.reduce((n,fp)=>n+Number(fp.payload?.assessmentCaptureInProgress?.assessment?.questions?.length || 0),0)]);
   const next=Object.assign({},plan,{batches:Number(plan.batches || 0)+1,lastProgress:progress,
     stalled:plan.lastProgress===progress?Number(plan.stalled || 0)+1:0,updatedAt:now});
   let reason='';

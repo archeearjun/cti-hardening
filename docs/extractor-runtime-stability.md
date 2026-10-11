@@ -1,5 +1,39 @@
 # Coursera extractor runtime stability
 
+## v6.15.21: safe question batches and saved-progress recovery
+
+A new live report described an Aw, Snap! crash around 18 of 165 items after a
+long wait. Its screenshot shows error code 5 and retained Protocol monitor
+traffic; it does not establish the crash cause. Existing renderer checks ran
+between course items, so a single long assessment could occupy one renderer
+for up to its full 15-minute observation budget.
+
+Automatic local capture now yields at committed question checkpoints, after
+roughly 25 new observations, two minutes, or measured heap pressure. It preserves
+the unfinished-visit marker, raw observations and original editor-attempt count,
+harvests accepted item-scoped network evidence, and reloads through the existing
+controller. Question counts now participate in stall detection. Rediscovering
+a saved prefix causes no repeated progress writes. Same-visit partial questions
+must match the live outline identity, ordinal and prompt; missing keys remain
+missing and a later recovery attempt can inspect them afresh. Manual and remote
+capture retain their existing scheduling. Strict completeness is unchanged.
+
+A separate saved-progress command exports the current stored observations
+against the live inventory without opening editors. It reads the existing
+session even after its normal resume TTL, and cannot write, import or clear the
+checkpoint store. The export explicitly records that observations were not
+refreshed. Empty checkpoint stores produce a visible explanation instead of a
+new acquisition run. This also makes captured work available before a full
+course extraction succeeds.
+
+Verification includes partial answer evidence, more than twenty question-only
+continuations, time/heap/checkpoint failure boundaries, built command delivery,
+and a 165-item synthetic native Chrome course with a 609-question virtualized
+assessment. The native check kills its renderer using `Page.crash`, recovers
+saved observations through read-only export, and resumes to one final JSON.
+External course observations are synthetic; this is not certification of the
+reported private course or proof that error code 5 was caused by memory.
+
 ## v6.15.20: fresh full-course reruns
 
 The normal automatic command restores browser checkpoints, which is useful for

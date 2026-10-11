@@ -167,6 +167,17 @@ export function createAutomaticLocalCourseraCommand(
   }});
 }
 
+export function createSavedCourseraCheckpointExportCommand(shellUrl: string, currentScript: string): string {
+  const target = parseCourseraShellUrl(shellUrl);
+  if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
+    throw new Error("The current Coursera extractor is unavailable. Reload CTI.");
+  const source = "(()=>{if(window!==window.top || location.origin!==\"https://www.coursera.org\" || !location.pathname.startsWith(" +
+    JSON.stringify(new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content")) +
+    "))return;window.__CTI_LOCAL_CHECKPOINT_EXPORT__=" + JSON.stringify(target) + ";return " +
+    currentScript.slice("javascript:".length) + "\n})();";
+  return JSON.stringify({cmd: "Runtime.evaluate", args: {expression: source, awaitPromise: true, returnByValue: true}});
+}
+
 export async function readLocalCourseraCaptureFile(
   file: File,
 ): Promise<unknown> {

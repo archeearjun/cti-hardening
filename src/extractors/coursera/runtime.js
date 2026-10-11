@@ -1,4 +1,4 @@
-import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from "./config.js";
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS, CTI_LOCAL_ASSESSMENT_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from "./config.js";
 
 export function validateSavedCaptureResumeV61515(capture, expectedCourseId) {
   if(!capture || capture.schemaVersion!==35 || capture.notForCourseAudit===true || capture.kind ||
@@ -38,9 +38,20 @@ export function createLocalCaptureSessionV61514() {
       return state.yieldReason;
     },
     startItem() { if(!state.startedAt){state.startedAt=Date.now();state.baselineHeapBytes=heapBytes();}state.visits++; },
+    afterQuestionCheckpoint(newQuestions, complete) {
+      state.questionObservations=Number(state.questionObservations || 0)+Math.max(0,Number(newQuestions || 0));
+      if(complete)return '';
+      if(state.checkpointFailed)state.yieldReason='LOCAL_CHECKPOINT_UNAVAILABLE';
+      else if(state.questionObservations>=CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS)state.yieldReason='LOCAL_RENDERER_QUESTION_LIMIT';
+      else if(state.startedAt && Date.now()-state.startedAt>=CTI_LOCAL_ASSESSMENT_MAX_MS)state.yieldReason='LOCAL_RENDERER_QUESTION_TIME_LIMIT';
+      else if(heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason='LOCAL_RENDERER_HEAP_LIMIT';
+      else if(state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason='LOCAL_RENDERER_HEAP_GROWTH_LIMIT';
+      return state.yieldReason || '';
+    },
     checkpointWritten(saved) { if(saved!==true)state.checkpointFailed=true; },
     snapshot() {
       return {visits:state.visits,elapsedMs:state.startedAt?Date.now()-state.startedAt:0,
+        questionObservations:Number(state.questionObservations || 0),maxQuestionObservations:CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,
         maxVisits:CTI_LOCAL_BATCH_MAX_VISITS,maxMs:CTI_LOCAL_BATCH_MAX_MS,
         observedHeapBytes:heapBytes(),heapYieldBytes:CTI_LOCAL_HEAP_YIELD_BYTES,
         baselineHeapBytes:state.baselineHeapBytes || 0,heapGrowthLimitBytes:CTI_LOCAL_HEAP_GROWTH_BYTES,

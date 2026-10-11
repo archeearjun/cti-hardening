@@ -543,12 +543,15 @@ export function compactDiagnosticV6150(diag, fp) {
   return diag;
 }
 
-export function checkpointSessionIdV6150(courseId, requestedRunId = "") {
+export function checkpointSessionIdV6150(courseId, requestedRunId = "", readOnly = false) {
   const key = CTI_CHECKPOINT_SESSION_PREFIX + String(courseId || "unknown");
   try {
     const now = Date.now();
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(key) || "null"); } catch (_) {}
+    // Recovery reads the existing session even after its normal resume TTL.
+    // It must not create, switch, refresh or delete browser checkpoint state.
+    if (readOnly) return { id: saved && typeof saved.id === "string" ? saved.id : "", key: "" };
     if (requestedRunId) {
       if (!/^fresh-[A-Za-z0-9_-]{8,100}$/.test(requestedRunId))
         throw new Error("Invalid fresh checkpoint identifier.");
@@ -571,6 +574,7 @@ export function checkpointSessionIdV6150(courseId, requestedRunId = "") {
     }
     return { id, key };
   } catch (_) {
+    if (readOnly) return { id: "", key: "" };
     return {
       id: "volatile-" + Date.now() + "-" + Math.random().toString(36).slice(2),
       key: "",
@@ -599,12 +603,14 @@ export function openCheckpointDbV6150() {
   });
 }
 
-export async function createCheckpointManagerV6150(courseId, requestedRunId = "") {
-  const session = checkpointSessionIdV6150(courseId, requestedRunId);
+export async function createCheckpointManagerV6150(courseId, requestedRunId = "", options = {}) {
+  const session = checkpointSessionIdV6150(courseId, requestedRunId, options.readOnly === true);
   const runKey = session.id + "|" + String(courseId || "");
   let db = null;
   let error = "";
   try {
+    if (options.readOnly && !session.id)
+      throw new Error("No saved checkpoint session was found for this course.");
     if (requestedRunId && !session.key)
       throw new Error("Fresh capture checkpoint session could not be saved.");
     db = await openCheckpointDbV6150();
@@ -621,6 +627,7 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
   };
   manager.close = () => { if (db) db.close(); };
   manager.seed = async (capture, fingerprints) => {
+    if(options.readOnly)throw new Error('Saved-progress export cannot import or change checkpoints.');
     validateSavedCaptureResumeV61515(capture, courseId);
     if(!db)throw new Error('Browser checkpoints are unavailable. Enable Coursera browser storage before resuming.');
     const current=new Map((fingerprints || []).map(fp=>[String(fp.id),fp]));
@@ -722,6 +729,7 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
     };
   };
   manager.save = async (fp, diag, pass) => {
+    if(options.readOnly)return false;
     if (!db || !fp || !fp.id) return false;
     let fingerprint;
     try {
@@ -771,6 +779,7 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
     }
   };
   manager.clear = async () => {
+    if(options.readOnly)return;
     if (db) {
       try {
         await new Promise((resolve, reject) => {

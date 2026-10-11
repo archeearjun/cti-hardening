@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md.",
+      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md. Reviewed v6.15.21/schema35: automatic local capture yields after durable question observations inside long assessments, counts question progress between documents, preserves incomplete answer evidence, and provides a read-only saved-progress export including expired sessions. Existing strict completion, duplicate-tab protection, attempt and course limits remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "10ff6f8a3620da4b2cc1fa0ef63d298a847be1d526a1d50a7584a4398e0f134a"
+      "reviewedCurrentHash": "929e69fe3ea14308fa2219113445e286c40d26b4f909762857603912bf7ba98f"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.20/schema35",
+      "current": "v6.15.21/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "ae85291ae9c289304c87064eccc61bc1fb9ad9b699e8e9af37d7e8e977f1c72f"
+          "reviewedCurrentHash": "40d2de7b13269dab48798e9a5d851829cefb2cb5d245b568de30487ca75d73c9"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4369,7 +4369,7 @@
         {
           "name": "collectAssessmentFromOutlineDomV665",
           "archivedHash": "9b5517984738bbce81e74a0bd3927e1e523255a25d352f40335fae25acec9976",
-          "reviewedCurrentHash": "0bde1b7c395b27ac774859afa219f77085742f8d38445afaa5252f348d8b2c0a"
+          "reviewedCurrentHash": "2e4d308c824ccf193894c073a2f81a45f77466e6d384dfa4a925f780d0a66550"
         },
         {
           "name": "collectAssignmentTextBlocksV61321",
@@ -4379,7 +4379,7 @@
         {
           "name": "collectCourseraAssessmentByQuestionCycleV662",
           "archivedHash": "2eca7cabde917a2c9e07fe5d58c84d374e638229847ae422f2553a912b0bb1fa",
-          "reviewedCurrentHash": "1386dccc027f3aeb52aeacdbf5fa31dac3c070362c503e28fb189efc97f578d1"
+          "reviewedCurrentHash": "cb5edd69f2de7243a0b721b74ed40bb9a8120309e7f637437ea059bae64d5472"
         },
         {
           "name": "collectDomEvidenceFromRoot",
@@ -4394,7 +4394,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "9efb253410b10a79e63a2998746af2d3150e0bfdf465960385789a76760f567f"
+          "reviewedCurrentHash": "44ba68acab15a5db4c62c3777853262973f661ff59c29e255c1cdac16d1645bb"
         },
         {
           "name": "downloadJson",
@@ -4489,7 +4489,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "78edf0499f917c7fe0c69e3a15a7e959b2dd1c3fd9bff73912f0969912127de8"
+          "reviewedCurrentHash": "ab18fd35cc13170054110b6cd9d624b0c85ead4a646d54365bf801b2d8d2647b"
         },
         {
           "name": "scoreSurfaceForFingerprint",
@@ -4525,7 +4525,7 @@
       "added": [
         {
           "name": "advanceAutomaticLocalCaptureV61517",
-          "reviewedCurrentHash": "e5655e192905aa4c86ad4ed3eb62f7a06ca478a80650919afd62035714270f96"
+          "reviewedCurrentHash": "ff8911f4680342fd897c29d6a9e1015b3c0060440ce9e5bf68b8bafbf225dae5"
         },
         {
           "name": "assessmentQuestionCheckpointV61518",
@@ -4545,7 +4545,7 @@
         },
         {
           "name": "checkpointSessionIdV6150",
-          "reviewedCurrentHash": "bcd62b848080fabbe1902a3f73f0d01f988b371b671df5673d3dfb255725ab7c"
+          "reviewedCurrentHash": "af5ab725d381f830b2c7aff410ef15095a6e0070d44eb267bb6b1b56ae564ab6"
         },
         {
           "name": "collectCourseraTimeEstimate",
@@ -4565,11 +4565,11 @@
         },
         {
           "name": "createCheckpointManagerV6150",
-          "reviewedCurrentHash": "741229e710887657e34608bd3ed106edf4edb8cfbe6057bb3ac9c982ee4e4bc3"
+          "reviewedCurrentHash": "889ab781eb95165500c098277ae38ff346d2ee099602d4ad2ff9525581eb832b"
         },
         {
           "name": "createLocalCaptureSessionV61514",
-          "reviewedCurrentHash": "18b559cc80b561754fa119e933b00f822147cbf0421c5874a5c1dc7add6b2a91"
+          "reviewedCurrentHash": "762130012ab2a1895a4f01e4cd6420b32e3c51fcbf72b4a4d45e70e5b22787d7"
         },
         {
           "name": "exportCaptureWithCheckpoints",
@@ -4805,16 +4805,28 @@
           "status": "changed",
           "archivedHash": "d49a5e5c6a32828da23edbdc9548040aca0593efc14cee5d492e0a2ccb727939",
           "reviewedCurrentHash": "c91e1ab2b4d6cbe02abc836684614e78eadac47217422da46417799c14815d76"
+        },
+        {
+          "name": "CTI_LOCAL_ASSESSMENT_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "0b93cc6b4722763d85a9a3a8d2fbbb83173976fa58d2fa108e21cfe1f0d16332"
+        },
+        {
+          "name": "CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "323eeca7540a490068af5de0eff20c222a4cf3936bf53691afafbc3855f81727"
         }
       ],
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "07ac79198c7fd34a23a7123440554528e81755deea3a0d82fb8ae89770ad92e2"
+        "reviewedCurrentHash": "838d1d6108aed784b3b07dff32a01ce7bb257b5c78868861c196ac03784f17bb"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "10ff6f8a3620da4b2cc1fa0ef63d298a847be1d526a1d50a7584a4398e0f134a"
+        "reviewedCurrentHash": "929e69fe3ea14308fa2219113445e286c40d26b4f909762857603912bf7ba98f"
       }
     }
   }

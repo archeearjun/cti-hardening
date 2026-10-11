@@ -90,6 +90,8 @@ jobs:
         run: npm run test:browser:extractor
       - name: Native Chrome automatic local capture
         run: npm run test:browser:local-capture
+      - name: Long assessment continuation and real renderer crash recovery
+        run: npm run test:browser:assessment-slices
       - name: Verify isolated activity designer and capture reader
         run: npm run test:browser:activities
       - name: Verify owner-only CTI and colleague activity access

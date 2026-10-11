@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61520')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61521')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -382,6 +382,12 @@ try{
   assert(freshFallback.args.source.includes('"freshRun":true'));
   assert(freshFallback.args.source.includes(courseraSource.slice('javascript:'.length)));
   await app.evaluate(()=>delete navigator.clipboard.writeText);
+  await quickLocal.getByRole('button',{name:'Copy saved-progress export command',exact:true}).click();
+  await quickLocal.getByText('Saved-progress export command copied.',{exact:false}).waitFor();
+  const recoveryCommand=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
+  assert.equal(recoveryCommand.cmd,'Runtime.evaluate');assert.equal(recoveryCommand.args.awaitPromise,true);
+  assert(recoveryCommand.args.expression.includes('__CTI_LOCAL_CHECKPOINT_EXPORT__='));
+  assert(recoveryCommand.args.expression.includes(courseraSource.slice('javascript:'.length)));
   await app.getByText('Manual extractor script',{exact:true}).click();
   await app.getByRole('button',{name:'Copy script',exact:true}).click();
   await app.getByText(CTI_RELEASE_REGISTRY_.courseraExtractor.version+' copied.',{exact:true}).waitFor();

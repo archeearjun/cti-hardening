@@ -4,33 +4,12 @@ import {chromium} from 'playwright';
 import {bundleConsole} from './console-bundle.mjs';
 import {extractorFunctions} from './extractor-functions.cjs';
 import * as config from '../src/extractors/coursera/config.js';
+import {assessmentBrowserFixture} from './assessment-browser-fixture.mjs';
 
 const definitions=[...extractorFunctions(bundleConsole(path.resolve('src/extractors/coursera/entry.js'))).values()].join('\n');
 const runtime=Object.entries(config).map(([name,value])=>`const ${name}=${JSON.stringify(value)};`).join('\n')+'\n'+definitions;
 const shell='https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit';
-const html=`<!doctype html><meta charset="utf-8"><style>
- #editor{position:relative}#rail{width:350px;height:320px;overflow-y:auto}#rows{height:3200px;position:relative}
- [data-testid=assignment-outline]{position:absolute;height:32px;width:340px}#content{margin-left:380px;min-height:600px}
-</style><main id="editor"><aside id="rail" data-testid="item-layout-left-sidebar"><p>Assignment outline Content (100)</p><div id="rows"></div></aside><div id="content" data-testid="item-layout-content"></div></main>
-<script>
- const rail=document.getElementById('rail'),rows=document.getElementById('rows'),content=document.getElementById('content');
- const prompt=n=>'Which result is correct for scenario '+n+' in this assessment?';
- function open(n,record=true){
-  if(record){const visits=JSON.parse(localStorage.getItem('fixture-question-visits') || '[]');visits.push(n);localStorage.setItem('fixture-question-visits',JSON.stringify(visits));}
-  content.innerHTML='<section id="assessment~q'+n+'" data-testid="assignment-part-'+(n-1)+'"><h3>'+n+'Auto-Graded 1 point</h3><p>Question Type Multiple Choice Prompt</p><p>'+prompt(n)+'</p><p>Options</p><div data-testid="option"><p>Correct choice café '+n+'</p><span>Correct</span></div><div data-testid="option"><p>Other choice 日本語 '+n+'</p><span>Incorrect</span></div><p>Incorrect Answers: Explanation</p><p>Explanation '+n+'.</p><p>Export Settings</p></section>';
- }
- function render(){
-  const first=Math.min(90,Math.max(0,Math.floor(rail.scrollTop/32)));
-  rows.replaceChildren();
-  for(let i=first;i<Math.min(100,first+10);i++){
-   const row=document.createElement('div');row.dataset.testid='assignment-outline';row.style.top=(i*32)+'px';row.setAttribute('data-rbd-drag-handle-draggable-id','q'+(i+1));
-   const number=document.createElement('span');number.textContent=(i+1)+' ';
-   const anchor=document.createElement('a');anchor.href='#assessment~q'+(i+1);anchor.textContent=prompt(i+1).slice(0,47);anchor.onclick=event=>{event.preventDefault();open(i+1)};
-   row.append(number,anchor);rows.append(row);
-  }
- }
- rail.addEventListener('scroll',render);render();open(1,false);
-</script>`;
+const html=assessmentBrowserFixture();
 const browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{}),args:['--no-sandbox','--disable-dev-shm-usage']});
 try{
  const context=await browser.newContext();await context.route('https://www.coursera.org/**',route=>route.fulfill({contentType:'text/html',body:html}));
@@ -43,7 +22,7 @@ try{
    const snapshot=assessmentQuestionCheckpointV61518(fp,assessment,new Date().toISOString());
    const saved=await manager.save(snapshot,null,'assessment-progress');if(!saved)throw new Error('Synthetic checkpoint failed');
    fp.payload.assessmentCaptureInProgress=snapshot.payload.assessmentCaptureInProgress;
-   if(assessment.questionCount>=31){manager.close();setTimeout(()=>location.reload(),0);await new Promise(()=>{});}
+   if(assessment.questionCount>=31){localStorage.setItem('fixture-interrupted-count',String(assessment.questionCount));manager.close();setTimeout(()=>location.reload(),0);await new Promise(()=>{});}
    return true;
   }});
  }).then(()=>({unexpectedCompletion:true}),error=>({error:error.message}));
@@ -62,14 +41,15 @@ try{
    }});
   fp.payload.structuredAssessment=result.assessment;delete fp.payload.assessmentCaptureInProgress;
   await manager.save(fp,null,'primary');manager.close();
-  return {before,result,contract:captureContractV6150(fp),visits:JSON.parse(localStorage.getItem('fixture-question-visits'))};
+  return {before,result,interruptedCount:Number(localStorage.getItem('fixture-interrupted-count')),contract:captureContractV6150(fp),visits:JSON.parse(localStorage.getItem('fixture-question-visits'))};
  });
- assert.equal(resumed.before.restored,1);assert.equal(resumed.before.attempts,0);assert.equal(resumed.before.questions,31);
+ assert.equal(resumed.before.restored,1);assert.equal(resumed.before.attempts,0);assert.equal(resumed.before.questions,resumed.interruptedCount);
+ assert(resumed.interruptedCount>=31 && resumed.interruptedCount<=35);
  assert.equal(resumed.before.contract.complete,false);assert.equal(resumed.before.contract.needsEditor,true);assert.equal(resumed.before.raw.preserved,true);
  assert.equal(resumed.result.assessment.questionCount,100);assert.equal(resumed.result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
- assert.equal(resumed.result.outlineDomTraversal.reusedQuestions,31);assert.equal(resumed.contract.complete,true);
+ assert.equal(resumed.result.outlineDomTraversal.reusedQuestions,resumed.interruptedCount);assert.equal(resumed.contract.complete,true);
  assert.equal(resumed.visits.length,99);assert.equal(new Set(resumed.visits).size,99,'Saved matching questions must not be clicked again after reload');
  assert(resumed.result.assessment.questions.every((q,i)=>q.courseraQuestionId==='assessment~q'+(i+1) && q.options.some(o=>o.text.includes('café'))));
  assert.deepEqual(errors,[]);
- console.log('Native assessment: virtualized 100 questions, durable save before a real document interruption, restoration of 31 identified questions without repeated clicks, Unicode/raw preservation and strict unfinished/finished contracts verified.');
+ console.log('Native assessment: virtualized 100 questions, durable save before a real document interruption, restoration of '+resumed.interruptedCount+' identified questions without repeated clicks, Unicode/raw preservation and strict unfinished/finished contracts verified.');
 }finally{await browser.close()}

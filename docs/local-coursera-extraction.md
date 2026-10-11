@@ -34,8 +34,10 @@ its file viewer are not part of this workflow.
 Keep Coursera and DevTools open. Every item is checkpointed to IndexedDB. At the
 shared renderer boundary (20 visits, five minutes between items, 64 MiB heap
 growth, or 384 MiB total reported heap), CTI automatically returns to the shell
-in a new document and restores matching checkpoints. A slow assessment retains
-its full item budget; these boundaries do not abort it midway. Checkpoint
+in a new document and restores matching checkpoints. Automatic long assessments
+also yield at a committed question checkpoint after roughly 25 new observations,
+two minutes of renderer work while collecting questions, or the same heap limits. An unfinished visit does not
+spend an editor attempt. Checkpoint
 failure stops continuation and prepares a partial final capture.
 
 The progress card distinguishes the active item from finished visits. A
@@ -45,7 +47,7 @@ only the requested question's live outline link, reuses unchanged parsed DOM
 evidence, and avoids a second traversal when all identified question parts are
 already observed and complete. It does not shorten loading waits or infer keys.
 
-Question observations are saved after the first question, then after five newly
+Question observations are saved after the first new question, then after five newly
 collected questions or five seconds when new questions arrive, and at the end
 of outline collection. An unfinished visit remains explicitly incomplete, even
 if its last question was saved. An interruption does not consume a completed
@@ -88,17 +90,42 @@ Closing DevTools ends its registration. Reload the matching course and copy a
 new command to resume from saved checkpoints. A renderer crash also requires
 browser-level recovery: page JavaScript cannot control Chrome's crash screen.
 Reload and register a new command. This implementation reduces accumulation
-between editors; it cannot guarantee that a single defective or exceptionally
+between editors and within long assessments; it cannot guarantee that a single defective or exceptionally
 large Coursera editor will fit in available memory. Full raw course evidence
 still needs to fit in the final document and download Blob. No evidence is
 silently truncated to make an oversized capture appear complete.
 
+Question observations count toward continuation progress, so a large assessment
+can span more than three documents while its course item remains unfinished.
+Matching observations from the same unfinished visit retain explicit missing
+keys and advance to later questions; a separate recovery attempt can inspect
+those gaps again. Rediscovering a saved prefix does not rewrite it repeatedly.
+
 Three unchanged continuation summaries, 500 batches or eight hours stop a run
-with its raw partial evidence. Browser checkpoints expire after 12 hours.
+with its raw partial evidence. Normal resume selects a new checkpoint namespace
+after 12 hours; saved rows remain accessible through the recovery command.
 The same course must not be captured concurrently in multiple tabs. A fresh
 heartbeat blocks a second tab; a registration whose browser disappeared can
 be replaced after the 45-second liveness window. The same tab can replace its
 registration after reloading without waiting for that window.
+
+Use **Copy saved-progress export command** after an interruption. Close DevTools,
+reload the matching authoring shell, reopen Protocol monitor, turn Record off,
+clear its log and paste the command into the bottom command input. It uses a
+single `Runtime.evaluate` execution to match saved observations to the current
+course inventory, with no item editor visits. Read-only recovery can access the
+existing checkpoint namespace after its normal 12-hour resume TTL, and cannot
+save, import, clear or refresh checkpoint state. The exported JSON is explicitly
+`SAVED_PROGRESS_ONLY`; it preserves observation dates and unfinished question
+models. If no matching saved items exist, the progress card reports that instead
+of starting another extraction. To resume expired checkpoints, select the
+recovered JSON in CTI and copy the automatic resume command.
+
+Chrome's Protocol monitor documentation states that recording starts when the
+panel opens and continues across refreshes and DevTools closure. Turn Record off
+and clear old traffic before each command. The crash error code alone does not
+establish memory exhaustion; renderer, DevTools and operating-system evidence
+are distinct. Page JavaScript cannot recover Chrome's crash screen.
 
 Fully automatic recovery from an actual renderer crash requires an outside
 browser controller. That is a separate option only if workplace policy permits
@@ -123,10 +150,18 @@ manual renderer yield, saved-file import only in the first document, and an
 unavailable inventory. This is not a live authenticated Coursera acceptance test.
 
 `npm run test:browser:assessment-progress` additionally uses a real virtualized
-100-question DOM and IndexedDB, reloads the document after 31 questions were
+100-question DOM and IndexedDB, reloads the document after at least 31 questions were
 committed, and verifies restoration without repeated question clicks. It checks
 raw and Unicode preservation and the strict distinction between an unfinished
 visit and the completed assessment. External content remains synthetic.
+
+`npm run test:browser:assessment-slices` exercises the canonical entry against
+a local HTTPS fixture with 165 items and a virtualized 609-question assessment.
+It forces a real renderer crash, opens the same course in the same browser
+profile, exports even expired saved progress without editor visits or checkpoint
+mutations, and resumes across question batches to one automatic final JSON.
+Durably saved questions are not clicked again. The last few observations that
+had not been committed before a crash may need to be read again.
 
 From v6.15.19, a fully visited inventory continues automatically while any item
 has a recovery attempt available. Recovery budget exhaustion therefore retains

@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import {createAutomaticLocalCourseraCommand} from '../src/domain/coursera-local-extraction.ts';
+import {createAutomaticLocalCourseraCommand,createSavedCourseraCheckpointExportCommand} from '../src/domain/coursera-local-extraction.ts';
 import {automaticLocalCaptureNeedsContinuationV61519,advanceAutomaticLocalCaptureV61517} from '../src/extractors/coursera/automatic-local.js';
 import {compactCaptureBlobV61517} from '../src/extractors/coursera/text-and-dom.js';
 import {courseraSource} from '../src/generated/extractor-sources.js';
-import {createCheckpointManagerV6150} from '../src/extractors/coursera/completion.js';
+import {createCheckpointManagerV6150,checkpointSessionIdV6150} from '../src/extractors/coursera/completion.js';
+import {createLocalCaptureSessionV61514} from '../src/extractors/coursera/runtime.js';
 const shell='https://www.coursera.org/teach/synthetic/Course_id_123/content/edit';
 const initial={state:'RUNNING',startedAt:100,batches:0,stalled:0};
 const capture=(n=20)=>({fingerprints:Array.from({length:n},(_,i)=>({id:String(i),payload:{captureAttempts:1}})),meta:{captureAccounting:{complete:false,completeCount:n}}});
@@ -93,4 +94,41 @@ test('a failed fresh namespace write stops instead of restoring earlier checkpoi
   if(previous===undefined)delete globalThis.localStorage;else globalThis.localStorage=previous;
   if(oldIndexedDB===undefined)delete globalThis.indexedDB;else globalThis.indexedDB=oldIndexedDB;
  }
+});
+test('growing question checkpoints keep progress-only documents running beyond the stall limit',()=>{
+ let plan=initial;
+ for(let n=25;n<=600;n+=25){
+  const data=capture(1);data.fingerprints[0].payload={captureAttempts:0,checkpointRestored:true,
+   assessmentCaptureInProgress:{assessment:{questions:Array.from({length:n},(_,i)=>({id:String(i)}))}},captureContract:{needsEditor:true}};
+  plan=advanceAutomaticLocalCaptureV61517(plan,data,true,false,true,200+n);
+  assert.equal(plan.state,'RUNNING');assert.equal(plan.stalled,0);
+ }
+});
+test('saved-progress commands evaluate once and preserve expired session pointers',()=>{
+ const command=JSON.parse(createSavedCourseraCheckpointExportCommand(shell,courseraSource));
+ assert.equal(command.cmd,'Runtime.evaluate');assert.equal(command.args.awaitPromise,true);
+ new vm.Script(command.args.expression);assert(command.args.expression.includes('__CTI_LOCAL_CHECKPOINT_EXPORT__='));
+ const previous=globalThis.localStorage;
+ const saved=JSON.stringify({id:'older-run',createdAt:Date.now()-14*60*60*1000});let writes=0;
+ globalThis.localStorage={getItem:()=>saved,setItem:()=>writes++,removeItem:()=>writes++};
+ try{assert.equal(checkpointSessionIdV6150('Course_id_123','',true).id,'older-run');assert.equal(writes,0)}
+ finally{if(previous===undefined)delete globalThis.localStorage;else globalThis.localStorage=previous}
+ assert.throws(()=>createSavedCourseraCheckpointExportCommand('https://other.test/',courseraSource),/Coursera/i);
+});
+test('question boundaries include count, elapsed time, heap growth and checkpoint failure',()=>{
+ const previous=globalThis.window;
+ try{
+  let heap=100*1024*1024;
+  globalThis.window={performance:{memory:{get usedJSHeapSize(){return heap}}}};
+  let session=createLocalCaptureSessionV61514();session.startItem();
+  assert.equal(session.afterQuestionCheckpoint(24,false),'');
+  assert.equal(session.afterQuestionCheckpoint(1,false),'LOCAL_RENDERER_QUESTION_LIMIT');
+  globalThis.window={performance:{memory:{get usedJSHeapSize(){return heap}}}};
+  session=createLocalCaptureSessionV61514();session.startItem();heap+=70*1024*1024;
+  assert.equal(session.afterQuestionCheckpoint(1,false),'LOCAL_RENDERER_HEAP_GROWTH_LIMIT');
+  globalThis.window={__CTI_LOCAL_CAPTURE_RENDERER_SESSION__:{visits:1,startedAt:Date.now()-121000},performance:{}};
+  session=createLocalCaptureSessionV61514();assert.equal(session.afterQuestionCheckpoint(1,false),'LOCAL_RENDERER_QUESTION_TIME_LIMIT');
+  globalThis.window={performance:{}};session=createLocalCaptureSessionV61514();session.startItem();session.checkpointWritten(false);
+  assert.equal(session.afterQuestionCheckpoint(1,false),'LOCAL_CHECKPOINT_UNAVAILABLE');
+ }finally{if(previous===undefined)delete globalThis.window;else globalThis.window=previous}
 });

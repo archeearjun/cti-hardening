@@ -30,7 +30,7 @@ test('interrupted question collection resumes only matching observed question id
       return true;
     },
   }),/synthetic document interruption/);
-  assert.equal(saved.questionCount,36);
+  assert(saved.questionCount>=36 && saved.questionCount<=40);
   assert.equal(saved.captureCompleteness.questionCoverageComplete,false);
   const resumed=fixture({count:100,mode:'virtual',budget:480000});
   const result=await resumed.c.collectCourseraAssessmentByQuestionCycleV662(resumed.envelope,resumed.fp,{
@@ -38,12 +38,12 @@ test('interrupted question collection resumes only matching observed question id
   });
   assert.equal(result.assessment.questionCount,100);
   assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
-  assert.equal(resumed.clicks(),64);
-  assert.deepEqual(clone(result.assessment.questions.slice(1,36)),saved.questions.slice(1));
+  assert.equal(resumed.clicks(),100-saved.questionCount);
+  assert.deepEqual(clone(result.assessment.questions.slice(1,saved.questionCount)),saved.questions.slice(1));
   const changed=fixture({count:100,mode:'virtual',budget:480000});
   saved.questions[9].prompt='A different question that was previously observed.';
   const checked=await changed.c.collectCourseraAssessmentByQuestionCycleV662(changed.envelope,changed.fp,{deadline:480000,seedAssessment:saved});
-  assert.equal(changed.clicks(),65,'A changed prompt must be observed again');
+  assert.equal(changed.clicks(),101-saved.questionCount,'A changed prompt must be observed again');
   assert.notEqual(checked.assessment.questions[9].prompt,saved.questions[9].prompt);
 });
 
@@ -88,4 +88,36 @@ test('a failed progress save stops repeat writes without discarding collected qu
   const f=fixture({count:100,mode:'virtual',budget:480000});let writes=0;
   const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,onCheckpoint:async()=>{writes++;return false;}});
   assert.equal(writes,1);assert.equal(result.assessment.questionCount,100);
+});
+test('safe pauses resume an unfinished keyed or unkeyed assessment without repeating its observed prefix',async()=>{
+ for(const unkeyed of [false,true]){
+  const first=fixture({count:100,mode:'virtual',budget:480000});let saved,reason='';
+  function removeKeys(f){
+   const parse=f.c.parseAssignmentPartDomV665;f.c.collectCourseraStructuredAssessment=()=>null;
+   f.c.parseAssignmentPartDomV665=(...args)=>{const q=parse(...args);return q?{...q,answerTextReliable:false,correctAnswers:[],answerEvidence:'NOT_OBSERVED'}:q};
+  }
+  if(unkeyed)removeKeys(first);
+  const partial=await first.c.collectCourseraAssessmentByQuestionCycleV662(first.envelope,first.fp,{deadline:480000,
+   shouldYield:()=>reason,onCheckpoint:async model=>{saved=clone(model);if(model.questionCount>=25)reason='LOCAL_RENDERER_QUESTION_LIMIT';return true}});
+  assert.equal(partial.stopReason,'LOCAL_ASSESSMENT_CHECKPOINT_YIELD');assert(saved.questionCount>=25 && saved.questionCount<=30);
+  let result,writes=0,totalClicks=0;
+  for(let document=0;document<5;document++){
+   const resumed=fixture({count:100,mode:'virtual',budget:480000});if(unkeyed)removeKeys(resumed);
+   const baseline=saved.questionCount;let pause='';
+   const hydrate=resumed.c.hydrateAssignmentPartV666;
+   resumed.c.hydrateAssignmentPartV666=(candidate,...args)=>{
+    assert(Number(candidate.ordinal)>baseline,'An observed matching prefix must not be clicked again');return hydrate(candidate,...args);
+   };
+   result=await resumed.c.collectCourseraAssessmentByQuestionCycleV662(resumed.envelope,resumed.fp,{deadline:480000,
+    seedAssessment:saved,resumeInProgress:true,shouldYield:()=>pause,onCheckpoint:async model=>{
+     assert(model.questionCount>baseline,'Rediscovering a saved prefix must not cause a checkpoint write');
+     writes++;saved=clone(model);if(model.questionCount-baseline>=25 && model.questionCount<100)pause='LOCAL_RENDERER_QUESTION_LIMIT';return true;
+    }});
+   totalClicks+=resumed.clicks();if(result.assessment.questionCount===100)break;
+  }
+  assert.equal(result.assessment.questionCount,100);if(!unkeyed)assert(totalClicks<=75);
+  assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,!unkeyed);
+  assert(writes<=(unkeyed?100:22),'Writes must be bounded by new observations, including slow per-question saves');
+  if(unkeyed)assert(result.assessment.questions.every(q=>q.answerTextReliable===false));
+ }
 });
