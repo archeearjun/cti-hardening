@@ -89,10 +89,15 @@ checkpoints in that browser and downloads the raw JSON locally. CTI independentl
 evaluates the returned capture with the same strict completion contract before
 it can be labelled COMPLETE.
 
-The optional background path remains a separate service-bound Worker because
+The automatic background path remains a separate service-bound Worker because
 Browser Run and durable Workflows are Worker capabilities. It is intended only
 for deployments that provision sufficient remote-browser quota; it is not a
 requirement for the Pages application or shared workspace.
+
+In a connected team workspace, Extract offers **Start full-course capture** and
+requests one final download after automatic browser continuation. Manual local
+Chrome capture remains available in a disclosure and is the only mode offered
+without the team connection. No extension is required for the automatic flow.
 
 The Pages API authenticates the CTI user first and forwards only the verified
 email/role to the Worker. Coursera login occurs in a temporary remote Live View;

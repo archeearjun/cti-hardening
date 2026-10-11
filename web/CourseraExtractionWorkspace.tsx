@@ -3,6 +3,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import LocalCourseraExtraction from "./LocalCourseraExtraction";
 import type { CourseraExtractionStatus } from "../src/domain/coursera-background-extraction.ts";
 import {
+  queueCourseraFinalDownload,
+  requestCourseraFinalDownload,
+} from "../src/domain/coursera-final-download.ts";
+import {
   courseraCaptureDownloadUrl,
   courseraCaptureFile,
   courseraConnection,
@@ -53,12 +57,12 @@ export default function CourseraExtractionWorkspace({
   const authPopup = useRef<Window | null>(null);
   const authPopupUrl = useRef("");
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   useEffect(() => {
     if (initialUrl) setShellUrl(initialUrl);
   }, [initialUrl]);
@@ -172,6 +176,64 @@ export default function CourseraExtractionWorkspace({
     };
   }, [enabled, extractionJob?.id, extractionJob?.state]);
 
+  useEffect(() => {
+    if (!enabled || !extractionJob || !terminal(extractionJob)) return;
+    const controller = new AbortController();
+    const job = extractionJob;
+    const attempt = () =>
+      requestCourseraFinalDownload(
+        job,
+        localStorage,
+        () => courseraCaptureFile(job, controller.signal),
+        (file) => {
+          if (controller.signal.aborted)
+            throw new DOMException("Download cancelled", "AbortError");
+          const url = URL.createObjectURL(file);
+          try {
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = file.name;
+            document.body.appendChild(link);
+            try {
+              link.click();
+            } finally {
+              link.remove();
+            }
+          } finally {
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          }
+        },
+      );
+    // Serialize download requests across CTI tabs on browsers with Web Locks.
+    const request = navigator.locks
+      ? navigator.locks.request(
+          "cti-coursera-download:" + job.id,
+          { signal: controller.signal },
+          attempt,
+        )
+      : attempt();
+    void request
+      .then((requested) => {
+        if (requested && mounted.current && !controller.signal.aborted)
+          setNotice(
+            "Final JSON download requested. If your browser blocks it, use Download final capture JSON below.",
+          );
+      })
+      .catch((e) => {
+        if (mounted.current && !controller.signal.aborted)
+          setError(
+            "Automatic final download failed. Use Download final capture JSON below. " +
+              (e instanceof Error ? e.message : String(e)),
+          );
+      });
+    return () => controller.abort();
+  }, [
+    enabled,
+    extractionJob?.id,
+    extractionJob?.state,
+    extractionJob?.artifactAvailable,
+  ]);
+
   const reasons = useMemo(
     () => extractionJob?.capture?.reasons || [],
     [extractionJob?.capture?.reasons],
@@ -215,27 +277,20 @@ export default function CourseraExtractionWorkspace({
 
   return (
     <>
-      <LocalCourseraExtraction
-        disabled={disabled}
-        onUseCapture={onUseCapture}
-        initialUrl={shellUrl}
-        onUrlChange={setShellUrl}
-      />
       <section className="card remote-extraction-advanced">
         <div className="section-heading">
           <div>
-            <h2>Optional remote background extraction</h2>
+            <h2>Automatic full-course capture</h2>
             <p>
-              This preserves the existing Cloudflare Browser Run workflow for
-              deployments that intentionally provision enough remote-browser
-              capacity. The zero-cost local Chrome workflow above is the
-              default.
+              Paste the course URL and start. Sign in through your organization
+              if prompted. CTI saves progress and opens fresh browser sessions
+              automatically, then requests one final JSON download.
             </p>
           </div>
           <span className="badge">
             {session?.connected
               ? "Remote SSO session saved"
-              : "Optional remote"}
+              : "No extension required"}
           </span>
         </div>
 
@@ -254,7 +309,8 @@ export default function CourseraExtractionWorkspace({
         <p className="hint">
           Remote mode accepts only www.coursera.org/teach/... authoring URLs. It
           may require organization SSO and consumes Cloudflare Browser Run
-          quota.
+          quota. Large courses require funded browser capacity. You can close
+          CTI during capture; reopen this page for the final download.
         </p>
 
         {error && (
@@ -290,8 +346,19 @@ export default function CourseraExtractionWorkspace({
                 }
               }
               void act("Starting extraction", async () => {
-                const status = await startCourseraExtraction(shellUrl);
+                let status;
+                try {
+                  status = await startCourseraExtraction(shellUrl);
+                } catch (error) {
+                  try {
+                    authPopup.current?.close();
+                  } catch {}
+                  authPopup.current = null;
+                  authPopupUrl.current = "";
+                  throw error;
+                }
                 localStorage.setItem(extractionKey, status.id);
+                queueCourseraFinalDownload(localStorage, status.id);
                 setExtractionJob(status);
                 setRecentJobs((current) =>
                   [
@@ -303,8 +370,8 @@ export default function CourseraExtractionWorkspace({
             }}
           >
             {extractionActive
-              ? "Remote extraction running…"
-              : "Start remote extraction"}
+              ? "Full-course capture running…"
+              : "Start full-course capture"}
           </button>
           {session?.connected && (
             <button
@@ -339,6 +406,20 @@ export default function CourseraExtractionWorkspace({
 
         {extractionJob && (
           <>
+            {extractionJob.state === "FAILED" && (
+              <div className="error" role="alert">
+                <p>
+                  {extractionJob.error ||
+                    "Coursera capture stopped before finishing."}
+                </p>
+                {extractionJob.artifactAvailable && (
+                  <p>
+                    The last saved JSON is available below. It contains partial
+                    evidence and is not certified complete.
+                  </p>
+                )}
+              </div>
+            )}
             <div
               className={
                 extractionJob.state === "FAILED"
@@ -430,7 +511,7 @@ export default function CourseraExtractionWorkspace({
                   href={courseraCaptureDownloadUrl(extractionJob.id)}
                   download
                 >
-                  Download raw capture JSON
+                  Download final capture JSON
                 </a>
                 {onUseCapture && (
                   <button
@@ -548,11 +629,22 @@ export default function CourseraExtractionWorkspace({
         {!editable && (
           <p className="hint">
             Your shared CTI account is read-only. An editor or administrator can
-            start remote extraction jobs; local Chrome extraction above does not
+            start remote extraction jobs; local Chrome extraction below does not
             mutate the team service.
           </p>
         )}
       </section>
+      <details className="card">
+        <summary>
+          Use local Chrome instead (manual batches, no browser-service cost)
+        </summary>
+        <LocalCourseraExtraction
+          disabled={disabled}
+          onUseCapture={onUseCapture}
+          initialUrl={shellUrl}
+          onUrlChange={setShellUrl}
+        />
+      </details>
     </>
   );
 }

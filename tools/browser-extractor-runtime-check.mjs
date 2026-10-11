@@ -138,12 +138,13 @@ try{
   // authenticated external editor response is substituted with exact Reading
   // evidence; this fixture does not certify a live Coursera course.
   const batchPage=await browser.newPage();
-  const prepareBatchPage=async()=>{
-    if(batchPage.url()===base+'/runtime-fixture')await batchPage.reload();
-    else await batchPage.goto(base+'/runtime-fixture');
-    await batchPage.addScriptTag({content:constants+'\n'+definitions});
-    await batchPage.evaluate(()=>{
-      Object.assign(window,{backgroundChunkMode:false,CTI_WHOLE_RUN_DEADLINE:Infinity,
+  const prepareBatchPage=async(target=batchPage,background=false)=>{
+    if(target.url()===base+'/runtime-fixture')await target.reload();
+    else await target.goto(base+'/runtime-fixture');
+    await target.addScriptTag({content:constants+'\n'+definitions});
+    await target.evaluate((background)=>{
+      Object.assign(window,{backgroundChunkMode:background,CTI_WHOLE_RUN_DEADLINE:Infinity,
+        __CTI_BACKGROUND_CHUNK_DEADLINE_MS:background?Date.now()+25*60*1000:0,
         sleepMs:async()=>{},
         readingRouteForTargetV61311:fp=>'fixture:'+fp.id,
         recoverReadingRouteV61311:async fp=>({attempted:true,captured:true,route:'fixture:'+fp.id,dwellMs:1,samples:3,
@@ -152,7 +153,7 @@ try{
             textCaptureEvidence:{method:'EXACT_READING_FIELD',scope:'EXACT_READING_FIELD',itemId:fp.id,
               observedCharacters:22,capturedCharacters:22}}})});
       window.makeInventory=()=>Array.from({length:45},(_,i)=>({id:'reading-'+i,name:'Reading '+i,type:'Reading',typeName:'supplement',payload:{}}));
-    });
+    },background);
   };
   const batchResults=[];
   let previousRunId='';
@@ -198,6 +199,40 @@ try{
     batchResults.push(receipt.visited);
   }
   assert.equal(new Set(batchResults.flat()).size,45);
+
+  // Match the remote controller: persist full browser storage, close the old
+  // browser context, then resume in a fresh context without member downloads.
+  let remoteState;
+  const remoteVisits=[];
+  for(let chunk=0;chunk<3;chunk++) {
+    const remoteContext=await browser.newContext(remoteState?{storageState:remoteState}:{});
+    const remotePage=await remoteContext.newPage();
+    let remoteDownloads=0;remotePage.on('download',()=>remoteDownloads++);
+    await prepareBatchPage(remotePage,true);
+    const receipt=await remotePage.evaluate(async()=>{
+      const fingerprints=makeInventory();
+      const manager=await createCheckpointManagerV6150('remote-browser-batch-fixture');
+      const restored=await manager.restore(fingerprints);
+      const meta=await activeSpaCrawl(fingerprints,'remote-browser-batch-fixture',{
+        readingRouteTemplate:{fixture:true},localSession:createLocalCaptureSessionV61514(),cooperativeChunk:true,
+        checkpoint:(fp,diag,pass)=>manager.save(fp,diag,pass)});
+      const data={schemaVersion:35,fingerprints,meta:{activeSpaCrawl:meta,captureAccounting:finalCaptureAccountingV6150(fingerprints,meta)}};
+      await exportCaptureWithCheckpoints('remote.json',data,manager,meta.cooperativeChunkYielded);
+      const result={restored:restored.restored,visited:meta.targetDiagnostics.map(d=>d.id),
+        yielded:meta.cooperativeChunkYielded,complete:data.meta.captureAccounting.complete,
+        retained:JSON.parse(window.__CTI_LAST_JSON).fingerprints.length,
+        panel:!!document.getElementById('__cti_download_panel'),attempts:fingerprints.map(fp=>fp.payload.captureAttempts || 0)};
+      manager.close();return result;
+    });
+    assert.equal(receipt.restored,chunk*20);
+    assert.equal(receipt.visited.length,chunk<2?20:5);
+    assert.equal(receipt.yielded,chunk<2);assert.equal(receipt.complete,chunk===2);
+    assert.equal(receipt.retained,45);assert.equal(receipt.panel,false);assert.equal(remoteDownloads,0);
+    assert(receipt.attempts.every(n=>n<=1));remoteVisits.push(...receipt.visited);
+    remoteState=await remoteContext.storageState({indexedDB:true});
+    await remoteContext.close();
+  }
+  assert.equal(new Set(remoteVisits).size,45);
 
   // An imported JSON recovers a lost session without downgrading newer work,
   // copying untouched records into checkpoints, or crossing live identities.
@@ -310,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61515')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61516')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -335,6 +370,7 @@ try{
       'original fetch/XHR responses and Unicode preserved','unknown-length oversized JSON XHR copy bounded',
       'ineligible requests excluded','release restores capacity',
       '45-item capture across three fresh documents restores IndexedDB checkpoints without duplicate visits',
+      'remote capture across three fresh contexts restores browser storage and makes no intermediate downloads',
       'saved JSON restores matching observed items, keeps newer checkpoints and visits only remaining items',
       'real exact-empty Reading waits ten seconds, merges its proof and survives IndexedDB reload',
       'actual saved-file resume blocks a different Coursera course before capture/storage work',

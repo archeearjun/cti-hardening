@@ -76,6 +76,8 @@ jobs:
         run: npm run test:browser:workspace
       - name: Verify full responsive UX in Chromium
         run: npm run test:browser:ux
+      - name: Verify automatic Coursera continuation and final download in Chromium
+        run: npm run test:browser:extraction
       - name: Verify actual extension item refresh in Chromium
         run: npm run test:browser:extension
       - name: Verify owner actions in Chromium

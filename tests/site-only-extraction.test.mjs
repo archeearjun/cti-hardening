@@ -104,7 +104,7 @@ test("remote Coursera extraction remains optional and organization SSO is on-dem
   );
 
   assert.match(workspace, /Optional remote background extraction/);
-  assert.match(workspace, /Start remote extraction/);
+  assert.match(workspace, /Start full-course capture/);
   assert.match(workspace, /Continue with Okta SSO/);
   assert.doesNotMatch(workspace, />Connect Coursera</);
 });
@@ -126,7 +126,7 @@ test("Workflow extraction cooperatively chunks below Cloudflare's 30 minute time
   assert.doesNotMatch(background, /timeout:\s*["']2 hours 10 minutes["']/);
   assert.match(background, /EXTRACTION_CHUNK_ACTIVE_MS\s*=\s*25\s*\*\s*60\s*\*\s*1000/);
   assert.match(background, /EXTRACTION_CHUNK_MONITOR_MS\s*=\s*27\s*\*\s*60\s*\*\s*1000/);
-  assert.match(background, /MAX_EXTRACTION_CHUNKS\s*=\s*9/);
+  assert.match(background, /MAX_EXTRACTION_CHUNKS\s*=\s*60/);
   assert.match(background, /timeout:\s*["']30 minutes["']/);
   assert.match(
     background,

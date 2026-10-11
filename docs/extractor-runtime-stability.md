@@ -1,5 +1,36 @@
 # Coursera extractor runtime stability
 
+## v6.15.16: automatic cloud continuation and one final download
+
+The console workaround deliberately yields and asks the operator to reload.
+That preserves evidence but does not scale to a team that cannot install an
+extension. Automatic full-course capture now uses CTI's existing remote browser
+controller, with organization SSO only when needed and manual local capture
+retained as a no-service-cost fallback.
+
+The remote path no longer bypasses the shared renderer visit/time/heap guard.
+The controller saves encrypted IndexedDB/storage state and resumes in a fresh
+browser, without downloading intermediate JSON or showing continuation panels.
+Large assessments retain their full item budgets. SSO completes in a separate
+Workflow step so the user's login does not consume evidence acquisition time.
+The bounded continuation limit is 60 chunks; three unchanged progress summaries
+stop a stalled capture. The latest raw checkpoint remains downloadable if the
+job fails. Completion and evidence rules are unchanged.
+
+Starting a job records final-download intent in the operator's browser. CTI
+requests one download at terminal status, including when Extract is reopened
+after the job finishes. Fetch failures retain the intent for retry; old jobs do
+not auto-download and browser policy may still require the final download link.
+No extension install or console copy is involved in the automatic flow.
+
+The independent browser checks cover 45 synthetic items across three fresh
+contexts with restored IndexedDB, no repeated visits, no intermediate downloads,
+and no false completion. Built website checks cover terminal downloads, reopened
+views, preserved gaps and artifact fetch recovery. Authenticated live Coursera
+coverage and funded Browser Run capacity remain deployment acceptance checks.
+See [background capture](background-coursera-extraction.md) for official
+Cloudflare limits, billing boundaries and recovery details.
+
 ## v6.15.15: stable empty Readings and resume from a saved JSON
 
 A supplied schema 35 capture retained 125 checkpoints and captured one new item

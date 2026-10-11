@@ -1,12 +1,12 @@
-# Coursera extraction: local default and optional background mode
+# Coursera extraction: automatic background capture and local fallback
 
-The zero-cost default runs the current Coursera extractor inside the operator's
+The zero-cost local fallback runs the current Coursera extractor inside the operator's
 already authenticated Chrome authoring tab. The extractor keeps item checkpoints
 in local browser storage, downloads the raw JSON locally, and CTI applies the
 same strict completion verifier before the capture can be called COMPLETE or
 loaded into Compare.
 
-An optional background mode still starts a durable Cloudflare Workflow and uses
+The automatic full-course mode starts a durable Cloudflare Workflow and uses
 a separate Worker with Browser Run/Playwright. That mode is preserved for
 deployments that intentionally provision enough remote-browser quota; it is not
 required for the normal Pages/shared-workspace workflow.
@@ -141,18 +141,52 @@ the UI does not pretend background extraction exists.
 
 ## Operator flow
 
-1. Open **Full CTI workspace → Extract**.
-2. Paste the exact Coursera authoring-shell URL.
-3. Open that shell in the normal Chrome profile where Coursera/Okta already works.
-4. Copy the current Coursera extractor from CTI and run it once in that tab's
-   DevTools Console. Keep the tab open while its progress panel is active.
-5. Select the downloaded JSON back in CTI.
-6. CTI checks course identity and the strict no-silent-miss completion contract.
-   An incomplete capture remains usable evidence but is never presented as
-   certified complete.
+1. Open **Full CTI workspace → Extract** in the connected team workspace.
+2. Paste the Coursera authoring-shell URL and choose **Start full-course capture**.
+3. Complete organization SSO/MFA in the temporary sign-in view if prompted.
+4. CTI captures and resumes automatically. Intermediate batches remain internal.
+5. At the end, CTI requests one final JSON download. Keep CTI open or reopen
+   Extract afterwards. If browser policy blocks automatic saving, use
+   **Download final capture JSON**. CTI cannot verify that a file reached disk.
+6. Review the completion verdict. Inaccessible or unresolved content keeps the
+   capture INCOMPLETE; producing a file never certifies missing evidence.
 7. Choose **Use this capture in Compare** and add the matching Coursera XLSX.
-8. Optional remote background extraction remains available below the local flow
-   when that deployment has sufficient Browser Run capacity.
+
+No extension or console script is required for automatic mode. It requires
+provisioned Browser Run capacity and an organization login that allows this
+remote browser. The local Chrome workflow remains available under **Use local
+Chrome instead**; it uses manual batches and does not require a paid service.
+
+## Automatic recovery and limits
+
+Remote extraction now uses the same shared renderer guard as local capture:
+20 editor visits, five minutes between item boundaries, 384 MiB observed heap,
+or 64 MiB heap growth. A running assessment retains its full item attempt budget;
+the five-minute guard is checked before starting the next item. The Worker saves
+encrypted IndexedDB/browser state, closes the old browser and starts the next
+Workflow step. SSO hands off to a fresh step so its fifteen-minute interaction
+window does not consume the extraction budget.
+
+The existing 25-minute acquisition/27-minute monitor ceilings remain to allow
+large assessments up to sixteen minutes plus finalization. They are ceilings,
+not a target session length. There are at most 60 automatic chunks and one
+fallback retry per chunk. Three consecutive chunks with unchanged item attempts
+and completion counts stop the run. A failed job offers its last saved raw batch
+when available, with FAILED status and unresolved evidence preserved.
+
+Final-download intent survives reopening CTI in the same browser profile. Only
+jobs explicitly started in that profile download automatically; browsing old
+jobs does not trigger downloads. A failed artifact fetch can be retried by
+reopening Extract or using the download link. Web Locks serialize requests
+between CTI tabs. Browser download permissions still apply.
+
+Cloudflare's official [limits](https://developers.cloudflare.com/browser-run/limits/)
+give Workers Free 10 browser minutes per UTC day (reset at 05:30 IST). Large
+courses exceed this allowance. The [pricing documentation](https://developers.cloudflare.com/browser-run/pricing/)
+lists paid browser usage separately from Workers and storage charges. Browser
+sessions have no fixed maximum lifetime while active, but may close during
+platform updates; durable checkpoints remain necessary. No paid plan or billing
+configuration is changed by this application update.
 
 ## Completion contract
 

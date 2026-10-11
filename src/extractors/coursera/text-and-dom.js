@@ -13,6 +13,11 @@ export function downloadJson(name, data) {
     window.__CTI_LAST_JSON = json;
     window.__CTI_LAST_FILENAME = name;
 
+    // Remote captures are handed to the durable controller. Intermediate
+    // checkpoints must not create browser downloads or member-facing panels.
+    const backgroundDeadline=Number(window.__CTI_BACKGROUND_CHUNK_DEADLINE_MS || 0);
+    if(Number.isFinite(backgroundDeadline) && backgroundDeadline>0)return;
+
     function triggerDownload() {
       const blob = new Blob([json], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -221,7 +226,7 @@ export function ctiCourseraExportName(courseIdValue, suffix = "ITEM_FINGERPRINT"
   const label = ctiSafeFileToken(ctiCourseraCourseLabel(), 110);
   const idToken = ctiSafeFileToken(courseIdValue || "UNKNOWN", 80);
   const stamp = ctiLocalFileTimestamp(new Date());
-  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.15_s35__${suffix}.json`;
+  return `CTI__COURSERA__${label}__COURSE_${idToken}__${stamp}__v6.15.16_s35__${suffix}.json`;
 }
 
 export function inferPublished(obj) {

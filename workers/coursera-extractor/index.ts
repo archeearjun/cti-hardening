@@ -54,7 +54,7 @@ const backgroundFrameEvidenceKey = (id: string) =>
 const sessionKey = (ownerHash: string) => `sessions/${ownerHash}/state.json`;
 const EXTRACTION_CHUNK_ACTIVE_MS = 25 * 60 * 1000;
 const EXTRACTION_CHUNK_MONITOR_MS = 27 * 60 * 1000;
-const MAX_EXTRACTION_CHUNKS = 9;
+const MAX_EXTRACTION_CHUNKS = 60;
 const sessionMetaKey = (ownerHash: string) => `sessions/${ownerHash}/meta.json`;
 const ownerJobPrefix = (ownerHash: string) => `owners/${ownerHash}/jobs/`;
 const ownerJobKey = (ownerHash: string, createdAt: string, id: string) =>
@@ -1001,7 +1001,9 @@ async function runExtractionChunk(
     const context = await browser.newContext(contextOptions),
       page = await context.newPage();
 
-    if (!(await verifiedAuthoringPage(page, payload.shellUrl, payload.courseId)))
+    if (
+      !(await verifiedAuthoringPage(page, payload.shellUrl, payload.courseId))
+    ) {
       status = await completeInteractiveOrganizationSso(
         env,
         status,
@@ -1009,6 +1011,25 @@ async function runExtractionChunk(
         page,
         payload,
       );
+      // SSO can take fifteen minutes. Give evidence acquisition a fresh Workflow
+      // step, rather than consuming its item budget during the human handoff.
+      await saveRuntimeState(
+        env,
+        payload.id,
+        await context.storageState({ indexedDB: true }),
+      );
+      await writeStatus(env, status, {
+        state: "RUNNING",
+        phase: "Sign-in verified · continuing capture automatically",
+        liveViewUrl: "",
+      });
+      return {
+        state: "CONTINUE" as const,
+        chunk: chunkNumber,
+        remainingItems: 0,
+        nextItemId: "",
+      };
+    }
 
     status = await writeStatus(env, status, {
       state: "RUNNING",
@@ -1042,7 +1063,9 @@ async function runExtractionChunk(
               w.__CTI_LAST_JSON.length > 1) ||
             !!w.__CTI_LAST_RESULT,
           href: location.href,
-          progress: String(progress || "").replace(/\s+/g, " ").slice(0, 260),
+          progress: String(progress || "")
+            .replace(/\s+/g, " ")
+            .slice(0, 260),
           activeItemId: String(w.__CTI_ACTIVE_ITEM_ID || ""),
           activeItemType: String(w.__CTI_ACTIVE_ITEM_TYPE || ""),
         };
@@ -1105,9 +1128,17 @@ async function runExtractionChunk(
     const captureMeta = (capture as any)?.meta || {};
     const activeMeta = captureMeta.activeSpaCrawl || {};
     const cooperativeYielded = Boolean(
-      captureMeta.backgroundChunk?.yielded || activeMeta.cooperativeChunkYielded,
+      captureMeta.backgroundChunk?.yielded ||
+        activeMeta.cooperativeChunkYielded,
     );
     if (cooperativeYielded) {
+      await env.ARTIFACTS.put(artifactKey(payload.id), captureJson, {
+        httpMetadata: { contentType: "application/json" },
+      });
+      if (captureMeta.backgroundChunk?.rendererBatch?.checkpointFailed)
+        throw new Error(
+          "Coursera browser item checkpoints could not be saved. Automatic continuation stopped to avoid losing evidence.",
+        );
       const runtimeState = await context.storageState({ indexedDB: true });
       await Promise.all([
         saveRuntimeState(env, payload.id, runtimeState),
@@ -1134,12 +1165,25 @@ async function runExtractionChunk(
         phase: `Chunk ${chunkNumber} checkpointed safely · continuing${remainingItems ? ` · ${remainingItems} queued` : ""}`,
         liveViewUrl: "",
         artifactAvailable: false,
+        artifactName:
+          captureMeta.exportFileName ||
+          `CTI__COURSERA__${payload.courseId}__${payload.id}.json`,
+        capture: evaluateCourseraCapture(capture, payload.courseId),
       });
       return {
         state: "CONTINUE" as const,
         chunk: chunkNumber,
         remainingItems,
         nextItemId: String(activeMeta.nextItemId || ""),
+        progress: JSON.stringify([
+          (capture as any).fingerprints?.length || 0,
+          ((capture as any).fingerprints || []).reduce(
+            (sum: number, fp: any) =>
+              sum + Number(fp.payload?.captureAttempts || 0),
+            0,
+          ),
+          Number(accounting.completeCount || 0),
+        ]),
       };
     }
 
@@ -1230,7 +1274,13 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
         return { id: payload.id };
       }
 
-      for (let chunkNumber = 1; chunkNumber <= MAX_EXTRACTION_CHUNKS; chunkNumber++) {
+      let lastProgress = "",
+        stalledChunks = 0;
+      for (
+        let chunkNumber = 1;
+        chunkNumber <= MAX_EXTRACTION_CHUNKS;
+        chunkNumber++
+      ) {
         await step.do(
           `wait for Browser Run capacity chunk ${chunkNumber}`,
           {
@@ -1265,6 +1315,15 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
         );
         if (chunkResult.state === "DONE")
           return { id: payload.id, chunks: chunkNumber };
+        if ("progress" in chunkResult && chunkResult.progress) {
+          stalledChunks =
+            chunkResult.progress === lastProgress ? stalledChunks + 1 : 0;
+          lastProgress = chunkResult.progress;
+          if (stalledChunks >= 2)
+            throw new Error(
+              "Coursera capture made no item progress across three automatic browser sessions. The last raw capture and item checkpoints were preserved; review the extraction error before retrying.",
+            );
+        }
       }
       throw new Error(
         `Coursera extraction still had checkpointed work after ${MAX_EXTRACTION_CHUNKS} cooperative chunks. No partial capture was promoted to COMPLETE; checkpoints were preserved.`,
@@ -1274,14 +1333,19 @@ export class CourseraExtractionWorkflow extends WorkflowEntrypoint<
         this.env,
         statusKey(payload.id),
       );
-      if (current)
+      if (current) {
+        const retainedCapture = await this.env.ARTIFACTS.head(
+          artifactKey(payload.id),
+        );
         await writeStatus(this.env, current, {
           state: "FAILED",
           phase: "Background extraction stopped",
           completedAt: now(),
           liveViewUrl: "",
           error: error instanceof Error ? error.message : String(error),
+          artifactAvailable: !!retainedCapture,
         });
+      }
       throw error;
     }
   }
