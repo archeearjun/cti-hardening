@@ -85,7 +85,9 @@ function fixture({count=79,windowSize=27,mode='virtual',delay=0,missing=[],unans
  if(mode==='lazy') {sidebar.scrollHeight=loaded*32;sidebar.onScroll=y=>{if(y>=sidebar.scrollHeight-sidebar.clientHeight-1&&loaded<count){loaded=Math.min(count,loaded+windowSize);sidebar.scrollHeight=loaded*32;render(0);}};}
  if(mode==='body-lazy') {sidebar.style.overflowY='visible';content.scrollHeight=loaded*100;content.onScroll=y=>{if(y>=content.scrollHeight-content.clientHeight-1&&loaded<count){loaded=Math.min(count,loaded+windowSize);content.scrollHeight=loaded*100;render(0);}};}
  render(0);content.append(card(1,!delay));
- const c={console,document,window:{innerHeight:700,scrollY:0,scrollTo(x,y){this.scrollY=y;}},Node:{TEXT_NODE:3,ELEMENT_NODE:1},Element:El,Event:class{constructor(type){this.type=type;}},getComputedStyle:e=>e.style,Date:{now:()=>now},MAX_TEXT_SAMPLE:24000};vm.createContext(c);
+ // Keep the existing small text budget used to exercise truncation, while
+ // loading the remaining maintained constants for the new acquisition helpers.
+ const c={...require('../src/extractors/coursera/config.js'),console,document,window:{innerHeight:700,scrollY:0,scrollTo(x,y){this.scrollY=y;}},Node:{TEXT_NODE:3,ELEMENT_NODE:1},Element:El,Event:class{constructor(type){this.type=type;}},getComputedStyle:e=>e.style,Date:{now:()=>now},MAX_TEXT_SAMPLE:24000};vm.createContext(c);
  const wanted=['hasVisibleLoadingIndicator','normalizeName','elementTextKey','elementAttributeBlob','isVisibleElement','isDangerousEditorControl','isGlobalChromeElement','isDocumentScrollRoot','scrollRootPosition','setScrollRootPosition','scrollRootMax','unique','uniqueAssetDetails','textEvidenceSourcePriority','mergeEvidence'];
  for(const name of wanted)vm.runInContext(functionCode(name),c);
  for(const name of ['scopedWaitBudgetV61321','isAssignmentTextBlockV61321','parseAssignmentTextBlockV61321','collectAssignmentTextBlocksV61321','assignmentTextBlockBodyV61321','assignmentBehaviorTextV61321','mergeCourseraLearnerText','assignmentOutlineLinksV61320', 'choiceControlVisibilityV61320', 'unmarkedChoiceProbeV61320', 'emptyAssessmentProbeV61320'])vm.runInContext(functionCode(name),c);

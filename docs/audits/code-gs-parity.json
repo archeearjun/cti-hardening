@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md. Reviewed v6.15.21/schema35: automatic local capture yields after durable question observations inside long assessments, counts question progress between documents, preserves incomplete answer evidence, and provides a read-only saved-progress export including expired sessions. Existing strict completion, duplicate-tab protection, attempt and course limits remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.22/schema35: a verified CTI-tab controller navigates unresponsive Coursera tabs and resumes with the retained debugger registration; it bounds repeated failures and refuses broken opener links. Certified editors read loaded question definitions first, preserve JSON-compatible raw fields, and bind definitions to observed live outline IDs, ordinals and prompts without inferring missing keys. Existing strict completion and course limits remain. See docs/local-coursera-extraction.md. Reviewed v6.15.23/schema35: selected-array parse/raw completeness is independent of unrelated graph-search truncation; repeated prompts retain distinct source IDs and ambiguous identities still require DOM. Overall wall time spans automatic documents. The bounded one-quiz response sample is diagnostic, with no requests initiated; API-only live-course acquisition is not certified. Strict completion, raw snapshots and renderer limits remain. See docs/coursera-extraction-feasibility.md.",
+      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md. Reviewed v6.15.21/schema35: automatic local capture yields after durable question observations inside long assessments, counts question progress between documents, preserves incomplete answer evidence, and provides a read-only saved-progress export including expired sessions. Existing strict completion, duplicate-tab protection, attempt and course limits remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.22/schema35: a verified CTI-tab controller navigates unresponsive Coursera tabs and resumes with the retained debugger registration; it bounds repeated failures and refuses broken opener links. Certified editors read loaded question definitions first, preserve JSON-compatible raw fields, and bind definitions to observed live outline IDs, ordinals and prompts without inferring missing keys. Existing strict completion and course limits remain. See docs/local-coursera-extraction.md. Reviewed v6.15.23/schema35: selected-array parse/raw completeness is independent of unrelated graph-search truncation; repeated prompts retain distinct source IDs and ambiguous identities still require DOM. Overall wall time spans automatic documents. The bounded one-quiz response sample is diagnostic, with no requests initiated; API-only live-course acquisition is not certified. Strict completion, raw snapshots and renderer limits remain. See docs/coursera-extraction-feasibility.md. Reviewed v6.15.24/schema35: observed, item-bound native MCQ group/definition GETs use complete ordered live outlines, bounded virtual rail discovery, ID-matched batch/single reads and exact correct-option keys. Credential-free raw CML and unsupported evidence are preserved; item changes, access and rate limits stop acquisition safely. API observations retain their origin through partial DOM fallback and do not consume the renderer activation budget. Strict whole-course completeness is unchanged; real private-course acceptance remains unverified. See docs/coursera-extraction-feasibility.md and docs/extractor-runtime-stability.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "92988f68669ebd3d799b0e9ec5b12f03d9341940a83d43c4037fea6f5e9ddbb9"
+      "reviewedCurrentHash": "fc4e9dd000aa1a82dbcb0626e1f1dbc914a8690eaa28b3103bbcc917062bd428"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.23/schema35",
+      "current": "v6.15.24/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "edb12f9211e9e3740d8366534988128adcb0410699643ae5293f20023bb85c0e"
+          "reviewedCurrentHash": "bae469ce26dfa5079d9c6f73b9cac9fb9977d6a61f7de840eec0ad7420012155"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4369,7 +4369,7 @@
         {
           "name": "collectAssessmentFromOutlineDomV665",
           "archivedHash": "9b5517984738bbce81e74a0bd3927e1e523255a25d352f40335fae25acec9976",
-          "reviewedCurrentHash": "c668130d59c54c5b1af332abeb37502ad552d3418cab4f5634e61d1fd93a6ad9"
+          "reviewedCurrentHash": "94c154d7b6e698b16296e7eec697f0b42daf6ef2050087dba72e5c83589ce33f"
         },
         {
           "name": "collectAssignmentTextBlocksV61321",
@@ -4379,7 +4379,7 @@
         {
           "name": "collectCourseraAssessmentByQuestionCycleV662",
           "archivedHash": "2eca7cabde917a2c9e07fe5d58c84d374e638229847ae422f2553a912b0bb1fa",
-          "reviewedCurrentHash": "0d30d2c4050a2a083676d8bf518c86e7caa21296b0538d3dc16dbd3879eb79cb"
+          "reviewedCurrentHash": "ae6f6554eb18de3de6a50b67ea4a7ae0f3dc4c6b993570406190968ff7e19772"
         },
         {
           "name": "collectDomEvidenceFromRoot",
@@ -4392,9 +4392,19 @@
           "reviewedCurrentHash": "e4d7aacd50fdd5920097801e757d937866ce790eaeea6455d46474a523c4ab40"
         },
         {
+          "name": "collectReactAssessmentStateV664",
+          "archivedHash": "7f75d0f57433a3b809cda1ca5b6e5fa3d8546fe88bab9263cf2ded0fb5aa6ff6",
+          "reviewedCurrentHash": "b6ece8b0b8abfad565798e1883f5b83c11f7827974bdc6a467212c17b57fdb1d"
+        },
+        {
+          "name": "createCtiProgressPanelV1",
+          "archivedHash": "25736ad74cac842c928e083d42db1f6eccfecf676d1cffe1469a0ca3791e968b",
+          "reviewedCurrentHash": "89f3540a7e2e5ef752e46057b3d0da70e1218f23a27443e472d227fc40355a0a"
+        },
+        {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "8a608040940a10b0175210bc275ce5127f154171a79c9dd6d28cb2b45179ac34"
+          "reviewedCurrentHash": "8be754c1a8e92da6d0dc2c592aef839c6926f413a1ced93b8696d17448647edc"
         },
         {
           "name": "downloadJson",
@@ -4467,6 +4477,16 @@
           "reviewedCurrentHash": "4152de0d18958a1141268ef167e024d38ef94acf19894105a4ba2baf4de208fc"
         },
         {
+          "name": "parseOptionStateV664",
+          "archivedHash": "0c780ce7e80f0f851d330719036b9dd7e3870e3b959d93a1864360770f89c52c",
+          "reviewedCurrentHash": "4e98574358c20c164fec1209acf7d7776062764b6c3ebddc422309ffe16fd80d"
+        },
+        {
+          "name": "parseQuestionStateV664",
+          "archivedHash": "38fb4d93822f0715af0f4eecdc5cb44c9d14920ed539ba4e571016f57fb8b46e",
+          "reviewedCurrentHash": "34ea294ca61d60bf44ce7e9bba0201bccf0a1a559ba7905cf1cd901215ae05a2"
+        },
+        {
           "name": "parseSelectedAssessmentQuestionV662",
           "archivedHash": "583ba35b13f0d1115e22613c9eac1c0e960f0366901a47ed4c2de56d18e7c7d7",
           "reviewedCurrentHash": "f0375badb47a3fc2d1dc4aef22e029a5013669d4301ff017c25b13859451deee"
@@ -4489,7 +4509,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "23c9a6955d7e5c02599d4cbed05d9c1c53eee66182e0145db29e694faa13d3dd"
+          "reviewedCurrentHash": "b51da6ebc1af7e92115c5a00bf110d4a7dba2e613853acb9eb126efa78ed0de8"
         },
         {
           "name": "scoreSurfaceForFingerprint",
@@ -4520,32 +4540,20 @@
           "name": "waitForNetworkQuiet",
           "archivedHash": "353560a5535597e1a29d0e9daed68d4ae9734805a0cb2d6507f24ad01633ff79",
           "reviewedCurrentHash": "d04ac21ce6f1341445e9117fe7cbbd26214aa63fe3373e35321ba6b2820ed022"
-        },
-        {
-          "name": "collectReactAssessmentStateV664",
-          "archivedHash": "7f75d0f57433a3b809cda1ca5b6e5fa3d8546fe88bab9263cf2ded0fb5aa6ff6",
-          "reviewedCurrentHash": "b6ece8b0b8abfad565798e1883f5b83c11f7827974bdc6a467212c17b57fdb1d"
-        },
-        {
-          "name": "parseQuestionStateV664",
-          "archivedHash": "38fb4d93822f0715af0f4eecdc5cb44c9d14920ed539ba4e571016f57fb8b46e",
-          "reviewedCurrentHash": "34ea294ca61d60bf44ce7e9bba0201bccf0a1a559ba7905cf1cd901215ae05a2"
-        },
-        {
-          "name": "parseOptionStateV664",
-          "archivedHash": "0c780ce7e80f0f851d330719036b9dd7e3870e3b959d93a1864360770f89c52c",
-          "reviewedCurrentHash": "4e98574358c20c164fec1209acf7d7776062764b6c3ebddc422309ffe16fd80d"
-        },
-        {
-          "name": "createCtiProgressPanelV1",
-          "archivedHash": "25736ad74cac842c928e083d42db1f6eccfecf676d1cffe1469a0ca3791e968b",
-          "reviewedCurrentHash": "89f3540a7e2e5ef752e46057b3d0da70e1218f23a27443e472d227fc40355a0a"
         }
       ],
       "added": [
         {
           "name": "advanceAutomaticLocalCaptureV61517",
-          "reviewedCurrentHash": "ff8911f4680342fd897c29d6a9e1015b3c0060440ce9e5bf68b8bafbf225dae5"
+          "reviewedCurrentHash": "14e747762be44f98ed7929303bb8e279f22504d91f8b18230c84fb7716350507"
+        },
+        {
+          "name": "assessmentApiCmlV61524",
+          "reviewedCurrentHash": "91a984ac756480a45dd0fcb42300626eb51b26086abc67e9a6dfb42b098ec7ca"
+        },
+        {
+          "name": "assessmentApiInventoryFromObservedCandidatesV61524",
+          "reviewedCurrentHash": "645293914ba4aee17345c21ea047381afa53500e2b249cf046e3b24f81a6270c"
         },
         {
           "name": "assessmentQuestionCheckpointV61518",
@@ -4566,6 +4574,10 @@
         {
           "name": "checkpointSessionIdV6150",
           "reviewedCurrentHash": "af5ab725d381f830b2c7aff410ef15095a6e0070d44eb267bb6b1b56ae564ab6"
+        },
+        {
+          "name": "collectCourseraAssessmentApiV61524",
+          "reviewedCurrentHash": "b4110c82f5311c2a1431a0b3c58d8b630acbf5ca3a493cdd6771230b7cde329c"
         },
         {
           "name": "collectCourseraTimeEstimate",
@@ -4592,6 +4604,10 @@
           "reviewedCurrentHash": "f6227dfe96d43c38f18c841bf79f5e4e58a741efb02e7c6108cc8aff540eff15"
         },
         {
+          "name": "discoverAssessmentApiRailInventoryV61524",
+          "reviewedCurrentHash": "cab57e1389b4d14111714a49d73b96e17de86cf9808301aaa3f935df5f26a941"
+        },
+        {
           "name": "exportCaptureWithCheckpoints",
           "reviewedCurrentHash": "7e8b10e918a5f3d1492a25f25a2d34aaa18d8a52f0c3446ca9fb5a096bf586bb"
         },
@@ -4608,6 +4624,14 @@
           "reviewedCurrentHash": "e68599a675cd33571435ec31fdaa2d20549cccc1d38cada9ab8f69a2d2c405cb"
         },
         {
+          "name": "loadedStateTextV61522",
+          "reviewedCurrentHash": "59a33cbc77987e043cb743722560b6d41a3ca9ea604dd1c421c65974184d868a"
+        },
+        {
+          "name": "observedAssessmentApiInventoryV61524",
+          "reviewedCurrentHash": "26d6d33b2332980dc19becf11d4b1e832a2ef4d6c1a77b1ba6bdc472c496177d"
+        },
+        {
           "name": "offerCheckpointContinuationV61514",
           "reviewedCurrentHash": "a75fab40bbee1b17dd9e7c4bbdd58914902bd5a5d5c962cc49350f541b2ff7af"
         },
@@ -4616,12 +4640,32 @@
           "reviewedCurrentHash": "8345a3d8d7aa0f3ffad8aa42cd92e3053feda6813b0c780ba9f744d83cd349af"
         },
         {
+          "name": "parseCourseraMcqDefinitionV61524",
+          "reviewedCurrentHash": "2c65bc57f9430d9cd7ac50f476997195cbc3054a234ce63c7b46f2c44364d517"
+        },
+        {
           "name": "parseCourseraTimeEstimate",
           "reviewedCurrentHash": "6a3898d9fb710bad0f781f77bdb77b3f947bc2388092eab7dd3423f8a1052415"
         },
         {
+          "name": "rawAssessmentStateV61522",
+          "reviewedCurrentHash": "e6440168afa931cc0279d4dd9aa3ce637daf8a6dedc18020d4f6a46df0d1ca41"
+        },
+        {
+          "name": "recheckAssessmentApiInventoryV61524",
+          "reviewedCurrentHash": "626db44a75655ab29b89f3f1676e8e53d8e1e9d656f393fb09c57270c77d0054"
+        },
+        {
           "name": "renderedChoiceLabelV6159",
           "reviewedCurrentHash": "d526eeb3e8920859aca89719c3b7eb4c77691aa9c85e36cf50842c4185f1aa22"
+        },
+        {
+          "name": "reportLocalSupervisorV61522",
+          "reviewedCurrentHash": "d8d25b5bac427c09585321de51da510772dfce179e577a8b80688c0dbbd1217b"
+        },
+        {
+          "name": "sanitizeAssessmentApiValueV61524",
+          "reviewedCurrentHash": "f894614ed49a32ab1907d5f86589e7443cd6355c8c0a7fb6a61773a348ce4335"
         },
         {
           "name": "validateSavedCaptureResumeV61515",
@@ -4630,18 +4674,6 @@
         {
           "name": "waitForVisibleV6154",
           "reviewedCurrentHash": "a48148005d856a66e167f81d9f18f74f8a166274ca52692d708f5ece4995461b"
-        },
-        {
-          "name": "rawAssessmentStateV61522",
-          "reviewedCurrentHash": "e6440168afa931cc0279d4dd9aa3ce637daf8a6dedc18020d4f6a46df0d1ca41"
-        },
-        {
-          "name": "reportLocalSupervisorV61522",
-          "reviewedCurrentHash": "d8d25b5bac427c09585321de51da510772dfce179e577a8b80688c0dbbd1217b"
-        },
-        {
-          "name": "loadedStateTextV61522",
-          "reviewedCurrentHash": "59a33cbc77987e043cb743722560b6d41a3ca9ea604dd1c421c65974184d868a"
         }
       ],
       "removed": [],
@@ -4657,6 +4689,54 @@
           "status": "added",
           "archivedHash": null,
           "reviewedCurrentHash": "2a1dd980d6ccba30822358f0d3e049c5e39d34891035632575299579cd0f64cd"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_BATCH_IDS_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "a0aa7db04ee187b9707157c0ec65be9433de22740b946a8ce15cc6d5e3b4342c"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_BODY_BYTES_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "021209d707fca63eb329c8c42bb34d0de0e329956238c3a7951c618ecb6c4c60"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_CONCURRENCY_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "94a2460a2c7da59bcce655af86db4ef0cf5f1bdc7e3e99e201f71ca152f78115"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_MAX_PARTS_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "c567c06aae1846164d9eb1ab1be141243fab19d7d19438cf0744e2ffa84a0a68"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "d9319c1cd988935900cd33aa7007f543404d322c95db38e70cec6f593b1c9dd9"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "8a130201ba89fddcfdd410e9bda861701e74ca68d68d70a3e44e5ac123b31ec3"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_REQUEST_MS_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "6b0d80a98ef5568c86c461f0c7c9dc64c2aaeb19825267910a62e3686f73b780"
+        },
+        {
+          "name": "CTI_ASSESSMENT_API_TOTAL_BYTES_V61524",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "8de5183d51ab9eb1678d999d51250f7cbc8413ad8a98df9ff3806e86b77a3845"
         },
         {
           "name": "CTI_ASSESSMENT_ATTEMPT_MAX_MS",
@@ -4725,6 +4805,18 @@
           "reviewedCurrentHash": "95d3f4b35086eec0f32a7e99de0733d18016ee76804a07dbe5fa97cd95f49cde"
         },
         {
+          "name": "CTI_LOCAL_ASSESSMENT_MAX_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "0b93cc6b4722763d85a9a3a8d2fbbb83173976fa58d2fa108e21cfe1f0d16332"
+        },
+        {
+          "name": "CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "323eeca7540a490068af5de0eff20c222a4cf3936bf53691afafbc3855f81727"
+        },
+        {
           "name": "CTI_LOCAL_BATCH_MAX_MS",
           "status": "added",
           "archivedHash": null,
@@ -4747,6 +4839,12 @@
           "status": "added",
           "archivedHash": null,
           "reviewedCurrentHash": "0022a2ea97d809c60d1b335b331462ef0c9d0aa633534ef75d1e48e6369ea69a"
+        },
+        {
+          "name": "CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS",
+          "status": "added",
+          "archivedHash": null,
+          "reviewedCurrentHash": "1d8fa1b6a5954c8efa0d21197de8033a13121c062a9588e3cf5949fdcf816596"
         },
         {
           "name": "CTI_MAX_ITEM_ATTEMPTS",
@@ -4837,34 +4935,16 @@
           "status": "changed",
           "archivedHash": "d49a5e5c6a32828da23edbdc9548040aca0593efc14cee5d492e0a2ccb727939",
           "reviewedCurrentHash": "c91e1ab2b4d6cbe02abc836684614e78eadac47217422da46417799c14815d76"
-        },
-        {
-          "name": "CTI_LOCAL_ASSESSMENT_MAX_MS",
-          "status": "added",
-          "archivedHash": null,
-          "reviewedCurrentHash": "0b93cc6b4722763d85a9a3a8d2fbbb83173976fa58d2fa108e21cfe1f0d16332"
-        },
-        {
-          "name": "CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS",
-          "status": "added",
-          "archivedHash": null,
-          "reviewedCurrentHash": "323eeca7540a490068af5de0eff20c222a4cf3936bf53691afafbc3855f81727"
-        },
-        {
-          "name": "CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS",
-          "status": "added",
-          "archivedHash": null,
-          "reviewedCurrentHash": "1d8fa1b6a5954c8efa0d21197de8033a13121c062a9588e3cf5949fdcf816596"
         }
       ],
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "251cd6ec0e231d71f2cc375218fde0b5c99a88d6d9aca1666f8393d423127cb2"
+        "reviewedCurrentHash": "50e47c2a72864c4028414c7f7155d337813c5a477d4ef0ef2fd46efc0df4c8c6"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "92988f68669ebd3d799b0e9ec5b12f03d9341940a83d43c4037fea6f5e9ddbb9"
+        "reviewedCurrentHash": "fc4e9dd000aa1a82dbcb0626e1f1dbc914a8690eaa28b3103bbcc917062bd428"
       }
     }
   }

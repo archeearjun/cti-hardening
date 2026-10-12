@@ -210,28 +210,12 @@ export default function LocalCourseraExtraction({
         </p>
       )}
 
-      <div className="section-divider">
-        <h3>One-quiz data check</h3>
-        <p>Use this when a full capture takes too long. It saves the quiz responses
-          Coursera already receives, so we can check whether full questions and keys
-          can be captured without opening each question.</p>
-        <p className="hint">Close DevTools, refresh the Coursera Content page, reopen Console
-          and paste this script once. Open one quiz normally, then click
-          <strong> Download response sample</strong> in Coursera. This is a diagnostic sample.
-          It stays local and does not start a full-course run.</p>
-        <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
-          onClick={()=>void copyResponseSample()}>Copy one-quiz data check</button>
-        {responseSampleSource && <details className="scope">
-          <summary>Data-check script copy fallback</summary>
-          <p className="hint">Select all of this script and paste into Coursera Console.</p>
-          <textarea className="extractor-source" aria-label="One-quiz data-check script"
-            readOnly value={responseSampleSource} onFocus={event=>event.currentTarget.select()} />
-        </details>}
-      </div>
 
       <div className="section-divider managed-local-capture">
         <h3>Managed capture in local Chrome</h3>
         <p>CTI stays open as the controller while Coursera captures the course.
+          Supported quizzes use direct question-definition reads after opening the editor once.
+          CTI checks the full question inventory and keys before accepting that capture.
           It can reopen an unresponsive Coursera tab and resume saved work.
           Chrome must preserve the connection between these tabs.</p>
         <p className="hint">Close any earlier extraction tab first. Open the managed tab here,
@@ -256,6 +240,26 @@ export default function LocalCourseraExtraction({
           <p>{managedStatus.count || (managedStatus.completeItems+' items complete · '+managedStatus.savedQuestions+' question observations saved')} · {managedStatus.recoveries} automatic recoveries</p>
         </div>}
       </div>
+
+      <details className="section-divider">
+        <summary>Diagnostic one-quiz response sample</summary>
+        <p>Use this when a full capture takes too long. It saves the quiz responses
+          Coursera already receives, so we can check whether full questions and keys
+          can be captured without opening each question.</p>
+        <p className="hint">Close DevTools, refresh the Coursera Content page, reopen Console
+          and paste this script once. Open one quiz normally, then click
+          <strong> Download response sample</strong> in Coursera. This is a diagnostic sample.
+          It stays local and does not start a full-course run.</p>
+        <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
+          onClick={()=>void copyResponseSample()}>Copy one-quiz data check</button>
+        {responseSampleSource && <details className="scope">
+          <summary>Data-check script copy fallback</summary>
+          <p className="hint">Select all of this script and paste into Coursera Console.</p>
+          <textarea className="extractor-source" aria-label="One-quiz data-check script"
+            readOnly value={responseSampleSource} onFocus={event=>event.currentTarget.select()} />
+        </details>}
+      </details>
+
 
       <h3>Standalone local capture</h3>
       <ol className="local-extraction-steps">
@@ -295,7 +299,8 @@ export default function LocalCourseraExtraction({
       </ol>
       <p className="hint">
         CTI checkpoints each item and reloads between short renderer batches.
-        Long assessments also pause at saved question boundaries, so one large
+        Quizzes without a complete supported API model use the editor fallback and
+        pause at saved question boundaries, so one large
         item can continue across several reloads. It restores saved work
         without intermediate downloads or repeated pastes. Large assessments
         also save identified question observations during collection. The

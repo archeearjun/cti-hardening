@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {createAutomaticLocalCourseraCommand,createSavedCourseraCheckpointExportCommand} from '../src/domain/coursera-local-extraction.ts';
 import {automaticLocalCaptureNeedsContinuationV61519,advanceAutomaticLocalCaptureV61517} from '../src/extractors/coursera/automatic-local.js';
+
+test('denied authoring API reads finish the controller without a reload loop',()=>{
+ const data={fingerprints:[{id:'quiz',payload:{captureAttempts:1}}],
+  meta:{activeSpaCrawl:{authoringApiAccessStopped:true},captureAccounting:{complete:false,unvisitedCount:10}}};
+ const next=advanceAutomaticLocalCaptureV61517({startedAt:100,batches:0},data,true,false,true,200);
+ assert.equal(next.state,'FINISHED');assert.equal(next.reason,'AUTHORING_API_ACCESS_REQUIRED');
+ assert.equal(next.complete,false);assert.match(next.message,/sign-in and authoring permission/);
+});
+
+test('Coursera rate limits stop automatic editor traversal and continuation',()=>{
+ const data={fingerprints:[{id:'quiz',payload:{captureAttempts:1}}],
+  meta:{activeSpaCrawl:{authoringApiRateLimited:true},captureAccounting:{complete:false,unvisitedCount:10}}};
+ const next=advanceAutomaticLocalCaptureV61517({startedAt:100,batches:0},data,true,false,true,200);
+ assert.equal(next.state,'FINISHED');assert.equal(next.reason,'AUTHORING_API_RATE_LIMITED');
+ assert.equal(next.complete,false);assert.match(next.message,/cooldown/);
+});
 import {compactCaptureBlobV61517} from '../src/extractors/coursera/text-and-dom.js';
 import {courseraSource} from '../src/generated/extractor-sources.js';
 import {createCheckpointManagerV6150,checkpointSessionIdV6150} from '../src/extractors/coursera/completion.js';

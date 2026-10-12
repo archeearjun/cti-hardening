@@ -43,6 +43,33 @@ uses that workbook for item types, names, IDs, and placement. No supplied workbo
 or verified public contract establishes that this export includes complete
 questions, answer keys, feedback, media bytes, or external tool content.
 
+## What the 12 October response sample establishes
+
+The operator supplied 20 observed GET responses containing **ten question groups
+and ten complete native MCQ definitions, in 51,128 bytes of response JSON**.
+The group resource was `authoringAssignmentQuestionGroups.v1`; the definition
+resource was `authoringAssignmentMachineEvaluableQuestions.v1`. Every group
+supplied one exact versioned question reference, and all ten references matched
+returned definition IDs. This is actual authenticated Coursera evidence, rather
+than a synthetic API fixture or a naming convention inferred from documentation.
+
+The MCQ definition contains the original CML prompt, an array of options with
+stable option IDs and original CML displays, and a `correctOption` string that
+matches one option's ID. All ten answer keys therefore have explicit API
+evidence. Eight definitions match identities, prompts and options in an older
+capture whose answer keys were `NOT_OBSERVED`; the new responses supply those
+missing keys. The option feedback fields are present but explicitly empty in
+this sample. Their presence does not establish nonempty feedback.
+
+This proves a useful question-definition acquisition path for this observed
+MCQ schema. It does **not** supply a complete assignment root, all 100 ordered
+groups, an item-to-assignment relation, every quiz type, or the whole course.
+All sampled groups have one variant; selection and ordering for multiple
+variants remain unverified. Credential fields present in response envelopes
+are unnecessary for read-only capture and must be excluded from retained or
+exported evidence. Private identities, wording and credential values are not
+included in this public document.
+
 ## Options under the restrictions
 
 | Option | Fits the restrictions? | What it can improve | Remaining limit |
@@ -52,7 +79,8 @@ questions, answer keys, feedback, media bytes, or external tool content.
 | Protocol monitor registration with checkpoints | Yes | Reinstalls the canonical program on new documents; enables automatic resume | Does not move parsing or editor rendering out of Coursera's renderer |
 | Separate CTI supervisor tab | Yes | Detects lost heartbeats and navigates a crashed managed tab | Recovery preserves work; it does not make slow acquisition fast |
 | Loaded quiz definitions matched to live IDs | Yes, when available | Can skip most question-editor activations | Actual model shape, identities, completeness, and answer fields must be observed |
-| Authenticated API acquisition in a lightweight Coursera-origin tab | Browser mechanism proven; course path pending | Can fetch definitions without loading the large React editor | Real authoring schema, item relations, pagination, keys, and completeness remain unverified |
+| Observed group/question API reads after opening a quiz once | Yes; native MCQ schema confirmed by the real sample | Can obtain original prompts, options and explicit keys without activating every question editor | Requires a complete live ordered group inventory; batch support, other types and multiple variants still need verification |
+| Authenticated API acquisition in a lightweight Coursera-origin tab | Browser mechanism proven; full-course path pending | Can fetch confirmed definitions without loading the large React editor | Full course-to-item-to-assignment relations, ordering and unsupported content remain unverified |
 | Web Worker and browser file storage | Yes, where supported | Offloads suitable parsing; writes evidence incrementally | Neither supplies missing definitions nor reads editor DOM; storage and permissions still apply |
 | Local Playwright/CDP automation | Free software, but outside the confirmed restrictions | More direct browser orchestration | Requires a permitted local runtime/tool and an appropriate debugging profile |
 | Extension or paid remote browser | Outside the requirement | Alternative orchestration environment | Not a solution within the operator's stated restrictions |
@@ -66,11 +94,46 @@ of opening and rendering thousands of question editors. Chrome documents
 as ways to execute page code or send protocol commands. Neither promises complete
 Coursera content acquisition.
 
-## Recommended direction and the missing evidence
+## Request-based acquisition and the remaining evidence
 
-The strongest remaining free direction is to acquire original definitions using
-the signed-in browser's same-origin requests, in a lightweight document that
-does not render the course editor. A document opened as `about:blank` by a
+The next implementation uses the existing managed local-browser workflow. It
+opens a quiz once, certifies the active editor against the course item, and
+collects its complete ordered live outline. That outline supplies actual group
+identities and positions. It then reads the observed group endpoint, follows
+the group's exact versioned question references, and reads the observed
+definition endpoint. For the confirmed MCQ schema, `correctOption` resolves
+against option IDs and original CML is retained. It does not need to open each
+question to infer its answer key from rendered badges.
+
+Small batches of up to 15 observed IDs use Naptime's documented collection GET
+syntax, `?ids=<comma-separated-identities>&fields=<selected-fields>`. A returned
+array is not an ordering contract: results are matched by exact ID and ordered
+using the live outline. Naptime documents the batch route, but that does not
+prove every private authoring resource implements it. Unsupported batching or
+missing batch members fall back to the observed single-resource GET shape with
+bounded retries; they cannot be treated as complete responses. No unobserved
+question ID, revision, finder or collection-wide enumeration is invented.
+
+Naptime combines requested fields with default fields. Its documented negative
+field selection can exclude `writeAccessToken`; reads request the content fields
+and explicitly exclude that credential field. Returned credential fields must
+still be removed before retention, even if a server ignores the projection.
+
+The API fast path requires the full live outline, matching returned identities,
+one supported question definition per group, and complete required fields and
+keys. Multiple variants, unsupported types, conflicting identities, unavailable
+responses or an incomplete outline keep explicit gaps and use the existing
+observed DOM fallback. Missing source inventory cannot be repaired by sorting
+response arrays or assuming that ten sampled definitions represent 100
+questions. Item checkpoints and the strict final completion gate still apply.
+
+The response-sample tool is now a troubleshooting aid for a missing or changed
+schema. The supplied sample is sufficient to implement this native MCQ adapter;
+another diagnostic rerun is not a prerequisite for using that adapter.
+
+A further direction is to acquire the whole course using the signed-in browser's
+same-origin requests in a lightweight document that does not render the course
+editor. A document opened as `about:blank` by a
 Coursera-origin script can inherit that origin. Same-origin `fetch` normally
 sends the origin's credentials without copying the cookies into CTI. These are
 documented browser capabilities, and a local browser prototype verifies the
@@ -79,11 +142,12 @@ HttpOnly session cookie, and loaded no authoring application in the new tab.
 That test used no real Coursera session or schema. It did not prove crash
 isolation: same-origin tabs may share a renderer. A lightweight tab reduces
 editor work; it is not automatically an independent crash supervisor. These
-results are not evidence that a complete Coursera authoring API exists for this
-account or for every content type.
+results do not establish complete item relations or definitions for every
+content type. The real sample separately confirms the two native assessment
+resources described above.
 
-The next evidence needed is **one normal quiz opening**, not another full-course
-run. The bounded response-sample tool observes the page's existing fetch/XHR
+For unsupported or changed schemas, the bounded response-sample tool observes
+the page's existing fetch/XHR
 traffic while the operator opens one quiz. It makes no additional requests,
 does not collect cookies, request/response headers, or request bodies, and is
 limited to five minutes, 40 bodies, 6 MiB per body, and 12 MiB total. It retains
@@ -102,14 +166,12 @@ can still contain private course content or other sensitive fields; omitting
 headers is not a universal sanitization guarantee. This is diagnostic evidence,
 not a course-audit capture.
 
-That sample must establish which observed requests bind a course item to its
-assessment and question IDs; whether complete definitions and keys arrive
-together or through multiple requests; how text blocks and question order are
-represented; and whether pagination, draft versions, media references, or missing
-permissions prevent completeness. An implementation can then fetch only those
-observed read endpoints, preserve original definitions, checkpoint each item,
-and use DOM capture only for confirmed gaps. Endpoint names and relationships
-must not be invented from a framework's naming convention.
+For an editor-free whole-course path, the remaining evidence must bind every
+course item to its assignment and ordered groups, account for text blocks and
+other native question types, and establish how pagination, drafts, variants,
+media references and permissions affect completeness. The confirmed MCQ
+resources do not supply those missing relations by themselves. Endpoint names
+and relationships must not be invented from a framework's naming convention.
 
 Acceptance requires the actual course to finish with every inventory item
 accounted for, exact observed question identities/counts, required keys or an
@@ -124,8 +186,9 @@ The Chromium fixtures exercise the canonical parsing/checkpoint program,
 supervision, crashes, and final-file behavior. They supply synthetic course
 responses and substitute actual Coursera navigation and stability boundaries.
 Their question counts and crash recoveries demonstrate those tested mechanisms;
-they are not throughput benchmarks for this private course. Authenticated live
-acceptance and a complete API-definition path remain unverified.
+they are not throughput benchmarks for this private course. The real sample
+confirms the native MCQ definition schema and explicit keys; authenticated
+whole-course acceptance and an editor-free course inventory remain unverified.
 
 ## Browser documentation and scope
 
@@ -134,7 +197,9 @@ acceptance and a complete API-definition path remain unverified.
 - [MDN Web Workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers): worker execution and lack of direct DOM access.
 - [Chrome File System Access](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access) and [MDN origin-private file system](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system): incremental local persistence, with API support and permission requirements.
 - [Chrome remote debugging changes](https://developer.chrome.com/blog/remote-debugging-port): modern external debugging requires a non-default user-data directory; it is not an installation-free connection to any existing work profile.
-- [Coursera Naptime](https://github.com/coursera/naptime): a public REST framework repository, not a supported private authoring-content API contract.
+- [Coursera Naptime multiGet documentation](https://github.com/coursera/naptime/blob/gh-pages/gettingstarted/index.md#multi-get) and [request builder source](https://github.com/coursera/naptime/blob/master/naptime/src/main/scala/org/coursera/naptime/actions/RestActionBuilderTerminators.scala): collection GET requests with comma-separated `ids`; framework support does not certify an individual authoring resource.
+- [Naptime routing test](https://github.com/coursera/naptime/blob/master/naptime/src/test/scala/org/coursera/naptime/router2/NestingCollectionResourceRouterTest.scala): multiGet binds IDs to a set, so returned array order must not be used as the course's question order.
+- [Naptime field projection source](https://github.com/coursera/naptime/blob/master/naptime/src/main/scala/org/coursera/naptime/models.scala) and [field tests](https://github.com/coursera/naptime/blob/master/naptime/src/test/scala/org/coursera/naptime/ResourceFieldsTest.scala): requested fields are combined with defaults; negative selections remove default fields.
 
 These sources establish browser mechanisms and their boundaries. They do not
 guarantee complete acquisition of every Coursera assessment, plugin, external

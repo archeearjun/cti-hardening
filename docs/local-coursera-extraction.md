@@ -1,12 +1,40 @@
 # Automatic Coursera capture in local Chrome
 
-## When the whole-course capture is too slow
+## Quiz definitions before question-editor rendering
 
-The current UI-driven capture has not been proven scalable on the reported
-Technical Drawing course. Protocol monitor improves registration/recovery;
-it does not remove question-editor rendering. The [feasibility assessment](coursera-extraction-feasibility.md)
-compares the free alternatives and documents why a real response sample is
-needed before an API-only path can be certified.
+The reported Technical Drawing capture was too slow to serve as a scalable team
+workflow. Protocol monitor improves registration and recovery; it does not
+remove question-editor rendering by itself. A real response sample supplied on
+12 October 2026 now confirms that Coursera returns original native MCQ prompts,
+options and explicit answer keys through read-only assessment endpoints.
+
+The request-based fast path uses the same managed Protocol monitor setup below.
+It opens a quiz once, collects its complete ordered live outline, and reads
+only observed group and exact versioned question identities. Supported native
+MCQs can therefore be captured without activating every question editor.
+For a virtualized outline, bounded scrolling reads the sidebar identities and
+restores its position without scrolling the content or activating questions.
+Small Naptime batches are tried before bounded single-ID reads; matching uses
+returned source IDs, and ordering comes from the outline. It preserves original
+CML and maps `correctOption` to its exact option ID. Credential envelope fields
+are excluded from retained evidence.
+
+The supplied sample contained ten groups and ten definitions, with eight
+previously observed questions gaining explicit keys that were missing from
+their older DOM capture. It does not establish a complete 100-question quiz or
+whole-course acceptance. An incomplete outline, multiple variants, an unsupported
+question type, unavailable responses or conflicting identities keep explicit
+gaps and use the existing observed DOM fallback. The [feasibility assessment](coursera-extraction-feasibility.md)
+details the evidence and remaining boundaries. No extension, local installation
+or paid browser is required.
+
+The progress card shows **Reading quiz definitions** when direct acquisition is
+active and **Reading quiz in editor** with a reason when fallback is needed.
+Denied reads and server rate limits stop the run with saved evidence rather
+than repeatedly reopening editors. Direct reads use their own bounded evidence
+collector, avoiding duplicate generic-network response copies.
+
+## Optional response sample for an unsupported schema
 
 From v6.15.23, CTI → Extract includes **Copy one-quiz data check**:
 
@@ -18,7 +46,8 @@ From v6.15.23, CTI → Extract includes **Copy one-quiz data check**:
 
 The observer makes no requests and captures only future matching responses.
 The file is a diagnostic sample for investigating the definition schema; do not
-use it as a course-audit capture. Parsed/binary XHR and opaque GraphQL can be
+use it as a course-audit capture. This is a troubleshooting tool; another sample
+is not required before using the confirmed native MCQ adapter. Parsed/binary XHR and opaque GraphQL can be
 declined. If the sample is empty or reports such declines, Chrome Network's
 **Copy response** can supply the specific authoring JSON instead. There is no
 need to send cookies, request headers or a full-course HAR.
@@ -228,6 +257,8 @@ profile using a debugging port. This feature does not change that security rule.
 - [Chrome DevTools Protocol Page domain](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-addScriptToEvaluateOnNewDocument): registration on every new frame, `runImmediately`, and the registration identifier.
 - [Chrome memory problems](https://developer.chrome.com/docs/devtools/memory-problems): heap growth, detached DOM trees and browser Task Manager.
 - [Chrome 136 remote debugging changes](https://developer.chrome.com/blog/remote-debugging-port): custom profile requirement for external debugging tools.
+- [Coursera Naptime multiGet](https://github.com/coursera/naptime/blob/gh-pages/gettingstarted/index.md#multi-get): collection GET requests with comma-separated `ids`; support on each observed authoring resource must still be checked.
+- [Naptime field projection](https://github.com/coursera/naptime/blob/master/naptime/src/main/scala/org/coursera/naptime/models.scala): fields are combined with defaults, and negative selections can exclude default credential fields.
 
 `npm run test:browser:local-capture` executes the maintained extractor entry,
 IndexedDB store, completion gate and export through real Chromium CDP commands.

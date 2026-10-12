@@ -74,6 +74,8 @@ jobs:
         run: npm run test:browser:supervised-capture
       - name: Passive quiz response sample and authenticated lightweight data-tab feasibility
         run: npm run test:browser:response-sample
+      - name: Exact versioned quiz definitions with no question rendering
+        run: npm run test:browser:assessment-api
       - name: Verify package scanning in Chromium
         run: npm run test:browser:package
       - name: Verify workspace workflow in Chromium

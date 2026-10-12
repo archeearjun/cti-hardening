@@ -21,7 +21,9 @@ export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvai
   const next=Object.assign({},plan,{batches:Number(plan.batches || 0)+1,lastProgress:progress,
     stalled:plan.lastProgress===progress?Number(plan.stalled || 0)+1:0,updatedAt:now});
   let reason='';
-  if(fingerprints.length===0)reason='COURSE_INVENTORY_EMPTY';
+  if(capture.meta?.activeSpaCrawl?.authoringApiAccessStopped)reason='AUTHORING_API_ACCESS_REQUIRED';
+  else if(capture.meta?.activeSpaCrawl?.authoringApiRateLimited)reason='AUTHORING_API_RATE_LIMITED';
+  else if(fingerprints.length===0)reason='COURSE_INVENTORY_EMPTY';
   else if(!retainCheckpoint && !automaticLocalCaptureNeedsContinuationV61519(capture))reason='INVENTORY_FINISHED';
   else if(!checkpointAvailable || checkpointFailed)reason='LOCAL_CHECKPOINT_UNAVAILABLE';
   else if(next.stalled>=3)reason='LOCAL_CAPTURE_NO_PROGRESS';
@@ -32,6 +34,8 @@ export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvai
   next.message=reason==='INVENTORY_FINISHED'?
     (next.complete?'Every inventory item has a complete capture.':'Acquisition finished; review the explicit evidence gaps.'):
     reason==='COURSE_INVENTORY_EMPTY'?'No supported course inventory was returned. Check the authoring shell before restarting.':
+    reason==='AUTHORING_API_ACCESS_REQUIRED'?'Coursera denied a question-definition read. Check your sign-in and authoring permission before resuming. Partial evidence is retained.':
+    reason==='AUTHORING_API_RATE_LIMITED'?'Coursera rate-limited question reads. Capture stopped with saved evidence; allow its cooldown before resuming.':
     reason==='LOCAL_CHECKPOINT_UNAVAILABLE'?'Browser checkpoints are unavailable. Capture stopped with partial evidence.':
     reason==='LOCAL_CAPTURE_NO_PROGRESS'?'Capture stopped after repeated batches made no progress. Partial evidence is retained.':
     reason==='LOCAL_CAPTURE_RUN_LIMIT'?'Capture reached its run limit. Partial evidence is retained.':'Continuing automatically.';

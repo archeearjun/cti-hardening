@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61523')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61524')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -357,6 +357,7 @@ try{
   await app.getByRole('button',{name:'Coursera extractor',exact:false}).click();
   const quickLocal=app.locator('.script-panel .local-extraction-card');
   await quickLocal.getByLabel('Coursera authoring-shell URL',{exact:true}).fill('https://www.coursera.org/teach/synthetic/Native_local_fixture_123/content/edit');
+  await quickLocal.getByText('Diagnostic one-quiz response sample',{exact:true}).click();
   await quickLocal.getByRole('button',{name:'Copy one-quiz data check',exact:true}).click();
   await quickLocal.getByText('Data-check script copied.',{exact:false}).waitFor();
   const sampleScript=await app.evaluate(()=>navigator.clipboard.readText());

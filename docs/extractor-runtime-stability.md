@@ -1,5 +1,35 @@
 # Coursera extractor runtime stability
 
+## v6.15.24: native MCQ definitions before question rendering
+
+The 12 October response sample exposed a concrete failure of DOM-only capture:
+eight matching older observations had prompts and options but no reliable keys,
+while their current versioned definitions supplied explicit `correctOption` IDs.
+The new path first requires a certified course-item editor with every live
+outline ID and ordinal. It reads group references and exact versioned MCQ
+definitions through observed authoring resources, trying batches of fifteen with
+at most two requests in flight. Unsupported batch routes fall back to single-ID
+reads. Responses are matched by ID rather than arrival order.
+
+The adapter retains original CML, option identity, independent option feedback,
+shuffle settings and the explicit key relation. It rejects ambiguous identity,
+missing keys, unsupported question types and groups containing multiple variants.
+Credential fields are removed before checkpointing. Byte, request and item-time
+limits remain explicit; denied authoring reads stop automatic continuation.
+The live editor inventory is checked again before accepting the result.
+Virtualized outlines are discovered by bounded sidebar-only scrolling and
+restored afterward. Dedicated reads use the pre-recorder fetch caller to avoid
+duplicate clones and false generic-network gaps in single-ID fallback. Valid
+partial API observations keep their provenance during editor fallback and do
+not consume the renderer's question-activation budget. Server rate limits halt
+both editor traversal and automatic continuation after a bounded permitted retry.
+
+The native 100-question fixture exercises the real cycle and HTTPS responses:
+fourteen batch reads, bounded concurrency, every key preserved and zero question
+clicks. Single-read fallback and incomplete/access/identity failures are also
+checked. This validates the implementation against the observed schema; it does
+not certify a new authenticated run of the user's full course.
+
 ## v6.15.23: selected-model retention and one-quiz response sampling
 
 A live v6.15.22 report describes roughly 1.5 hours of slowly advancing quiz
