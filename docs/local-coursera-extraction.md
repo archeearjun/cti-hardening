@@ -45,7 +45,10 @@ tab while preserving browser checkpoints.
 
 Browser opener-isolation policies can sever the link, and managed capture
 refuses to start without a verified acknowledgement. No security policy or
-header is bypassed. Closing DevTools removes its registration; the CTI tab
+header is bypassed. Crash recovery also relies on Chrome's normal site isolation
+keeping the CTI and Coursera sites in separate renderer processes. If browser
+policy disables that isolation, a shared-process crash can stop both tabs; this
+feature does not alter enterprise browser policy. Closing DevTools removes its registration; the CTI tab
 cannot recreate that registration. Closing, refreshing or leaving CTI's Extract
 page also ends its supervisor. These interruptions require a new command.
 
@@ -234,7 +237,8 @@ items remain reported gaps and do not trigger repeated capture. The native
 local-capture check verifies this recovery-budget boundary and one final JSON.
 
 `npm run test:browser:supervised-capture` runs the canonical entry and the actual
-CTI supervisor in separate HTTPS origins. Its 168-item course has a 100-question
+CTI supervisor in separate HTTPS origins using full Chromium, with normal desktop
+site isolation, rather than the headless-shell build. Its 168-item course has a 100-question
 quiz. It forces two renderer crashes and verifies automatic recovery with the
 same tab and debugger registration, matching checkpoints and one final JSON. A
 second case captures loaded definitions without question-editor clicks and

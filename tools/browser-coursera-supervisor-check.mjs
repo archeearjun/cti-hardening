@@ -66,7 +66,9 @@ async function checkpointAtLeast(cdp,n){
  throw Error('No committed checkpoint at '+n+' questions');
 }
 try{
- browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{}),
+ // Use full Chromium with its normal desktop site isolation. The default
+ // headless shell can place these two sites in one renderer and crash both.
+ browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{channel:'chromium'}),
   args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server',`--host-resolver-rules=MAP www.coursera.org 127.0.0.1:${server.address().port}, MAP cti-hardening.pages.dev 127.0.0.1:${server.address().port}`]});
  for(const bulk of [false,true]){
   loadedModel=bulk;const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
