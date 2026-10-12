@@ -191,3 +191,60 @@ test('an unsupported resource family avoids a repeated virtual-rail scan before 
  assert.equal(result.attempted,false);assert.equal(result.stopReason,'SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED');
  assert.equal(scrolls,0);assert.equal(f.sidebar.scrollTop,64);assert.equal(f.calls.length,0);
 });
+
+test('a generic course route needs a pinned exact-item session and explicit observed GET endpoints',async()=>{
+ const f=setup(100);f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+ const certificate={exactItemControl:true,itemId:f.fp.id,courseId:'Assessment_fixture_123',route:f.c.location.href,sidebar:f.sidebar,content:f.content};
+ const observedRequests=f.c.performance.getEntriesByType('resource').map(entry=>({url:entry.name,method:'GET'}));
+ const bare=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ assert.equal(bare.attempted,false);assert.equal(bare.stopReason,'EDITOR_NOT_CERTIFIED');assert.equal(f.calls.length,0);
+ const performanceOnly=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,sessionCertificate:certificate});
+ assert.equal(performanceOnly.attempted,false);assert.equal(performanceOnly.stopReason,'SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED');assert.equal(f.calls.length,0);
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem:false,sessionCertificate:certificate,observedRequests});
+ assert.equal(result.captured,true);assert.equal(result.rawEvidence.identityMethod,'SESSION_EXACT_ITEM_CONTROL');assert.equal(f.clicks(),0);
+ assert(result.rawEvidence.resources.groups.source==='OBSERVED_GET' && result.rawEvidence.resources.questions.source==='OBSERVED_GET');
+});
+
+test('a generic course session rejects stale layout references, wrong identities and non-GET endpoint records',async()=>{
+ const f=setup(10);f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+ const certificate={exactItemControl:true,itemId:f.fp.id,courseId:'Assessment_fixture_123',route:f.c.location.href,sidebar:f.sidebar,content:f.content};
+ const observedRequests=f.c.performance.getEntriesByType('resource').map(entry=>({url:entry.name,method:'GET'}));
+ for(const change of [{exactItemControl:false},{sidebar:{}},{content:{}},{itemId:'another-item'},{courseId:'another-course'},{route:f.c.location.href+'?old=1'}]){
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,sessionCertificate:{...certificate,...change},observedRequests});
+  assert.equal(result.attempted,false);assert.equal(result.stopReason,'SESSION_EDITOR_IDENTITY_NOT_VERIFIED');
+ }
+ const posts=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,sessionCertificate:certificate,
+  observedRequests:observedRequests.map(record=>({...record,method:'POST'}))});
+ assert.equal(posts.attempted,false);assert.equal(posts.stopReason,'SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED');assert.equal(f.calls.length,0);
+});
+
+test('a pinned generic-route editor session cannot survive replacement of its live sidebar',async()=>{
+ const f=setup(10),fetch=f.fetchImpl;f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+ const certificate={exactItemControl:true,itemId:f.fp.id,courseId:'Assessment_fixture_123',route:f.c.location.href,sidebar:f.sidebar,content:f.content};
+ const observedRequests=f.c.performance.getEntriesByType('resource').map(entry=>({url:entry.name,method:'GET'}));
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,sessionCertificate:certificate,observedRequests,
+  fetchImpl:async(url,options)=>{const response=await fetch(url,options);if(url.includes('MachineEvaluable'))f.sidebar.remove();return response;}});
+ assert.equal(result.captured,false);assert.equal(result.assessment,null);assert.equal(result.stopReason,'EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE');
+});
+
+test('the session certificate requires an exact control and two new unique editor regions',()=>{
+ const f=setup(10);f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+ const create=f.c.createAssessmentApiSessionCertificateV61525;
+ const certificate=create(f.envelope,f.fp,'Assessment_fixture_123',true,new Set());
+ assert.equal(certificate.exactItemControl,true);assert.equal(certificate.sidebar,f.sidebar);assert.equal(certificate.content,f.content);
+ assert.equal(create(f.envelope,f.fp,'Assessment_fixture_123',false,new Set()),null);
+ assert.equal(create(f.envelope,f.fp,'another-course',true,new Set()),null);
+ assert.equal(create(f.envelope,f.fp,'Assessment_fixture_123',true,new Set([f.sidebar])),null);
+ assert.equal(create(f.envelope,f.fp,'Assessment_fixture_123',true,new Set([f.content])),null);
+ const duplicate=f.sidebar.cloneNode(true);f.c.document.body.append(duplicate);
+ assert.equal(create(f.envelope,f.fp,'Assessment_fixture_123',true,new Set()),null);
+});
+
+test('a second visible modal rejects a pinned session before any API acquisition',async()=>{
+ const f=setup(10);f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+ const certificate=f.c.createAssessmentApiSessionCertificateV61525(f.envelope,f.fp,'Assessment_fixture_123',true,new Set());
+ const observedRequests=f.c.performance.getEntriesByType('resource').map(entry=>({url:entry.name,method:'GET'}));
+ f.c.document.body.append(f.sidebar.cloneNode(true),f.content.cloneNode(true));
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem:false,sessionCertificate:certificate,observedRequests});
+ assert.equal(result.attempted,false);assert.equal(result.stopReason,'SESSION_EDITOR_IDENTITY_NOT_VERIFIED');assert.equal(f.calls.length,0);
+});

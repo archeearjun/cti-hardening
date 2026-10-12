@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.15.24" ||
-    delivery.buildId !== "v6.15.24-authoring-question-api-20261012"
+    delivery.version !== "v6.15.25" ||
+    delivery.buildId !== "v6.15.25-authoring-question-api-modal-20261012"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",

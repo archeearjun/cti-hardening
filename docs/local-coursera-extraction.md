@@ -19,6 +19,13 @@ returned source IDs, and ordering comes from the outline. It preserves original
 CML and maps `correctOption` to its exact option ID. Credential envelope fields
 are excluded from retained evidence.
 
+From v6.15.25 the direct path also works when Coursera opens a quiz modal while
+the address stays at `/content/edit`. CTI must have opened a fresh, unique editor
+through the exact course item ID and observed its read requests. It keeps that
+sidebar/content pair pinned; a generic address, matching title or earlier
+network history alone cannot establish the item. No additional operator step
+is required for this layout.
+
 The supplied sample contained ten groups and ten definitions, with eight
 previously observed questions gaining explicit keys that were missing from
 their older DOM capture. It does not establish a complete 100-question quiz or

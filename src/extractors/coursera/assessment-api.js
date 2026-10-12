@@ -1,9 +1,10 @@
 import { assessmentOutlineCandidatesV613, assessmentLayoutV61313, assessmentCaptureCoverageV613, rawAssessmentStateV61522 } from './assessments-4.js';
 import { assessmentPartCountV8 } from './assessments-2.js';
 import { assessmentOutlinePromptAlignedV613 } from './assessments-3.js';
-import { isItemSpecificCourseRoute } from './navigation-2.js';
+import { isGenericCourseEditRoute, isItemSpecificCourseRoute } from './navigation-2.js';
 import { courseId, stripHtml } from './text-and-dom.js';
 import { sleepMs } from './text-and-dom-2.js';
+import { isVisibleElement } from './text-and-dom-3.js';
 import { CTI_ASSESSMENT_API_BATCH_IDS_V61524, CTI_ASSESSMENT_API_CONCURRENCY_V61524, CTI_ASSESSMENT_API_REQUEST_MS_V61524,
   CTI_ASSESSMENT_API_BODY_BYTES_V61524, CTI_ASSESSMENT_API_TOTAL_BYTES_V61524, CTI_ASSESSMENT_API_MAX_PARTS_V61524,
   CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524, CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524 } from './config.js';
@@ -55,11 +56,59 @@ export function parseCourseraMcqDefinitionV61524(element, candidate) {
     observationMethod:'AUTHORING_API_MATCHED_TO_LIVE_OUTLINE',observedAtMs:Date.now(),parserConfidence:0.98};
 }
 
+export function assessmentApiUniqueLayoutV61525(layout) {
+  if(!layout || !layout.sidebar.isConnected || !layout.content.isConnected)return false;
+  const sidebars=[...document.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(isVisibleElement);
+  const contents=[...document.querySelectorAll('[data-testid="item-layout-content"]')].filter(isVisibleElement);
+  return sidebars.length===1 && contents.length===1 && sidebars[0]===layout.sidebar && contents[0]===layout.content;
+}
+
+export function createAssessmentApiSessionCertificateV61525(surfaceRoot,fp,expectedCourseId,exactItemControl,baselineSet) {
+  if(exactItemControl!==true || !fp || !fp.id || location.origin!=='https://www.coursera.org' ||
+    String(expectedCourseId || '')!==courseId() || !isGenericCourseEditRoute(location.href,expectedCourseId) ||
+    !baselineSet || typeof baselineSet.has!=='function')return null;
+  const layout=assessmentLayoutV61313(surfaceRoot);
+  if(!assessmentApiUniqueLayoutV61525(layout) || baselineSet.has(layout.sidebar) || baselineSet.has(layout.content))return null;
+  return {exactItemControl:true,itemId:String(fp.id),courseId:String(expectedCourseId),route:location.href,sidebar:layout.sidebar,content:layout.content};
+}
+
+export function assessmentApiEditorIdentityV61524(surfaceRoot,fp,options={}) {
+  const failed={verified:false,method:'',layout:null,reason:options.sessionCertificate?'SESSION_EDITOR_IDENTITY_NOT_VERIFIED':'EDITOR_NOT_CERTIFIED'};
+  if(options.certifiedItem!==true && !options.sessionCertificate)return failed;
+  if(!fp || !fp.id || String(options.courseId || '')!==courseId() ||
+    location.origin!=='https://www.coursera.org')return failed;
+  const layout=assessmentLayoutV61313(surfaceRoot);
+  if(!layout || !layout.sidebar.isConnected || !layout.content.isConnected)return failed;
+  if(options.certifiedItem===true && isItemSpecificCourseRoute(location.href,fp,options.courseId))return {verified:true,method:'ITEM_SPECIFIC_ROUTE',layout};
+  const certificate=options.sessionCertificate;
+  if(!isGenericCourseEditRoute(location.href,options.courseId) || !certificate || certificate.exactItemControl!==true ||
+    certificate.itemId!==String(fp.id) || certificate.courseId!==String(options.courseId) || certificate.route!==location.href ||
+    certificate.sidebar!==layout.sidebar || certificate.content!==layout.content || certificate.sidebar===certificate.content ||
+    !assessmentApiUniqueLayoutV61525(layout))return failed;
+  // The entry owns the exact outline-control interaction and constructs this
+  // certificate only for a newly mounted layout. Pin its observed DOM identities
+  // throughout acquisition; a generic route by itself supplies no item proof.
+  return {verified:true,method:'SESSION_EXACT_ITEM_CONTROL',layout};
+}
+
+export function assessmentApiSessionStillCurrentV61525(surfaceRoot,fp,expectedCourseId,certificate) {
+  if(!certificate)return true;
+  try {
+    const before=new URL(certificate.route),current=new URL(location.href);
+    before.hash='';current.hash='';
+    if(before.href!==current.href)return false;
+    // Question anchors may change the fragment during the editor fallback.
+    // Course, query, pinned regions and global uniqueness must still agree.
+    return assessmentApiEditorIdentityV61524(surfaceRoot,fp,{courseId:expectedCourseId,
+      sessionCertificate:{...certificate,route:location.href}}).verified;
+  } catch (_) {return false;}
+}
+
 export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,fp,options={},observedCandidates=null) {
   const out={complete:false,reason:'EDITOR_NOT_CERTIFIED',candidates:[],declared:0,assignmentId:'',resources:{}};
-  if(options.certifiedItem!==true || !fp || !fp.id || String(options.courseId || '')!==courseId() ||
-    !isItemSpecificCourseRoute(location.href,fp,options.courseId))return out;
-  const layout=assessmentLayoutV61313(surfaceRoot);
+  const identity=assessmentApiEditorIdentityV61524(surfaceRoot,fp,options);
+  if(!identity.verified){out.reason=identity.reason;return out;}
+  const layout=identity.layout;
   if(!layout){out.reason='EDITOR_OUTLINE_UNAVAILABLE';return out;}
   const declared=assessmentPartCountV8(layout.root);
   if(!Number.isInteger(declared) || declared<1 || declared>CTI_ASSESSMENT_API_MAX_PARTS_V61524){out.reason='UNSUPPORTED_DECLARED_PART_COUNT';return out;}
@@ -74,7 +123,9 @@ export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,f
   if(assignments.size!==1){out.reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';return out;}
   const assignmentId=[...assignments][0],resources={};
   const observed=Array.isArray(options.observedRequests)?options.observedRequests.filter(r=>r && r.method==='GET').map(r=>({url:r.url,source:'OBSERVED_GET'})):[];
-  try{for(const entry of performance.getEntriesByType('resource'))if(!entry.initiatorType || ['fetch','xmlhttprequest'].includes(entry.initiatorType))observed.push({url:entry.name,source:'OBSERVED_RESOURCE_URL'});}catch(_){}
+  if(identity.method==='ITEM_SPECIFIC_ROUTE'){
+    try{for(const entry of performance.getEntriesByType('resource'))if(!entry.initiatorType || ['fetch','xmlhttprequest'].includes(entry.initiatorType))observed.push({url:entry.name,source:'OBSERVED_RESOURCE_URL'});}catch(_){}
+  }
   for(const observedRequest of observed){
     try{
       const url=new URL(observedRequest.url,location.href);
@@ -91,7 +142,7 @@ export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,f
   if(candidates.length!==declared || ordinals.size!==declared){out.reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';return out;}
   if(!resources.groups || !resources.questions){out.reason='SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED';return out;}
   return {complete:true,reason:'COMPLETE_LIVE_OUTLINE_INVENTORY',candidates:candidates.map(c=>({id:c.id,ordinal:c.ordinal,label:c.label})),
-    declared,assignmentId,resources,signature:JSON.stringify(candidates.map(c=>[c.id,c.ordinal,c.label])),sidebar:layout.sidebar,route:location.href};
+    declared,assignmentId,resources,signature:JSON.stringify(candidates.map(c=>[c.id,c.ordinal,c.label])),sidebar:layout.sidebar,route:location.href,identityMethod:identity.method};
 }
 
 export function observedAssessmentApiInventoryV61524(surfaceRoot,fp,options={}) {
@@ -286,7 +337,7 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   const coverage=assessmentCaptureCoverageV613(questions,inventory.declared,'AUTHORING_API', {declaredContentParts:inventory.declared});
   out.captured=coverage.requiredAnswerCoverageComplete===true;
   out.stopReason=out.captured?'COMPLETE_ITEM_BOUND_AUTHORING_API':state.stop || (Date.now()>=deadline?'ITEM_API_DEADLINE':'AUTHORING_API_EVIDENCE_INCOMPLETE');
-  out.rawEvidence={method:'OBSERVED_ITEM_BOUND_AUTHORING_GETS',courseId:String(options.courseId),itemId:String(fp.id),assignmentId:inventory.assignmentId,
+  out.rawEvidence={method:'OBSERVED_ITEM_BOUND_AUTHORING_GETS',identityMethod:inventory.identityMethod,courseId:String(options.courseId),itemId:String(fp.id),assignmentId:inventory.assignmentId,
     observedAt:new Date().toISOString(),inventory:inventory.candidates,groups:rawGroups,questionDefinitions:rawDefinitions,resources:inventory.resources};
   if(questions.length){out.assessment={schemaVersion:6,parser:'coursera-item-bound-authoring-api-v1',origin:'coursera-authoring-api',
     declaredQuestionCount:inventory.declared,questionCount:questions.length,answerEvidenceQuestionCount:questions.length,questions,

@@ -1,5 +1,5 @@
 import { createCtiProgressPanelV1 } from "./progress.js";
-import { collectCourseraAssessmentApiV61524 } from "./assessment-api.js";
+import { collectCourseraAssessmentApiV61524, createAssessmentApiSessionCertificateV61525, assessmentApiSessionStillCurrentV61525 } from "./assessment-api.js";
 import { automaticLocalCaptureNeedsContinuationV61519, advanceAutomaticLocalCaptureV61517 } from "./automatic-local.js";
 import { createLocalCaptureSessionV61514, offerCheckpointContinuationV61514, validateSavedCaptureResumeV61515 } from "./runtime.js";
 import { collectOutlineTimeEstimate } from "./time-estimates.js";
@@ -24,7 +24,7 @@ import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS, CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61524() {
+javascript:(async function ctiCourseraCaptureV61525() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -180,12 +180,12 @@ javascript:(async function ctiCourseraCaptureV61524() {
     if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
     reportLocalSupervisorV61522('ERROR',{message:'Reload Coursera before starting another batch in this document.'});
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61524.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61525.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.24"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.25"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -195,7 +195,7 @@ javascript:(async function ctiCourseraCaptureV61524() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.24"
+          finishedAt: Date.now(), version: "v6.15.25"
         };
       }
     } catch (e) {}
@@ -389,6 +389,10 @@ javascript:(async function ctiCourseraCaptureV61524() {
     for (let p=surfaceRoot.parentElement, depth=0; p && depth<7; p=p.parentElement,depth++) roots.push(p);
     roots.push(document.body);
     function liveSidebar() {
+      if(options.boundSidebar) {
+        if(typeof options.isEditorCurrent==='function' && !options.isEditorCurrent())return null;
+        return options.boundSidebar.isConnected && isVisibleElement(options.boundSidebar) ? options.boundSidebar : null;
+      }
       for (const root of roots) {
         if (!root || !root.isConnected) continue;
         const bars = [...root.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(el=>isVisibleElement(el) && /\bContent\s*\(\s*\d+\s*\)/i.test(el.innerText || el.textContent || ''));
@@ -652,9 +656,11 @@ javascript:(async function ctiCourseraCaptureV61524() {
     // The live editor provides group identity and order. The authoring API
     // provides versioned definitions and explicit keys without mounting each
     // question panel. A partial response never certifies the whole inventory.
-    const apiCourseId=options.certifiedItem===true ? courseId() : '';
+    const apiCourseId=options.certifiedItem===true || options.sessionCertificate ? courseId() : '';
+    const apiSessionCurrent=()=>assessmentApiSessionStillCurrentV61525(envelope,fp,apiCourseId,options.sessionCertificate);
     const apiProbe = await collectCourseraAssessmentApiV61524(envelope, fp, {
       certifiedItem:options.certifiedItem===true,courseId:apiCourseId,deadline:cycleDeadline,
+      sessionCertificate:options.sessionCertificate,
       fetchImpl:typeof assessmentApiFetch==='function'?assessmentApiFetch:undefined,
       observedRequests:options.observedRequests,
       onProgress:(captured,total)=>ctiProgressUpdateV1({phase:'Reading quiz definitions',detail:String(fp.name || fp.id)+
@@ -663,7 +669,8 @@ javascript:(async function ctiCourseraCaptureV61524() {
     });
     stats.authoringApi=apiProbe.diagnostics;
     stats.authoringApiStopReason=apiProbe.stopReason;
-    if(/EDITOR_IDENTITY_CHANGED_DURING_API_(?:CAPTURE|DISCOVERY)/.test(apiProbe.stopReason) ||
+    if(/EDITOR_IDENTITY_CHANGED_DURING_API_(?:CAPTURE|DISCOVERY)|SESSION_EDITOR_IDENTITY_NOT_VERIFIED/.test(apiProbe.stopReason) ||
+      !apiSessionCurrent() ||
       options.certifiedItem===true && !isItemSpecificCourseRoute(location.href,fp,apiCourseId)) {
       stats.attempted=apiProbe.attempted;stats.itemIdentityChanged=true;
       stats.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return stats;
@@ -694,7 +701,7 @@ javascript:(async function ctiCourseraCaptureV61524() {
     }
     const apiOutlineSeeds=apiProbe.assessment ? assessmentFromCycleMapV667(questionMap,declared,
       {contentPartCoverage:apiProbe.assessment.captureCompleteness}) : wideModel;
-    if(options.certifiedItem===true) {
+    if(options.certifiedItem===true || options.sessionCertificate) {
       const fallbackReason=apiProbe.stopReason==='SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED'?
         'Coursera question endpoints were not observed':
         apiProbe.stopReason==='INCOMPLETE_LIVE_OUTLINE_INVENTORY'?'The full question list was unavailable':
@@ -724,6 +731,7 @@ javascript:(async function ctiCourseraCaptureV61524() {
     // index into the matching question panels. This is read-only DOM evidence and
     // avoids guessing from generic React children.
     const outlineProbe = await collectAssessmentFromOutlineDomV665(envelope, fp, declared, {deadline:cycleDeadline,
+      boundSidebar:options.sessionCertificate?.sidebar,isEditorCurrent:apiSessionCurrent,
       seedAssessment:options.seedAssessment,mountedAssessment:apiOutlineSeeds,onCheckpoint:options.onCheckpoint,
       resumeInProgress:options.resumeInProgress,shouldYield:options.shouldYield,loadedAssessment,
       onLoadedQuestion:raw=>{
@@ -732,6 +740,9 @@ javascript:(async function ctiCourseraCaptureV61524() {
           assetDetails:observed.assetDetails,assetEvidenceConfidence:observed.assetDetails.length?0.9:0,
           linkEvidenceConfidence:observed.links.length?0.9:0},'loaded-question-definition');
       }});
+    if(!apiSessionCurrent()) {
+      stats.itemIdentityChanged=true;stats.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return stats;
+    }
     stats.outlineDomAttempted = Boolean(outlineProbe && outlineProbe.attempted);
     stats.attempted = stats.outlineDomAttempted;
     stats.clicks += Number(outlineProbe && outlineProbe.navigationClicks || 0);
@@ -854,6 +865,9 @@ javascript:(async function ctiCourseraCaptureV61524() {
     stats.attempted = true;
     const maxClicks = navs.length; // Traversal is bounded by time, not a 40-question ceiling.
     for (let i = 0; i < Math.min(navs.length, maxClicks); i++) {
+      if(!apiSessionCurrent()) {
+        stats.itemIdentityChanged=true;stats.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return stats;
+      }
       if (Date.now()>=cycleDeadline) break;
   // CTI_PROGRESS_BEGIN
       if (typeof ctiProgressUpdateV1 === "function") ctiProgressUpdateV1({detail:String(fp.name || fp.id) + " · Reading question " + (i + 1) + "/" + navs.length});
@@ -864,6 +878,9 @@ javascript:(async function ctiCourseraCaptureV61524() {
       stats.clicks++;
       await sleepMs(520);
       await sleepMs(260);
+      if(!apiSessionCurrent()) {
+        stats.itemIdentityChanged=true;stats.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return stats;
+      }
 
       let currentSurface = null;
       try { currentSurface = findOpenedEditorSurface(fp, [], nav.element, [], true); } catch (e) {}
@@ -1022,8 +1039,8 @@ javascript:(async function ctiCourseraCaptureV61524() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.24",
-      buildId: "v6.15.24-authoring-question-api-20261012",
+      version: "v6.15.25",
+      buildId: "v6.15.25-authoring-question-api-modal-20261012",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1371,6 +1388,8 @@ javascript:(async function ctiCourseraCaptureV61524() {
         // Baseline surfaces before this exact item's activation. Any editor surface
         // discovered later must be new relative to this baseline.
         const itemSessionBaseline = snapshotOpenSurfaceRoots();
+        const assessmentSessionBaseline=new Set(document.querySelectorAll(
+          '[data-testid="item-layout-left-sidebar"],[data-testid="item-layout-content"]'));
         const probeRow = itemRowRootForFingerprint(fp, found && found.element);
         if (probeRow) {
           diag.rowFound = true;
@@ -1560,10 +1579,13 @@ javascript:(async function ctiCourseraCaptureV61524() {
             diag.itemAttemptBudgetMs=Math.max(0,itemAttemptDeadline-itemStartedAt);
           }
           const resumeQuestions=fp.payload.assessmentCaptureInProgress?.assessment?.questions || [];
+          const apiSessionCertificate=createAssessmentApiSessionCertificateV61525(openedSurface.root,fp,courseOrBranchId,
+            strongIdentitySeed && /visible-attribute-id|visible-route-id|stable-id/i.test(identityReason),assessmentSessionBaseline);
           const questionBaseline=new Map(resumeQuestions.map(q=>[q.courseraQuestionId,q.observedAtMs]));
           const observedThisVisit=new Set();let reportedQuestions=0;
           const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {
-            observedRequests:recorder.takeFor(fp).map(record=>({url:record.url,method:record.method})),
+            observedRequests:recorder.observedAssessmentGetsFor(fp),
+            sessionCertificate:apiSessionCertificate,
             seedAssessment:fp.payload.assessmentCaptureInProgress?.assessment || fp.payload.structuredAssessment,
             resumeInProgress:Boolean(fp.payload.assessmentCaptureInProgress),
             shouldYield:()=>assessmentCheckpointYieldReason,
@@ -1598,6 +1620,9 @@ javascript:(async function ctiCourseraCaptureV61524() {
             }:null,
             deadline:Math.min(itemAttemptDeadline,assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1,declaredForBudget)),
             certifiedItem:strongIdentitySeed && isItemSpecificCourseRoute(location.href,fp,courseOrBranchId)});
+          if(apiSessionCertificate && !assessmentApiSessionStillCurrentV61525(openedSurface.root,fp,courseOrBranchId,apiSessionCertificate)) {
+            cycle.itemIdentityChanged=true;cycle.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';
+          }
           diag.assessmentMs=Date.now()-assessmentStartedAt;
           diag.questionCycleReactStateMs=Number(cycle.reactStateElapsedMs || 0);
           diag.questionCycleReactStateStopReason=String(cycle.reactStateStopReason || '');
@@ -1879,7 +1904,7 @@ javascript:(async function ctiCourseraCaptureV61524() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.24", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.25", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
   ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
     "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
     "Finding the course and its authoring outline."});
@@ -1895,7 +1920,7 @@ javascript:(async function ctiCourseraCaptureV61524() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.24", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.25", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1903,8 +1928,8 @@ javascript:(async function ctiCourseraCaptureV61524() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.24",
-      buildId: "v6.15.24-authoring-question-api-20261012",
+      extractor: "CTI Item Fidelity Extractor v6.15.25",
+      buildId: "v6.15.25-authoring-question-api-modal-20261012",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -2318,7 +2343,7 @@ javascript:(async function ctiCourseraCaptureV61524() {
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   reportLocalSupervisorV61522(automaticLocalReload?'YIELD':'FINISHED',{complete:accounting.complete===true});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61524.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61525.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;

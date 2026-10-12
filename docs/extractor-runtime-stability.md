@@ -1,5 +1,23 @@
 # Coursera extractor runtime stability
 
+## v6.15.25: quiz modals that keep the course-shell address
+
+Coursera can show an assignment while its address remains `/content/edit`.
+The API path now supports this layout with a separate fresh-editor certificate:
+an exact item-ID control must open the only visible sidebar/content pair, and
+both regions must be new relative to all regions present before activation.
+Title-only matches and reused regions cannot create this certificate. The
+adapter uses only explicit GET records captured for that item's session, rather
+than global resource history, and binds their assignment IDs to the live outline.
+
+Course, URL, paired regions and global uniqueness are checked throughout reads
+and acceptance. Partial editor fallback remains pinned to the same sidebar;
+question-anchor fragment changes are allowed, while replacement regions stop
+that visit before generic page harvesting. Original definitions and strict
+coverage requirements remain unchanged. Native checks validate 100 questions
+without question clicks on the generic route and reject stale, reused,
+non-unique, mismatched and performance-only contexts.
+
 ## v6.15.24: native MCQ definitions before question rendering
 
 The 12 October response sample exposed a concrete failure of DOM-only capture:

@@ -34,6 +34,7 @@ export function evidenceHasUsefulPayload(evidence) {
 
 export function installReadOnlyNetworkRecorder() {
     const records=[],pending=new Set(),ownersByItem=new Map();
+    const assessmentGets=new Map();
     const bodyReaders=new Map();
     const copyStats={oversize:0,timedOut:0,released:0,unreadable:0};
     const limitStats={retainedCharacters:0,retainedRecords:0,pendingRequests:0,responseCopies:0};
@@ -72,6 +73,7 @@ export function installReadOnlyNetworkRecorder() {
       const id=String(fp && fp.id || ''),owners=ownersByItem.get(id);
       if(owners)for(const owner of owners)owner.released=true;
       ownersByItem.delete(id);
+      assessmentGets.delete(id);
       if(activeItem && activeItem.id===id)activeItem=null;
       for(const copy of bodyReaders.values())if(copy.owner.id===id)copy.cancel('released');
       let count=0,chars=0,pendingAtRelease=0;
@@ -116,6 +118,19 @@ export function installReadOnlyNetworkRecorder() {
       try {
         const parsed=new URL(url,location.origin);
         if(parsed.origin!==location.origin || method!=='GET' || isPerItemNetworkNoise(parsed.href) || isCourseWideNetworkResponse(parsed.href))return null;
+        // A metadata-only receipt proves a read route observed during this
+        // exact item session, even when its body is outside the generic filter.
+        // Keep no query, headers, cookies or response clone for these receipts.
+        if(parsed.origin==='https://www.coursera.org' &&
+          /^\/api\/(?:authoringAssignmentQuestionGroups\.v1\/[A-Za-z0-9_-]+~[A-Za-z0-9_-]+|authoringAssignmentMachineEvaluableQuestions\.v1\/[A-Za-z0-9_-]+~[A-Za-z0-9_-]+@\d+)\/?$/.test(decodeURIComponent(parsed.pathname))) {
+          const reads=assessmentGets.get(owner.id),path=parsed.origin+parsed.pathname,resource=parsed.pathname.split('/')[2];
+          if(reads && !reads.has(path)) {
+            const family=[...reads.values()].filter(r=>r.resource===resource);
+            if(family.length>=32)reads.delete(family[0].url);
+            reads.set(path,{itemId:owner.id,url:path,method:'GET',resource,
+              observedAt:Date.now(),sessionStartedAt:owner.startedAt});
+          }
+        }
         const direct=parsed.pathname.split('/').some(x=>decodeURIComponent(x)===owner.id) || [...parsed.searchParams.values()].some(x=>x===owner.id);
         if(!direct && !isSessionScopedPayloadEndpoint({url:parsed.href,method}))return null;
         if(pending.size>=CTI_NETWORK_MAX_PENDING_REQUESTS){limitStats.pendingRequests++;noteGap(owner,'pendingRequests');return null;}
@@ -240,12 +255,17 @@ export function installReadOnlyNetworkRecorder() {
         if(stopped)return;
         activeItem=fp?{id:String(fp.id || ''),name:String(fp.name || ''),fingerprint:fp,startedAt:Date.now(),released:false}:null;
         if(activeItem){
+          assessmentGets.set(activeItem.id,new Map());
           if(!ownersByItem.has(activeItem.id))ownersByItem.set(activeItem.id,new Set());
           ownersByItem.get(activeItem.id).add(activeItem);
         }
       },
       releaseFor,
       takeFor(fp){return records.filter(r=>r.itemId===String(fp && fp.id || ''));},
+      observedAssessmentGetsFor(fp){
+        const id=String(fp && fp.id || '');
+        return activeItem && activeItem.id===id ? [...(assessmentGets.get(id)?.values() || [])].map(r=>({...r})) : [];
+      },
       fetchObservedAsset(url,options) {
         const u=new URL(url,location.href);
         if(u.origin!==location.origin || !/^\/api\/assets\.v1(?:\/|$)/i.test(u.pathname) || options.method!=='GET')throw Error('Only observed same-origin asset metadata GETs are allowed.');
@@ -253,6 +273,7 @@ export function installReadOnlyNetworkRecorder() {
       },
       pendingFor(fp){let count=0;for(const request of pending)if(request.owner.id===String(fp && fp.id || ''))count++;return count;},
       stats(){return {ignoredNoise,ignoredCourseWide,pendingRequests:pending.size,
+        assessmentGetReceipts:[...assessmentGets.values()].reduce((n,reads)=>n+reads.size,0),maxAssessmentGetReceiptsPerItem:64,
         activeResponseCopies:bodyReaders.size,responseCopyLimits:Object.assign({},copyStats),
         reservedChars,reservedRecords,activeCopies,resourceLimits:Object.assign({},limitStats),
         maxRetainedChars:CTI_NETWORK_MAX_RETAINED_CHARS,maxRetainedRecords:CTI_NETWORK_MAX_RETAINED_RECORDS,

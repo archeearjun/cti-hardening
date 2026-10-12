@@ -4,6 +4,14 @@ Assessment dated 12 October 2026. The requirement is complete course evidence in
 the operator's authenticated local Chrome, without installing an extension,
 requiring local Node/Python, or paying for a remote browser.
 
+The v6.15.25 adapter also supports quiz modals whose address stays at the course
+shell. It requires an exact item-ID activation, newly mounted unique
+sidebar/content regions and explicit GET receipts from that item session.
+The recorder retains bounded origin/path/method metadata for these resources,
+with no query values or response clones. Earlier history and title-only matches
+cannot enable this path. Native checks cover the generic address and rejection
+of reused, swapped and non-unique editor regions.
+
 The present live workflow is **not proven scalable**. The operator reports about
 1.5 hours without a final capture, with very slow progress through assessments.
 The screenshot shows v6.15.22 at item 1/167, opening a 100-question assignment;

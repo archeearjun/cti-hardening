@@ -107,11 +107,16 @@ try{
  async function openCase(nextMode){
   mode='batch';active=0;maximumActive=0;requests=[];
   const context=await browser.newContext({ignoreHTTPSErrors:true}),page=await context.newPage();
+  const observedRequests=[];
+  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/'))observedRequests.push({url:request.url(),method:request.method()});});
   page.on('pageerror',e=>errors.push(e.message));await page.goto(editorUrl+(nextMode==='virtual'?'?virtual=1':nextMode==='partial'?'?partial=1':''));await page.waitForFunction(()=>fixtureReady);
   assert(await page.evaluate(()=>performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/')).length>=2));
+  const warmupRequests=observedRequests.map(request=>({...request}));
+  assert.equal(warmupRequests.length,2);
+  assert(warmupRequests.every(observed=>observed.method==='GET'&&requests.some(received=>received.method===observed.method&&received.pathname===decodeURIComponent(new URL(observed.url).pathname))),'Explicit warmup GETs were not received by the fixture server');
   await page.addScriptTag({content:runtime});
   mode=nextMode;maximumActive=0;requests=[];
-  return {context,page};
+  return {context,page,warmupRequests};
  }
  function assertRequests(){
   assert(maximumActive<=2,'Assessment API requests exceeded the bounded concurrency');
@@ -214,6 +219,75 @@ try{
  assertRequests();assert(!JSON.stringify(partial).includes('writeAccessToken'));
  console.log(JSON.stringify({status:'PASS',mode:'99 API definitions plus one observed DOM key',questions:count,questionEditorClicks:1,chargedRendererObservations:partial.charged,scope:'Real canonical cycle preserves API provenance and only renders the missing-key question.'}));
  await partialCase.context.close();
+ const modalCase=await openCase('batch');
+ await modalCase.page.evaluate(shell=>history.replaceState(null,'',shell),shell);
+ const modal=await modalCase.page.evaluate(async({courseId,itemId,observedRequests,questionHash})=>{
+  const fp={id:itemId,name:'Synthetic modal API assessment',type:'Assignment',typeName:'staffGraded',payload:{captureAttempts:1}};
+  window.assessmentApiFetch=fetch.bind(window);
+  const recorder=installReadOnlyNetworkRecorder();recorder.setActive(fp);
+  // Observe actual reads through the maintained recorder. These resource
+  // bodies are excluded from its generic filter; only bounded GET receipts
+  // may bind the fresh modal's dedicated definition reader.
+  await Promise.all(observedRequests.map(observed=>{
+   const url=new URL(observed.url);url.searchParams.set('fields','id,questions,definition,-writeAccessToken');
+   url.searchParams.set('access_token','SYNTHETIC_QUERY_SECRET');return fetch(url.href).then(response=>response.text());
+  }));
+  observedRequests=recorder.observedAssessmentGetsFor(fp);
+  const requestReceipts={count:observedRequests.length,bodyRecords:recorder.takeFor(fp).length,
+   credentialFree:!JSON.stringify(observedRequests).includes('SYNTHETIC_QUERY_SECRET')};
+  const sessionCertificate=createAssessmentApiSessionCertificateV61525(document.getElementById('editor'),fp,courseId,true,new Set());
+  if(!sessionCertificate)throw Error('Fresh unique modal fixture did not receive an item-control certificate');
+  const result=await collectCourseraAssessmentByQuestionCycleV662(document.getElementById('editor'),fp,{certifiedItem:false,courseId,observedRequests,sessionCertificate,deadline:Date.now()+60000});
+  fp.payload.structuredAssessment=result.assessment;
+  const stillCurrent=()=>assessmentApiSessionStillCurrentV61525(document.getElementById('editor'),fp,courseId,sessionCertificate);
+  const sessionCurrent={beforeHash:stillCurrent()};
+  history.replaceState(null,'',location.pathname+'#'+questionHash);sessionCurrent.afterHash=stillCurrent();
+  const sidebar=sessionCertificate.sidebar,sidebarReplacement=sidebar.cloneNode(true);
+  sidebar.replaceWith(sidebarReplacement);sessionCurrent.replacedSidebar=stillCurrent();sidebarReplacement.replaceWith(sidebar);
+  const content=sessionCertificate.content;content.replaceWith(content.cloneNode(true));sessionCurrent.replacedContent=stillCurrent();
+  recorder.releaseFor(fp);requestReceipts.released=recorder.stats().assessmentGetReceipts===0;recorder.restore();
+  return {result,payload:fp.payload,contract:captureContractV6150(fp),clicks:questionClicks,sessionCurrent,requestReceipts};
+ },{courseId,itemId,observedRequests:modalCase.warmupRequests,questionHash:groupId(55)});
+ assertComplete(modal);assertRequests();
+ assert.equal(modal.payload.assessmentApiEvidence.identityMethod,'SESSION_EXACT_ITEM_CONTROL');
+ assert.deepEqual(modal.requestReceipts,{count:2,bodyRecords:0,credentialFree:true,released:true},'Fresh-modal identity must use maintained, item-scoped GET receipts without cloning credential-bearing bodies');
+ assert.deepEqual(modal.sessionCurrent,{beforeHash:true,afterHash:true,replacedSidebar:false,replacedContent:false},'Post-API identity must allow only fragment navigation and reject same-URL pinned DOM replacements');
+ console.log(JSON.stringify({status:'PASS',mode:'generic shell modal with pinned certificate and explicit GET observations',questions:count,questionEditorClicks:0,scope:'Real canonical cycle on unchanged course shell URI; performance URL strings alone do not certify item identity.'}));
+ await modalCase.context.close();
+ for(const defect of ['reused-layout','second-visible-layout']){
+  const rejectedBuilder=await openCase('batch');
+  await rejectedBuilder.page.evaluate(shell=>history.replaceState(null,'',shell),shell);
+  const created=await rejectedBuilder.page.evaluate(({courseId,itemId,defect})=>{
+   const sidebar=document.getElementById('rail'),content=document.getElementById('content'),baseline=new Set();
+   if(defect==='reused-layout'){baseline.add(sidebar);baseline.add(content);}
+   else{const second=document.getElementById('editor').cloneNode(true);second.id='second-editor';document.body.append(second);}
+   const certificate=createAssessmentApiSessionCertificateV61525(document.getElementById('editor'),{id:itemId,type:'Assignment',typeName:'staffGraded'},courseId,true,baseline);
+   return Boolean(certificate);
+  },{courseId,itemId,defect});
+  assert.equal(created,false,'The builder certified a stale or non-unique modal layout');
+  assert.equal(requests.length,0);
+  console.log(JSON.stringify({status:'PASS',mode:'modal certificate builder declines '+defect}));
+  await rejectedBuilder.context.close();
+ }
+ for(const defect of ['stale-sidebar','wrong-item','wrong-course','post-method','performance-only']){
+  const modalDecline=await openCase('batch');
+  await modalDecline.page.evaluate(shell=>history.replaceState(null,'',shell),shell);
+  const result=await modalDecline.page.evaluate(async({courseId,itemId,observedRequests,defect})=>{
+   const sidebar=document.getElementById('rail'),content=document.getElementById('content');
+   const sessionCertificate=createAssessmentApiSessionCertificateV61525(document.getElementById('editor'),{id:itemId,type:'Assignment',typeName:'staffGraded'},courseId,true,new Set());
+   if(!sessionCertificate)throw Error('Negative modal fixture did not begin with a valid certificate');
+   if(defect==='stale-sidebar')sidebar.replaceWith(sidebar.cloneNode(true));
+   if(defect==='wrong-item')sessionCertificate.itemId='different-item';
+   if(defect==='wrong-course')sessionCertificate.courseId='different-course';
+   if(defect==='post-method')observedRequests=observedRequests.map(request=>({...request,method:'POST'}));
+   if(defect==='performance-only')observedRequests=[];
+   return collectCourseraAssessmentApiV61524(document.getElementById('editor'),{id:itemId,type:'Assignment',typeName:'staffGraded',payload:{}},{certifiedItem:false,courseId,observedRequests,sessionCertificate,deadline:Date.now()+30000});
+  },{courseId,itemId,observedRequests:modalDecline.warmupRequests,defect});
+  assert.equal(result.captured,false);assert.equal(requests.length,0,'An invalid modal certificate issued acquisition requests');
+  assert.equal(await modalDecline.page.evaluate(()=>questionClicks.length),0);
+  console.log(JSON.stringify({status:'PASS',mode:'modal decline '+defect,stopReason:result.stopReason}));
+  await modalDecline.context.close();
+ }
  const unobservedCase=await openCase('virtual');
  const unobserved=await unobservedCase.page.evaluate(async({courseId,itemId})=>{
   performance.clearResourceTimings();
