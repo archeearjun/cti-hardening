@@ -60,7 +60,7 @@ async function checkpointAtLeast(cdp,n){
    // the retained CDP session can inspect the new renderer without recreating it.
    const result=await cdp.send('Runtime.evaluate',{expression:'('+query.toString()+')('+JSON.stringify({dbName:CTI_CHECKPOINT_DB,storeName:CTI_CHECKPOINT_STORE,n})+')',awaitPromise:true,returnByValue:true});
    if(result.result?.value===true)return;
-  }catch(error){if(!/context was destroyed|Cannot find context|Target crashed|Inspected target navigated or closed/i.test(error.message))throw error;}
+  }catch(error){if(!/context was destroyed|Cannot find (?:default execution )?context|Target crashed|Inspected target navigated or closed/i.test(error.message))throw error;}
   await new Promise(resolve=>setTimeout(resolve,50));
  }
  throw Error('No committed checkpoint at '+n+' questions');
@@ -145,4 +145,9 @@ try{
  assert.equal(await child.evaluate(()=>localStorage.getItem('fixture-reading-visits')),null);
  console.log('PASS: browser opener-isolation policy stops supervision before editor visits; no security header is bypassed.');
  await context.close();
+}catch(error){
+ // Public check annotations expose fixture failures even when Actions logs
+ // require an authenticated GitHub session. No real course content is used.
+ const diagnostic=String(error.stack || error).replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A');
+ console.error('::error title=Managed capture native check::'+diagnostic);throw error;
 }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(scratch,{recursive:true,force:true});}
