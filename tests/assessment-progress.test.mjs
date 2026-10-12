@@ -117,6 +117,60 @@ test('loaded definitions bind to live outline identities without clicking questi
  assert(result.assessment.questions.every((q,i)=>q.courseraQuestionId==='assessment~q'+(i+1) && q.questionOrdinalObserved));
 });
 
+test('an unrelated large query cache cannot discard a completely parsed and copied assessment array',async()=>{
+ const f=fixture({count:100,mode:'virtual',budget:480000});f.fp.payload={};f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;f.c.MAX_WALK_NODES=40000;f.c.URL=URL;
+ f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[f.now()]));}static now(){return f.now();}};
+ const raw=Array.from({length:100},(_,i)=>({id:'assessment~q'+(i+1),questionType:'Multiple Choice',
+  prompt:`Which result is correct for scenario ${i+1} in this assessment?`,
+  options:[{text:'Correct choice '+(i+1),correct:true},{text:'Wrong choice '+(i+1),correct:false}]}));
+ const cache=Array.from({length:100},()=>Object.fromEntries(Array.from({length:100},(_,j)=>
+  ['cached'+j,{value:'Unrelated cached information',nested:{number:j}}])));
+ f.envelope.__reactProps$fixture={questions:raw,cache};
+ const probe=f.c.collectReactAssessmentStateV664(f.envelope,f.fp,100,{deadline:480000});
+ assert.equal(probe.truncated,true);assert.equal(probe.stopReason,'NODE_BUDGET');
+ assert.equal(probe.selectedArrayComplete,true);assert.equal(probe.assessment.stateEvidence.selectedArrayComplete,true);
+ assert.equal(probe.assessment.stateEvidence.rawCapture.complete,true);
+ assert.deepEqual(clone(probe.assessment.stateEvidence.rawQuestionDefinitions),raw);
+ const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,certifiedItem:true});
+ assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
+ assert.equal(f.clicks(),0);assert.equal(result.outlineDomTraversal.loadedModelQuestions,99);
+ assert.deepEqual(clone(f.fp.payload.loadedAssessmentEvidence.rawQuestionDefinitions),raw);
+});
+
+test('a selected raw snapshot survives the search deadline spent on unrelated cached state',()=>{
+ const f=fixture({count:100,mode:'virtual',budget:480000});f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;
+ let searchTime=0;
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[searchTime]));}static now(){return searchTime;}};
+ const step=f.c.stateSearchStepV61313;
+ f.c.stateSearchStepV61313=work=>{searchTime+=0.2;return step(work);};
+ const raw=Array.from({length:100},(_,i)=>({id:'assessment~q'+(i+1),
+  prompt:`Which result is correct for scenario ${i+1} in this assessment?`,
+  options:[{text:'A',correct:true},{text:'B',correct:false}]}));
+ const cache=Array.from({length:100},()=>Object.fromEntries(Array.from({length:100},(_,j)=>['cached'+j,{value:'Unrelated cached information'}])));
+ f.envelope.__reactProps$fixture={questions:raw,cache};
+ const probe=f.c.collectReactAssessmentStateV664(f.envelope,f.fp,100,{deadline:480000});
+ assert.equal(probe.truncated,true);assert.equal(probe.stopReason,'TIME_BUDGET');
+ assert.equal(probe.selectedArrayComplete,true);assert.equal(probe.assessment.stateEvidence.rawCapture.complete,true);
+ assert.deepEqual(clone(probe.assessment.stateEvidence.rawQuestionDefinitions),raw);
+});
+
+test('a question array interrupted during its own parsing remains ineligible for loaded-model reuse',()=>{
+ const f=fixture({count:100,mode:'virtual',budget:480000});f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;
+ const budget=f.c.stateSearchBudgetV61313;
+ f.c.stateSearchBudgetV61313=options=>({...budget(options),remaining:2000});
+ f.envelope.__reactProps$fixture={questions:Array.from({length:100},(_,i)=>({id:'assessment~q'+(i+1),
+  prompt:`Which result is correct for scenario ${i+1} in this assessment?`,
+  options:[{text:'A',correct:true},{text:'B',correct:false}]}))};
+ const probe=f.c.collectReactAssessmentStateV664(f.envelope,f.fp,100,{deadline:480000});
+ assert.equal(probe.truncated,true);assert.equal(probe.stopReason,'NODE_BUDGET');
+ assert(probe.questionCount>1 && probe.questionCount<100);
+ assert.equal(probe.selectedArrayComplete,false);assert.equal(probe.assessment.stateEvidence.selectedArrayComplete,false);
+ assert.equal(probe.assessment.stateEvidence.rawCapture.complete,false);
+ assert.equal(probe.assessment.stateEvidence.rawCapture.reason,'SELECTED_ARRAY_NOT_FULLY_PARSED');
+ assert.equal(probe.assessment.stateEvidence.rawQuestionDefinitions,undefined);
+});
+
 test('incomplete or ambiguous loaded models retain DOM recovery and cannot invent answer keys',async()=>{
  const f=fixture({count:10,mode:'virtual',budget:480000});f.fp.payload={};f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;f.c.MAX_WALK_NODES=40000;f.c.URL=URL;f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
  f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[f.now()]));}static now(){return f.now();}};
@@ -163,9 +217,30 @@ test('duplicate loaded prompts cannot substitute one question identity or answer
   prompt:`Which result is correct for scenario ${i===27?27:i+1} in this assessment?`,
   options:[{text:'Correct choice '+(i+1),correct:true},{text:'Wrong choice '+(i+1),correct:false}]}))};
  const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,certifiedItem:true});
- assert.equal(result.assessment.questionCount,100);assert.equal(f.clicks(),1);
+ assert.equal(result.assessment.questionCount,100);assert.equal(f.clicks(),0);
+ assert.equal(result.outlineDomTraversal.loadedModelQuestions,99);
+ assert.deepEqual(clone(result.assessment.questions[26].correctAnswers),['Correct choice 27']);
  assert.equal(result.assessment.questions[27].courseraQuestionId,'assessment~q28');
  assert.deepEqual(clone(result.assessment.questions[27].correctAnswers),['Correct choice 28']);
+});
+
+test('duplicate prompts with missing or conflicting source IDs require fresh DOM answer observations',async()=>{
+ for(const conflictingIds of [false,true]){
+  const f=fixture({count:100,mode:'virtual',duplicates:true,budget:480000});f.fp.payload={};f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;f.c.MAX_WALK_NODES=40000;
+  f.c.URL=URL;f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
+  f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[f.now()]));}static now(){return f.now();}};
+  const raw=Array.from({length:100},(_,i)=>({id:'assessment~q'+(i+1),questionType:'Multiple Choice',
+   prompt:`Which result is correct for scenario ${i===27?27:i+1} in this assessment?`,
+   options:[{text:'Unverified loaded choice '+(i+1),correct:true},{text:'Wrong choice '+(i+1),correct:false}]}));
+  if(conflictingIds)raw[27].id=raw[26].id;
+  else {delete raw[26].id;delete raw[27].id;}
+  f.envelope.__reactProps$fixture={questions:raw};
+  const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,certifiedItem:true});
+  assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
+  assert.equal(f.clicks(),2,'Ambiguous rows must fall back to their own mounted DOM definitions');
+  assert.deepEqual(clone(result.assessment.questions[26].correctAnswers),['Correct choice 27']);
+  assert.deepEqual(clone(result.assessment.questions[27].correctAnswers),['Correct choice 28']);
+ }
 });
 test('safe pauses resume an unfinished keyed or unkeyed assessment without repeating its observed prefix',async()=>{
  for(const unkeyed of [false,true]){

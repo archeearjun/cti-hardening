@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61522')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61523')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -357,6 +357,17 @@ try{
   await app.getByRole('button',{name:'Coursera extractor',exact:false}).click();
   const quickLocal=app.locator('.script-panel .local-extraction-card');
   await quickLocal.getByLabel('Coursera authoring-shell URL',{exact:true}).fill('https://www.coursera.org/teach/synthetic/Native_local_fixture_123/content/edit');
+  await quickLocal.getByRole('button',{name:'Copy one-quiz data check',exact:true}).click();
+  await quickLocal.getByText('Data-check script copied.',{exact:false}).waitFor();
+  const sampleScript=await app.evaluate(()=>navigator.clipboard.readText());
+  assert(sampleScript.startsWith('void ('));assert(sampleScript.includes('Native_local_fixture_123'));
+  assert(sampleScript.includes('Download response sample'));assert.doesNotThrow(()=>new Function(sampleScript));
+  await context.route('https://www.coursera.org/**',route=>route.fulfill({contentType:'text/html',body:'<html><body>Managed Coursera shell fixture</body></html>'}));
+  const samplePage=await context.newPage();
+  await samplePage.goto('https://www.coursera.org/teach/synthetic/Native_local_fixture_123/content/edit');
+  await samplePage.evaluate(sampleScript);
+  assert.equal(await samplePage.evaluate(()=>window.__CTI_COURSERA_RESPONSE_SAMPLE.getSnapshot().courseId),'Native_local_fixture_123');
+  await samplePage.evaluate(()=>window.__CTI_COURSERA_RESPONSE_SAMPLE.stop());await samplePage.close();await app.bringToFront();
   await quickLocal.getByRole('button',{name:'Copy automatic local capture command',exact:true}).click();
   await quickLocal.getByText('automatic command copied.',{exact:false}).waitFor();
   const nativeCommand=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
@@ -376,6 +387,9 @@ try{
   assert.equal(freshCommand.args.source.includes('previous-reading'),false,'Fresh button ignores a selected saved capture');
   await quickLocal.getByRole('button',{name:'Copy automatic resume command',exact:true}).waitFor();
   await app.evaluate(()=>Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:async()=>{throw Error('Fixture permission denial')}}));
+  await quickLocal.getByRole('button',{name:'Copy one-quiz data check',exact:true}).click();
+  await quickLocal.getByText('Select and copy the complete data-check script below.',{exact:false}).waitFor();
+  assert.equal(await quickLocal.getByLabel('One-quiz data-check script',{exact:true}).inputValue(),sampleScript);
   await quickLocal.getByRole('button',{name:'Copy fresh full-course command',exact:true}).click();
   await quickLocal.getByText('Select and copy the full command below.',{exact:false}).waitFor();
   const freshFallback=JSON.parse(await quickLocal.getByLabel('Automatic local capture command',{exact:true}).inputValue());
@@ -388,7 +402,6 @@ try{
   assert.equal(recoveryCommand.cmd,'Runtime.evaluate');assert.equal(recoveryCommand.args.awaitPromise,true);
   assert(recoveryCommand.args.expression.includes('__CTI_LOCAL_CHECKPOINT_EXPORT__='));
   assert(recoveryCommand.args.expression.includes(courseraSource.slice('javascript:'.length)));
-  await context.route('https://www.coursera.org/**',route=>route.fulfill({contentType:'text/html',body:'<html><body>Managed Coursera shell fixture</body></html>'}));
   await quickLocal.getByLabel('Fresh full-course managed run',{exact:true}).check();
   const managedOpening=context.waitForEvent('page');
   await quickLocal.getByRole('button',{name:'Open managed Coursera tab',exact:true}).click();
@@ -430,6 +443,7 @@ try{
       'actual pasted bundle refuses repeat work until reload and copies a complete standalone continuation',
       'continuation clipboard denial offers manual copy outside course evidence',
       'built automatic and fresh full-course copy buttons, selected-file isolation and complete clipboard-denial fallback',
+      'built one-quiz Console sampler copy and complete clipboard-denial fallback',
       'built Copy script, download and manual copy match fixed bundle'],
     retainedRecords:retained.stats.retainedRecords,retainedCharacters:retained.stats.retainedChars,pageErrors:errors},null,2));
 }finally{

@@ -1,5 +1,37 @@
 # Coursera extractor runtime stability
 
+## v6.15.23: selected-model retention and one-quiz response sampling
+
+A live v6.15.22 report describes roughly 1.5 hours of slowly advancing quiz
+capture without a final JSON. Crash recovery alone has not established a
+scalable course extractor. See [feasibility and evidence](coursera-extraction-feasibility.md)
+for the researched alternatives and the missing live API contract.
+
+A fully parsed and raw-copied selected array now remains eligible even when
+unrelated React/query-cache traversal later reaches its time or node budget.
+Interrupted selected arrays remain ineligible. Candidate rows retain distinct
+source IDs even when prompt wording repeats; missing or conflicting identities
+still require observed DOM evidence. Rich-cache and repeated-prompt regressions
+exercise these boundaries, and the native loaded-data case now includes 10,000
+unrelated cache records. Raw-copy, text/key and live-outline checks remain.
+
+The progress card shows whole-run wall time across automatic documents, with
+the current document time separately. Batch item counts are labelled as such.
+This changes reporting, not acquisition limits or completeness decisions.
+
+CTI also offers a passive one-quiz response sample through a normal Console
+paste. It observes existing scoped fetch/text-XHR JSON bodies without initiating
+requests. Complete raw text is bounded by 6 MiB per body, 12 MiB total, 40 bodies
+and five minutes. Authentication headers and secret query fields are omitted;
+raw bodies remain private course data. Unsupported or oversized bodies are
+explicitly declined. It is diagnostic evidence, not a full-course capture.
+
+Native checks verify unmodified caller responses, request counts, limits,
+conditional restoration and the built copy/fallback. A separate inherited-origin
+blank-tab fixture verifies authenticated fetching without loading the authoring
+application. Real Coursera response schemas and full private-course acceptance
+remain unverified; no API-only extraction or universal perfection is claimed.
+
 ## v6.15.22: CTI-tab supervision and loaded question definitions
 
 The next live report crashed during the first quiz around 1/168 visits. The

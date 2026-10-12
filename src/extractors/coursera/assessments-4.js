@@ -359,7 +359,7 @@ export function rawAssessmentStateV61522(value, deadline) {
   }
 
 export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, options) {
-    const out = {attempted:false, arraysScanned:0, candidateArrays:[], questionCount:0, assessment:null};
+    const out = {attempted:false, arraysScanned:0, candidateArrays:[], questionCount:0, assessment:null,selectedArrayComplete:false};
     if (!surfaceRoot || !isAssessmentLikeFingerprintV662(fp)) return out;
     const started=Date.now(),work=stateSearchBudgetV61313(options);
     const declared = Number(declaredHint || 0);
@@ -372,25 +372,23 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
     const parsedQuestions=new WeakMap();
     let best = null;
 
-    function scoreCandidate(questions, arr, path) {
+    function scoreCandidate(questions, arr, path, arrayComplete) {
       // v6.6.11: manual-graded assignment rubric arrays are not learner
       // assessment questions. Worked shells can expose rubric criteria through
       // React state under paths containing "rubric"; rejecting those paths
       // prevents rubric criteria from becoming phantom quiz questions.
       const pathText = String(path || '');
       if (/(?:^|[.\[])rubrics?(?:[.\[]|$)|gradingCriteria|rubricCriteria|rubricParts?/i.test(pathText)) return null;
-      const unique = new Map();
-      questions.forEach(q => {
-        const key = assessmentPromptKey_(q && q.prompt || '');
-        if (key && !unique.has(key)) unique.set(key, q);
-      });
-      const qs = [...unique.values()];
+      // The same wording can belong to different source IDs and answer keys.
+      // Keep every source row, including ambiguous rows without IDs, so the
+      // live-outline binder can require an exact identity or a unique prompt.
+      const qs = questions.filter(q=>assessmentPromptKey_(q && q.prompt || ''));
       if (qs.length < 2) return null;
       const countFit = declared > 1 ? Math.max(0, 100 - Math.abs(qs.length - declared) * 24) : Math.min(100, qs.length * 15);
       const answerRich = qs.filter(q => q.answerTextReliable).length;
       const optionRich = qs.filter(q => q.optionTextReliable).length;
       const score = countFit + qs.length * 22 + answerRich * 12 + optionRich * 6 - Math.max(0, arr.length - qs.length) * 2;
-      return {score, questions:qs, path, array:arr, arrayLength:arr.length, answerRich, optionRich};
+      return {score, questions:qs, path, array:arr, arrayLength:arr.length, answerRich, optionRich,arrayComplete};
     }
 
     while (cursor < queue.length && nodes < 18000 && stateSearchStepV61313(work)) {
@@ -403,8 +401,8 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
       if (Array.isArray(v)) {
         out.arraysScanned++;
         if (v.length >= 2 && !/(?:^|[.\[])rubrics?(?:[.\[]|$)|gradingCriteria|rubricCriteria|rubricParts?/i.test(cur.path)) {
-          const parsed=[];
-          for (let i=0;i<v.length && stateSearchStepV61313(work);i++) {
+          const parsed=[];let i=0;
+          for (;i<v.length && stateSearchStepV61313(work);i++) {
             const value=ownStateValueV61313(v,String(i));
             if (!value || typeof value!=='object') continue;
             if (!parsedQuestions.has(value)) {
@@ -415,10 +413,17 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
             const question=parsedQuestions.get(value);
             if (question) parsed.push(Object.assign({},question,{id:String(i+1),sourceArrayIndex:i}));
           }
-          const candidate = scoreCandidate(parsed, v, cur.path);
+          const candidate = scoreCandidate(parsed, v, cur.path,i===v.length && !work.stopReason);
           if (candidate) {
-            out.candidateArrays.push({path:cur.path, arrayLength:v.length, parsedQuestions:candidate.questions.length, answerRich:candidate.answerRich, optionRich:candidate.optionRich, score:Math.round(candidate.score), prompts:candidate.questions.slice(0,6).map(q => String(q.prompt||'').slice(0,160))});
-            if (!best || candidate.score > best.score) best = candidate;
+            out.candidateArrays.push({path:cur.path, arrayLength:v.length, parsedQuestions:candidate.questions.length, answerRich:candidate.answerRich, optionRich:candidate.optionRich, score:Math.round(candidate.score),arrayComplete:candidate.arrayComplete, prompts:candidate.questions.slice(0,6).map(q => String(q.prompt||'').slice(0,160))});
+            if (!best || candidate.arrayComplete && !best.arrayComplete || candidate.arrayComplete===best.arrayComplete && candidate.score > best.score) {
+              // Snapshot the selected array before unrelated query-cache work
+              // spends the shared search deadline. Search truncation and this
+              // array's parse/copy completeness are independent observations.
+              candidate.raw=candidate.arrayComplete?rawAssessmentStateV61522(v,work.deadline):
+                {complete:false,reason:'SELECTED_ARRAY_NOT_FULLY_PARSED',characters:0};
+              best = candidate;
+            }
           }
         }
         if (cur.depth < 7) {
@@ -450,12 +455,13 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
     out.truncated=Boolean(work.stopReason || nodes>=18000);
     out.candidateArrays = out.candidateArrays.sort((a,b) => b.score - a.score).slice(0,12);
     if (!best) return out;
+    out.selectedArrayComplete=best.arrayComplete===true;
     let questions = best.questions.slice();
     questions.sort((a,b) => Number(a.id||0) - Number(b.id||0));
     questions = questions.map((q,i) => Object.assign({}, q, {id:String(i+1)}));
     out.questionCount = questions.length;
     const finalDeclared = Math.max(declared, questions.length, out.truncated?best.arrayLength:0);
-    const raw=rawAssessmentStateV61522(best.array,work.deadline);
+    const raw=best.raw;
     out.assessment = {
       schemaVersion:3,
       parser:'coursera-react-assessment-state-v1',
@@ -466,7 +472,7 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
       questions,
       parserConfidence:finalDeclared === questions.length ? 0.92 : 0.82,
       warnings:finalDeclared === questions.length ? [] : ['React-state recovery did not observe every declared Coursera question.'],
-      stateEvidence:{arraysScanned:out.arraysScanned, selectedPath:best.path, candidateArrays:out.candidateArrays,
+      stateEvidence:{arraysScanned:out.arraysScanned, selectedPath:best.path, selectedArrayComplete:out.selectedArrayComplete,candidateArrays:out.candidateArrays,
         rawCapture:{complete:raw.complete,method:raw.method || '',reason:raw.reason || '',characters:raw.characters},
         ...(raw.complete?{rawQuestionDefinitions:raw.value}:{})}
     };

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {startCourseraLocalSupervisor,type CourseraSupervisorStatus} from '../src/domain/coursera-local-supervisor.ts';
+import {createCourseraResponseSampleScript} from '../src/domain/coursera-response-sample.ts';
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
 import {
   inspectLocalCourseraCaptureFile,
@@ -38,6 +39,7 @@ export default function LocalCourseraExtraction({
   const [automaticCommand, setAutomaticCommand] = useState("");
   const [managedCommand,setManagedCommand]=useState('');
   const [managedFresh,setManagedFresh]=useState(false);
+  const [responseSampleSource,setResponseSampleSource]=useState('');
   const [managedStatus,setManagedStatus]=useState<CourseraSupervisorStatus|null>(null);
   const supervisor=useRef<ReturnType<typeof startCourseraLocalSupervisor>|null>(null);
   const managedTab=useRef<Window|null>(null);
@@ -118,6 +120,14 @@ export default function LocalCourseraExtraction({
     });
   }
 
+  async function copyResponseSample(){
+    await act('Preparing one-quiz data check',async()=>{
+      const source=createCourseraResponseSampleScript(shellUrl);setResponseSampleSource(source);
+      try{await navigator.clipboard.writeText(source);setCopyStatus('Data-check script copied. Close DevTools, refresh the Coursera Content page, reopen Console and paste once. Open one quiz normally, then click Download response sample in Coursera.');}
+      catch{setCopyStatus('Select and copy the complete data-check script below. Paste into Coursera Console after ending the earlier extractor registration.');}
+    });
+  }
+
   function openManagedCapture(){
     if(!shellTarget || managedActive)return;
     // Open synchronously from the click so Chrome's popup policy can allow it.
@@ -174,6 +184,7 @@ export default function LocalCourseraExtraction({
           aria-invalid={!!shellUrl.trim() && !shellTarget}
           onChange={(event) => {
             const value = event.target.value;
+            setResponseSampleSource('');
             setShellUrl(value);
             onUrlChange?.(value);
             setInspection(null);
@@ -198,6 +209,25 @@ export default function LocalCourseraExtraction({
           before copying the extractor or selecting a capture.
         </p>
       )}
+
+      <div className="section-divider">
+        <h3>One-quiz data check</h3>
+        <p>Use this when a full capture takes too long. It saves the quiz responses
+          Coursera already receives, so we can check whether full questions and keys
+          can be captured without opening each question.</p>
+        <p className="hint">Close DevTools, refresh the Coursera Content page, reopen Console
+          and paste this script once. Open one quiz normally, then click
+          <strong> Download response sample</strong> in Coursera. This is a diagnostic sample.
+          It stays local and does not start a full-course run.</p>
+        <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
+          onClick={()=>void copyResponseSample()}>Copy one-quiz data check</button>
+        {responseSampleSource && <details className="scope">
+          <summary>Data-check script copy fallback</summary>
+          <p className="hint">Select all of this script and paste into Coursera Console.</p>
+          <textarea className="extractor-source" aria-label="One-quiz data-check script"
+            readOnly value={responseSampleSource} onFocus={event=>event.currentTarget.select()} />
+        </details>}
+      </div>
 
       <div className="section-divider managed-local-capture">
         <h3>Managed capture in local Chrome</h3>

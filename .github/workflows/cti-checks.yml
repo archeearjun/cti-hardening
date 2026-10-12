@@ -72,6 +72,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Managed local capture, automatic renderer recovery and loaded question data
         run: npm run test:browser:supervised-capture
+      - name: Passive quiz response sample and authenticated lightweight data-tab feasibility
+        run: npm run test:browser:response-sample
       - name: Verify package scanning in Chromium
         run: npm run test:browser:package
       - name: Verify workspace workflow in Chromium

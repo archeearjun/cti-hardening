@@ -44,7 +44,7 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   id:'assessment~q'+(i+1),questionType:'Multiple Choice',prompt:'Which result is correct for scenario '+(i+1)+' in this assessment?',
   options:[{text:'Correct choice café '+(i+1),correct:true},{text:'Other choice 日本語 '+(i+1),correct:false}],sourceMath:'<math><mi>α</mi></math>',unknownOriginal:{retained:true},
   ...(i===1?{diagram:'https://www.coursera.org/assets/question-diagram.svg'}:{})
- }))};</script>`;
+ })),queryCache:Array.from({length:10000},(_,i)=>({cached:{metadata:{id:'unrelated-'+i,child:{value:i}}}}))};</script>`;
  response.setHeader('Content-Type','text/html; charset=utf-8');response.end(html);
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));let browser;

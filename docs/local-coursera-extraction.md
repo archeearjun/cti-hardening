@@ -1,5 +1,28 @@
 # Automatic Coursera capture in local Chrome
 
+## When the whole-course capture is too slow
+
+The current UI-driven capture has not been proven scalable on the reported
+Technical Drawing course. Protocol monitor improves registration/recovery;
+it does not remove question-editor rendering. The [feasibility assessment](coursera-extraction-feasibility.md)
+compares the free alternatives and documents why a real response sample is
+needed before an API-only path can be certified.
+
+From v6.15.23, CTI → Extract includes **Copy one-quiz data check**:
+
+1. End the earlier registration by closing DevTools, then refresh Coursera's
+   Content page. Saved extractor checkpoints remain in the browser.
+2. Copy the data-check script from CTI and paste into normal Coursera Console.
+3. Open one quiz normally and click **Download response sample** in Coursera
+   after its responses arrive. Download before refreshing or closing the page.
+
+The observer makes no requests and captures only future matching responses.
+The file is a diagnostic sample for investigating the definition schema; do not
+use it as a course-audit capture. Parsed/binary XHR and opaque GraphQL can be
+declined. If the sample is empty or reports such declines, Chrome Network's
+**Copy response** can supply the specific authoring JSON instead. There is no
+need to send cookies, request headers or a full-course HAR.
+
 The primary Extract workflow uses the operator's existing, authenticated Chrome
 profile. It needs no extension, local Node/Python installation, remote browser,
 or Cloudflare browser quota. Chrome's built-in DevTools Protocol monitor registers

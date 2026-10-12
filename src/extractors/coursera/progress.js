@@ -3,12 +3,15 @@
 export function createCtiProgressPanelV1(title, options) {
     options = options || {};
     const started = Date.now();
+    const requestedOverallStart=Number(options.overallStartedAt);
+    const overallStarted=Number.isFinite(requestedOverallStart) && requestedOverallStart>0 && requestedOverallStart<=started?requestedOverallStart:started;
     const state = { phase:'Starting', detail:'', count:'', completed:null, total:null, outcome:'running', startedAt:new Date(started).toISOString() };
     let host, root, timer, finished = 0, phaseStarted = started, updated = started, minimized = false;
     const durations = {};
     const key = options.key || '__CTI_PROGRESS_PANEL__';
     const duration = ms => Math.floor(Math.max(0, ms) / 60000) + 'm ' + String(Math.floor(Math.max(0, ms) / 1000) % 60).padStart(2, '0') + 's';
     const snapshot = () => ({...state, elapsedMs:(finished || Date.now()) - started,
+      overallElapsedMs:(finished || Date.now()) - overallStarted,
       phaseElapsedMs:(finished || Date.now()) - phaseStarted, phaseDurationsMs:{...durations,
         [state.phase]:(durations[state.phase] || 0) + (finished || Date.now()) - phaseStarted}});
     const dispose = () => { clearInterval(timer); if (host) host.remove(); };
@@ -16,12 +19,12 @@ export function createCtiProgressPanelV1(title, options) {
       if (!root) return;
       const node = id => root.getElementById(id);
       const end = finished || Date.now();
-      node('clock').textContent = 'Elapsed ' + duration(end - started);
+      node('clock').textContent = (options.overallStartedAt?'Run ':'Elapsed ') + duration(end - overallStarted);
       node('phase').textContent = state.phase;
       node('detail').textContent = state.detail;
       node('count').textContent = state.count;
       node('activity').textContent = finished ? 'Finished in ' + duration(end - started) :
-        'This step: ' + duration(end - phaseStarted) + (end - updated >= 30000 ? ' · Waiting for the next progress update' : '');
+        (options.overallStartedAt?'This document: '+duration(end-started)+' · ':'')+'This step: ' + duration(end - phaseStarted) + (end - updated >= 30000 ? ' · Waiting for the next progress update' : '');
       node('close').hidden = !finished;
       node('pulse').hidden = !!finished;
       node('card').dataset.outcome = state.outcome;
