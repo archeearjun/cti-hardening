@@ -1,5 +1,68 @@
 # Coursera extractor runtime stability
 
+## v6.15.29: explicitly resume the saved run after a lost registration
+
+The live v6.15.28 quiz check verified 100 definitions and 100 explicit keys in
+32.772 seconds, using 202 GETs and 500,818 response bytes. Definition acquisition
+is now demonstrated for that quiz. A later full-course attempt reportedly
+reached Module 6 before an outline page appeared without an extractor card or
+run lock. Its shared durable plan still said `RUNNING`, 41 batches, zero stalled
+batches, `FRESH_FULL_COURSE`, and about 50 minutes elapsed.
+
+That diagnostic establishes that the inspected page was not running the script.
+It does not prove the managed child stopped: Coursera tabs share the plan in
+local storage. **Show managed Coursera tab** focuses the child CTI actually
+supervises. Check that tab and the controller status before interrupting a
+connected capture. A handoff or registration loss is a possible explanation;
+the exact Chrome cause remains unconfirmed.
+
+The operator also reported that CTI's status panel disappeared. A separate
+concrete lifecycle defect was found: the extraction component's React cleanup
+disposed the supervisor when that component unmounted. The managed runtime now
+belongs to the loaded browser window and owns the supervisor, child tab,
+command, course URL and latest status. The UI only subscribes or unsubscribes.
+Closing the extraction panel therefore leaves acknowledgements and recovery
+active; reopening it restores the same child, command, course and counts without
+starting another run. **Stop managed run** still disposes the supervisor and
+closes the child. A full CTI page reload creates a new runtime and still needs
+explicit saved-run recovery. This fixes a reproduced lifecycle boundary; it
+does not prove that it caused the reported private-browser interruption.
+
+For confirmed execution loss, **Resume saved managed run** opens a replacement
+managed tab and prepares an explicit recovery command. The standalone equivalent
+is **Copy saved-run recovery command**. A new command token adopts only the
+active same-course plan and matching browser checkpoint pointer. It preserves
+the original checkpoint namespace and fresh owner, start time, batch count,
+evidence progress and safety limits. The old command becomes `SUPERSEDED`.
+An ordinary namespace remains pinned across its normal resume TTL rather than
+being silently replaced.
+
+Recovery rejects a still-live competing run, unrelated or terminal plans,
+mismatched namespaces, and elapsed/batch/stall/recovery limits. A previously
+started run whose checkpoints restore zero matching item observations stops
+before editor visits with `LOCAL_CAPTURE_RESUME_EVIDENCE_UNAVAILABLE`; it cannot
+fall back to a fresh capture. Raw saved observations remain available for
+read-only export.
+
+Page JavaScript cannot reinstall Chrome's debugger registration. Once it is
+lost, the operator copies and registers the new recovery command once. The
+managed supervisor still requires a verified `READY` acknowledgement after
+navigation; normal appearance of the course outline is not a resume certificate.
+
+The native recovery check saves forty complete items across two fresh batches,
+removes the real CDP registration, then resumes under a new managed token. It
+finishes a 168-item fixture with a 100-question keyed quiz and one final JSON,
+without revisiting completed items or resetting the namespace, clock or budgets.
+Empty matching checkpoints produce zero editor visits and no fresh fallback.
+These are continuity checks with synthetic course content. Private whole-course
+completion and the reported browser stop remain unverified.
+
+The lifecycle regression closes the built extraction panel while its managed
+child remains open, sends a real cross-origin `READY` receipt with 79 saved
+observations, and requires an acknowledgement while the panel is unmounted.
+Reopening the panel must restore the same command, child, course URL and counts.
+Runtime unit checks also cover listener cleanup, replacement and explicit stop.
+
 ## v6.15.28: match the observed single-resource request format
 
 The live v6.15.27 quiz check established the complete 100-part body inventory

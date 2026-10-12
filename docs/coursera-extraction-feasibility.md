@@ -4,7 +4,7 @@ Assessment dated 13 October 2026. The requirement is complete course evidence in
 the operator's authenticated local Chrome, without installing an extension,
 requiring local Node/Python, or paying for a remote browser.
 
-The v6.15.28 adapter uses the two read resources established by the real
+The v6.15.29 adapter uses the two read resources established by the real
 response sample. Complete observed body parts can supply the ordered group
 inventory when the sidebar mounts fewer links. Each group ID and ordinal must
 be present in the DOM, unique, within the declared count, associated with one
@@ -14,12 +14,33 @@ key must satisfy the strict coverage requirements. Fresh exact-item routes and
 fresh generic-address modals have separate identity certificates; a missing
 optional content test marker no longer rejects a structurally verified body.
 
-The live workflow is **not yet proven scalable**. The latest bounded v6.15.27
-quiz check established all 100 observed group identities and read 100 group
-records, but captured zero definitions and zero keys. Both batch routes returned
-HTTP 405, and all individual definition reads returned HTTP 404. The check made
-202 GETs in about 31 seconds. This isolates definition acquisition as the
-remaining failure, separately from inventory discovery.
+The live v6.15.28 check verified **100 definitions and 100 explicit keys in
+32.772 seconds**, using 202 GETs and 500,818 response bytes. Native quiz extraction
+is therefore demonstrated within the stated restrictions. This establishes the
+tested quiz's definitions and keys, rather than just its group inventory.
+
+The full-course workflow is **not yet proven scalable**. A later run reportedly
+reached Module 6 before an outline page appeared without a card or active run
+lock. Its shared saved plan remained `RUNNING`, with 41 batches, zero stalled
+batches, `FRESH_FULL_COURSE` and about 50 minutes elapsed. This establishes that
+the inspected page was not executing the extractor, but does not establish
+whether the actual managed child stopped. Plan metadata is shared across
+Coursera tabs. CTI's **Show managed Coursera tab** and verified controller status
+identify the supervised page. The exact Chrome cause remains unconfirmed.
+
+The operator also reported the CTI status panel disappearing. The application
+had a concrete lifecycle defect: unmounting the extraction component disposed
+its supervisor. v6.15.29 moves that runtime to the loaded browser window. Panel
+closure now only removes the UI subscription; acknowledgements and recovery
+continue, and remounting restores the same child, command, course and status.
+Explicit stop still closes the child. A full page reload destroys the runtime
+and requires explicit saved-run recovery. The lifecycle defect is independently
+reproduced; its role in the reported private-course stop remains unconfirmed.
+
+The earlier bounded v6.15.27 check had found 100 groups but zero definitions and
+keys, with rejected batch routes and individual definition 404s. Aligning the
+single-resource request format in v6.15.28 resolved that quiz acquisition failure
+in the reported live check.
 
 The preceding managed run failed with 79 saved question observations, zero
 finished visits and two recoveries.
@@ -37,9 +58,14 @@ stops a recovery navigation that receives no new `READY` acknowledgement.
 CTI now offers a bounded one-quiz Console API check and read-only saved-progress
 Console export. v6.15.28 aligns single-resource requests with the working
 original sample, including its literal version delimiter and query/field form.
-The next acceptance evidence is the corrected short quiz check, rather than
-another prolonged full-course rerun. Full-course scalability remains an
-authenticated live-course acceptance requirement.
+v6.15.29 adds explicit saved-run recovery after confirmed execution loss. A new
+managed command adopts the active same-course plan and matching checkpoints,
+preserving its original namespace, clock, progress and limits. It does not start
+fresh or silently reset a safety stop. The operator must register that replacement
+command once because page JavaScript cannot reinstall Chrome's debugger command.
+The next acceptance evidence is continuation from retained work, followed by
+strict final-file verification. Full-course scalability remains an authenticated
+live-course acceptance requirement.
 
 ## What the existing captures establish
 
@@ -106,7 +132,7 @@ included in this public document.
 | Native XLSX outline | Yes | Fast authoritative structural inventory | Full assessment/content export is unverified |
 | Console or saved DevTools Snippet | Yes | Runs code in the existing authenticated page | Same renderer and editor workload; a Snippet must be run again after reload |
 | Protocol monitor registration with checkpoints | Yes | Reinstalls the canonical program on new documents; enables automatic resume | Does not move parsing or editor rendering out of Coursera's renderer |
-| Separate CTI supervisor tab | Yes | Detects lost heartbeats and navigates a crashed managed tab | Recovery preserves work; it does not make slow acquisition fast |
+| Separate CTI supervisor tab | Yes | Detects lost heartbeats, focuses the actual managed tab and navigates an unresponsive tab | Reconnection needs the registered command; confirmed registration loss requires explicit operator re-registration |
 | Loaded quiz definitions matched to live IDs | Yes, when available | Can skip most question-editor activations | Actual model shape, identities, completeness, and answer fields must be observed |
 | Observed group/question API reads after opening a quiz once | Yes; native MCQ schema confirmed by the real sample | Can obtain original prompts, options and explicit keys without activating every question editor; complete DOM group/ordinal wrappers can avoid sidebar scrolling | Requires a complete item-bound ordered group inventory; live batch support, other types and multiple variants still need verification |
 | Authenticated API acquisition in a lightweight Coursera-origin tab | Browser mechanism proven; full-course path pending | Can fetch confirmed definitions without loading the large React editor | Full course-to-item-to-assignment relations, ordering and unsupported content remain unverified |
@@ -153,7 +179,8 @@ literal `@` used in the original successful sample. v6.15.28 preserves that
 delimiter in the exact returned, validated versioned ID, repeats the group key
 in the observed group `id` query parameter, omits that parameter for definitions,
 and includes the observed `validation` field. This corrects the evidenced wire
-format; it does not establish that every definition 404 has the same cause.
+format. The later v6.15.28 live check verified all 100 definitions and keys;
+it does not establish that every definition 404 has the same cause.
 
 Naptime combines requested fields with default fields. Its documented negative
 field selection can exclude `writeAccessToken`; reads request the content fields
@@ -254,6 +281,22 @@ returning HTTP 405, the maintained reader and copied Console probe obtain all
 100 synthetic definitions and keys in 202 GETs with zero question clicks.
 Separate genuine-404 coverage remains incomplete. These are request-format
 regressions, not a replacement for a successful live quiz or full-course result.
+
+The v6.15.29 continuity fixture commits forty complete items across two fresh
+batches, removes the real debugger registration, and resumes through a new
+managed token. It completes 168 synthetic items, the 100-question keyed quiz
+and one final JSON without revisiting completed items, changing the checkpoint
+namespace or resetting the original clock and budgets. A previously started
+run with no matching restored observations stops before editor visits. This
+checks recovery after confirmed registration loss. It does not identify the
+reported Chrome stop or establish private whole-course completeness.
+
+The built UI lifecycle check also closes the extraction panel, requires the
+same runtime to acknowledge a real cross-origin `READY` message with 79 saved
+observations while unmounted, and reopens the same command, child, URL and
+counts. This verifies that ordinary component unmounting does not end browser
+supervision. It does not make the runtime survive a full page reload or browser
+closure.
 
 ## Browser documentation and scope
 

@@ -1,7 +1,7 @@
 import { validateItemCheck, type ItemCheckSpec } from "./item-check.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
 
-export const EXTENSION_VERSION = "1.0.17";
+export const EXTENSION_VERSION = "1.0.18";
 export interface RefreshResponse {
   ok: boolean;
   error?: string;
@@ -86,8 +86,8 @@ export function validateRefreshCapture(
     );
   const capture: EvidenceObject = validateItemCheck(JSON.parse(text), spec);
   if (
-    capture.extractorVersion !== "v6.15.28" ||
-    capture.extractorBuild !== "v6.15.28-observed-single-get-format-20261013"
+    capture.extractorVersion !== "v6.15.29" ||
+    capture.extractorBuild !== "v6.15.29-pinned-managed-run-recovery-20261013"
   )
     throw Error(
       "The extension extractor is out of date. Update it before refreshing this item.",

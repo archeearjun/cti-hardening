@@ -9,7 +9,7 @@ import {chromium} from 'playwright';
 import {courseraSource} from '../src/generated/extractor-sources.js';
 import {createAutomaticLocalCourseraCommand} from '../src/domain/coursera-local-extraction.ts';
 import {evaluateCourseraCapture,parseCourseraShellUrl} from '../src/domain/coursera-background-extraction.ts';
-import {CTI_CHECKPOINT_DB,CTI_CHECKPOINT_STORE} from '../src/extractors/coursera/config.js';
+import {CTI_CHECKPOINT_DB,CTI_CHECKPOINT_STORE,CTI_CHECKPOINT_SESSION_PREFIX} from '../src/extractors/coursera/config.js';
 import {assessmentBrowserFixture} from './assessment-browser-fixture.mjs';
 import {extractorFunctions} from './extractor-functions.cjs';
 import {fixtureCourseraAssessmentProgram} from './coursera-assessment-program-fixture.mjs';
@@ -162,6 +162,120 @@ try{
    scope:'Synthetic external content; real canonical entry, IndexedDB, cross-origin controller, Chrome renderer crashes and retained debugger registration.'}));
   await browserSession.detach();await context.close();
  }
+ // Lose the real debugger registration after multiple fresh renderer batches,
+ // then attach a new managed token to that exact durable run. Completed items
+ // must survive the handoff; a new token must not reset its namespace or limits.
+ apiReads='full-body';loadedModel=false;
+ const resumeContext=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
+ const resumeParent=await resumeContext.newPage();await resumeParent.goto(controllerOrigin+'/controller');
+ const firstOpening=resumeContext.waitForEvent('page');await resumeParent.click('#open');const firstChild=await firstOpening;await firstChild.waitForLoadState();
+ const firstCdp=await resumeContext.newCDPSession(firstChild);await firstCdp.send('Page.enable');
+ const resumedDownloads=[],resumeErrors=[];
+ firstChild.on('download',download=>resumedDownloads.push(download));firstChild.on('pageerror',error=>resumeErrors.push(error.message));
+ const freshCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,apiProgram,token,undefined,{controllerOrigin,freshRun:true}));
+ const firstRegistration=await firstCdp.send(freshCommand.cmd,freshCommand.args);
+ await resumeParent.waitForFunction(()=>captureStatus?.state==='RUNNING',{},{timeout:15000});
+ await firstChild.waitForFunction(token=>Number(JSON.parse(localStorage.getItem('__CTI_AUTOMATIC_LOCAL_V61517_'+token) || 'null')?.batches || 0)>=2,token,{timeout:60000});
+ await firstCdp.send('Page.removeScriptToEvaluateOnNewDocument',{identifier:firstRegistration.identifier});
+ await firstChild.goto(shell,{waitUntil:'load'});
+ assert.equal(await firstChild.evaluate(()=>Boolean(window.__CTI_ITEM_FIDELITY_RUN_LOCK || window.__CTI_COURSERA_PROGRESS__)),false,
+  'Removing registration must leave a plain outline instead of secretly rerunning capture');
+ const beforeResume=await firstChild.evaluate(async({token,courseId,dbName,storeName,prefix})=>{
+  const planKey='__CTI_AUTOMATIC_LOCAL_V61517_'+token,plan=JSON.parse(localStorage.getItem(planKey));
+  const session=JSON.parse(localStorage.getItem(prefix+courseId));
+  const db=await new Promise((resolve,reject)=>{const request=indexedDB.open(dbName);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)});
+  let records;try{records=await new Promise((resolve,reject)=>{const request=db.transaction(storeName).objectStore(storeName).index('runKey').getAll(plan.checkpointRunId+'|'+courseId);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}finally{db.close()}
+  const complete=records.filter(row=>row.diagnostic?.captureContract?.complete===true || row.fingerprint?.payload?.captureContract?.complete===true);
+  // Registration is gone and the old tab will close. Age only this fixture's
+  // liveness receipt so the handoff does not spend 45 seconds waiting to prove
+  // an already-removed producer is inactive.
+  plan.updatedAt=Date.now()-50000;localStorage.setItem(planKey,JSON.stringify(plan));
+  return {plan,session,stored:records.length,completeIds:complete.map(row=>row.itemId),
+   quiz:records.find(row=>row.itemId==='assessment-under-test')?.fingerprint?.payload,
+   readingVisits:JSON.parse(localStorage.getItem('fixture-reading-visits') || '[]')};
+ },{token,courseId,dbName:CTI_CHECKPOINT_DB,storeName:CTI_CHECKPOINT_STORE,prefix:CTI_CHECKPOINT_SESSION_PREFIX});
+ assert.equal(beforeResume.plan.state,'RUNNING');assert.equal(beforeResume.plan.captureMode,'FRESH_FULL_COURSE');
+ assert(beforeResume.plan.batches>=2);assert(beforeResume.completeIds.length>=40);
+ assert.equal(beforeResume.session.id,beforeResume.plan.checkpointRunId);
+ assert.equal(beforeResume.quiz.structuredAssessment.questionCount,100);
+ assert.equal(beforeResume.quiz.assessmentApiEvidence.questionDefinitions.length,100);
+ assert.equal(resumedDownloads.length,0,'Intermediate fresh batches must not download JSON before the handoff');
+ await resumeParent.evaluate(()=>supervisor.dispose());await firstChild.close();
+ const replacementToken='native_resumed_supervisor_token_123';
+ const replacementOpening=resumeContext.waitForEvent('page');
+ await resumeParent.evaluate(({shell,courseId,token})=>{
+  window.child=window.open(shell,'cti-resumed-course');
+  window.supervisor=CTISupervisor.startCourseraLocalSupervisor(window,child,shell,token,status=>{window.captureStatus=status},
+   {timeoutMs:7000,reconnectTimeoutMs:7000,intervalMs:500});
+ },{shell,courseId,token:replacementToken});
+ const replacementChild=await replacementOpening;await replacementChild.waitForLoadState();
+ replacementChild.on('download',download=>resumedDownloads.push(download));replacementChild.on('pageerror',error=>resumeErrors.push(error.message));
+ const replacementCdp=await resumeContext.newCDPSession(replacementChild);await replacementCdp.send('Page.enable');
+ const resumeCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,apiProgram,replacementToken,undefined,{controllerOrigin,resumeExisting:true}));
+ assert(resumeCommand.args.source.includes('"resumeExisting":true'),'An explicit resume must survive the copied-command boundary');
+ await replacementCdp.send(resumeCommand.cmd,resumeCommand.args);
+ await resumeParent.waitForFunction(()=>captureStatus?.state==='FINISHED',{},{timeout:120000});
+ assert.equal(resumedDownloads.length,1,'A lost-registration resume must produce one final JSON across both producers');
+ const resumedCapture=JSON.parse(fs.readFileSync(await resumedDownloads[0].path(),'utf8'));
+ const resumedQuiz=resumedCapture.fingerprints.find(fp=>fp.id==='assessment-under-test');
+ const resumedPlan=resumedCapture.meta.automaticLocalCapture;
+ assert.equal(resumedPlan.checkpointRunId,beforeResume.plan.checkpointRunId,'New token switched the preserved fresh namespace');
+ assert.equal(resumedPlan.startedAt,beforeResume.plan.startedAt,'New token reset the overall run clock');
+ assert(resumedPlan.batches>beforeResume.plan.batches,'New token reset the durable batch budget');
+ assert.equal(resumedPlan.captureMode,beforeResume.plan.captureMode,'Resume relabelled the original fresh course run');
+ assert(resumedCapture.meta.checkpointResume.restored>=beforeResume.completeIds.length);
+ assert.equal(resumedQuiz.payload.captureAttempts,1,'A completed quiz was opened again after the registration handoff');
+ assert.equal(resumedQuiz.payload.structuredAssessment.questionCount,100);
+ assert.equal(resumedQuiz.payload.structuredAssessment.captureCompleteness.requiredAnswerCoverageComplete,true);
+ assert.equal(resumedQuiz.payload.assessmentApiEvidence.questionDefinitions.length,100);
+ assert.equal(evaluateCourseraCapture(resumedCapture,courseId).complete,true);
+ const readingVisitsAfter=await replacementChild.evaluate(()=>JSON.parse(localStorage.getItem('fixture-reading-visits') || '[]'));
+ for(const id of beforeResume.completeIds.filter(id=>id!=='assessment-under-test')){
+  assert.equal(readingVisitsAfter.filter(visited=>visited===id).length,beforeResume.readingVisits.filter(visited=>visited===id).length,
+   'A completed reading was captured again after its durable checkpoint was adopted: '+id);
+ }
+ assert.deepEqual(resumeErrors,[]);
+ console.log(JSON.stringify({status:'PASS',mode:'lost registration after multiple fresh batches resumes under a new managed token',
+  completedBeforeHandoff:beforeResume.completeIds.length,batchesBeforeHandoff:beforeResume.plan.batches,
+  finalBatches:resumedPlan.batches,preservedCheckpointNamespace:true,preservedStartedAt:true,
+  duplicateCompletedEditorVisits:0,questions:100,keys:100,downloads:resumedDownloads.length,
+  scope:'Real CDP registration removal, same-origin IndexedDB and new managed tab/token; prior complete native API quiz and reading checkpoints are reused.'}));
+ await resumeContext.close();
+ // Matching plan metadata is insufficient if browser item storage disappeared.
+ // An explicit recovery must stop before any editor visit rather than silently
+ // treating an empty namespace as permission for a fresh course extraction.
+ const emptyContext=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
+ const emptyParent=await emptyContext.newPage();await emptyParent.goto(controllerOrigin+'/controller');
+ const emptyOpening=emptyContext.waitForEvent('page');await emptyParent.click('#open');const emptyChild=await emptyOpening;await emptyChild.waitForLoadState();
+ const emptyDownloads=[];emptyChild.on('download',download=>emptyDownloads.push(download));
+ const emptyToken='native_empty_checkpoint_resume_123';
+ await emptyChild.evaluate(({courseId,plan,session,prefix})=>{
+  localStorage.setItem('__CTI_AUTOMATIC_LOCAL_V61517_'+plan.token,JSON.stringify({...plan,state:'RUNNING',reason:'',updatedAt:Date.now()-50000}));
+  localStorage.setItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_'+courseId,plan.token);
+  localStorage.setItem(prefix+courseId,JSON.stringify(session));
+ },{courseId,plan:beforeResume.plan,session:beforeResume.session,prefix:CTI_CHECKPOINT_SESSION_PREFIX});
+ await emptyParent.evaluate(({shell,token})=>{
+  supervisor.dispose();window.supervisor=CTISupervisor.startCourseraLocalSupervisor(window,child,shell,token,
+   status=>{window.captureStatus=status},{timeoutMs:7000,reconnectTimeoutMs:7000,intervalMs:500});
+ },{shell,token:emptyToken});
+ const emptyCdp=await emptyContext.newCDPSession(emptyChild);await emptyCdp.send('Page.enable');
+ const emptyCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,apiProgram,emptyToken,undefined,{controllerOrigin,resumeExisting:true}));
+ await emptyCdp.send(emptyCommand.cmd,emptyCommand.args);
+ await emptyParent.waitForFunction(()=>captureStatus?.state==='STOPPED',{},{timeout:15000});
+ assert.match((await emptyParent.evaluate(()=>captureStatus)).message,/could not restore matching item evidence/);
+ const emptyState=await emptyChild.evaluate(({courseId,prefix,token})=>({
+  readings:JSON.parse(localStorage.getItem('fixture-reading-visits') || '[]'),
+  questions:JSON.parse(localStorage.getItem('fixture-question-visits') || '[]'),
+  pointer:JSON.parse(localStorage.getItem(prefix+courseId)),
+  plan:JSON.parse(localStorage.getItem('__CTI_AUTOMATIC_LOCAL_V61517_'+token)),
+ }),{courseId,prefix:CTI_CHECKPOINT_SESSION_PREFIX,token:emptyToken});
+ assert.deepEqual(emptyState.readings,[]);assert.deepEqual(emptyState.questions,[]);assert.equal(emptyDownloads.length,0);
+ assert.equal(emptyState.pointer.id,beforeResume.session.id);
+ assert.equal(emptyState.plan.checkpointRunId,beforeResume.plan.checkpointRunId);
+ console.log(JSON.stringify({status:'PASS',mode:'explicit resume with no matching IndexedDB observations stops before editor visits',
+  readingVisits:0,questionVisits:0,downloads:0,checkpointNamespacePreserved:true,freshFallback:false,
+  scope:'Valid prior course plan and pinned fresh namespace metadata cannot substitute for missing item checkpoints.'}));
+ await emptyContext.close();
  // A reopened document cannot restore capture after its debugger registration
  // disappeared. A terminal durable plan must report its reason rather than
  // silently look like the same missing-registration failure.

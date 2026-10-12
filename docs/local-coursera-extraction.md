@@ -36,10 +36,11 @@ real response sample; cached editors no longer have to emit both endpoint
 requests again to enable acquisition. An exact item URL with a fresh unique
 editor pair can also certify that item independently of outline-control scores.
 
-The supplied sample contained ten groups and ten definitions, with eight
+The original sample contained ten groups and ten definitions, with eight
 previously observed questions gaining explicit keys that were missing from
-their older DOM capture. It does not establish a complete 100-question quiz or
-whole-course acceptance. An incomplete outline, multiple variants, an unsupported
+their older DOM capture. The later live v6.15.28 quiz check verified all 100
+definitions and keys in 32.772 seconds. That confirms the direct path for this
+quiz; it does not establish whole-course acceptance. An incomplete outline, multiple variants, an unsupported
 question type, unavailable responses or conflicting identities keep explicit
 gaps and use the existing observed DOM fallback. The [feasibility assessment](coursera-extraction-feasibility.md)
 details the evidence and remaining boundaries. No extension, local installation
@@ -69,8 +70,9 @@ The native unsupported-batch check now requires the raw request path to match,
 instead of decoding away a version-delimiter mismatch. It verifies 100 synthetic
 definitions and keys in 202 GETs without question clicks. The earlier fourteen
 GET fixture remains the supported-batch case; it is not the live endpoint's
-observed request count. Live confirmation of the corrected request form is
-still needed, and other genuine 404s remain explicit gaps.
+observed request count. The subsequent live v6.15.28 check verified 100 definitions
+and keys in 32.772 seconds, with 202 GETs and 500,818 response bytes. Other
+genuine 404s remain explicit gaps.
 
 ## Check one currently open quiz
 
@@ -166,13 +168,62 @@ refuses to start without a verified acknowledgement. No security policy or
 header is bypassed. Crash recovery also relies on Chrome's normal site isolation
 keeping the CTI and Coursera sites in separate renderer processes. If browser
 policy disables that isolation, a shared-process crash can stop both tabs; this
-feature does not alter enterprise browser policy. Closing DevTools removes its registration; the CTI tab
-cannot recreate that registration. Closing, refreshing or leaving CTI's Extract
-page also ends its supervisor. These interruptions require a new command.
+feature does not alter enterprise browser policy. Closing DevTools removes its
+registration; the CTI tab cannot recreate that registration. Closing the CTI
+browser tab, refreshing it or navigating to another document ends its in-memory
+supervisor. These interruptions require explicit saved-run recovery.
+
+From v6.15.29, closing the extraction panel or changing a view within the loaded
+CTI application does not stop the managed runtime. The browser window owns the
+supervisor, child tab, command and latest course status; the UI merely subscribes
+to it. Reopen the panel to recover the same tab reference, command, URL and
+counts. Keep the CTI browser tab open. **Stop managed run** is the explicit action
+that closes the child and disposes supervision. A full CTI reload starts a new
+browser realm and cannot restore that live window manager automatically.
 
 A durable run that already finished or stopped is reported as an explicit error
 when its old registration runs again. Export saved progress before starting a
 new command; a normal-looking course outline is not evidence that capture resumed.
+
+## Resume after a lost connection or registration
+
+From v6.15.29, first use **Show managed Coursera tab** on CTI's Extract page to
+focus the tab the controller actually supervises. If the extraction panel was
+closed, reopen it first; this reconnects its UI to the existing managed runtime.
+Another Coursera tab can show
+the outline without a card while the managed tab is still capturing. Durable
+run metadata is shared between tabs, so a `RUNNING` plan alone does not establish
+which page is executing. If the managed tab is connected and advancing, let it
+continue.
+
+When the managed extractor has stopped or failed to reconnect:
+
+1. Click **Stop managed run** and allow its 45-second liveness window to expire.
+2. Refresh CTI and click **Resume saved managed run** for the same course. This
+   uses the existing browser checkpoints; do not choose a fresh full-course run.
+3. Click **Copy managed capture command**. Paste it once into the replacement
+   Coursera tab's Protocol monitor with Record off and the log cleared, then
+   press Enter. Keep CTI and the tab's DevTools open.
+
+Standalone capture can use **Copy saved-run recovery command** in the matching
+Coursera tab's Protocol monitor. This is an explicit continuation of the active
+saved plan, without importing a JSON or creating a fresh capture.
+
+Recovery uses a new command token while preserving the original checkpoint
+namespace, start time, batches, evidence progress and safety limits. Completed
+items remain skipped; the old command is superseded. The active checkpoint
+pointer must match the saved plan, including its original fresh owner when
+applicable. An ordinary checkpoint namespace stays pinned across its normal TTL.
+Recovery cannot reset the eight-hour, 500-batch, three-stall or thirty-recovery
+limits, revive unrelated terminal states, or override a live competing capture.
+If a previously started run restores no matching item evidence, it stops before
+editor visits instead of starting fresh. Use the read-only saved-progress export
+to inspect retained observations if recovery is rejected.
+
+A Coursera page cannot reinstall a lost debugger command itself. The one-time
+operator re-registration above restores execution; it does not establish why
+Chrome stopped the earlier registration. The reported Module 6 interruption
+and private full-course completion still require live verification.
 
 ## Loaded quiz data before question rendering
 
@@ -266,13 +317,15 @@ records, downloaded files and login cookies remain intact. The final JSON record
 `meta.automaticLocalCapture.captureMode: "FRESH_FULL_COURSE"` and the new run's
 checkpoint identifier. A fresh rerun still reports incomplete evidence when an
 editor or external item cannot provide everything required by the strict gate.
-After an interruption, use the normal automatic command to resume this run;
+After an interruption, use **Resume saved managed run** or
+**Copy saved-run recovery command** to continue this run and its original limits;
 copying another fresh command intentionally starts a separate rerun.
 
 ## Recovery and resource limits
 
-Closing DevTools ends its registration. Reload the matching course and copy a
-new command to resume from saved checkpoints. For standalone capture, a renderer crash requires
+Closing DevTools ends its registration. Use the explicit saved-run recovery
+workflow above to register a new command against the matching checkpoints.
+For standalone capture, a renderer crash requires
 browser-level recovery: page JavaScript cannot control its own crash screen.
 Reload and register a new command. This implementation reduces accumulation
 between editors and within long assessments; it cannot guarantee that a single defective or exceptionally
@@ -384,3 +437,16 @@ synthetic definitions and keys in fourteen GETs, without question clicks or
 sidebar scrolling, and rejects ambiguous or replaced bodies. The prior live
 run with 79 saved observations, zero finished visits and two recoveries failed;
 these fixture results do not establish private whole-course completion.
+
+The v6.15.29 native recovery fixture removes a real debugger registration after
+forty items have been completed across two fresh batches. A replacement managed
+token restores that namespace and finishes 168 synthetic items, a 100-question
+keyed quiz and one final JSON without revisiting completed items. Empty matching
+checkpoints stop before editor visits. This proves the tested handoff behavior,
+not the cause of the reported private-browser interruption.
+
+The built UI lifecycle regression closes and reopens the extraction panel during
+a managed run. A real cross-origin `READY` message with 79 saved observations
+must still receive an acknowledgement while the component is unmounted; the
+same child, command, course URL and counts must reappear afterward. It does not
+start a replacement capture merely because the UI view changed.

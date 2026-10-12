@@ -553,10 +553,13 @@ export function checkpointSessionIdV6150(courseId, requestedRunId = "", readOnly
     // It must not create, switch, refresh or delete browser checkpoint state.
     if (readOnly) return { id: saved && typeof saved.id === "string" ? saved.id : "", key: "" };
     if (requestedRunId) {
-      if (!/^fresh-[A-Za-z0-9_-]{8,100}$/.test(requestedRunId))
-        throw new Error("Invalid fresh checkpoint identifier.");
-      // A fresh command owns a separate namespace. Keep old records intact,
-      // and reuse this same namespace on every automatic document reload.
+      const fresh = /^fresh-[A-Za-z0-9_-]{8,100}$/.test(requestedRunId);
+      const existing = /^run-\d{1,17}-[a-z0-9]{1,32}$/.test(requestedRunId) && saved?.id === requestedRunId;
+      if (!fresh && !existing)
+        throw new Error("Invalid checkpoint identifier.");
+      // Fresh commands own separate namespaces. Explicit recovery can also
+      // pin the existing ordinary namespace instead of switching it at TTL.
+      // Keep old records intact across every automatic document reload.
       localStorage.setItem(key, JSON.stringify({ id: requestedRunId,
         createdAt: saved && saved.id === requestedRunId ? saved.createdAt : now }));
       return { id: requestedRunId, key };

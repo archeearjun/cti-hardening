@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61528')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61529')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -427,10 +427,49 @@ try{
   assert(managedCommand.args.source.includes('"controllerOrigin":'+JSON.stringify(new URL(app.url()).origin)));
   assert(managedCommand.args.source.includes('"freshRun":true'));assert(!managedCommand.args.source.includes('previous-reading'));
   assert(managedCommand.args.source.includes(courseraSource.slice('javascript:'.length)));
+  const managedConfig=JSON.parse(managedCommand.args.source.match(/window\.__CTI_AUTOMATIC_LOCAL_CONFIG__=([^\n;]+);/)[1]);
+  await app.locator('.script-panel > .section-top').getByRole('button',{name:'Close',exact:true}).click();
+  assert.equal(await quickLocal.count(),0,'The test must actually unmount the capture panel');
+  await managedTab.evaluate(config=>{
+    window.fixtureControllerAcks=[];
+    window.addEventListener('message',event=>{if(event.data?.kind==='CTI_LOCAL_CAPTURE_ACK_V1')fixtureControllerAcks.push(event.data.token);});
+    window.opener.postMessage({kind:'CTI_LOCAL_CAPTURE_STATUS_V1',event:'READY',token:config.token,
+      courseId:config.courseId,visibility:'visible',itemId:'fixture-quiz',savedQuestions:79},config.controllerOrigin);
+  },managedConfig);
+  await managedTab.waitForFunction(token=>fixtureControllerAcks.includes(token),managedConfig.token,{timeout:5000});
+  await app.getByRole('button',{name:'Coursera extractor',exact:false}).click();
+  await quickLocal.getByRole('button',{name:'Show managed Coursera tab',exact:true}).waitFor();
+  assert.equal(await quickLocal.getByLabel('Coursera authoring-shell URL',{exact:true}).inputValue(),
+    'https://www.coursera.org/teach/synthetic/Native_local_fixture_123/content/edit');
+  assert((await quickLocal.innerText()).includes('79 question observations saved'));
+  await quickLocal.getByRole('button',{name:'Copy managed capture command',exact:true}).click();
+  assert.deepEqual(JSON.parse(await app.evaluate(()=>navigator.clipboard.readText())),managedCommand,
+    'Remount must retain the existing command and child, rather than create another run');
   const managedClosed=managedTab.waitForEvent('close');
   await quickLocal.getByRole('button',{name:'Stop managed run',exact:true}).click();
   await managedClosed;
   assert(managedTab.isClosed());
+  await quickLocal.getByRole('button',{name:'Copy saved-run recovery command',exact:true}).click();
+  await quickLocal.getByText('saved-run recovery command copied.',{exact:false}).waitFor();
+  const standaloneRecovery=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
+  assert(standaloneRecovery.args.source.includes('"resumeExisting":true'));
+  assert(!standaloneRecovery.args.source.includes('"freshRun":true'));
+  assert(!standaloneRecovery.args.source.includes('previous-reading'));
+  const recoveryOpening=context.waitForEvent('page');
+  await quickLocal.getByRole('button',{name:'Resume saved managed run',exact:true}).click();
+  const recoveryTab=await recoveryOpening;
+  await quickLocal.getByText('Managed command ready.',{exact:false}).waitFor();
+  await app.bringToFront();
+  await quickLocal.getByRole('button',{name:'Copy managed capture command',exact:true}).click();
+  await quickLocal.getByText('Managed command copied.',{exact:false}).waitFor();
+  const managedRecovery=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
+  assert(managedRecovery.args.source.includes('"resumeExisting":true'));
+  assert(!managedRecovery.args.source.includes('"freshRun":true'));
+  assert(!managedRecovery.args.source.includes('previous-reading'));
+  assert.equal(await quickLocal.getByLabel('Fresh full-course managed run',{exact:true}).isChecked(),false);
+  const recoveryClosed=recoveryTab.waitForEvent('close');
+  await quickLocal.getByRole('button',{name:'Stop managed run',exact:true}).click();
+  await recoveryClosed;
   await app.getByText('Manual extractor script',{exact:true}).click();
   await app.getByRole('button',{name:'Copy script',exact:true}).click();
   await app.getByText(CTI_RELEASE_REGISTRY_.courseraExtractor.version+' copied.',{exact:true}).waitFor();
@@ -456,6 +495,8 @@ try{
       'actual pasted bundle refuses repeat work until reload and copies a complete standalone continuation',
       'continuation clipboard denial offers manual copy outside course evidence',
       'built automatic and fresh full-course copy buttons, selected-file isolation and complete clipboard-denial fallback',
+      'built saved-run recovery commands preserve browser checkpoints rather than importing the selected file or starting fresh',
+      'closing the capture panel preserves the live controller; reopening restores its command, child and saved counts',
       'built one-quiz Console sampler copy and complete clipboard-denial fallback',
       'built Copy script, download and manual copy match fixed bundle'],
     retainedRecords:retained.stats.retainedRecords,retainedCharacters:retained.stats.retainedChars,pageErrors:errors},null,2));

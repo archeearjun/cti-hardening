@@ -70,3 +70,14 @@ test('a timely READY after reopening resumes normal capture and retains saved co
  f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:80});assert.equal(f.manager.getStatus().savedQuestions,80);
  f.advance(99);assert.equal(f.navigations.length,1);
 });
+
+test('a replacement controller retains the previous recovery budget',()=>{
+ const f=fixture();f.send({event:'READY',recoveries:28});
+ assert.equal(f.manager.getStatus().recoveries,28);
+ f.advance(101);f.send({event:'READY',recoveries:28});
+ assert.equal(f.manager.getStatus().recoveries,29);
+ f.advance(101);f.send({event:'READY',recoveries:29});
+ assert.equal(f.manager.getStatus().recoveries,30);
+ f.advance(101);
+ assert.equal(f.manager.getStatus().state,'STOPPED');assert.equal(f.navigations.length,2);
+});

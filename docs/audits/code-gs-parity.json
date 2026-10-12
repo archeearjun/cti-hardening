@@ -3050,9 +3050,9 @@
       "name": "CTI_RELEASE_REGISTRY_",
       "status": "adapted-metadata",
       "path": "src/engine/release.js",
-      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md. Reviewed v6.15.21/schema35: automatic local capture yields after durable question observations inside long assessments, counts question progress between documents, preserves incomplete answer evidence, and provides a read-only saved-progress export including expired sessions. Existing strict completion, duplicate-tab protection, attempt and course limits remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.22/schema35: a verified CTI-tab controller navigates unresponsive Coursera tabs and resumes with the retained debugger registration; it bounds repeated failures and refuses broken opener links. Certified editors read loaded question definitions first, preserve JSON-compatible raw fields, and bind definitions to observed live outline IDs, ordinals and prompts without inferring missing keys. Existing strict completion and course limits remain. See docs/local-coursera-extraction.md. Reviewed v6.15.23/schema35: selected-array parse/raw completeness is independent of unrelated graph-search truncation; repeated prompts retain distinct source IDs and ambiguous identities still require DOM. Overall wall time spans automatic documents. The bounded one-quiz response sample is diagnostic, with no requests initiated; API-only live-course acquisition is not certified. Strict completion, raw snapshots and renderer limits remain. See docs/coursera-extraction-feasibility.md. Reviewed v6.15.24/schema35: observed, item-bound native MCQ group/definition GETs use complete ordered live outlines, bounded virtual rail discovery, ID-matched batch/single reads and exact correct-option keys. Credential-free raw CML and unsupported evidence are preserved; item changes, access and rate limits stop acquisition safely. API observations retain their origin through partial DOM fallback and do not consume the renderer activation budget. Strict whole-course completeness is unchanged; real private-course acceptance remains unverified. See docs/coursera-extraction-feasibility.md and docs/extractor-runtime-stability.md. Reviewed v6.15.25/schema35: generic-address quiz modals require an exact item-ID activation, two newly mounted unique editor regions, and explicit bounded GET receipts from that item session. Metadata omits queries and bodies, remains bounded per resource, resets on activation and clears on release. Performance history and title-only matches cannot bind a generic editor. Pinned regions, course and URL are rechecked through API reads, partial sidebar fallback and before generic harvesting; only question-anchor fragments may change during fallback. Key decoding, raw-definition preservation and strict completion remain unchanged. See docs/extractor-runtime-stability.md. v6.15.26: verified authoring resource adapter, fresh exact-item route identity, durable evidence stall detection and persistent fallback diagnostics; schema35 and strict coverage unchanged. Reviewed v6.15.27/schema35: complete observed body group IDs and explicit contiguous part ordinals can establish a native assessment inventory when the rail is virtualized and the content marker absent. Unique associated regions, exact live anchor agreement, fresh activation and pinned rechecks remain mandatory; definitions and keys still require exact returned versioned IDs. Checkpoints retain credential-free raw API evidence and bounded diagnostic receipts. Managed recovery requires a new READY acknowledgement and stops after an unacknowledged reopen; terminal plans report their reason instead of disappearing. A bounded current-quiz API check uses the canonical reader without full-course orchestration, and a guarded Console export preserves saved progress. Strict completion and request/renderer limits remain unchanged; the private full-course run is not certified. See docs/extractor-runtime-stability.md and docs/coursera-extraction-feasibility.md. Reviewed v6.15.28/schema35: authoring single definition GETs preserve the literal version delimiter observed in all ten successful native requests; group GETs repeat their exact key in the observed id query, while definition GETs omit it. Positive validation fields are retained with credential exclusion and sanitization. Failed HTTP requests produce one diagnostic receipt with their actual status; structural parse failures remain explicit. Native routing now rejects encoded version separators before decoding and exercises unsupported multi-get plus complete body inventories. No version guessing, speculative ID fallback, scope or completion relaxation is introduced; private full-course completion remains unverified. See docs/coursera-extraction-feasibility.md.",
+      "note": "Reviewed v6.15.18/schema35: targeted question-link refresh, unchanged-DOM hydration cache, mounted-question fast path, durable identified-question observations and fail-closed unfinished editor attempts. Existing automatic local Chrome continuation, raw snapshots, budgets and final JSON contract remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.19/schema35: automatic finalization and checkpoint retention include pending retry contracts, with unchanged attempt, checkpoint, stall and time limits. See docs/local-coursera-extraction.md. Reviewed v6.15.20/schema35: explicit fresh full-course commands use an isolated durable checkpoint namespace, ignore old JSON, preserve earlier raw records, and stop on namespace-storage failure. Completion gates and automatic batch/retry limits remain unchanged. See docs/extractor-runtime-stability.md. Reviewed v6.15.21/schema35: automatic local capture yields after durable question observations inside long assessments, counts question progress between documents, preserves incomplete answer evidence, and provides a read-only saved-progress export including expired sessions. Existing strict completion, duplicate-tab protection, attempt and course limits remain. See docs/extractor-runtime-stability.md and docs/local-coursera-extraction.md. Reviewed v6.15.22/schema35: a verified CTI-tab controller navigates unresponsive Coursera tabs and resumes with the retained debugger registration; it bounds repeated failures and refuses broken opener links. Certified editors read loaded question definitions first, preserve JSON-compatible raw fields, and bind definitions to observed live outline IDs, ordinals and prompts without inferring missing keys. Existing strict completion and course limits remain. See docs/local-coursera-extraction.md. Reviewed v6.15.23/schema35: selected-array parse/raw completeness is independent of unrelated graph-search truncation; repeated prompts retain distinct source IDs and ambiguous identities still require DOM. Overall wall time spans automatic documents. The bounded one-quiz response sample is diagnostic, with no requests initiated; API-only live-course acquisition is not certified. Strict completion, raw snapshots and renderer limits remain. See docs/coursera-extraction-feasibility.md. Reviewed v6.15.24/schema35: observed, item-bound native MCQ group/definition GETs use complete ordered live outlines, bounded virtual rail discovery, ID-matched batch/single reads and exact correct-option keys. Credential-free raw CML and unsupported evidence are preserved; item changes, access and rate limits stop acquisition safely. API observations retain their origin through partial DOM fallback and do not consume the renderer activation budget. Strict whole-course completeness is unchanged; real private-course acceptance remains unverified. See docs/coursera-extraction-feasibility.md and docs/extractor-runtime-stability.md. Reviewed v6.15.25/schema35: generic-address quiz modals require an exact item-ID activation, two newly mounted unique editor regions, and explicit bounded GET receipts from that item session. Metadata omits queries and bodies, remains bounded per resource, resets on activation and clears on release. Performance history and title-only matches cannot bind a generic editor. Pinned regions, course and URL are rechecked through API reads, partial sidebar fallback and before generic harvesting; only question-anchor fragments may change during fallback. Key decoding, raw-definition preservation and strict completion remain unchanged. See docs/extractor-runtime-stability.md. v6.15.26: verified authoring resource adapter, fresh exact-item route identity, durable evidence stall detection and persistent fallback diagnostics; schema35 and strict coverage unchanged. Reviewed v6.15.27/schema35: complete observed body group IDs and explicit contiguous part ordinals can establish a native assessment inventory when the rail is virtualized and the content marker absent. Unique associated regions, exact live anchor agreement, fresh activation and pinned rechecks remain mandatory; definitions and keys still require exact returned versioned IDs. Checkpoints retain credential-free raw API evidence and bounded diagnostic receipts. Managed recovery requires a new READY acknowledgement and stops after an unacknowledged reopen; terminal plans report their reason instead of disappearing. A bounded current-quiz API check uses the canonical reader without full-course orchestration, and a guarded Console export preserves saved progress. Strict completion and request/renderer limits remain unchanged; the private full-course run is not certified. See docs/extractor-runtime-stability.md and docs/coursera-extraction-feasibility.md. Reviewed v6.15.28/schema35: authoring single definition GETs preserve the literal version delimiter observed in all ten successful native requests; group GETs repeat their exact key in the observed id query, while definition GETs omit it. Positive validation fields are retained with credential exclusion and sanitization. Failed HTTP requests produce one diagnostic receipt with their actual status; structural parse failures remain explicit. Native routing now rejects encoded version separators before decoding and exercises unsupported multi-get plus complete body inventories. No version guessing, speculative ID fallback, scope or completion relaxation is introduced; private full-course completion remains unverified. See docs/coursera-extraction-feasibility.md. Reviewed v6.15.29/schema35: explicit saved-run recovery adopts only the authoritative same-course plan and matching local checkpoint pointer, pins its original ordinary/fresh namespace, and retains start time, batch/evidence/stall/recovery limits. Fresh checkpoint ownership survives repeated resumptions; older commands are superseded to prevent duplicate acquisitions. Recovery refuses zero matching restored evidence before editor visits, rather than falling back to a fresh run. READY receipts retain prior controller recovery counts. Native tests remove a real registration after two fresh batches and resume with a new token without revisiting complete items. Strict acquisition and completion remain unchanged; whole private-course completion remains unverified. See docs/local-coursera-extraction.md.",
       "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-      "reviewedCurrentHash": "689e00ce7d9f2f28f989094ffb50cc8bc3bddbbe6b888418e85aee4f3e038a9a"
+      "reviewedCurrentHash": "4e140efeb121da449852f3cecfb0ceb686bd49617635ced5e9a25a72cee4fc2e"
     },
     {
       "name": "CTI_FEATURE_MANIFEST_",
@@ -4314,7 +4314,7 @@
     "coursera": {
       "schemaVersion": 1,
       "baseline": "v6.14.7/schema34",
-      "current": "v6.15.28/schema35",
+      "current": "v6.15.29/schema35",
       "changed": [
         {
           "name": "activeCrawlBudgetMs",
@@ -4324,7 +4324,7 @@
         {
           "name": "activeSpaCrawl",
           "archivedHash": "337458e67f3b7ef44b12b0f4d452c2112cf974d55592f278dd7d5b1b4c648b40",
-          "reviewedCurrentHash": "059d668ae2f341a5ba419418c035e0827ef146d541b63f4ca867a8fea6515f24"
+          "reviewedCurrentHash": "9b984665a29b54ab9f75cc2bbd1753e8d90c7ef7fe771f6d23f06c091692c47f"
         },
         {
           "name": "assessmentDeadlineV61313",
@@ -4404,7 +4404,7 @@
         {
           "name": "ctiCourseraExportName",
           "archivedHash": "eb182434840121296f6782aa1c6d51d431674cbbc3329699babb44b3c555db85",
-          "reviewedCurrentHash": "55d3f07fa08faea23ac41d40015d3e802e017c5789711bf0ddbf271fa06996bd"
+          "reviewedCurrentHash": "dccd56db06c9187815003556e8ef8c7637920a74686955ae33ed430994906f18"
         },
         {
           "name": "downloadJson",
@@ -4509,7 +4509,7 @@
         {
           "name": "releaseCtiRunLock",
           "archivedHash": "c18da1756fe6ef81b03dc3a515271bf4a9b9110ba6c679046e0e85cf64bfec6d",
-          "reviewedCurrentHash": "4e59aee36cd6d5f14718227ffc25f6924a0fd92b5672c77db1e45f8799d19788"
+          "reviewedCurrentHash": "98394625e29269738f3d1a60f37746ed38004df63e0d3a76fb520109100264b1"
         },
         {
           "name": "scoreSurfaceForFingerprint",
@@ -4601,7 +4601,7 @@
         },
         {
           "name": "checkpointSessionIdV6150",
-          "reviewedCurrentHash": "af5ab725d381f830b2c7aff410ef15095a6e0070d44eb267bb6b1b56ae564ab6"
+          "reviewedCurrentHash": "483a496bbc57b834866637584497f63b06dac1fea99c01087a048803639d2d95"
         },
         {
           "name": "collectCourseraAssessmentApiV61524",
@@ -4693,7 +4693,11 @@
         },
         {
           "name": "reportLocalSupervisorV61522",
-          "reviewedCurrentHash": "7552cfdbdeb7deace9ebd8dfbe9afaa29c93eefe6ca3988064dbfde10ccb7f7e"
+          "reviewedCurrentHash": "81f33f2fb027dc46eca4a04c3eec06f896e71ee140ba8a4fa402e90289536187"
+        },
+        {
+          "name": "resumeAutomaticLocalCaptureV61529",
+          "reviewedCurrentHash": "27295c2080b76fa04ab1c306b7b0823b2a71df86d437eaff615ecf5db9e18e30"
         },
         {
           "name": "sanitizeAssessmentApiValueV61524",
@@ -4972,11 +4976,11 @@
       "entry": {
         "changed": true,
         "archivedHash": "1f2d6dcf703ea0cfd3b944d16b4841d9f0e437afda5d7fd271668412e14e407d",
-        "reviewedCurrentHash": "ae28e287f42db867421823d29743a065ff943a9c477decb7d19fb841f82622e1"
+        "reviewedCurrentHash": "c863bd98444e950f9f0083246e6c5dd401717db1b727459944292861465a6fa3"
       },
       "releaseRegistry": {
         "archivedHash": "f2cb866b6882ceb571c5910cbeae5c3f4e7fcf9fde05b565d6f6cfff98ed4c56",
-        "reviewedCurrentHash": "689e00ce7d9f2f28f989094ffb50cc8bc3bddbbe6b888418e85aee4f3e038a9a"
+        "reviewedCurrentHash": "4e140efeb121da449852f3cecfb0ceb686bd49617635ced5e9a25a72cee4fc2e"
       }
     }
   }

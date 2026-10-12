@@ -40,6 +40,9 @@ export function startCourseraLocalSupervisor(
     paired=true;lastHeard=now();hidden=data.visibility==='hidden';
     if(data.event==='READY'){
       recoveryStartedAt=null;
+      const retainedRecoveries=Number(data.recoveries);
+      if(Number.isInteger(retainedRecoveries) && retainedRecoveries>=0 && retainedRecoveries<=30)
+        status.recoveries=Math.max(status.recoveries,retainedRecoveries);
       try{child.postMessage({kind:'CTI_LOCAL_CAPTURE_ACK_V1',token,courseId:target.courseId,recoveries:status.recoveries},'https://www.coursera.org');}
       catch{stop('The Coursera controller connection could not be acknowledged. Keep saved checkpoints.');return;}
     }
@@ -68,7 +71,7 @@ export function startCourseraLocalSupervisor(
       const reconnectTimeout=options.reconnectTimeoutMs || (hidden?180000:60000);
       if(now()-recoveryStartedAt>=reconnectTimeout){
         status.phase='Extractor did not reconnect';
-        stop('Coursera reopened, but the extractor did not reconnect. Chrome may have lost its registered command. '+status.savedQuestions+' saved question observations remain in browser checkpoints. Stop this run and export saved progress; do not start a fresh full-course run.');
+        stop('Coursera reopened, but the extractor did not reconnect. Chrome may have lost its registered command. '+status.savedQuestions+' saved question observations remain in browser checkpoints. Use Resume saved managed run to install a new command, or export saved progress.');
       }
       return;
     }

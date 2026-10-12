@@ -136,7 +136,7 @@ export function createAutomaticLocalCourseraCommand(
   currentScript: string,
   token = crypto.randomUUID(),
   savedCapture?: unknown,
-  options: { freshRun?: boolean; controllerOrigin?: string } = {},
+  options: { freshRun?: boolean; controllerOrigin?: string; resumeExisting?: boolean } = {},
 ): string {
   const target = parseCourseraShellUrl(shellUrl);
   if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
@@ -145,6 +145,12 @@ export function createAutomaticLocalCourseraCommand(
     throw new Error("Invalid local capture identifier.");
   if (options.freshRun && savedCapture !== undefined)
     throw new Error("A fresh full-course capture cannot import a saved capture.");
+  if (options.resumeExisting !== undefined && typeof options.resumeExisting !== "boolean")
+    throw new Error("Invalid browser checkpoint resume option.");
+  if (options.resumeExisting && options.freshRun)
+    throw new Error("A browser checkpoint resume cannot start a fresh full-course capture.");
+  if (options.resumeExisting && savedCapture !== undefined)
+    throw new Error("A browser checkpoint resume cannot import a saved capture.");
   let controllerOrigin = "";
   if(options.controllerOrigin){
     const controller=new URL(options.controllerOrigin);
@@ -156,6 +162,7 @@ export function createAutomaticLocalCourseraCommand(
   const config = JSON.stringify({
     token, courseId: target.courseId, shellUrl: target.shellUrl,
     ...(options.freshRun ? { freshRun: true } : {}),
+    ...(options.resumeExisting ? { resumeExisting: true } : {}),
     ...(controllerOrigin ? { controllerOrigin } : {}),
   });
   // Chrome owns this registration outside the page's JavaScript context. The

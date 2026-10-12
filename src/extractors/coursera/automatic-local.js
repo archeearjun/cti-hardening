@@ -2,6 +2,41 @@ import { questionEvidenceReadyV6138 } from './assessments-2.js';
 import { canonicalRemoteAssetKeyV614 } from './assets.js';
 
 // Pure controller decisions. The entry point owns browser storage and reloads.
+export function resumeAutomaticLocalCaptureV61529(prior,config,checkpointSession,now) {
+  if(!config || typeof config!=='object' || Array.isArray(config) || config.resumeExisting!==true ||
+    config.freshRun===true || config.savedCapture!==undefined || config.localResumeCapture!==undefined)
+    throw Error('Browser resume requires an explicit checkpoint command without a fresh run or imported capture.');
+  if(!prior || typeof prior!=='object' || Array.isArray(prior) ||
+    typeof prior.courseId!=='string' || !/^[A-Za-z0-9_-]{1,160}$/.test(prior.courseId) ||
+    prior.courseId!==config.courseId || typeof prior.token!=='string' || !/^[A-Za-z0-9_-]{8,100}$/.test(prior.token) ||
+    typeof config.token!=='string' || !/^[A-Za-z0-9_-]{8,100}$/.test(config.token) || config.token===prior.token ||
+    !['FRESH_FULL_COURSE','RESUME_AVAILABLE_WORK'].includes(prior.captureMode))
+    throw Error('Saved run identity does not match this course or a new valid run token.');
+  if(!(prior.state==='RUNNING' && !prior.reason ||
+    prior.state==='FINISHED' && prior.reason==='LOCAL_SUPERVISOR_LINK_UNAVAILABLE'))
+    throw Error('Saved run has already ended for a reason that requires review before resuming.');
+  if(typeof now!=='number' || !Number.isFinite(now) || typeof prior.startedAt!=='number' ||
+    !Number.isFinite(prior.startedAt) || prior.startedAt<=0 || prior.startedAt>now || now-prior.startedAt>=8*60*60*1000 ||
+    !Number.isInteger(prior.batches) || prior.batches<0 || prior.batches>=500 ||
+    !Number.isInteger(prior.stalled) || prior.stalled<0 || prior.stalled>=3 ||
+    prior.supervisorRecoveries!==undefined && (!Number.isInteger(prior.supervisorRecoveries) ||
+      prior.supervisorRecoveries<0 || prior.supervisorRecoveries>=30))
+    throw Error('Saved run reached its elapsed, batch or no-progress limit. Export saved progress.');
+  const owner=prior.checkpointOwnerToken===undefined?prior.token:prior.checkpointOwnerToken;
+  if(typeof owner!=='string' || !/^[A-Za-z0-9_-]{8,100}$/.test(owner))
+    throw Error('Saved checkpoint owner is invalid. Export saved progress.');
+  const storedId=checkpointSession && typeof checkpointSession==='object' && !Array.isArray(checkpointSession)?checkpointSession.id:'';
+  const namespace=prior.checkpointRunId==null || prior.checkpointRunId===''?storedId:prior.checkpointRunId;
+  if(typeof namespace!=='string' || !/^(?:run-\d{1,17}-[a-z0-9]{1,32}|fresh-[A-Za-z0-9_-]{8,100})$/.test(namespace) || storedId!==namespace)
+    throw Error('No matching active browser checkpoint namespace was found for this course.');
+  if(prior.captureMode==='FRESH_FULL_COURSE' &&
+    (prior.checkpointRunId!==namespace || namespace!=='fresh-'+owner))
+    throw Error('Saved checkpoint namespace does not match the original fresh run.');
+  return Object.assign({},prior,{state:'RUNNING',token:config.token,reason:'',updatedAt:now,
+    checkpointRunId:namespace,checkpointOwnerToken:owner,resumedFromToken:prior.token,resumedAt:now,
+    message:'Resuming the saved run with its original browser checkpoints and limits.'});
+}
+
 export function automaticLocalCaptureNeedsContinuationV61519(capture) {
   const meta=capture.meta || {},accounting=meta.captureAccounting || {};
   const crawl=meta.activeSpaCrawl || {};

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {startCourseraLocalSupervisor,type CourseraSupervisorStatus} from '../src/domain/coursera-local-supervisor.ts';
+import {type CourseraSupervisorStatus} from '../src/domain/coursera-local-supervisor.ts';
+import {getCourseraManagedRuntime} from '../src/domain/coursera-managed-runtime.ts';
 import {createCourseraAssessmentProbeScript} from '../src/domain/coursera-assessment-probe.ts';
 import {createCourseraResponseSampleScript} from '../src/domain/coursera-response-sample.ts';
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
@@ -27,7 +28,10 @@ export default function LocalCourseraExtraction({
   onUrlChange?: (url: string) => void;
   captureInputId?: string;
 }) {
-  const [shellUrl, setShellUrl] = useState(initialUrl);
+  const managedRuntime=getCourseraManagedRuntime(window);
+  const retainedManaged=managedRuntime.snapshot();
+  const retainedActive=retainedManaged.status && ['WAITING','RUNNING','RECOVERING'].includes(retainedManaged.status.state);
+  const [shellUrl, setShellUrl] = useState(retainedActive?retainedManaged.courseUrl:initialUrl);
   const [extractor, setExtractor] = useState<ExtractorDelivery | null>(null);
   const [copyStatus, setCopyStatus] = useState("");
   const [capture, setCapture] = useState<File | null>(null);
@@ -38,19 +42,24 @@ export default function LocalCourseraExtraction({
   const [notice, setNotice] = useState("");
   const [resumeSource, setResumeSource] = useState("");
   const [automaticCommand, setAutomaticCommand] = useState("");
-  const [managedCommand,setManagedCommand]=useState('');
+  const [managedCommand,setManagedCommand]=useState(retainedManaged.command);
   const [managedFresh,setManagedFresh]=useState(false);
   const [responseSampleSource,setResponseSampleSource]=useState('');
-  const [managedStatus,setManagedStatus]=useState<CourseraSupervisorStatus|null>(null);
-  const supervisor=useRef<ReturnType<typeof startCourseraLocalSupervisor>|null>(null);
-  const managedTab=useRef<Window|null>(null);
+  const [managedStatus,setManagedStatus]=useState<CourseraSupervisorStatus|null>(retainedManaged.status);
+  const managedTab=useRef<Window|null>(retainedManaged.child);
   const managedActive=!!managedStatus && ['WAITING','RUNNING','RECOVERING'].includes(managedStatus.state);
 
-  useEffect(()=>()=>supervisor.current?.dispose(),[]);
+  useEffect(()=>managedRuntime.subscribe(saved=>{
+    managedTab.current=saved.child;
+    setManagedStatus(saved.status);setManagedCommand(saved.command);
+    if(saved.courseUrl && saved.status && ['WAITING','RUNNING','RECOVERING'].includes(saved.status.state))
+      setShellUrl(saved.courseUrl);
+  }),[managedRuntime]);
 
   useEffect(() => {
-    if (initialUrl) setShellUrl(initialUrl);
-  }, [initialUrl]);
+    const state=managedRuntime.snapshot().status?.state;
+    if (initialUrl && !['WAITING','RUNNING','RECOVERING'].includes(state || '')) setShellUrl(initialUrl);
+  }, [initialUrl,managedRuntime]);
 
   const shellTarget = useMemo(() => {
     if (!shellUrl.trim()) return null;
@@ -87,16 +96,17 @@ export default function LocalCourseraExtraction({
     return next;
   }
 
-  async function copyAutomaticCommand(freshRun = false) {
-    await act(freshRun ? "Preparing fresh full-course capture" : "Preparing automatic local capture", async () => {
+  async function copyAutomaticCommand(freshRun = false, resumeExisting = false) {
+    await act(resumeExisting ? "Preparing saved-run recovery" : freshRun ? "Preparing fresh full-course capture" : "Preparing automatic local capture", async () => {
       const current = await currentExtractor();
       const command = createAutomaticLocalCourseraCommand(shellUrl, current.script,
-        crypto.randomUUID(), !freshRun && capture && inspection?.resumeAvailable ?
-          await readLocalCourseraCaptureFile(capture) : undefined, { freshRun });
+        crypto.randomUUID(), !freshRun && !resumeExisting && capture && inspection?.resumeAvailable ?
+          await readLocalCourseraCaptureFile(capture) : undefined, { freshRun, resumeExisting });
       setAutomaticCommand(command);
       try {
         await navigator.clipboard.writeText(command);
-        setCopyStatus(current.version + (freshRun ?
+        setCopyStatus(current.version + (resumeExisting ?
+          " saved-run recovery command copied. Paste into Protocol monitor in the matching Coursera tab. This preserves the stopped run's checkpoint session and limits; it does not create a fresh course capture." : freshRun ?
           " fresh full-course command copied. Close DevTools, refresh Coursera, reopen Protocol monitor, paste into its bottom command input and press Enter. Keep DevTools open for automatic capture." :
           " automatic command copied. Paste into Protocol monitor's bottom command input, press Enter, and keep DevTools open."));
       } catch {
@@ -144,22 +154,22 @@ export default function LocalCourseraExtraction({
     });
   }
 
-  function openManagedCapture(){
+  function openManagedCapture(resumeExisting=false){
     if(!shellTarget || managedActive)return;
     // Open synchronously from the click so Chrome's popup policy can allow it.
     const token=crypto.randomUUID(),child=window.open(shellTarget.shellUrl,'cti-local-'+token);
     if(!child){setError('Chrome blocked the Coursera tab. Allow this CTI site to open it, then try again.');return;}
-    supervisor.current?.dispose();managedTab.current=child;setManagedCommand('');
-    supervisor.current=startCourseraLocalSupervisor(window,child,shellUrl,token,setManagedStatus);
+    managedRuntime.start(child,shellUrl,token);
+    if(resumeExisting)setManagedFresh(false);
     void act('Preparing managed capture',async()=>{
       try{
         const current=await currentExtractor();
         const command=createAutomaticLocalCourseraCommand(shellUrl,current.script,token,
-          !managedFresh && capture && inspection?.resumeAvailable?await readLocalCourseraCaptureFile(capture):undefined,
-          {controllerOrigin:window.location.origin,freshRun:managedFresh});
-        setManagedCommand(command);setAutomaticCommand(command);
+          !resumeExisting && !managedFresh && capture && inspection?.resumeAvailable?await readLocalCourseraCaptureFile(capture):undefined,
+          {controllerOrigin:window.location.origin,freshRun:!resumeExisting && managedFresh,resumeExisting});
+        managedRuntime.setCommand(command);setAutomaticCommand(command);
         setCopyStatus('Managed command ready. Click Copy managed capture command, then paste into Protocol monitor in the Coursera tab opened by CTI. Keep this Extract page and Coursera DevTools open.');
-      }catch(error){supervisor.current?.dispose();child.close();setManagedStatus(null);throw error;}
+      }catch(error){managedRuntime.stop();throw error;}
     });
   }
 
@@ -172,8 +182,7 @@ export default function LocalCourseraExtraction({
   }
 
   function stopManagedCapture(){
-    supervisor.current?.dispose();managedTab.current?.close();setManagedCommand('');
-    setManagedStatus(status=>status?{...status,state:'STOPPED',message:'Managed run stopped. Browser checkpoints remain available.'}:null);
+    managedRuntime.stop();
   }
 
   return (
@@ -239,15 +248,19 @@ export default function LocalCourseraExtraction({
           Keep this Extract page and Coursera DevTools open.</p>
         <label><input type="checkbox" checked={managedFresh} disabled={disabled || !!busy || managedActive}
           onChange={event=>setManagedFresh(event.target.checked)} /> Fresh full-course managed run</label>
-        <p className="hint">Leave this unchecked to resume saved work. A fresh run ignores earlier
-          captures and checkpoints while preserving those records.</p>
+        <p className="hint">Use <strong>Resume saved managed run</strong> after a lost connection.
+          It preserves that run's checkpoint session and progress. A fresh run starts separate work.</p>
         <div className="action-links">
-          <button disabled={disabled || !!busy || !shellTarget || managedActive} onClick={openManagedCapture}>
+          <button disabled={disabled || !!busy || !shellTarget || managedActive} onClick={()=>openManagedCapture()}>
             Open managed Coursera tab
+          </button>
+          <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive} onClick={()=>openManagedCapture(true)}>
+            Resume saved managed run
           </button>
           <button className="secondary" disabled={disabled || !!busy || !managedActive || !managedCommand} onClick={()=>void copyManagedCommand()}>
             Copy managed capture command
           </button>
+          {managedActive && <button className="secondary" onClick={()=>managedTab.current?.focus()}>Show managed Coursera tab</button>}
           {managedActive && <button className="secondary" onClick={stopManagedCapture}>Stop managed run</button>}
         </div>
         {managedStatus && <div role="status" aria-live="polite" className="notice">
@@ -370,6 +383,10 @@ export default function LocalCourseraExtraction({
           onClick={() => void copyAutomaticCommand(true)}
         >
           Copy fresh full-course command
+        </button>
+        <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
+          onClick={()=>void copyAutomaticCommand(false,true)}>
+          Copy saved-run recovery command
         </button>
         <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
           onClick={() => void copySavedProgressCommand()}>
