@@ -1,30 +1,36 @@
 # Coursera extraction: feasibility and evidence limits
 
-Assessment dated 12 October 2026. The requirement is complete course evidence in
+Assessment dated 13 October 2026. The requirement is complete course evidence in
 the operator's authenticated local Chrome, without installing an extension,
 requiring local Node/Python, or paying for a remote browser.
 
-The v6.15.26 adapter uses the two read resources established by the real
-response sample. Per-item request observation is optional metadata, rather than
-an activation prerequisite. The complete live group IDs, ordinals and certified
-editor still establish the inventory; every returned versioned definition and
-key must satisfy the same strict coverage requirements. Fresh exact-item routes
-and fresh generic-address modals have separate identity certificates.
+The v6.15.27 adapter uses the two read resources established by the real
+response sample. Complete observed body parts can supply the ordered group
+inventory when the sidebar mounts fewer links. Each group ID and ordinal must
+be present in the DOM, unique, within the declared count, associated with one
+assignment root and consistent with the current sidebar. No identity or order
+is invented from a question number. Every returned versioned definition and
+key must satisfy the strict coverage requirements. Fresh exact-item routes and
+fresh generic-address modals have separate identity certificates; a missing
+optional content test marker no longer rejects a structurally verified body.
 
-The live workflow is **not yet proven scalable**. The latest v6.15.25 screenshot
-shows 71 minutes on item 1/167, only 12/100 questions in the current document,
-18 saved observations in the controller and one recovery. The corrected
-structure diagnostic confirms the expected project-item route, one sidebar,
-compound group IDs and real group-resource requests. These observations rule
-out treating the delay as a successful full-course capture.
+The live workflow is **not yet proven scalable**. The latest managed run failed
+with 79 saved question observations, zero finished visits and two recoveries.
+A normally opened quiz subsequently showed one sidebar, zero marked content
+bodies, 27 compound question links and 100 unique compound body group IDs with explicit
+`assignment-part-0` through `assignment-part-99` ordinals. This establishes a
+concrete mismatch with the certificate's old mandatory content marker and the
+inventory's reliance on the smaller sidebar window. It does not establish that
+all private definitions or the full course have been captured.
 
-Two further implementation gaps were found: requiring both endpoint families
-to be rediscovered can permanently fall back to editor traversal for cached or
-delayed requests, and counting attempts/restorations or fluctuating current
-question subsets as progress can extend a reload loop. v6.15.26 removes the
-endpoint gate, preserves saved-count reporting and stops after three batches
-without advancement in durable evidence. These fixes require a new authenticated
-live-course result before scalability or complete extraction can be certified.
+An earlier v6.15.25 run took 71 minutes on item 1/167. v6.15.26 removed repeated
+endpoint discovery as an activation prerequisite and made continuation depend
+on durable evidence progress. v6.15.27 adds the observed body inventory and
+stops a recovery navigation that receives no new `READY` acknowledgement.
+CTI now offers a bounded one-quiz Console API check and read-only saved-progress
+Console export. The next acceptance evidence is that short quiz check, rather
+than another prolonged full-course rerun. Full-course scalability remains an
+authenticated live-course acceptance requirement.
 
 ## What the existing captures establish
 
@@ -93,7 +99,7 @@ included in this public document.
 | Protocol monitor registration with checkpoints | Yes | Reinstalls the canonical program on new documents; enables automatic resume | Does not move parsing or editor rendering out of Coursera's renderer |
 | Separate CTI supervisor tab | Yes | Detects lost heartbeats and navigates a crashed managed tab | Recovery preserves work; it does not make slow acquisition fast |
 | Loaded quiz definitions matched to live IDs | Yes, when available | Can skip most question-editor activations | Actual model shape, identities, completeness, and answer fields must be observed |
-| Observed group/question API reads after opening a quiz once | Yes; native MCQ schema confirmed by the real sample | Can obtain original prompts, options and explicit keys without activating every question editor | Requires a complete live ordered group inventory; batch support, other types and multiple variants still need verification |
+| Observed group/question API reads after opening a quiz once | Yes; native MCQ schema confirmed by the real sample | Can obtain original prompts, options and explicit keys without activating every question editor; complete DOM group/ordinal wrappers can avoid sidebar scrolling | Requires a complete item-bound ordered group inventory; live batch support, other types and multiple variants still need verification |
 | Authenticated API acquisition in a lightweight Coursera-origin tab | Browser mechanism proven; full-course path pending | Can fetch confirmed definitions without loading the large React editor | Full course-to-item-to-assignment relations, ordering and unsupported content remain unverified |
 | Web Worker and browser file storage | Yes, where supported | Offloads suitable parsing; writes evidence incrementally | Neither supplies missing definitions nor reads editor DOM; storage and permissions still apply |
 | Local Playwright/CDP automation | Free software, but outside the confirmed restrictions | More direct browser orchestration | Requires a permitted local runtime/tool and an appropriate debugging profile |
@@ -110,10 +116,13 @@ Coursera content acquisition.
 
 ## Request-based acquisition and the remaining evidence
 
-The next implementation uses the existing managed local-browser workflow. It
-opens a quiz once, certifies the active editor against the course item, and
-collects its complete ordered live outline. That outline supplies actual group
-identities and positions. It then reads the observed group endpoint, follows
+The maintained implementation uses the existing managed local-browser workflow.
+It opens a quiz once, certifies the active editor against the course item, and
+collects its complete observed group inventory. A complete set of body part IDs
+and explicit ordinals takes precedence over virtual sidebar discovery; current
+sidebar links must agree with those body identities. Otherwise, a complete
+ordered live outline supplies the identities and positions. It then reads the
+group endpoint, follows
 the group's exact versioned question references, and reads the observed
 definition endpoint. For the confirmed MCQ schema, `correctOption` resolves
 against option IDs and original CML is retained. It does not need to open each
@@ -133,13 +142,23 @@ field selection can exclude `writeAccessToken`; reads request the content fields
 and explicitly exclude that credential field. Returned credential fields must
 still be removed before retention, even if a server ignores the projection.
 
-The API fast path requires the full live outline, matching returned identities,
+The API fast path requires a complete observed inventory, matching returned
+identities,
 one supported question definition per group, and complete required fields and
 keys. Multiple variants, unsupported types, conflicting identities, unavailable
-responses or an incomplete outline keep explicit gaps and use the existing
+responses or an incomplete inventory keep explicit gaps and use the existing
 observed DOM fallback. Missing source inventory cannot be repaired by sorting
 response arrays or assuming that ten sampled definitions represent 100
 questions. Item checkpoints and the strict final completion gate still apply.
+
+The **Copy current quiz API check** Console script reads one normally opened
+quiz for at most two minutes, without question clicks, reloads, a course crawl
+or checkpoint writes. Its result reports aggregate definition/key counts,
+inventory method, elapsed time and bounded error codes; it excludes raw question
+content and credentials. `VERIFIED_CURRENT_QUIZ` means that quiz satisfied the
+reader's checks. It explicitly leaves whole-course verification false.
+**Copy saved-progress Console script** separately recovers stored observations
+without refreshing their evidence or changing checkpoints.
 
 The response-sample tool is now a troubleshooting aid for a missing or changed
 schema. The supplied sample is sufficient to implement this native MCQ adapter;
@@ -197,10 +216,16 @@ raising a confidence score or weakening the verifier.
 ## What the tests establish
 
 The Chromium fixtures exercise the canonical parsing/checkpoint program,
-supervision, crashes, and final-file behavior. They supply synthetic course
-responses and substitute actual Coursera navigation and stability boundaries.
-Their question counts and crash recoveries demonstrate those tested mechanisms;
-they are not throughput benchmarks for this private course. The real sample
+supervision, crashes, and final-file behavior. Whole-course fixtures supply
+synthetic responses and substitute Coursera navigation and stability boundaries.
+The dedicated API fixture executes the maintained reader and cycle against
+HTTPS responses, including the reported unmarked body with 27 compound question
+links and 100 body parts. It captures 100 synthetic definitions and explicit keys in
+fourteen GETs without question clicks or sidebar scrolling, and rejects
+ambiguous inventories and replaced bodies. The copied one-quiz Console script
+also verifies 100 synthetic keys in fourteen GETs. These counts and crash recoveries
+demonstrate the tested mechanisms; they are not private-course throughput
+benchmarks or authenticated acceptance. The real sample
 confirms the native MCQ definition schema and explicit keys; authenticated
 whole-course acceptance and an editor-free course inventory remain unverified.
 

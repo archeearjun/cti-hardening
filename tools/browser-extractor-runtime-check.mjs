@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61526')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61527')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -403,6 +403,16 @@ try{
   assert.equal(recoveryCommand.cmd,'Runtime.evaluate');assert.equal(recoveryCommand.args.awaitPromise,true);
   assert(recoveryCommand.args.expression.includes('__CTI_LOCAL_CHECKPOINT_EXPORT__='));
   assert(recoveryCommand.args.expression.includes(courseraSource.slice('javascript:'.length)));
+  await quickLocal.getByRole('button',{name:'Copy saved-progress Console script',exact:true}).click();
+  await quickLocal.getByText('Saved-progress Console script copied.',{exact:false}).waitFor();
+  const consoleRecovery=await app.evaluate(()=>navigator.clipboard.readText());
+  assert.equal(consoleRecovery,recoveryCommand.args.expression,'Console export must preserve the exact guarded read-only recovery program');
+  await quickLocal.getByRole('button',{name:'Copy current quiz API check',exact:true}).click();
+  await quickLocal.getByText('Current quiz API check copied.',{exact:false}).waitFor();
+  const quizProbe=await app.evaluate(()=>navigator.clipboard.readText());
+  new Function(quizProbe);
+  assert(quizProbe.includes('CURRENT_QUIZ_ONLY'));assert(quizProbe.includes('collectCourseraAssessmentApiV61524'));
+  assert(!quizProbe.includes('const CTI_RUN_LOCK_KEY ='),'The copied quiz probe included full-course entry orchestration');
   await quickLocal.getByLabel('Fresh full-course managed run',{exact:true}).check();
   const managedOpening=context.waitForEvent('page');
   await quickLocal.getByRole('button',{name:'Open managed Coursera tab',exact:true}).click();

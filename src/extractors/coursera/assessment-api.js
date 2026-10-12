@@ -5,6 +5,7 @@ import { isGenericCourseEditRoute, isItemSpecificCourseRoute } from './navigatio
 import { courseId, stripHtml } from './text-and-dom.js';
 import { sleepMs } from './text-and-dom-2.js';
 import { isVisibleElement } from './text-and-dom-3.js';
+import { isGlobalChromeElement } from './text-and-dom-4.js';
 import { CTI_ASSESSMENT_API_BATCH_IDS_V61524, CTI_ASSESSMENT_API_CONCURRENCY_V61524, CTI_ASSESSMENT_API_REQUEST_MS_V61524,
   CTI_ASSESSMENT_API_BODY_BYTES_V61524, CTI_ASSESSMENT_API_TOTAL_BYTES_V61524, CTI_ASSESSMENT_API_MAX_PARTS_V61524,
   CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524, CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524 } from './config.js';
@@ -56,11 +57,108 @@ export function parseCourseraMcqDefinitionV61524(element, candidate) {
     observationMethod:'AUTHORING_API_MATCHED_TO_LIVE_OUTLINE',observedAtMs:Date.now(),parserConfidence:0.98};
 }
 
-export function assessmentApiUniqueLayoutV61525(layout) {
+export function assessmentApiBodyInventoryV61527(layout) {
+  const out={complete:false,reason:'INCOMPLETE_OBSERVED_BODY_INVENTORY',candidates:[]};
+  if(!layout || !layout.sidebar.isConnected || !layout.content.isConnected ||
+    layout.content===document.body || layout.content===document.documentElement ||
+    layout.content.contains(layout.sidebar) || layout.sidebar.contains(layout.content))return out;
+  const declared=assessmentPartCountV8(layout.root);
+  if(!Number.isInteger(declared) || declared<1 || declared>CTI_ASSESSMENT_API_MAX_PARTS_V61524)return out;
+  const parts=[...layout.content.querySelectorAll('[data-testid^="assignment-part-"]')].filter(part=>part.isConnected);
+  const ids=new Set(),ordinals=new Set(),assignments=new Set(),byId=new Map();
+  for(const part of parts){
+    const id=String(part.id || ''),identity=id.match(/^([A-Za-z0-9_-]+)~[A-Za-z0-9_-]+$/);
+    const index=String(part.getAttribute('data-testid') || '').match(/^assignment-part-(\d+)$/);
+    const ordinal=index?Number(index[1])+1:0;
+    if(!identity || !index || ordinal<1 || ordinal>declared || ids.has(id) || ordinals.has(ordinal) ||
+      document.getElementById(id)!==part){out.reason='AMBIGUOUS_OBSERVED_BODY_INVENTORY';return out;}
+    ids.add(id);ordinals.add(ordinal);assignments.add(identity[1]);byId.set(id,{id,ordinal,label:''});
+  }
+  if(parts.length!==declared || ordinals.size!==declared || assignments.size!==1)return out;
+  const live=assessmentOutlineCandidatesV613(layout.sidebar,declared);
+  if(!live.length)return out;
+  for(const anchor of layout.sidebar.querySelectorAll('a[href^="#"]')){
+    if(!isVisibleElement(anchor))continue;
+    try{const id=decodeURIComponent(String(anchor.getAttribute('href') || '').slice(1));
+      if(/^[A-Za-z0-9_-]+~[A-Za-z0-9_-]+$/.test(id) && !byId.has(id)){
+        out.reason='AMBIGUOUS_OBSERVED_BODY_INVENTORY';return out;
+      }
+    }catch(_){}
+  }
+  for(const candidate of live){
+    const part=byId.get(candidate.id);
+    if(!part || part.ordinal!==candidate.ordinal){out.reason='AMBIGUOUS_OBSERVED_BODY_INVENTORY';return out;}
+    part.label=candidate.label;
+  }
+  // Exact compound DOM IDs and explicit part ordinals establish order even
+  // when the virtual rail mounts fewer anchors. Blank labels carry no prompt
+  // assertion; every definition/key still requires its exact versioned API ID.
+  out.complete=true;out.reason='COMPLETE_OBSERVED_BODY_PART_INVENTORY';out.declared=declared;
+  out.assignmentId=[...assignments][0];out.candidates=[...byId.values()].sort((a,b)=>a.ordinal-b.ordinal);
+  return out;
+}
+
+export function assessmentApiUniqueLayoutV61525(layout,observedParts=null) {
   if(!layout || !layout.sidebar.isConnected || !layout.content.isConnected)return false;
   const sidebars=[...document.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(isVisibleElement);
   const contents=[...document.querySelectorAll('[data-testid="item-layout-content"]')].filter(isVisibleElement);
-  return sidebars.length===1 && contents.length===1 && sidebars[0]===layout.sidebar && contents[0]===layout.content;
+  if(sidebars.length!==1 || sidebars[0]!==layout.sidebar)return false;
+  if(contents.length){
+    if(contents.length!==1 || contents[0]!==layout.content)return false;
+    return [...document.querySelectorAll('[data-testid^="assignment-part-"]')].filter(isVisibleElement)
+      .every(part=>layout.content.contains(part) && !layout.sidebar.contains(part) && !isGlobalChromeElement(part));
+  }
+  // Coursera also renders a body without the content test marker. The existing
+  // layout observer establishes that body from its exact sidebar -> part IDs.
+  // Retain that structural proof, rather than accepting an arbitrary page root.
+  if(layout.method!=='OBSERVED_OUTLINE_AND_ASSOCIATED_BODY' ||
+    !isVisibleElement(layout.content) || layout.root===document.body || layout.root===document.documentElement ||
+    layout.content===document.body || layout.content===document.documentElement ||
+    layout.content===layout.sidebar || layout.content.contains(layout.sidebar) || layout.sidebar.contains(layout.content) ||
+    !layout.root.contains(layout.sidebar) || !layout.root.contains(layout.content) || isGlobalChromeElement(layout.content))return false;
+  const anchorIds=new Set();
+  for(const anchor of layout.sidebar.querySelectorAll('a[href^="#"]')){
+    try{const id=decodeURIComponent(String(anchor.getAttribute('href') || '').slice(1));
+      if(/^[A-Za-z0-9_-]+~[A-Za-z0-9_-]+$/.test(id))anchorIds.add(id);
+    }catch(_){}
+  }
+  // During this layout's own rail discovery, a mounted question can stay in
+  // the body after its anchor is virtualized away. Only identities/ordinals
+  // already observed in that pinned sidebar can witness that association.
+  if(observedParts && typeof observedParts.entries==='function'){
+    for(const [id,candidate] of observedParts.entries())if(candidate?.id===id &&
+      /^[A-Za-z0-9_-]+~[A-Za-z0-9_-]+$/.test(id) && Number.isInteger(candidate.ordinal) && candidate.ordinal>0)anchorIds.add(id);
+  }
+  const bodyInventory=assessmentApiBodyInventoryV61527(layout);
+  if(bodyInventory.complete)for(const candidate of bodyInventory.candidates)anchorIds.add(candidate.id);
+  const parts=[...document.querySelectorAll('[data-testid^="assignment-part-"]')].filter(isVisibleElement);
+  const partIds=new Set();
+  if(!parts.length)return false;
+  for(const part of parts){
+    if(!part.id || partIds.has(part.id) || !anchorIds.has(part.id) ||
+      document.getElementById(part.id)!==part || !layout.content.contains(part) ||
+      layout.sidebar.contains(part) || isGlobalChromeElement(part))return false;
+    const observed=observedParts && typeof observedParts.get==='function'?observedParts.get(part.id):null;
+    const ordinal=String(part.getAttribute('data-testid') || '').match(/^assignment-part-(\d+)$/);
+    if(observed && (!ordinal || Number(ordinal[1])+1!==observed.ordinal))return false;
+    partIds.add(part.id);
+  }
+  return true;
+}
+
+export function assessmentApiFreshLayoutV61527(layout,baselineSet) {
+  if(!assessmentApiUniqueLayoutV61525(layout) || !baselineSet || typeof baselineSet.has!=='function' ||
+    typeof baselineSet[Symbol.iterator]!=='function' ||
+    baselineSet.has(layout.sidebar) || baselineSet.has(layout.content))return false;
+  // A preexisting part/body must not become a "new" inferred body merely
+  // because its content test marker was absent. The entry snapshots connected
+  // regions and question parts before activating this exact course item.
+  for(const region of baselineSet){
+    if(!region || typeof region.contains!=='function')continue;
+    if(region.contains(layout.sidebar) || region.contains(layout.content) ||
+      layout.sidebar.contains(region) || layout.content.contains(region))return false;
+  }
+  return true;
 }
 
 export function assessmentApiRouteEditorCertifiedV61526(surfaceRoot,fp,expectedCourseId,baselineSet) {
@@ -71,7 +169,7 @@ export function assessmentApiRouteEditorCertifiedV61526(surfaceRoot,fp,expectedC
   // A fresh editor on the exact item route establishes identity independently
   // of the course-outline control's label or discovery confidence score.
   const layout=assessmentLayoutV61313(surfaceRoot);
-  return assessmentApiUniqueLayoutV61525(layout) && !baselineSet.has(layout.sidebar) && !baselineSet.has(layout.content);
+  return assessmentApiFreshLayoutV61527(layout,baselineSet);
 }
 
 export function createAssessmentApiSessionCertificateV61525(surfaceRoot,fp,expectedCourseId,exactItemControl,baselineSet) {
@@ -79,7 +177,7 @@ export function createAssessmentApiSessionCertificateV61525(surfaceRoot,fp,expec
     String(expectedCourseId || '')!==courseId() || !isGenericCourseEditRoute(location.href,expectedCourseId) ||
     !baselineSet || typeof baselineSet.has!=='function')return null;
   const layout=assessmentLayoutV61313(surfaceRoot);
-  if(!assessmentApiUniqueLayoutV61525(layout) || baselineSet.has(layout.sidebar) || baselineSet.has(layout.content))return null;
+  if(!assessmentApiFreshLayoutV61527(layout,baselineSet))return null;
   return {exactItemControl:true,itemId:String(fp.id),courseId:String(expectedCourseId),route:location.href,sidebar:layout.sidebar,content:layout.content};
 }
 
@@ -89,7 +187,7 @@ export function assessmentApiEditorIdentityV61524(surfaceRoot,fp,options={}) {
   if(!fp || !fp.id || String(options.courseId || '')!==courseId() ||
     location.origin!=='https://www.coursera.org')return failed;
   const layout=assessmentLayoutV61313(surfaceRoot);
-  if(!layout || !layout.sidebar.isConnected || !layout.content.isConnected)return failed;
+  if(!assessmentApiUniqueLayoutV61525(layout))return failed;
   if(options.certifiedItem===true && isItemSpecificCourseRoute(location.href,fp,options.courseId))return {verified:true,method:'ITEM_SPECIFIC_ROUTE',layout};
   const certificate=options.sessionCertificate;
   if(!isGenericCourseEditRoute(location.href,options.courseId) || !certificate || certificate.exactItemControl!==true ||
@@ -123,7 +221,8 @@ export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,f
   if(!layout){out.reason='EDITOR_OUTLINE_UNAVAILABLE';return out;}
   const declared=assessmentPartCountV8(layout.root);
   if(!Number.isInteger(declared) || declared<1 || declared>CTI_ASSESSMENT_API_MAX_PARTS_V61524){out.reason='UNSUPPORTED_DECLARED_PART_COUNT';return out;}
-  const candidates=observedCandidates || assessmentOutlineCandidatesV613(layout.sidebar,declared),ids=new Set(),ordinals=new Set(),assignments=new Set();
+  const bodyInventory=observedCandidates?null:assessmentApiBodyInventoryV61527(layout);
+  const candidates=observedCandidates || (bodyInventory?.complete?bodyInventory.candidates:assessmentOutlineCandidatesV613(layout.sidebar,declared)),ids=new Set(),ordinals=new Set(),assignments=new Set();
   out.declared=declared;out.candidates=candidates;
   for(const candidate of candidates){
     const match=String(candidate.id || '').match(/^([A-Za-z0-9_-]+)~([A-Za-z0-9_-]+)$/);
@@ -161,7 +260,8 @@ export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,f
   out.assignmentId=assignmentId;out.resources=resources;
   if(candidates.length!==declared || ordinals.size!==declared){out.reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';return out;}
   return {complete:true,reason:'COMPLETE_LIVE_OUTLINE_INVENTORY',candidates:candidates.map(c=>({id:c.id,ordinal:c.ordinal,label:c.label})),
-    declared,assignmentId,resources,signature:JSON.stringify(candidates.map(c=>[c.id,c.ordinal,c.label])),sidebar:layout.sidebar,route:location.href,identityMethod:identity.method};
+    declared,assignmentId,resources,signature:JSON.stringify(candidates.map(c=>[c.id,c.ordinal,c.label])),sidebar:layout.sidebar,content:layout.content,route:location.href,identityMethod:identity.method,
+    discovery:bodyInventory?.complete?{method:'COMPLETE_OBSERVED_BODY_PART_INVENTORY',scrollSteps:0,restored:true}:undefined};
 }
 
 export function observedAssessmentApiInventoryV61524(surfaceRoot,fp,options={}) {
@@ -171,18 +271,23 @@ export function observedAssessmentApiInventoryV61524(surfaceRoot,fp,options={}) 
 export async function discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,options={}) {
   const initial=observedAssessmentApiInventoryV61524(surfaceRoot,fp,options);
   if(initial.reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY')return initial;
-  const layout=assessmentLayoutV61313(surfaceRoot),sidebar=layout && layout.sidebar,route=location.href;
+  const layout=assessmentLayoutV61313(surfaceRoot),sidebar=layout && layout.sidebar,content=layout && layout.content,route=location.href;
   if(!sidebar)return initial;
   const started=Date.now(),deadline=Math.min(Number(options.deadline || Infinity),started+CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524);
   const seen=new Map(),ordinals=new Map(),roots=[],originals=new Map();let steps=0,reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';
   function observe(){
     const current=assessmentLayoutV61313(surfaceRoot);
-    if(location.href!==route || !sidebar.isConnected || current?.sidebar!==sidebar || assessmentPartCountV8(current.root)!==initial.declared){reason='EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY';return false;}
+    if(location.href!==route || !sidebar.isConnected || !content?.isConnected || !layout.root.isConnected ||
+      !layout.root.contains(sidebar) || !layout.root.contains(content) ||
+      current && (current.sidebar!==sidebar || current.content!==content) ||
+      !current && layout.method!=='OBSERVED_OUTLINE_AND_ASSOCIATED_BODY' ||
+      assessmentPartCountV8(layout.root)!==initial.declared){reason='EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY';return false;}
     for(const candidate of assessmentOutlineCandidatesV613(sidebar,initial.declared)){
       const prior=seen.get(candidate.id),ordinalId=ordinals.get(candidate.ordinal);
       if(prior && (prior.ordinal!==candidate.ordinal || prior.label!==candidate.label) || ordinalId && ordinalId!==candidate.id){reason='AMBIGUOUS_OUTLINE_IDENTITY';return false;}
       seen.set(candidate.id,{id:candidate.id,ordinal:candidate.ordinal,label:candidate.label});ordinals.set(candidate.ordinal,candidate.id);
     }
+    if(!assessmentApiUniqueLayoutV61525(layout,seen)){reason='EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY';return false;}
     return true;
   }
   function addRoot(root){
@@ -219,9 +324,11 @@ export async function discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,op
 
 export function recheckAssessmentApiInventoryV61524(surfaceRoot,fp,options,inventory) {
   const mounted=observedAssessmentApiInventoryV61524(surfaceRoot,fp,options);
+  const layout=assessmentLayoutV61313(surfaceRoot);
+  if(!layout || layout.sidebar!==inventory.sidebar || layout.content!==inventory.content)
+    return {...mounted,complete:false,reason:'EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE'};
   if(mounted.complete)return mounted;
   if(!inventory.discovery || mounted.reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY' || location.href!==inventory.route)return mounted;
-  const layout=assessmentLayoutV61313(surfaceRoot);
   if(!layout || layout.sidebar!==inventory.sidebar || !inventory.sidebar.isConnected || mounted.declared!==inventory.declared)return mounted;
   const known=new Map(inventory.candidates.map(c=>[c.id,c]));
   for(const candidate of mounted.candidates){const prior=known.get(candidate.id);
@@ -360,6 +467,7 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   if(questions.length){out.assessment={schemaVersion:6,parser:'coursera-item-bound-authoring-api-v1',origin:'coursera-authoring-api',
     declaredQuestionCount:inventory.declared,questionCount:questions.length,answerEvidenceQuestionCount:questions.length,questions,
     captureCompleteness:coverage,parserConfidence:out.captured?0.98:0.84,warnings:out.captured?[]:['Item-bound API capture is incomplete; inspect explicit missing identities.']};
-    if(typeof options.onCheckpoint==='function')await options.onCheckpoint(out.assessment);}
+    if(typeof options.onCheckpoint==='function')await options.onCheckpoint(out.assessment,
+      {rawEvidence:out.rawEvidence,diagnostics:out.diagnostics,stopReason:out.stopReason});}
   return out;
 }

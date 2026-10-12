@@ -32,9 +32,13 @@ apiProgram=apiProgram.replace(boundaryFunctions.get('dispatchReadOnlyEditorContr
 const cml=text=>({typeName:'cml',definition:{dtdId:'assess/1',value:'<co-content><p>'+text+'</p></co-content>'}});
 function apiQuestion(n){return {id:'assessment~definition'+n+'@1',definition:{typeName:'mcq',definition:{prompt:cml('Which result is correct for scenario '+n+' in this assessment?'),
  options:[{id:'correct',display:cml('Correct choice café '+n)},{id:'other',display:cml('Other choice 日本語 '+n)}],correctOption:'correct',shuffleOptions:false}}};}
-function cachedApiEditorHtml(){
- const rows=Array.from({length:100},(_,i)=>{const n=i+1;return '<div data-testid="assignment-outline" data-rbd-drag-handle-draggable-id="assessment~q'+n+'"><span>'+n+' </span><a href="#assessment~q'+n+'">Which result is correct for scenario '+n+' in this assessment?</a></div>';}).join('');
- const layout='<aside data-testid="item-layout-left-sidebar"><p>Assignment outline Content (100)</p>'+rows+'</aside><div data-testid="item-layout-content"><section id="assessment~q1" data-testid="assignment-part-0"><h3>1 Auto-Graded 1 point</h3><p>Prompt</p><p>Which result is correct for scenario 1 in this assessment?</p><p>Options</p><div data-testid="option"><p>Correct choice café 1</p></div><div data-testid="option"><p>Other choice 日本語 1</p></div></section></div>';
+function cachedApiEditorHtml(fullBody=false){
+ const rows=Array.from({length:fullBody?27:100},(_,i)=>{const n=i+1;return '<div data-testid="assignment-outline" data-rbd-drag-handle-draggable-id="assessment~q'+n+'"><span>'+n+' </span><a href="#assessment~q'+n+'">Which result is correct for scenario '+n+' in this assessment?</a></div>';}).join('');
+ let layout='<aside data-testid="item-layout-left-sidebar"><p>Assignment outline Content (100)</p>'+rows+'</aside><div data-testid="item-layout-content"><section id="assessment~q1" data-testid="assignment-part-0"><h3>1 Auto-Graded 1 point</h3><p>Prompt</p><p>Which result is correct for scenario 1 in this assessment?</p><p>Options</p><div data-testid="option"><p>Correct choice café 1</p></div><div data-testid="option"><p>Other choice 日本語 1</p></div></section></div>';
+ if(fullBody){
+  layout=layout.replace('data-testid="item-layout-content"','id="quiz-body"').replace('</section></div>',
+   '</section>'+Array.from({length:99},(_,i)=>'<section id="assessment~q'+(i+2)+'" data-testid="assignment-part-'+(i+1)+'"></section>').join('')+'</div>');
+ }
  return '<!doctype html><style>a{display:inline-block}[data-testid=assignment-outline]{min-height:24px}</style><button id="open-assessment">Open assessment</button><main id="editor" style="display:none"></main><script>document.getElementById("open-assessment").onclick=()=>{const editor=document.getElementById("editor");editor.innerHTML='+JSON.stringify(layout)+';editor.style.display="block"};</script>';
 }
 const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem')),cert:fs.readFileSync(path.join(scratch,'cert.pem'))},(request,response)=>{
@@ -42,7 +46,7 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
  if(url.origin===controllerOrigin){
   response.setHeader('Content-Type','text/html');response.end(`<button id="open">Open managed Coursera</button><script>${controllerCode}</script><script>
    document.getElementById('open').onclick=()=>{window.child=window.open(${JSON.stringify(shell)},'cti-course');
-    window.supervisor=CTISupervisor.startCourseraLocalSupervisor(window,child,${JSON.stringify(shell)},${JSON.stringify(token)},status=>{window.captureStatus=status;},{timeoutMs:7000,intervalMs:500});};
+    window.supervisor=CTISupervisor.startCourseraLocalSupervisor(window,child,${JSON.stringify(shell)},${JSON.stringify(token)},status=>{window.captureStatus=status;},{timeoutMs:7000,reconnectTimeoutMs:7000,intervalMs:500});};
    </script>`);return;
  }
  if(severLink)response.setHeader('Cross-Origin-Opener-Policy','same-origin');
@@ -60,7 +64,7 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
    {elements:Array.from({length:168},(_,i)=>i===1?{id:'assessment-under-test',name:apiReads?'Untitled':'Synthetic quiz',typeName:'staffGraded'}:
     {id:'reading-'+i,name:'Reading '+i,typeName:'supplement'})}:{}));return;
  }
- let html=apiReads?cachedApiEditorHtml():assessmentBrowserFixture(100,true);
+ let html=apiReads?cachedApiEditorHtml(apiReads==='full-body'):assessmentBrowserFixture(100,true);
  if(loadedModel)html+=`<script>document.getElementById('editor').__reactProps$fixture={questions:Array.from({length:100},(_,i)=>({
   id:'assessment~q'+(i+1),questionType:'Multiple Choice',prompt:'Which result is correct for scenario '+(i+1)+' in this assessment?',
   options:[{text:'Correct choice café '+(i+1),correct:true},{text:'Other choice 日本語 '+(i+1),correct:false}],sourceMath:'<math><mi>α</mi></math>',unknownOriginal:{retained:true},
@@ -91,8 +95,8 @@ try{
  // headless shell can place these two sites in one renderer and crash both.
  browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{channel:'chromium'}),
   args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server',`--host-resolver-rules=MAP www.coursera.org 127.0.0.1:${server.address().port}, MAP cti-hardening.pages.dev 127.0.0.1:${server.address().port}`]});
- for(const strategy of ['dom-recovery','loaded-model','cached-api']){
-  const bulk=strategy!=='dom-recovery';apiReads=strategy==='cached-api';loadedModel=strategy==='loaded-model';const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
+ for(const strategy of ['dom-recovery','loaded-model','cached-api','cached-api-body']){
+  const bulk=strategy!=='dom-recovery';apiReads=strategy==='cached-api-body'?'full-body':strategy==='cached-api';loadedModel=strategy==='loaded-model';const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
   const parent=await context.newPage();await parent.goto(controllerOrigin+'/controller');
   const opening=context.waitForEvent('page');await parent.click('#open');const child=await opening;await child.waitForLoadState();
   const downloads=[],errors=[];child.on('download',d=>downloads.push(d));child.on('pageerror',e=>errors.push(e.message));
@@ -141,6 +145,14 @@ try{
    assert.equal(quiz.payload.assessmentApiEvidence.resources.groups.source,'CAPTURE_ADAPTER');
    assert.equal(quiz.payload.assessmentApiEvidence.resources.questions.source,'CAPTURE_ADAPTER');
    assert(quiz.payload.structuredAssessment.questions.every(q=>q.observationMethod==='AUTHORING_API_MATCHED_TO_LIVE_OUTLINE'));
+   if(strategy==='cached-api-body'){
+    // The final document's crawl diagnostics cover its remaining visits. The
+    // original body inventory persists with the restored assessment evidence.
+    const inventory=quiz.payload.assessmentApiEvidence.inventory;
+    assert.equal(inventory.length,100);
+    assert.deepEqual(inventory.map(q=>q.ordinal),Array.from({length:100},(_,i)=>i+1));
+    assert(inventory.slice(27).every(q=>q.label===''),'Unmounted rail rows must not acquire invented labels');
+   }
   }else{
    assert.equal(new Set(questions).size,99);assert(questions.length<=109,'Only uncommitted observations may be reread after two crashes');
    assert.equal(capture.meta.localCaptureBatch.maxQuestionObservations,5,'Later recovered documents retain the smaller renderer question budget');
@@ -149,6 +161,34 @@ try{
   console.log(JSON.stringify({status:'PASS',courseItems:168,questions:100,mode:strategy,automaticRecoveries:status.recoveries,downloads:downloads.length,
    scope:'Synthetic external content; real canonical entry, IndexedDB, cross-origin controller, Chrome renderer crashes and retained debugger registration.'}));
   await browserSession.detach();await context.close();
+ }
+ // A reopened document cannot restore capture after its debugger registration
+ // disappeared. A terminal durable plan must report its reason rather than
+ // silently look like the same missing-registration failure.
+ apiReads=false;loadedModel=false;
+ for(const loss of ['registration-lost','terminal-plan']){
+  const lossContext=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
+  const lossParent=await lossContext.newPage();await lossParent.goto(controllerOrigin+'/controller');
+  const lossOpening=lossContext.waitForEvent('page');await lossParent.click('#open');const lossChild=await lossOpening;await lossChild.waitForLoadState();
+  const lossCdp=await lossContext.newCDPSession(lossChild);await lossCdp.send('Page.enable');
+  const lossCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,program,token,undefined,{controllerOrigin,freshRun:true}));
+  const lossRegistration=await lossCdp.send(lossCommand.cmd,lossCommand.args);
+  await lossParent.waitForFunction(()=>captureStatus?.state==='RUNNING',{},{timeout:15000});
+  await checkpointAtLeast(lossCdp,10);
+  if(loss==='registration-lost')await lossCdp.send('Page.removeScriptToEvaluateOnNewDocument',{identifier:lossRegistration.identifier});
+  else await lossChild.evaluate(token=>{
+   const key='__CTI_AUTOMATIC_LOCAL_V61517_'+token,plan=JSON.parse(localStorage.getItem(key));
+   plan.state='FINISHED';plan.reason='LOCAL_CAPTURE_NO_PROGRESS';localStorage.setItem(key,JSON.stringify(plan));
+  },token);
+  await lossCdp.send('Page.navigate',{url:shell});
+  await lossParent.waitForFunction(()=>captureStatus?.state==='STOPPED',{},{timeout:25000});
+  const lossStatus=await lossParent.evaluate(()=>captureStatus);
+  assert(lossStatus.savedQuestions>=10);assert.equal(lossStatus.recoveries,loss==='registration-lost'?1:0);
+  assert.match(lossStatus.message,loss==='registration-lost'?/extractor did not reconnect/:/LOCAL_CAPTURE_NO_PROGRESS/);
+  await checkpointAtLeast(lossCdp,10);
+  console.log(JSON.stringify({status:'PASS',mode:loss,savedQuestions:lossStatus.savedQuestions,recoveries:lossStatus.recoveries,
+   scope:'Real registration removal or terminal-plan reentry; no false restore claim and committed observations remain.'}));
+  await lossContext.close();
  }
  // The registered guard reports login or unrelated navigation before the
  // supervisor can mistake it for a renderer failure and repeatedly reload it.

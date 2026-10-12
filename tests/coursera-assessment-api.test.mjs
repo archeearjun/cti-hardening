@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import * as config from '../src/extractors/coursera/config.js';
 
-const {fixture}=createRequire(import.meta.url)('../tools/assessment-fixture.cjs');
+const {fixture,El}=createRequire(import.meta.url)('../tools/assessment-fixture.cjs');
 const clone=value=>JSON.parse(JSON.stringify(value));
 function cml(text){return {typeName:'cml',definition:{dtdId:'synthetic',value:'<p>'+text+'</p>',unknownMath:'<math><mi>α</mi></math>'}};}
 function definition(n){return {id:'assessment~definition'+n+'@1',writeAccessToken:'synthetic-secret',definition:{typeName:'mcq',definition:{
@@ -43,7 +43,12 @@ function setup(count=100,windowSize=count){
 test('exact item-bound API batches preserve IDs, CML, keys and ordering without question rendering',async()=>{
  const f=setup();let writes=0,lastProgress=0;
  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,
-  onProgress:(count,total)=>{lastProgress=count;assert.equal(total,100);},onCheckpoint:async model=>{writes++;assert.equal(model.questionCount,100);}});
+  onProgress:(count,total)=>{lastProgress=count;assert.equal(total,100);},onCheckpoint:async(model,observation)=>{
+   writes++;assert.equal(model.questionCount,100);assert.equal(observation.stopReason,'COMPLETE_ITEM_BOUND_AUTHORING_API');
+   assert.equal(observation.diagnostics.requests,14);assert.equal(observation.rawEvidence.questionDefinitions.length,100);
+   assert.equal(observation.rawEvidence.questionDefinitions.find(element=>element.id==='assessment~definition1@1').definition.definition.prompt.definition.value,definition(1).definition.definition.prompt.definition.value);
+   assert(!JSON.stringify(observation).includes('synthetic-secret'));assert(!JSON.stringify(observation).includes('writeAccessToken'));
+  }});
  assert.equal(result.captured,true);assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
  assert.equal(f.clicks(),0);assert.equal(f.calls.length,14);assert(f.maxActive()<=2);assert.equal(result.diagnostics.maxConcurrentRequests,2);
  assert.equal(writes,1);assert.equal(lastProgress,100);
@@ -281,4 +286,124 @@ test('a second visible modal rejects a pinned session before any API acquisition
  f.c.document.body.append(f.sidebar.cloneNode(true),f.content.cloneNode(true));
  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem:false,sessionCertificate:certificate,observedRequests});
  assert.equal(result.attempted,false);assert.equal(result.stopReason,'SESSION_EDITOR_IDENTITY_NOT_VERIFIED');assert.equal(f.calls.length,0);
+});
+
+test('fresh unmarked content bodies use exact live part associations for project and generic editor API reads',async()=>{
+ for(const route of ['project','generic']){
+  const f=setup(100);f.fp.name='Untitled';delete f.content.attrs['data-testid'];
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/'+
+   (route==='project'?'item/project/assessment-under-test':'edit'));
+  const layout=f.c.assessmentLayoutV61313(f.envelope);
+  assert.equal(layout.method,'OBSERVED_OUTLINE_AND_ASSOCIATED_BODY');assert.equal(layout.content,f.content);
+  const certificate=route==='generic'?f.c.createAssessmentApiSessionCertificateV61525(f.envelope,f.fp,'Assessment_fixture_123',true,new Set()):null;
+  const certifiedItem=route==='project'&&f.c.assessmentApiRouteEditorCertifiedV61526(f.envelope,f.fp,'Assessment_fixture_123',new Set());
+  assert.equal(Boolean(certificate||certifiedItem),true);
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem,sessionCertificate:certificate});
+  assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,100);assert.equal(f.calls.length,14);assert.equal(f.clicks(),0);
+  assert.equal(result.rawEvidence.questionDefinitions.length,100);
+ }
+});
+
+test('unmarked body certification declines stale regions, unrelated parts, competing markers and global chrome',()=>{
+ for(const defect of ['stale-content','stale-part','stale-ancestor','missing-part','foreign-part','duplicate-part','marked-conflict','global-chrome']){
+  const f=setup(10);delete f.content.attrs['data-testid'];
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/item/project/assessment-under-test');
+  const baseline=new Set(),part=f.content.querySelector('[data-testid="assignment-part-0"]');
+  if(defect==='stale-content')baseline.add(f.content);
+  if(defect==='stale-part')baseline.add(part);
+  if(defect==='stale-ancestor')baseline.add(f.envelope);
+  if(defect==='missing-part')f.content.replaceChildren();
+  if(defect==='foreign-part')f.c.document.body.append(new El('section',{'data-testid':'assignment-part-500',id:'anotherAssignment~foreignPart'},'Foreign question'));
+  if(defect==='duplicate-part')f.c.document.body.append(part.cloneNode(true));
+  if(defect==='marked-conflict')f.c.document.body.append(new El('div',{'data-testid':'item-layout-content'},'Different content body'));
+  if(defect==='global-chrome')f.content.setAttribute('aria-label','Global navigation');
+  assert.equal(f.c.assessmentApiRouteEditorCertifiedV61526(f.envelope,f.fp,'Assessment_fixture_123',baseline),false,defect);
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+  assert.equal(f.c.createAssessmentApiSessionCertificateV61525(f.envelope,f.fp,'Assessment_fixture_123',true,baseline),null,defect);
+ }
+});
+
+test('an unmarked content body remains pinned while API definitions are read',async()=>{
+ for(const route of ['project','generic']){
+  const f=setup(10),fetch=f.fetchImpl;delete f.content.attrs['data-testid'];
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/'+
+   (route==='project'?'item/project/assessment-under-test':'edit'));
+  const certificate=route==='generic'?f.c.createAssessmentApiSessionCertificateV61525(f.envelope,f.fp,'Assessment_fixture_123',true,new Set()):null;
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem:route==='project',sessionCertificate:certificate,
+   fetchImpl:async(url,options)=>{const response=await fetch(url,options);
+    if(url.includes('MachineEvaluable')){const replacement=f.content.cloneNode(true);f.content.remove();f.envelope.append(replacement);}
+    return response;
+   }});
+  assert.equal(result.captured,false);assert.equal(result.assessment,null);assert.equal(result.rawEvidence,null);
+  assert.equal(result.stopReason,'EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE');
+ }
+});
+
+test('unmarked virtual rail discovery retains only its pinned live identity witnesses and restores the rail',async()=>{
+ for(const route of ['project','generic']){
+  const f=setup(100,27);delete f.content.attrs['data-testid'];
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/'+
+   (route==='project'?'item/project/assessment-under-test':'edit'));
+  const original=f.sidebar.scrollTop,contentPosition=f.content.scrollTop;
+  const certificate=route==='generic'?f.c.createAssessmentApiSessionCertificateV61525(f.envelope,f.fp,'Assessment_fixture_123',true,new Set()):null;
+  const certifiedItem=route==='project'&&f.c.assessmentApiRouteEditorCertifiedV61526(f.envelope,f.fp,'Assessment_fixture_123',new Set());
+  assert(Boolean(certificate||certifiedItem));
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem,sessionCertificate:certificate});
+  assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,100);assert.equal(f.calls.length,14);assert.equal(f.clicks(),0);
+  assert(result.diagnostics.inventoryDiscovery.scrollSteps>0);assert.equal(result.diagnostics.inventoryDiscovery.restored,true);
+  assert.equal(f.sidebar.scrollTop,original);assert.equal(f.content.scrollTop,contentPosition);
+  if(certificate)assert.equal(f.c.assessmentApiSessionStillCurrentV61525(f.envelope,f.fp,'Assessment_fixture_123',certificate),true);
+ }
+});
+
+test('pinned unmarked virtual discovery rejects unobserved parts, changed ordinals and replacement bodies before requests',async()=>{
+ for(const defect of ['foreign-part','ordinal-change','replacement-body']){
+  const f=setup(100,27);delete f.content.attrs['data-testid'];
+  const scroll=f.sidebar.onScroll;let changed=false;
+  f.sidebar.onScroll=y=>{scroll(y);if(y>0&&!changed){changed=true;
+   if(defect==='foreign-part')f.content.querySelector('[data-testid^="assignment-part-"]').setAttribute('id','anotherAssignment~neverObserved');
+   if(defect==='ordinal-change')f.content.querySelector('[data-testid^="assignment-part-"]').setAttribute('data-testid','assignment-part-500');
+   if(defect==='replacement-body'){const replacement=f.content.cloneNode(true);f.content.remove();f.envelope.append(replacement);}
+  }};
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+  assert.equal(result.captured,false);assert.equal(result.attempted,false);assert.equal(f.calls.length,0);assert.equal(f.clicks(),0);
+  assert.equal(result.stopReason,'EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY');assert.equal(f.sidebar.scrollTop,0);
+ }
+});
+
+test('27 live rail anchors and 100 observed unmarked body parts establish complete IDs and order without scrolling',async()=>{
+ for(const route of ['project','generic']){
+  const f=setup(100,27);delete f.content.attrs['data-testid'];
+  for(let n=2;n<=100;n++)f.content.append(new El('section',{id:'assessment~q'+n,'data-testid':'assignment-part-'+(n-1)},'Unhydrated content part'));
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/'+
+   (route==='project'?'item/project/assessment-under-test':'edit'));
+  let scrolls=0;const scroll=f.sidebar.onScroll;f.sidebar.onScroll=y=>{scrolls++;scroll(y);};
+  const certificate=route==='generic'?f.c.createAssessmentApiSessionCertificateV61525(f.envelope,f.fp,'Assessment_fixture_123',true,new Set()):null;
+  const certifiedItem=route==='project'&&f.c.assessmentApiRouteEditorCertifiedV61526(f.envelope,f.fp,'Assessment_fixture_123',new Set());
+  assert(Boolean(certificate||certifiedItem));
+  const inventory=f.c.assessmentApiBodyInventoryV61527(f.c.assessmentLayoutV61313(f.envelope));
+  assert.equal(inventory.complete,true);assert.equal(inventory.candidates.length,100);
+  assert.equal(inventory.candidates[99].label,'','An unhydrated body part cannot invent a question label');
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem,sessionCertificate:certificate});
+  assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,100);assert.equal(result.rawEvidence.questionDefinitions.length,100);
+  assert.equal(result.diagnostics.inventoryDiscovery.method,'COMPLETE_OBSERVED_BODY_PART_INVENTORY');
+  assert.equal(result.diagnostics.inventoryDiscovery.scrollSteps,0);assert.equal(scrolls,0);assert.equal(f.calls.length,14);assert.equal(f.clicks(),0);
+ }
+});
+
+test('complete unmarked body inventory rejects duplicate IDs, ordinals, roots, omissions and mismatched rail links',()=>{
+ for(const defect of ['duplicate-id','duplicate-ordinal','mixed-root','missing-part','foreign-anchor','conflicting-internal-marker']){
+  const f=setup(100,27);delete f.content.attrs['data-testid'];
+  for(let n=2;n<=100;n++)f.content.append(new El('section',{id:'assessment~q'+n,'data-testid':'assignment-part-'+(n-1)},'Unhydrated content part'));
+  const last=f.content.querySelector('[data-testid="assignment-part-99"]');
+  if(defect==='duplicate-id')last.setAttribute('id','assessment~q1');
+  if(defect==='duplicate-ordinal')last.setAttribute('data-testid','assignment-part-0');
+  if(defect==='mixed-root')last.setAttribute('id','anotherAssessment~q100');
+  if(defect==='missing-part')last.remove();
+  if(defect==='foreign-anchor')f.sidebar.querySelector('a[href^="#"]').setAttribute('href','#assessment~neverObserved');
+  if(defect==='conflicting-internal-marker')f.envelope.append(new El('div',{'data-testid':'item-layout-content'},'Unrelated marked body'));
+  const inventory=f.c.assessmentApiBodyInventoryV61527({root:f.envelope,sidebar:f.sidebar,content:f.content});
+  if(defect!=='conflicting-internal-marker')assert.equal(inventory.complete,false,defect);
+  assert.equal(f.c.assessmentApiRouteEditorCertifiedV61526(f.envelope,f.fp,'Assessment_fixture_123',new Set()),false,defect);
+ }
 });

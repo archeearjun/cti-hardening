@@ -9,17 +9,24 @@ remove question-editor rendering by itself. A real response sample supplied on
 options and explicit answer keys through read-only assessment endpoints.
 
 The request-based fast path uses the same managed Protocol monitor setup below.
-It opens a quiz once, collects its complete ordered live outline, and reads
+It opens a quiz once, collects its complete observed group inventory, and reads
 only observed group and exact versioned question identities. Supported native
 MCQs can therefore be captured without activating every question editor.
-For a virtualized outline, bounded scrolling reads the sidebar identities and
-restores its position without scrolling the content or activating questions.
+From v6.15.27, complete body parts can establish that inventory even when the
+sidebar mounts fewer links. Every group ID and ordinal comes from an observed
+compound DOM ID and explicit `assignment-part-N` attribute. Full coverage,
+unique IDs, one assignment root and agreement with current sidebar links are
+required. A body without the optional content test marker must have the same
+strict observed sidebar/part association. This path needs no sidebar scrolling.
+When only the sidebar can establish the inventory, bounded scrolling reads its
+identities and restores its position without scrolling content or activating
+questions.
 Small Naptime batches are tried before bounded single-ID reads; matching uses
-returned source IDs, and ordering comes from the outline. It preserves original
-CML and maps `correctOption` to its exact option ID. Credential envelope fields
+returned source IDs, and ordering comes from explicit observed ordinals. It
+preserves original CML and maps `correctOption` to its exact option ID. Credential envelope fields
 are excluded from retained evidence.
 
-From v6.15.26 the direct path also works when Coursera opens a quiz modal while
+The direct path also works when Coursera opens a quiz modal while
 the address stays at `/content/edit`. CTI must have opened a fresh, unique editor
 through the exact course item ID. It keeps that
 sidebar/content pair pinned; a generic address, matching title or earlier
@@ -43,6 +50,25 @@ active and **Reading quiz in editor** with a reason when fallback is needed.
 Denied reads and server rate limits stop the run with saved evidence rather
 than repeatedly reopening editors. Direct reads use their own bounded evidence
 collector, avoiding duplicate generic-network response copies.
+
+## Check one currently open quiz
+
+From v6.15.27, **Copy current quiz API check** tests the direct reader before
+another full-course run:
+
+1. Stop the managed run. Open one quiz normally in the same signed-in Chrome
+   profile, using its exact course item URL.
+2. In CTI → Extract, click **Copy current quiz API check** and paste into that
+   quiz's normal Console.
+3. When its card finishes, click **Copy diagnostic result**. The result reports
+   the current version, definition/key counts, inventory method, elapsed time
+   and bounded error codes. Clipboard failure exposes a selectable result.
+
+The check is limited to two minutes. It reads the open quiz's definitions without
+question clicks, page reloads, course traversal or checkpoint changes. Its copied
+receipt excludes raw prompts, answer wording and credentials. A successful result
+means that this quiz verified; it does not certify the whole course. A failed
+check gives a focused diagnostic without another prolonged course rerun.
 
 ## Optional response sample for an unsupported schema
 
@@ -91,15 +117,18 @@ CTI checks the sending window, origin, course and run token before accepting
 receipts or acknowledging registration. Authentication and raw course evidence
 remain in Coursera's origin. The controller uses browser-level window navigation
 after a missing heartbeat; it can therefore navigate a crashed renderer without
-running JavaScript inside that renderer. The existing debugger registration is
-restored on the new document while its session remains attached. Saved item and
-question checkpoints then resume normally. The native test preserves the same
+running JavaScript inside that renderer. Recovery requires Chrome to retain its
+registered command and the new document to send `READY`. Saved item and question
+checkpoints then resume normally. The native test preserves the same
 tab, controller and registration through two real renderer crashes.
 
 The visible-tab heartbeat window is 45 seconds. A hidden Coursera tab gets
 three minutes to account for Chrome's background timer throttling. The
-controller never navigates an unpaired tab or a login screen. It stops after
-three recoveries without new saved progress, thirty total recoveries, a lost
+controller never navigates an unpaired tab or a login screen. After recovery
+navigation it waits at most one minute for a visible tab, or three minutes for
+a hidden tab, for a new `READY` acknowledgement. If the extractor does not
+reconnect, it stops instead of repeatedly reopening the course outline. It also
+stops after three recoveries without new saved progress, thirty total recoveries, a lost
 window link or an explicit extraction error. Existing course and batch limits
 still apply. After a renderer recovery, the question budget decreases to ten,
 then five observations per document. **Stop managed run** closes the managed
@@ -113,6 +142,10 @@ policy disables that isolation, a shared-process crash can stop both tabs; this
 feature does not alter enterprise browser policy. Closing DevTools removes its registration; the CTI tab
 cannot recreate that registration. Closing, refreshing or leaving CTI's Extract
 page also ends its supervisor. These interruptions require a new command.
+
+A durable run that already finished or stopped is reported as an explicit error
+when its old registration runs again. Export saved progress before starting a
+new command; a normal-looking course outline is not evidence that capture resumed.
 
 ## Loaded quiz data before question rendering
 
@@ -234,10 +267,13 @@ heartbeat blocks a second tab; a registration whose browser disappeared can
 be replaced after the 45-second liveness window. The same tab can replace its
 registration after reloading without waiting for that window.
 
-Use **Copy saved-progress export command** after an interruption. Close DevTools,
-reload the matching authoring shell, reopen Protocol monitor, turn Record off,
-clear its log and paste the command into the bottom command input. It uses a
-single `Runtime.evaluate` execution to match saved observations to the current
+Use **Copy saved-progress Console script** after an interruption. Stop the managed
+run, open the matching authoring shell normally, then copy that script from CTI
+and paste into its normal Console. The alternative **Copy saved-progress export
+command** runs the same recovery through Protocol monitor: close DevTools, reload
+the matching shell, reopen Protocol monitor, turn Record off, clear its log and
+paste into the bottom command input. Both use a single execution to match saved
+observations to the current
 course inventory, with no item editor visits. Read-only recovery can access the
 existing checkpoint namespace after its normal 12-hour resume TTL, and cannot
 save, import, clear or refresh checkpoint state. The exported JSON is explicitly
@@ -314,3 +350,10 @@ still requires verification with the operator's account.
 Coursera's native **Export** button was reported to produce an Excel outline.
 An outline alone does not establish complete question, answer-key or media
 coverage, so CTI does not treat that export as a replacement for content capture.
+
+The v6.15.27 native API check reproduces the reported unmarked body with 27
+compound question links and 100 observed group/ordinal wrappers. It verifies all 100
+synthetic definitions and keys in fourteen GETs, without question clicks or
+sidebar scrolling, and rejects ambiguous or replaced bodies. The prior live
+run with 79 saved observations, zero finished visits and two recoveries failed;
+these fixture results do not establish private whole-course completion.

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
+import {createCourseraAssessmentProbeScript} from '../src/domain/coursera-assessment-probe.ts';
 import {bundleConsole} from './console-bundle.mjs';
 import {extractorFunctions} from './extractor-functions.cjs';
 import * as config from '../src/extractors/coursera/config.js';
@@ -38,7 +39,7 @@ function question(n){return {id:questionId(n),writeAccessToken:'SYNTHETIC_SECRET
 const groupLookup=new Map(Array.from({length:count},(_,i)=>[groupId(i+1),i+1]));
 const questionLookup=new Map(Array.from({length:count},(_,i)=>[questionId(i+1),i+1]));
 
-function fixtureHtml(virtualRail=false,unhydratedFirst=false){
+function fixtureHtml(virtualRail=false,unhydratedFirst=false,bodyParts=false){
  const rows=Array.from({length:count},(_,i)=>{const n=i+1;return '<div data-testid="assignment-outline" data-rbd-drag-handle-draggable-id="'+groupId(n)+'"><span>'+n+' </span><a href="#'+groupId(n)+'" data-n="'+n+'">'+prompt(n)+'</a></div>';}).join('');
  const warmGroup='/api/'+groupResource+'/'+groupId(1)+'?fields=id,scoringWeight,questions,validation';
  const warmQuestion='/api/'+questionResource+'/'+questionId(1)+'?fields=id,definition,validation';
@@ -46,20 +47,21 @@ function fixtureHtml(virtualRail=false,unhydratedFirst=false){
  #editor{display:flex;gap:20px}#rail{width:420px;height:${virtualRail?320:560}px;overflow-y:auto;flex-shrink:0}#content{width:650px;min-height:560px}
  [data-testid=assignment-outline]{min-height:26px}a{display:inline-block}section{padding:5px}
  ${virtualRail?`#rows{height:${count*32}px;position:relative}#rows [data-testid=assignment-outline]{position:absolute;height:32px;width:410px}`:''}
- </style><main id="editor"><aside id="rail" data-testid="item-layout-left-sidebar"><p>Assignment outline Content (${count})</p>${virtualRail?'<div id="rows"></div>':rows}</aside><div id="content" data-testid="item-layout-content"></div></main>
+ </style><main id="editor"><aside id="rail" data-testid="item-layout-left-sidebar"><p>Assignment outline Content (${count})</p>${bodyParts?'<a href="#for-learning-objectives">Learning objectives</a><a href="#for-content">Content</a>':''}${virtualRail?'<div id="rows"></div>':rows}</aside><div id="content"${bodyParts?'':' data-testid="item-layout-content"'}>${bodyParts?Array.from({length:count},(_,i)=>'<section id="'+groupId(i+1)+'" data-testid="assignment-part-'+i+'"><p>Observed content part '+(i+1)+'</p></section>').join(''):''}</div></main>
  <script>
  window.questionClicks=[];window.fixtureReady=false;window.railScrollEvents=0;
  const rootId=${JSON.stringify(rootId)};
  const unhydratedFirst=${JSON.stringify(unhydratedFirst)};
+ const bodyParts=${JSON.stringify(bodyParts)};
  const content=document.getElementById('content');
  const prompt=${prompt.toString()},label=${label.toString()},feedback=${feedback.toString()};
  const groupId=${groupId.toString()},correctId=${correctId.toString()};
- function mount(n){content.innerHTML='<section id="'+groupId(n)+'" data-testid="assignment-part-'+(n-1)+'"><h3>'+n+' Auto-Graded 1 point</h3><p>Question Type Multiple Choice Prompt</p><p>'+prompt(n)+'</p><p>Options</p>'+[1,2,3,4].map(k=>'<div data-testid="option"><p>'+label(n,k)+'</p>'+(unhydratedFirst&&n===1?'':'<span>'+(correctId(n)==='option-'+k?'Correct':'Incorrect')+'</span>')+'</div>').join('')+'<p>Export Settings</p></section>'}
+ function mount(n){const markup='<section id="'+groupId(n)+'" data-testid="assignment-part-'+(n-1)+'"><h3>'+n+' Auto-Graded 1 point</h3><p>Question Type Multiple Choice Prompt</p><p>'+prompt(n)+'</p><p>Options</p>'+[1,2,3,4].map(k=>'<div data-testid="option"><p>'+label(n,k)+'</p>'+(unhydratedFirst&&n===1?'':'<span>'+(correctId(n)==='option-'+k?'Correct':'Incorrect')+'</span>')+'</div>').join('')+'<p>Export Settings</p></section>';if(bodyParts)document.getElementById(groupId(n)).outerHTML=markup;else content.innerHTML=markup;}
  function listenToQuestions(){document.querySelectorAll('a[data-n]').forEach(anchor=>anchor.onclick=event=>{event.preventDefault();const n=Number(anchor.dataset.n);questionClicks.push(n);mount(n)})}
  ${virtualRail?`const rail=document.getElementById('rail'),rows=document.getElementById('rows');
  function renderRail(){
-  const first=Math.min(90,Math.max(0,Math.floor(rail.scrollTop/32)));rows.replaceChildren();
-  for(let i=first;i<Math.min(${count},first+10);i++){
+  const windowSize=bodyParts?27:10,first=Math.min(${count}-windowSize,Math.max(0,Math.floor(rail.scrollTop/32)));rows.replaceChildren();
+  for(let i=first;i<Math.min(${count},first+windowSize);i++){
    const n=i+1,row=document.createElement('div');row.dataset.testid='assignment-outline';row.style.top=i*32+'px';row.setAttribute('data-rbd-drag-handle-draggable-id',groupId(n));
    const number=document.createElement('span');number.textContent=n+' ';const anchor=document.createElement('a');anchor.href='#'+groupId(n);anchor.dataset.n=String(n);anchor.textContent=prompt(n);row.append(number,anchor);rows.append(row);
   }listenToQuestions();
@@ -69,7 +71,8 @@ function fixtureHtml(virtualRail=false,unhydratedFirst=false){
  </script>`;
 }
 
-const definitions=extractorFunctions(bundleConsole(path.resolve('src/extractors/coursera/entry.js')));
+const canonicalSource=bundleConsole(path.resolve('src/extractors/coursera/entry.js'));
+const definitions=extractorFunctions(canonicalSource);
 assert(definitions.has('collectCourseraAssessmentApiV61524'),'API helper must be linked into the canonical entry');
 const runtimeConstants={...config,...Object.fromEntries(Object.entries(apiConfig).filter(([name])=>name.startsWith('CTI_ASSESSMENT_API_')))};
 const runtime=Object.entries(runtimeConstants).map(([name,value])=>`const ${name}=${JSON.stringify(value)};`).join('\n')+'\n'+[...definitions.values()].join('\n');
@@ -78,7 +81,7 @@ execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',pa
 let mode='batch',active=0,maximumActive=0,requests=[];
 const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem')),cert:fs.readFileSync(path.join(scratch,'cert.pem'))},async(request,response)=>{
  const url=new URL(request.url,'https://www.coursera.org');
- if(!url.pathname.startsWith('/api/')){response.setHeader('Content-Type','text/html; charset=utf-8');response.end(fixtureHtml(url.searchParams.has('virtual'),url.searchParams.has('partial')));return;}
+ if(!url.pathname.startsWith('/api/')){response.setHeader('Content-Type','text/html; charset=utf-8');response.end(fixtureHtml(url.searchParams.has('virtual'),url.searchParams.has('partial'),url.searchParams.has('bodyParts')));return;}
  active++;maximumActive=Math.max(maximumActive,active);
  const pathname=decodeURIComponent(url.pathname),resource=pathname.split('/')[2];
  const requestedIds=url.searchParams.has('ids')?url.searchParams.get('ids').split(','):pathname.split('/')[3]?[pathname.split('/')[3]]:url.searchParams.has('id')?[url.searchParams.get('id')]:[];
@@ -109,7 +112,7 @@ try{
   const context=await browser.newContext({ignoreHTTPSErrors:true}),page=await context.newPage();
   const observedRequests=[];
   page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/'))observedRequests.push({url:request.url(),method:request.method()});});
-  page.on('pageerror',e=>errors.push(e.message));await page.goto(editorUrl+(nextMode==='virtual'?'?virtual=1':nextMode==='partial'?'?partial=1':''));await page.waitForFunction(()=>fixtureReady);
+  page.on('pageerror',e=>errors.push(e.message));await page.goto(editorUrl+(nextMode==='virtual'?'?virtual=1':nextMode==='body-virtual'?'?virtual=1&bodyParts=1':nextMode==='partial'?'?partial=1':''));await page.waitForFunction(()=>fixtureReady);
   assert(await page.evaluate(()=>performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/')).length>=2));
   const warmupRequests=observedRequests.map(request=>({...request}));
   assert.equal(warmupRequests.length,2);
@@ -219,6 +222,105 @@ try{
  assertRequests();assert(!JSON.stringify(partial).includes('writeAccessToken'));
  console.log(JSON.stringify({status:'PASS',mode:'99 API definitions plus one observed DOM key',questions:count,questionEditorClicks:1,chargedRendererObservations:partial.charged,scope:'Real canonical cycle preserves API provenance and only renders the missing-key question.'}));
  await partialCase.context.close();
+ for(const route of ['project','generic']){
+  const bodyCase=await openCase('body-virtual');
+  const initialPosition=await bodyCase.page.evaluate(()=>({rail:document.getElementById('rail').scrollTop,content:document.getElementById('content').scrollTop,body:document.scrollingElement.scrollTop,events:railScrollEvents}));
+  const observation=await bodyCase.page.evaluate(async({courseId,itemId,shell,route})=>{
+   const editor=document.getElementById('editor');
+   history.replaceState(null,'',route==='project'?shell.replace(/\/content\/edit$/,'/content/item/project/'+itemId):shell);
+   const shape={sidebars:document.querySelectorAll('[data-testid="item-layout-left-sidebar"]').length,
+    bodies:document.querySelectorAll('[data-testid="item-layout-content"]').length,
+    links:[...document.querySelectorAll('[data-testid="item-layout-left-sidebar"] a[href^="#"]')].filter(a=>String(a.getAttribute("href") || "").includes("~")).length,
+    parts:document.querySelectorAll('[data-testid^="assignment-part-"]').length};
+   const fp={id:itemId,name:'Untitled',type:'Assignment',typeName:'staffGraded',payload:{captureAttempts:1}};
+   const sessionCertificate=route==='generic'?createAssessmentApiSessionCertificateV61525(editor,fp,courseId,true,new Set()):null;
+   const certifiedItem=route==='project'&&assessmentApiRouteEditorCertifiedV61526(editor,fp,courseId,new Set());
+   if(!certifiedItem&&!sessionCertificate)throw Error('Observed full body-part inventory was not certified');
+   const result=await collectCourseraAssessmentByQuestionCycleV662(editor,fp,{certifiedItem,sessionCertificate,deadline:Date.now()+60000});
+   fp.payload.structuredAssessment=result.assessment;
+   return {result,payload:fp.payload,contract:captureContractV6150(fp),clicks:questionClicks,shape,
+    after:{rail:document.getElementById('rail').scrollTop,content:document.getElementById('content').scrollTop,body:document.scrollingElement.scrollTop,events:railScrollEvents}};
+  },{courseId,itemId,shell,route});
+  assertComplete(observation);assertRequests();assert.equal(requests.length,14);
+  assert.deepEqual(observation.shape,{sidebars:1,bodies:0,links:27,parts:100});
+  assert.equal(observation.result.authoringApi.inventoryDiscovery.method,'COMPLETE_OBSERVED_BODY_PART_INVENTORY');
+  assert.equal(observation.result.authoringApi.inventoryDiscovery.scrollSteps,0);assert.deepEqual(observation.after,initialPosition);
+  console.log(JSON.stringify({status:'PASS',mode:'unmarked full body inventory '+route,questions:count,questionEditorClicks:0,requests:requests.length,railScrollSteps:0,shape:observation.shape,scope:'27 observed live anchors bind 100 exact DOM group IDs and explicit part ordinals; remaining definitions are read by their returned versioned IDs.'}));
+  await bodyCase.context.close();
+ }
+ for(const defect of ['duplicate-id','duplicate-ordinal','mixed-root','missing-part','foreign-anchor','conflicting-internal-marker']){
+  const rejectedBody=await openCase('body-virtual');
+  const certified=await rejectedBody.page.evaluate(({courseId,itemId,shell,defect})=>{
+   const editor=document.getElementById('editor'),content=document.getElementById('content');history.replaceState(null,'',shell);
+   const last=content.querySelector('[data-testid="assignment-part-99"]');
+   if(defect==='duplicate-id')last.id=content.querySelector('[data-testid="assignment-part-0"]').id;
+   if(defect==='duplicate-ordinal')last.dataset.testid='assignment-part-0';
+   if(defect==='mixed-root')last.id='OtherSyntheticAssignment~foreignGroup';
+   if(defect==='missing-part')last.remove();
+   if(defect==='foreign-anchor')document.querySelector('#rows a[href^="#"]').href='#OtherSyntheticAssignment~foreignGroup';
+   if(defect==='conflicting-internal-marker'){const other=document.createElement('div');other.dataset.testid='item-layout-content';other.textContent='Unrelated body with a conflicting marker';editor.append(other);}
+   return Boolean(createAssessmentApiSessionCertificateV61525(editor,{id:itemId,type:'Assignment',typeName:'staffGraded'},courseId,true,new Set()));
+  },{courseId,itemId,shell,defect});
+  assert.equal(certified,false,'An invalid full observed body inventory received a certificate: '+defect);
+  assert.equal(requests.length,0);assert.equal(await rejectedBody.page.evaluate(()=>questionClicks.length),0);
+  console.log(JSON.stringify({status:'PASS',mode:'full unmarked body inventory declines '+defect,requests:0}));
+  await rejectedBody.context.close();
+ }
+ const swappedFullBody=await openCase('body-virtual');
+ const swappedObservation=await swappedFullBody.page.evaluate(async({courseId,itemId})=>{
+  const editor=document.getElementById('editor'),fp={id:itemId,type:'Assignment',typeName:'staffGraded',payload:{}},nativeFetch=fetch.bind(window);
+  window.fetch=async(url,options)=>{const response=await nativeFetch(url,options);
+   if(String(url).includes('authoringAssignmentMachineEvaluableQuestions')){
+    const content=document.getElementById('content');content.replaceWith(content.cloneNode(true));
+   }return response;
+  };
+  return collectCourseraAssessmentApiV61524(editor,fp,{courseId,certifiedItem:assessmentApiRouteEditorCertifiedV61526(editor,fp,courseId,new Set()),deadline:Date.now()+60000});
+ },{courseId,itemId});
+ assert.equal(swappedObservation.captured,false);assert.equal(swappedObservation.assessment,null);assert.equal(swappedObservation.rawEvidence,null);
+ assert.equal(swappedObservation.stopReason,'EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE');
+ console.log(JSON.stringify({status:'PASS',mode:'full unmarked body inventory rejects body replacement during definition reads'}));
+ await swappedFullBody.context.close();
+ for(const route of ['project','generic']){
+  const unmarkedCase=await openCase('batch');
+  const observation=await unmarkedCase.page.evaluate(async({courseId,itemId,shell,route})=>{
+   const editor=document.getElementById('editor'),content=document.getElementById('content');content.removeAttribute('data-testid');
+   history.replaceState(null,'',route==='project'?shell.replace(/\/content\/edit$/,'/content/item/project/'+itemId):shell);
+   const fp={id:itemId,name:'Untitled',type:'Assignment',typeName:'staffGraded',payload:{captureAttempts:1}};
+   const baseline=new Set();
+   const sessionCertificate=route==='generic'?createAssessmentApiSessionCertificateV61525(editor,fp,courseId,true,baseline):null;
+   const certifiedItem=route==='project'&&assessmentApiRouteEditorCertifiedV61526(editor,fp,courseId,baseline);
+   if(!certifiedItem&&!sessionCertificate)throw Error('Fresh associated unmarked body was not certified');
+   const layoutMethod=assessmentLayoutV61313(editor).method;
+   const result=await collectCourseraAssessmentByQuestionCycleV662(editor,fp,{certifiedItem,sessionCertificate,deadline:Date.now()+60000});
+   fp.payload.structuredAssessment=result.assessment;
+   let swappedBodyRejected=null;
+   if(sessionCertificate){content.replaceWith(content.cloneNode(true));swappedBodyRejected=!assessmentApiSessionStillCurrentV61525(editor,fp,courseId,sessionCertificate);}
+   return {result,payload:fp.payload,contract:captureContractV6150(fp),clicks:questionClicks,layoutMethod,swappedBodyRejected};
+  },{courseId,itemId,shell,route});
+  assertComplete(observation);assertRequests();assert.equal(requests.length,14);
+  assert.equal(observation.layoutMethod,'OBSERVED_OUTLINE_AND_ASSOCIATED_BODY');
+  if(route==='generic')assert.equal(observation.swappedBodyRejected,true,'An unmarked body replacement must invalidate its pinned session');
+  console.log(JSON.stringify({status:'PASS',mode:'associated unmarked '+route+' body',questions:count,questionEditorClicks:0,requests:requests.length,scope:'Live anchor/part identities and unique fresh regions certify the body without its optional test marker.'}));
+  await unmarkedCase.context.close();
+ }
+ for(const defect of ['foreign-part','duplicate-part','conflicting-marked-body','global-chrome','stale-part']){
+  const rejectedUnmarked=await openCase('batch');
+  const certified=await rejectedUnmarked.page.evaluate(({courseId,itemId,shell,defect})=>{
+   const editor=document.getElementById('editor'),content=document.getElementById('content'),baseline=new Set();content.removeAttribute('data-testid');
+   history.replaceState(null,'',shell);
+   const part=content.querySelector('[data-testid^="assignment-part-"]');
+   if(defect==='foreign-part'){const foreign=part.cloneNode(true);foreign.id='AnotherAssignment~foreignPart';document.body.append(foreign);}
+   if(defect==='duplicate-part')document.body.append(part.cloneNode(true));
+   if(defect==='conflicting-marked-body'){const marked=document.createElement('div');marked.dataset.testid='item-layout-content';marked.textContent='Unrelated visible body';document.body.append(marked);}
+   if(defect==='global-chrome')content.setAttribute('aria-label','Global navigation');
+   if(defect==='stale-part')baseline.add(part);
+   return Boolean(createAssessmentApiSessionCertificateV61525(editor,{id:itemId,type:'Assignment',typeName:'staffGraded'},courseId,true,baseline));
+  },{courseId,itemId,shell,defect});
+  assert.equal(certified,false,'An ambiguous or stale unmarked body received a certificate: '+defect);
+  assert.equal(requests.length,0);assert.equal(await rejectedUnmarked.page.evaluate(()=>questionClicks.length),0);
+  console.log(JSON.stringify({status:'PASS',mode:'unmarked body declines '+defect,requests:0}));
+  await rejectedUnmarked.context.close();
+ }
  const modalCase=await openCase('batch');
  await modalCase.page.evaluate(shell=>history.replaceState(null,'',shell),shell);
  const modal=await modalCase.page.evaluate(async({courseId,itemId,observedRequests,questionHash})=>{
@@ -254,6 +356,22 @@ try{
  assert.deepEqual(modal.sessionCurrent,{beforeHash:true,afterHash:true,replacedSidebar:false,replacedContent:false},'Post-API identity must allow only fragment navigation and reject same-URL pinned DOM replacements');
  console.log(JSON.stringify({status:'PASS',mode:'generic shell modal with pinned certificate and explicit GET observations',questions:count,questionEditorClicks:0,scope:'Real canonical cycle on unchanged course shell URI; performance URL strings alone do not certify item identity.'}));
  await modalCase.context.close();
+ const probeCase=await openCase('body-virtual');
+ const probeInitialScrolls=await probeCase.page.evaluate(()=>railScrollEvents);
+ await probeCase.page.evaluate(url=>history.replaceState(null,'',url),shell.replace(/\/content\/edit$/,'/content/item/project/'+itemId));
+ const probeSource=createCourseraAssessmentProbeScript(shell,canonicalSource);
+ const probeDownloads=[];probeCase.page.on('download',value=>probeDownloads.push(value));
+ await probeCase.page.evaluate(source=>(0,eval)(source),probeSource);
+ await probeCase.page.waitForFunction(()=>window.__CTI_COURSERA_ASSESSMENT_PROBE?.result,{},{timeout:30000});
+ const probe=await probeCase.page.evaluate(()=>({report:window.__CTI_COURSERA_ASSESSMENT_PROBE.result,clicks:questionClicks,scrolls:railScrollEvents,
+  panelsInBody:document.body.querySelectorAll('[aria-label="CTI current quiz API check"]').length}));
+ assert.equal(probe.report.status,'VERIFIED_CURRENT_QUIZ');assert.equal(probe.report.capturedCount,100);assert.equal(probe.report.keyCount,100);
+ assert.equal(probe.report.inventoryMethod,'COMPLETE_OBSERVED_BODY_PART_INVENTORY');
+ assert.equal(probe.report.requests,14);assert.equal(probe.report.wholeCourseVerified,false);
+ assert.deepEqual(probe.clicks,[]);assert.equal(probe.scrolls,probeInitialScrolls);assert.equal(probeDownloads.length,0);assert.equal(probe.panelsInBody,0);
+ assert(!/writeAccessToken|SYNTHETIC_SECRET|SyntheticAssignment|question_/.test(JSON.stringify(probe.report)));
+ console.log(JSON.stringify({status:'PASS',mode:'copied current-quiz API check',questions:100,keys:100,requests:14,scope:'Actual Console builder and canonical API on unmarked100-part/27-link editor; aggregate-only diagnostics, no click/reload/download.'}));
+ await probeCase.context.close();
  for(const defect of ['reused-layout','second-visible-layout']){
   const rejectedBuilder=await openCase('batch');
   await rejectedBuilder.page.evaluate(shell=>history.replaceState(null,'',shell),shell);

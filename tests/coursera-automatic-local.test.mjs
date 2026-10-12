@@ -173,3 +173,18 @@ test('saved question ordinals and IDs, rather than transient parser counts, esta
  plan=advanceAutomaticLocalCaptureV61517(plan,result,true,false,true,300);assert.equal(plan.stalled,0);
  const stable=advanceAutomaticLocalCaptureV61517(plan,result,true,false,true,400);assert.equal(stable.stalled,1);
 });
+
+test('terminal run reentry reports the saved reason before starting acquisition',async()=>{
+ for(const state of ['FINISHED','REJECTED']){
+  const messages=[],window={opener:{postMessage:(message,origin)=>messages.push({message,origin})}};
+  window.top=window;
+  const command=JSON.parse(createAutomaticLocalCourseraCommand(shell,courseraSource,'terminal_fixture_token_123',undefined,{controllerOrigin:'https://cti-hardening.pages.dev'}));
+  vm.runInNewContext(command.args.source,{window,URL,location:new URL(shell),console,document:{visibilityState:'visible'},
+   localStorage:{getItem:key=>key==='__CTI_AUTOMATIC_LOCAL_V61517_terminal_fixture_token_123'?JSON.stringify({state,reason:'LOCAL_CAPTURE_NO_PROGRESS'}):null},
+   fetch:()=>{throw Error('Terminal state must not start acquisition')}});
+  await Promise.resolve();
+  assert.equal(messages.length,1);assert.equal(messages[0].message.event,'ERROR');
+  assert.match(messages[0].message.message,/LOCAL_CAPTURE_NO_PROGRESS/);
+  assert.match(messages[0].message.message,/checkpoints remain available/);
+ }
+});

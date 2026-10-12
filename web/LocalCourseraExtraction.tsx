@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {startCourseraLocalSupervisor,type CourseraSupervisorStatus} from '../src/domain/coursera-local-supervisor.ts';
+import {createCourseraAssessmentProbeScript} from '../src/domain/coursera-assessment-probe.ts';
 import {createCourseraResponseSampleScript} from '../src/domain/coursera-response-sample.ts';
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
 import {
@@ -106,16 +107,31 @@ export default function LocalCourseraExtraction({
     });
   }
 
-  async function copySavedProgressCommand() {
+  async function copySavedProgressCommand(consoleOnly=false) {
     await act("Preparing saved-progress export", async () => {
       const current = await currentExtractor();
-      const command = createSavedCourseraCheckpointExportCommand(shellUrl, current.script);
+      const protocolCommand = createSavedCourseraCheckpointExportCommand(shellUrl, current.script);
+      const command=consoleOnly?JSON.parse(protocolCommand).args.expression:protocolCommand;
       setAutomaticCommand(command);
       try {
         await navigator.clipboard.writeText(command);
-        setCopyStatus("Saved-progress export command copied. Close DevTools, reload the matching Coursera authoring shell, reopen Protocol monitor, turn Record off, clear its log and paste into the bottom command input. This exports saved observations without opening item editors.");
+        setCopyStatus(consoleOnly?"Saved-progress Console script copied. Stop the managed run, then paste into the normal Console of the matching Coursera tab. It exports saved checkpoints without opening quizzes.":"Saved-progress export command copied. Close DevTools, reload the matching Coursera authoring shell, reopen Protocol monitor, turn Record off, clear its log and paste into the bottom command input. This exports saved observations without opening item editors.");
       } catch {
-        setCopyStatus("Copy the complete command below. Close DevTools, reload Coursera and paste into Protocol monitor with Record off to export saved progress.");
+        setCopyStatus(consoleOnly?"Copy the complete script below and paste into the matching Coursera tab’s normal Console. This reads saved checkpoints without opening quizzes.":"Copy the complete command below. Close DevTools, reload Coursera and paste into Protocol monitor with Record off to export saved progress.");
+      }
+    });
+  }
+
+  async function copyCurrentQuizCheck(){
+    await act('Preparing current quiz API check',async()=>{
+      const current=await currentExtractor();
+      const source=createCourseraAssessmentProbeScript(shellUrl,current.script);
+      setAutomaticCommand(source);
+      try{
+        await navigator.clipboard.writeText(source);
+        setCopyStatus('Current quiz API check copied. Stop the managed run, open one quiz normally, and paste into its normal Console. This check runs for up to two minutes and makes no question clicks or page reloads. Copy its diagnostic result when it finishes.');
+      }catch{
+        setCopyStatus('Copy the complete quiz-check script below. Paste into the normal Console of one open quiz in this course, with the full extractor stopped.');
       }
     });
   }
@@ -216,8 +232,8 @@ export default function LocalCourseraExtraction({
         <p>CTI stays open as the controller while Coursera captures the course.
           Supported quizzes use direct question-definition reads after opening the editor once.
           CTI checks the full question inventory and keys before accepting that capture.
-          It can reopen an unresponsive Coursera tab and resume saved work.
-          Chrome must preserve the connection between these tabs.</p>
+          It can reopen an unresponsive Coursera tab. Saved work resumes only if Chrome retains the registered command.
+          CTI stops recovery if the extractor does not reconnect. Keep the connection between these tabs open.</p>
         <p className="hint">Close any earlier extraction tab first. Open the managed tab here,
           copy its command, and paste once in its Protocol monitor with Record off and the log cleared.
           Keep this Extract page and Coursera DevTools open.</p>
@@ -240,6 +256,16 @@ export default function LocalCourseraExtraction({
           {managedStatus.note && <p>{managedStatus.note}</p>}
           <p>{managedStatus.count || (managedStatus.completeItems+' items complete · '+managedStatus.savedQuestions+' question observations saved')} · {managedStatus.recoveries} automatic recoveries</p>
         </div>}
+      </div>
+
+      <div className="section-divider">
+        <h3>Check one open quiz</h3>
+        <p>Verify direct question reads before another full-course run. Stop the managed run,
+          open one quiz normally in Coursera, and paste this check into its normal Console.
+          It runs for up to two minutes without question clicks or reloads.
+          Copy its small diagnostic result afterward; this is not a course capture.</p>
+        <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
+          onClick={()=>void copyCurrentQuizCheck()}>Copy current quiz API check</button>
       </div>
 
       <details className="section-divider">
@@ -349,6 +375,10 @@ export default function LocalCourseraExtraction({
           onClick={() => void copySavedProgressCommand()}>
           Copy saved-progress export command
         </button>
+        <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive}
+          onClick={() => void copySavedProgressCommand(true)}>
+          Copy saved-progress Console script
+        </button>
       </div>
       <p className="hint">
         To test the whole course again, use <strong>Copy fresh full-course command</strong>.
@@ -359,7 +389,7 @@ export default function LocalCourseraExtraction({
         JSON files for comparison.
       </p>
       <p className="hint">
-        After a crash, <strong>Copy saved-progress export command</strong> recovers
+        After a crash, <strong>Copy saved-progress Console script</strong> runs in the refreshed Coursera tab’s normal Console and recovers
         this course's saved item and question observations into a JSON without
         opening editors. It keeps checkpoints available for the regular resume
         command. A saved-progress export shows unfinished items explicitly.

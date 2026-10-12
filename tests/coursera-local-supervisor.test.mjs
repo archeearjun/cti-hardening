@@ -9,7 +9,7 @@ function fixture(){
  let listener,tick,now=1000;const navigations=[],acks=[],statuses=[];
  const child={closed:false,location:{set href(value){navigations.push(value)}},postMessage:(value,origin)=>acks.push({value,origin})};
  const host={addEventListener:(name,fn)=>listener=fn,removeEventListener:()=>listener=null,setInterval:fn=>{tick=fn;return 1},clearInterval:()=>{tick=null}};
- const manager=startCourseraLocalSupervisor(host,child,shell,token,status=>statuses.push(status),{timeoutMs:100,intervalMs:10,now:()=>now});
+ const manager=startCourseraLocalSupervisor(host,child,shell,token,status=>statuses.push(status),{timeoutMs:100,reconnectTimeoutMs:100,intervalMs:10,now:()=>now});
  return {child,manager,navigations,acks,statuses,advance:ms=>{now+=ms;tick?.()},
   send:(data={},origin='https://www.coursera.org',source=child)=>listener?.({origin,source,data:{kind:'CTI_LOCAL_CAPTURE_STATUS_V1',courseId:'Supervisor_fixture_123',token,event:'HEARTBEAT',...data}})};
 }
@@ -26,7 +26,7 @@ test('a supervisor waits for verified pairing and rejects unrelated windows, ori
 test('durable progress resets repeated-failure protection while repeated identical receipts do not',()=>{
  const f=fixture();f.send({event:'READY'});f.advance(101);f.send({event:'READY'});
  f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:5});assert.equal(f.manager.getStatus().failuresWithoutProgress,0);
- f.advance(101);f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:5});assert.equal(f.manager.getStatus().failuresWithoutProgress,1);
+ f.advance(101);f.send({event:'READY'});f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:5});assert.equal(f.manager.getStatus().failuresWithoutProgress,1);
  f.advance(101);f.send({event:'READY'});f.advance(101);f.send({event:'READY'});f.advance(101);
  assert.equal(f.manager.getStatus().state,'STOPPED');assert.equal(f.navigations.length,4);
 });
@@ -49,4 +49,24 @@ test('managed commands require a precise secure controller origin while regular 
  assert(!JSON.parse(createAutomaticLocalCourseraCommand(shell,courseraSource,token)).args.source.includes('"controllerOrigin":'));
  for(const origin of ['https://cti-hardening.pages.dev/path','http://untrusted.test','https://user:pass@cti-hardening.pages.dev'])
   assert.throws(()=>createAutomaticLocalCourseraCommand(shell,courseraSource,token,undefined,{controllerOrigin:origin}),/controller origin/);
+});
+
+
+test('a reopened tab without a new READY stops instead of repeatedly claiming recovery',()=>{
+ const f=fixture();f.send({event:'READY'});f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:79});
+ f.advance(101);assert.equal(f.manager.getStatus().state,'RECOVERING');
+ f.send({event:'HEARTBEAT'});assert.equal(f.manager.getStatus().state,'RECOVERING','Old receipts cannot certify a new registered document');
+ f.advance(101);
+ assert.equal(f.manager.getStatus().state,'STOPPED');assert.equal(f.navigations.length,1);
+ assert.equal(f.manager.getStatus().savedQuestions,79);
+ assert.match(f.manager.getStatus().message,/extractor did not reconnect/);
+ assert.match(f.manager.getStatus().message,/79 saved question observations/);
+ f.advance(10000);assert.equal(f.navigations.length,1);
+});
+
+test('a timely READY after reopening resumes normal capture and retains saved counts',()=>{
+ const f=fixture();f.send({event:'READY'});f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:79});
+ f.advance(101);f.send({event:'READY'});assert.equal(f.manager.getStatus().state,'RUNNING');
+ f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:80});assert.equal(f.manager.getStatus().savedQuestions,80);
+ f.advance(99);assert.equal(f.navigations.length,1);
 });

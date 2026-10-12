@@ -1,5 +1,51 @@
 # Coursera extractor runtime stability
 
+## v6.15.27: observed body inventories and bounded recovery
+
+The next live run failed with 79 saved question observations, zero finished
+visits and two recoveries. A focused read of a normally opened quiz then showed
+one sidebar, no `item-layout-content` marker, 27 compound question links and
+100 connected body parts. All 100 parts had unique compound group IDs and explicit
+`assignment-part-0` through `assignment-part-99` ordinals. The API certificate
+had required the missing content marker even though the existing DOM observer
+already supported that body layout. The API inventory had also treated the
+small virtual sidebar window as the only source of ordered group identities.
+
+The certificate now accepts the existing observed sidebar/body association
+with strict uniqueness and freshness checks. A complete body inventory can
+supply the exact observed group IDs and explicit ordinals without scrolling
+the sidebar. It must cover the declared count, contain one assignment root,
+and agree with current sidebar identities. Unhydrated parts carry no invented
+prompt label. Definitions still follow exact returned versioned references;
+keys still require an exact `correctOption` to option-ID relation. Reused or
+replaced bodies, duplicate IDs or ordinals, foreign groups and competing layouts
+cannot certify a complete capture.
+
+API checkpoints now include their sanitized original definitions and a bounded
+diagnostic receipt before continuing. The receipt preserves the extractor
+version, certification flags, stop codes and request/error counts, excluding
+raw question text, URLs and credentials. A registered command encountering an
+already stopped durable run reports that state instead of silently returning.
+
+After recovery navigation, the supervisor waits for a new `READY` acknowledgement.
+If it does not arrive within one minute for a visible tab or three minutes for
+a hidden tab, recovery stops with saved-progress instructions. It does not keep
+reopening a normal course outline after Chrome loses the registered command.
+
+CTI provides **Copy current quiz API check** for a normally open quiz. Its
+Console script runs only the maintained API reader for up to two minutes, with
+no question clicks, reloads, full-course crawl or checkpoint writes. The copied
+result contains aggregate definition/key counts and error codes, not raw
+question content. **Copy saved-progress Console script** separately recovers
+stored observations through the existing read-only export path.
+
+Native HTTPS fixtures reproduce the reported unmarked layout with 27 compound
+question links and 100 body parts:
+100 questions and explicit keys, fourteen GETs, zero question clicks and zero
+sidebar scrolling. They also reject ambiguous inventories and body replacements.
+These checks establish the corrected code path. The user's authenticated
+whole-course extraction remains unverified.
+
 ## v6.15.26: cached editor reads and meaningful restart progress
 
 A live v6.15.25 run remained on the first 100-question quiz after 71 minutes.

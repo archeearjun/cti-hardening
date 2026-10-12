@@ -748,6 +748,37 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
     } catch (_) {
       return false;
     }
+    // Keep the acquisition decision after a renderer restart. Only explicit
+    // codes and bounded counts belong in this receipt; API bodies, question
+    // labels, URLs and credentials remain outside the diagnostic projection.
+    const safeCode = value => {
+      if (!value) return "";
+      return /^(?:EDITOR_NOT_CERTIFIED|SESSION_EDITOR_IDENTITY_NOT_VERIFIED|EDITOR_OUTLINE_UNAVAILABLE|UNSUPPORTED_DECLARED_PART_COUNT|AMBIGUOUS_OUTLINE_IDENTITY|INCOMPLETE_LIVE_OUTLINE_INVENTORY|COMPLETE_LIVE_OUTLINE_INVENTORY|INCOMPLETE_OBSERVED_BODY_INVENTORY|AMBIGUOUS_OBSERVED_BODY_INVENTORY|COMPLETE_OBSERVED_BODY_PART_INVENTORY|SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED|EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY|EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE|AUTHORING_API_AUTHENTICATION_FAILED|AUTHORING_API_RATE_LIMITED|ITEM_API_BYTE_LIMIT|API_RESPONSE_BYTE_LIMIT|ITEM_API_DEADLINE|COMPLETE_ITEM_BOUND_AUTHORING_API|AUTHORING_API_EVIDENCE_INCOMPLETE|API_REQUEST_FAILED|API_REQUEST_TIMEOUT|UNEXPECTED_API_REDIRECT|UNEXPECTED_API_MIME|RATE_LIMITED|INVALID_API_ENVELOPE|AMBIGUOUS_API_RESPONSE_IDENTITY|AUTHORING_API_COMPLETE|STABLE_EMPTY_EDITOR|STABLE_TEXT_BLOCK_ONLY_EDITOR|MOUNTED_QUESTIONS_COMPLETE|LOCAL_ASSESSMENT_CHECKPOINT_YIELD|TIME_BUDGET|NO_FURTHER_QUESTIONS|COMPLETE|HTTP_[1-5]\d\d)$/.test(String(value))
+        ? String(value) : "UNRECOGNIZED_DIAGNOSTIC_REASON";
+    };
+    const safeCount = (value, maximum = 20000) =>
+      Number.isFinite(Number(value)) ? Math.min(maximum, Math.max(0, Math.floor(Number(value)))) : 0;
+    const api = diag && diag.authoringAssessmentApi;
+    const apiDiagnostic = api ? {
+      requests: safeCount(api.requests),
+      maxConcurrentRequests: safeCount(api.maxConcurrentRequests, 100),
+      bytes: safeCount(api.bytes, 1024 * 1024 * 1024),
+      rateLimitRetries: safeCount(api.rateLimitRetries),
+      missingGroups: safeCount(Array.isArray(api.missingGroups) ? api.missingGroups.length : 0),
+      missingDefinitions: safeCount(Array.isArray(api.missingDefinitions) ? api.missingDefinitions.length : 0),
+      unsupportedGroups: safeCount(Array.isArray(api.unsupportedGroups) ? api.unsupportedGroups.length : 0),
+      failures: (Array.isArray(api.failures) ? api.failures : []).slice(0, 40).map(failure => ({
+        resource: /^(?:authoringAssignmentQuestionGroups\.v1|authoringAssignmentMachineEvaluableQuestions\.v1)$/.test(String(failure?.resource || "")) ? String(failure.resource) : "",
+        status: safeCount(failure?.status, 599),
+        reason: safeCode(failure?.reason),
+      })),
+      inventoryDiscovery: api.inventoryDiscovery ? {
+        method: /^(?:OBSERVED_VIRTUAL_RAIL_SCROLL|COMPLETE_MOUNTED_RAIL|COMPLETE_OBSERVED_BODY_PART_INVENTORY)$/.test(String(api.inventoryDiscovery.method || "")) ? String(api.inventoryDiscovery.method) : "",
+        scrollSteps: safeCount(api.inventoryDiscovery.scrollSteps, 1000),
+        elapsedMs: safeCount(api.inventoryDiscovery.elapsedMs, 900000),
+        restored: api.inventoryDiscovery.restored === true,
+      } : null,
+    } : null;
     const record = {
       key: runKey + "|" + String(fp.id),
       runKey,
@@ -762,6 +793,13 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
             completed: Boolean(diag.completed),
             captureContract:
               diag.captureContract || captureContractSummaryV6150(fp),
+            extractorVersion: /^v\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(diag.version || "")) ? String(diag.version) : "",
+            strongIdentitySeed: diag.strongIdentitySeed === true,
+            routeEditorCertified: diag.routeEditorCertified === true,
+            sessionEditorCertified: diag.sessionEditorCertified === true,
+            authoringAssessmentApiStopReason: safeCode(diag.authoringAssessmentApiStopReason),
+            questionCycleStopReason: safeCode(diag.questionCycleStopReason),
+            authoringAssessmentApi: apiDiagnostic,
           }
         : null,
     };
