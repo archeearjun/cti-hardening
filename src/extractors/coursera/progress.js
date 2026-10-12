@@ -5,7 +5,7 @@ export function createCtiProgressPanelV1(title, options) {
     const started = Date.now();
     const requestedOverallStart=Number(options.overallStartedAt);
     const overallStarted=Number.isFinite(requestedOverallStart) && requestedOverallStart>0 && requestedOverallStart<=started?requestedOverallStart:started;
-    const state = { phase:'Starting', detail:'', count:'', completed:null, total:null, outcome:'running', startedAt:new Date(started).toISOString() };
+    const state = { phase:'Starting', detail:'', note:'', count:'', completed:null, total:null, outcome:'running', startedAt:new Date(started).toISOString() };
     let host, root, timer, finished = 0, phaseStarted = started, updated = started, minimized = false;
     const durations = {};
     const key = options.key || '__CTI_PROGRESS_PANEL__';
@@ -35,7 +35,7 @@ export function createCtiProgressPanelV1(title, options) {
       node('bar').hidden = !determinate;
       if (determinate) { node('bar').max = state.total; node('bar').value = Math.max(0, Math.min(state.total, state.completed)); }
       node('foot').textContent = finished ? (options.finishedNote || 'Capture completion is separate from content verification. Review the JSON for evidence gaps.') :
-        'Elapsed time is shown; remaining time is not estimated. Editor counts are not time estimates: large quizzes take longer than readings.';
+        state.note || 'Elapsed time is shown; remaining time is not estimated. Editor counts are not time estimates: large quizzes take longer than readings.';
       const steps = options.stages || [];
       const current = steps.indexOf(state.phase);
       root.querySelectorAll('[data-step]').forEach((el, i) => {
@@ -52,6 +52,7 @@ export function createCtiProgressPanelV1(title, options) {
           phaseStarted = Date.now();
           state.completed = state.total = null;
           state.count = '';
+          state.note = '';
         }
         Object.assign(state, patch);
         updated = Date.now();

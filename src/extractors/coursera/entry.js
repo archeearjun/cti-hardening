@@ -1,5 +1,5 @@
 import { createCtiProgressPanelV1 } from "./progress.js";
-import { collectCourseraAssessmentApiV61524, createAssessmentApiSessionCertificateV61525, assessmentApiSessionStillCurrentV61525 } from "./assessment-api.js";
+import { collectCourseraAssessmentApiV61524, createAssessmentApiSessionCertificateV61525, assessmentApiSessionStillCurrentV61525, assessmentApiRouteEditorCertifiedV61526 } from "./assessment-api.js";
 import { automaticLocalCaptureNeedsContinuationV61519, advanceAutomaticLocalCaptureV61517 } from "./automatic-local.js";
 import { createLocalCaptureSessionV61514, offerCheckpointContinuationV61514, validateSavedCaptureResumeV61515 } from "./runtime.js";
 import { collectOutlineTimeEstimate } from "./time-estimates.js";
@@ -24,7 +24,7 @@ import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS, CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61525() {
+javascript:(async function ctiCourseraCaptureV61526() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -52,7 +52,7 @@ javascript:(async function ctiCourseraCaptureV61525() {
     let display={};try{display=ctiProgress?.snapshot() || {};}catch(_){}
     try{window.opener.postMessage(Object.assign({kind:'CTI_LOCAL_CAPTURE_STATUS_V1',event,
       token:automaticLocalConfig.token,courseId:automaticLocalConfig.courseId,visibility:document.visibilityState,
-      phase:String(display.phase || 'Starting'),count:String(display.count || ''),
+      phase:String(display.phase || 'Starting'),count:String(display.count || ''),note:String(display.note || ''),
       completeItems:supervisorSnapshot.completeItems,savedQuestions:supervisorSnapshot.savedQuestions,
       itemId:supervisorSnapshot.itemId},extra || {}),automaticLocalConfig.controllerOrigin);}catch(_){}
   }
@@ -180,12 +180,12 @@ javascript:(async function ctiCourseraCaptureV61525() {
     if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
     reportLocalSupervisorV61522('ERROR',{message:'Reload Coursera before starting another batch in this document.'});
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61525.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61526.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.25"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.26"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -195,7 +195,7 @@ javascript:(async function ctiCourseraCaptureV61525() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.25"
+          finishedAt: Date.now(), version: "v6.15.26"
         };
       }
     } catch (e) {}
@@ -669,6 +669,7 @@ javascript:(async function ctiCourseraCaptureV61525() {
     });
     stats.authoringApi=apiProbe.diagnostics;
     stats.authoringApiStopReason=apiProbe.stopReason;
+    if(typeof options.onApiDiagnostic==='function')options.onApiDiagnostic(apiProbe.stopReason,apiProbe.diagnostics);
     if(/EDITOR_IDENTITY_CHANGED_DURING_API_(?:CAPTURE|DISCOVERY)|SESSION_EDITOR_IDENTITY_NOT_VERIFIED/.test(apiProbe.stopReason) ||
       !apiSessionCurrent() ||
       options.certifiedItem===true && !isItemSpecificCourseRoute(location.href,fp,apiCourseId)) {
@@ -707,8 +708,8 @@ javascript:(async function ctiCourseraCaptureV61525() {
         apiProbe.stopReason==='INCOMPLETE_LIVE_OUTLINE_INVENTORY'?'The full question list was unavailable':
         apiProbe.stopReason==='ITEM_API_DEADLINE'?'Question-data reads reached their time limit':
         'Some question definitions or keys could not be verified directly';
-      ctiProgressUpdateV1({phase:'Reading quiz in editor',detail:String(fp.name || fp.id)+' · '+fallbackReason+
-        '; continuing with editor observations.'});
+      ctiProgressUpdateV1({phase:'Reading quiz in editor',note:fallbackReason+' ('+apiProbe.stopReason+'). Using editor observations.',
+        detail:String(fp.name || fp.id)+' · '+fallbackReason+'; continuing with editor observations.'});
     }
 
     // Prefer the already loaded, item-scoped model before repeated rendering.
@@ -1039,8 +1040,8 @@ javascript:(async function ctiCourseraCaptureV61525() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.25",
-      buildId: "v6.15.25-authoring-question-api-modal-20261012",
+      version: "v6.15.26",
+      buildId: "v6.15.26-authoring-question-api-progress-20261012",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1583,7 +1584,9 @@ javascript:(async function ctiCourseraCaptureV61525() {
             strongIdentitySeed && /visible-attribute-id|visible-route-id|stable-id/i.test(identityReason),assessmentSessionBaseline);
           const questionBaseline=new Map(resumeQuestions.map(q=>[q.courseraQuestionId,q.observedAtMs]));
           const observedThisVisit=new Set();let reportedQuestions=0;
+          const routeEditorCertified=assessmentApiRouteEditorCertifiedV61526(openedSurface.root,fp,courseOrBranchId,assessmentSessionBaseline);
           const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {
+            onApiDiagnostic:(reason,diagnostics)=>{diag.authoringAssessmentApiStopReason=String(reason);diag.authoringAssessmentApi=diagnostics;},
             observedRequests:recorder.observedAssessmentGetsFor(fp),
             sessionCertificate:apiSessionCertificate,
             seedAssessment:fp.payload.assessmentCaptureInProgress?.assessment || fp.payload.structuredAssessment,
@@ -1596,14 +1599,14 @@ javascript:(async function ctiCourseraCaptureV61525() {
               if(saved===true){
                 meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;
                 diag.questionCheckpointWrites=Number(diag.questionCheckpointWrites || 0)+1;
-                diag.questionCheckpointCount=assessment.questionCount;
+                diag.questionCheckpointCount=snapshot.payload.assessmentCaptureInProgress.assessment.questionCount;
                 // Preserve the prior high-water mark if another interruption
                 // happens before every saved question has been rediscovered.
               }else{
                 meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
                 diag.questionCheckpointErrors=Number(diag.questionCheckpointErrors || 0)+1;
               }
-              if(saved){supervisorSnapshot.savedQuestions=assessment.questionCount;supervisorSnapshot.itemId=String(fp.id);reportLocalSupervisorV61522('PROGRESS');}
+              if(saved){supervisorSnapshot.savedQuestions=snapshot.payload.assessmentCaptureInProgress.assessment.questionCount;supervisorSnapshot.itemId=String(fp.id);reportLocalSupervisorV61522('PROGRESS');}
               if(options.localSession)options.localSession.checkpointWritten(saved);
               if(options.allowQuestionYield && options.localSession){
                 for(const q of assessment.questions || [])if(q.courseraQuestionId &&
@@ -1615,11 +1618,11 @@ javascript:(async function ctiCourseraCaptureV61525() {
                 reportedQuestions=observedThisVisit.size;
               }
               ctiProgressUpdateV1({count:'Item '+(index+1)+'/'+targets.length+' in progress · '+index+' visits finished · '+
-                (saved?assessment.questionCount+' question observations saved':'local question save unavailable')});
+                (saved?snapshot.payload.assessmentCaptureInProgress.assessment.questionCount+' question observations saved':'local question save unavailable')});
               return saved;
             }:null,
             deadline:Math.min(itemAttemptDeadline,assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1,declaredForBudget)),
-            certifiedItem:strongIdentitySeed && isItemSpecificCourseRoute(location.href,fp,courseOrBranchId)});
+            certifiedItem:routeEditorCertified || strongIdentitySeed && isItemSpecificCourseRoute(location.href,fp,courseOrBranchId)});
           if(apiSessionCertificate && !assessmentApiSessionStillCurrentV61525(openedSurface.root,fp,courseOrBranchId,apiSessionCertificate)) {
             cycle.itemIdentityChanged=true;cycle.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';
           }
@@ -1904,7 +1907,7 @@ javascript:(async function ctiCourseraCaptureV61525() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.25", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.26", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
   ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
     "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
     "Finding the course and its authoring outline."});
@@ -1920,7 +1923,7 @@ javascript:(async function ctiCourseraCaptureV61525() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.25", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.26", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1928,8 +1931,8 @@ javascript:(async function ctiCourseraCaptureV61525() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.25",
-      buildId: "v6.15.25-authoring-question-api-modal-20261012",
+      extractor: "CTI Item Fidelity Extractor v6.15.26",
+      buildId: "v6.15.26-authoring-question-api-progress-20261012",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -2343,7 +2346,7 @@ javascript:(async function ctiCourseraCaptureV61525() {
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   reportLocalSupervisorV61522(automaticLocalReload?'YIELD':'FINISHED',{complete:accounting.complete===true});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61525.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61526.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;

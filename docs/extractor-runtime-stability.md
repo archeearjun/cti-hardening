@@ -1,5 +1,32 @@
 # Coursera extractor runtime stability
 
+## v6.15.26: cached editor reads and meaningful restart progress
+
+A live v6.15.25 run remained on the first 100-question quiz after 71 minutes.
+Its corrected structural diagnostic showed the expected exact project-item
+route, one editor sidebar and compound authoring group IDs. The API adapter
+unnecessarily required both known resource families to be observed again in
+each item session. A cached or delayed request could therefore select DOM
+fallback for the entire visit. The adapter now has fixed same-origin GET bases
+for the two empirically verified resources. No group or definition ID is
+constructed from a question number: live outline IDs and returned versioned
+references still supply every identity, with full coverage rechecked afterward.
+
+The actual caller can certify a fresh unique editor on the exact course/item
+route independently of outline-control confidence. Generic-address modals still
+require the exact item-ID activation and pinned fresh regions. Fallback reasons
+remain visible while question counters update and are saved before DOM traversal.
+Checkpoint status reports the durable union rather than a smaller rediscovered
+prefix. Automatic continuation uses monotone evidence high-water marks, excluding
+attempts, restoration flags and temporary count regressions; three batches without
+new durable evidence stop the run with partial observations retained.
+
+Native browser checks cover cached definitions, exact project routes, full
+controller orchestration, preserved keys and zero question clicks. These are
+synthetic authenticated-origin fixtures, not a claim that the private 167-item
+course has completed.
+
+
 ## v6.15.25: quiz modals that keep the course-shell address
 
 Coursera can show an assignment while its address remains `/content/edit`.

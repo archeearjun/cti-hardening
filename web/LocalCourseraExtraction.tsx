@@ -237,6 +237,7 @@ export default function LocalCourseraExtraction({
         {managedStatus && <div role="status" aria-live="polite" className="notice">
           <strong>{managedStatus.state==='RECOVERING'?'Recovering Coursera':managedStatus.phase}</strong>
           <p>{managedStatus.message}</p>
+          {managedStatus.note && <p>{managedStatus.note}</p>}
           <p>{managedStatus.count || (managedStatus.completeItems+' items complete · '+managedStatus.savedQuestions+' question observations saved')} · {managedStatus.recoveries} automatic recoveries</p>
         </div>}
       </div>

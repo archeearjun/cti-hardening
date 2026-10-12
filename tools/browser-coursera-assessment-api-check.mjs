@@ -269,7 +269,7 @@ try{
   console.log(JSON.stringify({status:'PASS',mode:'modal certificate builder declines '+defect}));
   await rejectedBuilder.context.close();
  }
- for(const defect of ['stale-sidebar','wrong-item','wrong-course','post-method','performance-only']){
+ for(const defect of ['stale-sidebar','wrong-item','wrong-course']){
   const modalDecline=await openCase('batch');
   await modalDecline.page.evaluate(shell=>history.replaceState(null,'',shell),shell);
   const result=await modalDecline.page.evaluate(async({courseId,itemId,observedRequests,defect})=>{
@@ -279,14 +279,27 @@ try{
    if(defect==='stale-sidebar')sidebar.replaceWith(sidebar.cloneNode(true));
    if(defect==='wrong-item')sessionCertificate.itemId='different-item';
    if(defect==='wrong-course')sessionCertificate.courseId='different-course';
-   if(defect==='post-method')observedRequests=observedRequests.map(request=>({...request,method:'POST'}));
-   if(defect==='performance-only')observedRequests=[];
    return collectCourseraAssessmentApiV61524(document.getElementById('editor'),{id:itemId,type:'Assignment',typeName:'staffGraded',payload:{}},{certifiedItem:false,courseId,observedRequests,sessionCertificate,deadline:Date.now()+30000});
   },{courseId,itemId,observedRequests:modalDecline.warmupRequests,defect});
   assert.equal(result.captured,false);assert.equal(requests.length,0,'An invalid modal certificate issued acquisition requests');
   assert.equal(await modalDecline.page.evaluate(()=>questionClicks.length),0);
   console.log(JSON.stringify({status:'PASS',mode:'modal decline '+defect,stopReason:result.stopReason}));
   await modalDecline.context.close();
+ }
+ for(const provenance of ['post-method','performance-only']){
+  const cachedModal=await openCase('batch');await cachedModal.page.evaluate(shell=>history.replaceState(null,'',shell),shell);
+  const result=await cachedModal.page.evaluate(async({courseId,itemId,observedRequests,provenance})=>{
+   const fp={id:itemId,type:'Assignment',typeName:'staffGraded',payload:{}};
+   const sessionCertificate=createAssessmentApiSessionCertificateV61525(document.getElementById('editor'),fp,courseId,true,new Set());
+   if(provenance==='post-method')observedRequests=observedRequests.map(request=>({...request,method:'POST'}));
+   else observedRequests=[];
+   return collectCourseraAssessmentApiV61524(document.getElementById('editor'),fp,{certifiedItem:false,courseId,observedRequests,sessionCertificate,deadline:Date.now()+30000});
+  },{courseId,itemId,observedRequests:cachedModal.warmupRequests,provenance});
+  assert.equal(result.captured,true);assert.equal(result.rawEvidence.identityMethod,'SESSION_EXACT_ITEM_CONTROL');
+  assert.equal(result.rawEvidence.resources.groups.source,'CAPTURE_ADAPTER');assert.equal(result.rawEvidence.resources.questions.source,'CAPTURE_ADAPTER');
+  assertRequests();assert.equal(await cachedModal.page.evaluate(()=>questionClicks.length),0);
+  console.log(JSON.stringify({status:'PASS',mode:'cached modal uses verified read adapter '+provenance,questions:count,questionEditorClicks:0}));
+  await cachedModal.context.close();
  }
  const unobservedCase=await openCase('virtual');
  const unobserved=await unobservedCase.page.evaluate(async({courseId,itemId})=>{
@@ -295,10 +308,11 @@ try{
   const result=await collectCourseraAssessmentApiV61524(document.getElementById('editor'),{id:itemId,type:'Assignment',typeName:'staffGraded',payload:{}},{certifiedItem:true,courseId,deadline:Date.now()+30000});
   return {result,before,after:{scrollEvents:railScrollEvents,position:document.getElementById('rail').scrollTop},clicks:questionClicks};
  },{courseId,itemId});
- assert.equal(unobserved.result.attempted,false);assert.equal(unobserved.result.stopReason,'SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED');
- assert.deepEqual(unobserved.after,unobserved.before,'An unavailable API path still traversed the virtualized rail');
- assert.equal(requests.length,0);assert.deepEqual(unobserved.clicks,[]);
- console.log('PASS: missing observed API endpoints decline before scrolling or issuing speculative requests.');
+ assert.equal(unobserved.result.captured,true);assert.equal(unobserved.result.assessment.questionCount,count);
+ assert.equal(unobserved.result.rawEvidence.resources.groups.source,'CAPTURE_ADAPTER');assert.equal(unobserved.result.rawEvidence.resources.questions.source,'CAPTURE_ADAPTER');
+ assert(unobserved.after.scrollEvents>unobserved.before.scrollEvents);assert.equal(unobserved.after.position,unobserved.before.position);
+ assert.equal(requests.length,14);assertRequests();assert.deepEqual(unobserved.clicks,[]);
+ console.log('PASS: a certified cached virtual editor captures all definitions through the verified read adapter without prior resource timings.');
  await unobservedCase.context.close();
  for(const strategy of ['duplicate-response','duplicate-reference','missing-key','authentication']){
   const {context,page}=await openCase(strategy);

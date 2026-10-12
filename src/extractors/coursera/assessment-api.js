@@ -63,6 +63,17 @@ export function assessmentApiUniqueLayoutV61525(layout) {
   return sidebars.length===1 && contents.length===1 && sidebars[0]===layout.sidebar && contents[0]===layout.content;
 }
 
+export function assessmentApiRouteEditorCertifiedV61526(surfaceRoot,fp,expectedCourseId,baselineSet) {
+  if(!fp || !fp.id || location.origin!=='https://www.coursera.org' ||
+    String(expectedCourseId || '')!==courseId() ||
+    !isItemSpecificCourseRoute(location.href,fp,expectedCourseId) ||
+    !baselineSet || typeof baselineSet.has!=='function')return false;
+  // A fresh editor on the exact item route establishes identity independently
+  // of the course-outline control's label or discovery confidence score.
+  const layout=assessmentLayoutV61313(surfaceRoot);
+  return assessmentApiUniqueLayoutV61525(layout) && !baselineSet.has(layout.sidebar) && !baselineSet.has(layout.content);
+}
+
 export function createAssessmentApiSessionCertificateV61525(surfaceRoot,fp,expectedCourseId,exactItemControl,baselineSet) {
   if(exactItemControl!==true || !fp || !fp.id || location.origin!=='https://www.coursera.org' ||
     String(expectedCourseId || '')!==courseId() || !isGenericCourseEditRoute(location.href,expectedCourseId) ||
@@ -121,7 +132,16 @@ export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,f
     ids.add(candidate.id);ordinals.add(candidate.ordinal);assignments.add(match[1]);
   }
   if(assignments.size!==1){out.reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';return out;}
-  const assignmentId=[...assignments][0],resources={};
+  const assignmentId=[...assignments][0];
+  // These two read resources and their response schemas were established by
+  // the supplied real Coursera authoring sample. An endpoint template is not
+  // item identity: the certified live editor, exact group IDs and observed
+  // ordinals above supply that proof. A cached editor need not issue the same
+  // discovery requests again before its definitions can be read.
+  const resources={
+    groups:{base:'https://www.coursera.org/api/authoringAssignmentQuestionGroups.v1',source:'CAPTURE_ADAPTER'},
+    questions:{base:'https://www.coursera.org/api/authoringAssignmentMachineEvaluableQuestions.v1',source:'CAPTURE_ADAPTER'}
+  };
   const observed=Array.isArray(options.observedRequests)?options.observedRequests.filter(r=>r && r.method==='GET').map(r=>({url:r.url,source:'OBSERVED_GET'})):[];
   if(identity.method==='ITEM_SPECIFIC_ROUTE'){
     try{for(const entry of performance.getEntriesByType('resource'))if(!entry.initiatorType || ['fetch','xmlhttprequest'].includes(entry.initiatorType))observed.push({url:entry.name,source:'OBSERVED_RESOURCE_URL'});}catch(_){}
@@ -140,7 +160,6 @@ export function assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,f
   }
   out.assignmentId=assignmentId;out.resources=resources;
   if(candidates.length!==declared || ordinals.size!==declared){out.reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';return out;}
-  if(!resources.groups || !resources.questions){out.reason='SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED';return out;}
   return {complete:true,reason:'COMPLETE_LIVE_OUTLINE_INVENTORY',candidates:candidates.map(c=>({id:c.id,ordinal:c.ordinal,label:c.label})),
     declared,assignmentId,resources,signature:JSON.stringify(candidates.map(c=>[c.id,c.ordinal,c.label])),sidebar:layout.sidebar,route:location.href,identityMethod:identity.method};
 }
@@ -152,7 +171,6 @@ export function observedAssessmentApiInventoryV61524(surfaceRoot,fp,options={}) 
 export async function discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,options={}) {
   const initial=observedAssessmentApiInventoryV61524(surfaceRoot,fp,options);
   if(initial.reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY')return initial;
-  if(!initial.resources.groups || !initial.resources.questions)return {...initial,reason:'SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED'};
   const layout=assessmentLayoutV61313(surfaceRoot),sidebar=layout && layout.sidebar,route=location.href;
   if(!sidebar)return initial;
   const started=Date.now(),deadline=Math.min(Number(options.deadline || Infinity),started+CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524);

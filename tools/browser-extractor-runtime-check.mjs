@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61525')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61526')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -417,7 +417,9 @@ try{
   assert(managedCommand.args.source.includes('"controllerOrigin":'+JSON.stringify(new URL(app.url()).origin)));
   assert(managedCommand.args.source.includes('"freshRun":true'));assert(!managedCommand.args.source.includes('previous-reading'));
   assert(managedCommand.args.source.includes(courseraSource.slice('javascript:'.length)));
+  const managedClosed=managedTab.waitForEvent('close');
   await quickLocal.getByRole('button',{name:'Stop managed run',exact:true}).click();
+  await managedClosed;
   assert(managedTab.isClosed());
   await app.getByText('Manual extractor script',{exact:true}).click();
   await app.getByRole('button',{name:'Copy script',exact:true}).click();

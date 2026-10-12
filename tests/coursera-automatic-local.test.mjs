@@ -115,7 +115,7 @@ test('growing question checkpoints keep progress-only documents running beyond t
  let plan=initial;
  for(let n=25;n<=600;n+=25){
   const data=capture(1);data.fingerprints[0].payload={captureAttempts:0,checkpointRestored:true,
-   assessmentCaptureInProgress:{assessment:{questions:Array.from({length:n},(_,i)=>({id:String(i)}))}},captureContract:{needsEditor:true}};
+   assessmentCaptureInProgress:{assessment:{questions:Array.from({length:n},(_,i)=>({id:String(i+1),courseraQuestionId:'assessment~group'+i,questionOrdinalObserved:true}))}},captureContract:{needsEditor:true}};
   plan=advanceAutomaticLocalCaptureV61517(plan,data,true,false,true,200+n);
   assert.equal(plan.state,'RUNNING');assert.equal(plan.stalled,0);
  }
@@ -147,4 +147,29 @@ test('question boundaries include count, elapsed time, heap growth and checkpoin
   globalThis.window={performance:{}};session=createLocalCaptureSessionV61514();session.startItem();session.checkpointWritten(false);
   assert.equal(session.afterQuestionCheckpoint(1,false),'LOCAL_CHECKPOINT_UNAVAILABLE');
  }finally{if(previous===undefined)delete globalThis.window;else globalThis.window=previous}
+});
+
+
+test('retry counters and rediscovered prefixes cannot keep a stalled quiz running',()=>{
+ let plan=initial;
+ const sample=(count,attempts)=>({fingerprints:[{id:'quiz',payload:{captureAttempts:attempts,checkpointRestored:attempts%2===0,
+  assessmentCaptureInProgress:{assessment:{questions:Array.from({length:count},(_,i)=>({id:String(i+1),courseraQuestionId:'assignment~group'+i,questionOrdinalObserved:true}))}},captureContract:{needsEditor:true,retryable:true}}}],
+  meta:{captureAccounting:{completeCount:0,unvisitedCount:166}}});
+ plan=advanceAutomaticLocalCaptureV61517(plan,sample(18,1),true,false,true,200);
+ assert.equal(plan.stalled,0);
+ for(const [index,count] of [12,18,12].entries()){
+  plan=advanceAutomaticLocalCaptureV61517(plan,sample(count,index+2),true,false,true,300+index);
+  assert.equal(plan.stalled,index+1);
+ }
+ assert.equal(plan.state,'FINISHED');assert.equal(plan.reason,'LOCAL_CAPTURE_NO_PROGRESS');assert.equal(plan.complete,false);
+ assert.equal(plan.evidenceProgress.items[0][1],18,'Preserve the durable question high-water mark');
+});
+
+test('saved question ordinals and IDs, rather than transient parser counts, establish progress',()=>{
+ const result=capture(1);result.meta.captureAccounting.completeCount=0;result.fingerprints[0].payload={captureAttempts:1,assessmentCaptureInProgress:{assessment:{questionCount:100,questions:[{id:'1'}]}}};
+ let plan=advanceAutomaticLocalCaptureV61517(initial,result,true,false,true,200);
+ assert.equal(plan.stalled,1);
+ result.fingerprints[0].payload.assessmentCaptureInProgress.assessment.questions=[{id:'1',courseraQuestionId:'assignment~group1',questionOrdinalObserved:true}];
+ plan=advanceAutomaticLocalCaptureV61517(plan,result,true,false,true,300);assert.equal(plan.stalled,0);
+ const stable=advanceAutomaticLocalCaptureV61517(plan,result,true,false,true,400);assert.equal(stable.stalled,1);
 });

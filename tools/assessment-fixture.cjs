@@ -87,7 +87,10 @@ function fixture({count=79,windowSize=27,mode='virtual',delay=0,missing=[],unans
  render(0);content.append(card(1,!delay));
  // Keep the existing small text budget used to exercise truncation, while
  // loading the remaining maintained constants for the new acquisition helpers.
- const c={...require('../src/extractors/coursera/config.js'),console,document,window:{innerHeight:700,scrollY:0,scrollTo(x,y){this.scrollY=y;}},Node:{TEXT_NODE:3,ELEMENT_NODE:1},Element:El,Event:class{constructor(type){this.type=type;}},getComputedStyle:e=>e.style,Date:{now:()=>now},MAX_TEXT_SAMPLE:24000};vm.createContext(c);
+ const c={...require('../src/extractors/coursera/config.js'),console,URL,AbortController,setTimeout,clearTimeout,TextEncoder,TextDecoder,document,window:{innerHeight:700,scrollY:0,scrollTo(x,y){this.scrollY=y;}},Node:{TEXT_NODE:3,ELEMENT_NODE:1},Element:El,Event:class{constructor(type){this.type=type;}},getComputedStyle:e=>e.style,Date:{now:()=>now},MAX_TEXT_SAMPLE:24000};
+ // This DOM fixture has no authoring API server. Explicit 404 responses keep
+ // its loaded-model and DOM fallback checks independent of network support.
+ c.window.fetch=async()=>({ok:false,status:404});vm.createContext(c);
  const wanted=['hasVisibleLoadingIndicator','normalizeName','elementTextKey','elementAttributeBlob','isVisibleElement','isDangerousEditorControl','isGlobalChromeElement','isDocumentScrollRoot','scrollRootPosition','setScrollRootPosition','scrollRootMax','unique','uniqueAssetDetails','textEvidenceSourcePriority','mergeEvidence'];
  for(const name of wanted)vm.runInContext(functionCode(name),c);
  for(const name of ['scopedWaitBudgetV61321','isAssignmentTextBlockV61321','parseAssignmentTextBlockV61321','collectAssignmentTextBlocksV61321','assignmentTextBlockBodyV61321','assignmentBehaviorTextV61321','mergeCourseraLearnerText','assignmentOutlineLinksV61320', 'choiceControlVisibilityV61320', 'unmarkedChoiceProbeV61320', 'emptyAssessmentProbeV61320'])vm.runInContext(functionCode(name),c);

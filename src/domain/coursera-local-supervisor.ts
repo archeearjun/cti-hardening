@@ -9,6 +9,7 @@ export interface CourseraSupervisorStatus {
   savedQuestions:number;
   phase:string;
   count:string;
+  note:string;
 }
 
 // Own only the browser control link and small progress receipts. Coursera's
@@ -22,7 +23,7 @@ export function startCourseraLocalSupervisor(
   if(!/^[A-Za-z0-9_-]{8,100}$/.test(token))throw Error('Invalid supervisor identifier.');
   const now=options.now || Date.now;
   let status:CourseraSupervisorStatus={state:'WAITING',message:'Paste the copied command in this Coursera tab’s Protocol monitor. Keep both tabs open.',
-    recoveries:0,failuresWithoutProgress:0,completeItems:0,savedQuestions:0,phase:'Waiting for command',count:''};
+    recoveries:0,failuresWithoutProgress:0,completeItems:0,savedQuestions:0,phase:'Waiting for command',count:'',note:''};
   let lastHeard=0,paired=false,hidden=false,live=true;
   const questions=new Map<string,number>();
   function publish(){onStatus({...status});}
@@ -48,6 +49,7 @@ export function startCourseraLocalSupervisor(
       status.savedQuestions+=saved-(questions.get(id)||0);questions.set(id,saved);advanced=true;
     }
     if(advanced)status.failuresWithoutProgress=0;
+    status.note=String(data.note || '').slice(0,350);
     status.phase=String(data.phase || status.phase).slice(0,180);status.count=String(data.count || status.count).slice(0,300);
     if(data.event==='FINISHED'){
       status.state='FINISHED';status.message=data.complete===true?'Capture finished. The final JSON is available in Coursera.':'Capture finished with explicit evidence gaps. Check the final JSON in Coursera.';

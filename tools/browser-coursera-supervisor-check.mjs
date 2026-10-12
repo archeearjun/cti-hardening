@@ -11,6 +11,7 @@ import {createAutomaticLocalCourseraCommand} from '../src/domain/coursera-local-
 import {evaluateCourseraCapture,parseCourseraShellUrl} from '../src/domain/coursera-background-extraction.ts';
 import {CTI_CHECKPOINT_DB,CTI_CHECKPOINT_STORE} from '../src/extractors/coursera/config.js';
 import {assessmentBrowserFixture} from './assessment-browser-fixture.mjs';
+import {extractorFunctions} from './extractor-functions.cjs';
 import {fixtureCourseraAssessmentProgram} from './coursera-assessment-program-fixture.mjs';
 
 const courseId='Supervised_course_fixture_123',shell=`https://www.coursera.org/teach/synthetic/${courseId}/content/edit`;
@@ -21,7 +22,21 @@ const supervisorSource=stripTypeScriptTypes(fs.readFileSync('src/domain/coursera
 const controllerCode=parseCourseraShellUrl.toString()+'\n'+supervisorSource+'\nconst CTISupervisor={startCourseraLocalSupervisor};';
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'cti-supervised-course-'));
 execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',path.join(scratch,'key.pem'),'-out',path.join(scratch,'cert.pem'),'-subj','/CN=www.coursera.org','-days','1'],{stdio:'ignore'});
-let loadedModel=false,severLink=false;
+let loadedModel=false,severLink=false,apiReads=false;
+let apiProgram=fixtureCourseraAssessmentProgram(courseraSource,shell);
+const boundaryFunctions=extractorFunctions(apiProgram);
+apiProgram=apiProgram.replace(boundaryFunctions.get('findNavigationTargetForFingerprint'),
+ "async function findNavigationTargetForFingerprint(fp){if(fp.id!=='assessment-under-test')return null;return {element:document.getElementById('open-assessment'),score:0.99,reason:'visible-direct-title',text:fp.name}}");
+apiProgram=apiProgram.replace(boundaryFunctions.get('dispatchReadOnlyEditorControl'),
+ "function dispatchReadOnlyEditorControl(control){control.element.click();history.replaceState(null,'',"+JSON.stringify(shell.replace('/content/edit','/content/item/project/assessment-under-test'))+");return {attempted:true,mode:'history-popstate'}}");
+const cml=text=>({typeName:'cml',definition:{dtdId:'assess/1',value:'<co-content><p>'+text+'</p></co-content>'}});
+function apiQuestion(n){return {id:'assessment~definition'+n+'@1',definition:{typeName:'mcq',definition:{prompt:cml('Which result is correct for scenario '+n+' in this assessment?'),
+ options:[{id:'correct',display:cml('Correct choice café '+n)},{id:'other',display:cml('Other choice 日本語 '+n)}],correctOption:'correct',shuffleOptions:false}}};}
+function cachedApiEditorHtml(){
+ const rows=Array.from({length:100},(_,i)=>{const n=i+1;return '<div data-testid="assignment-outline" data-rbd-drag-handle-draggable-id="assessment~q'+n+'"><span>'+n+' </span><a href="#assessment~q'+n+'">Which result is correct for scenario '+n+' in this assessment?</a></div>';}).join('');
+ const layout='<aside data-testid="item-layout-left-sidebar"><p>Assignment outline Content (100)</p>'+rows+'</aside><div data-testid="item-layout-content"><section id="assessment~q1" data-testid="assignment-part-0"><h3>1 Auto-Graded 1 point</h3><p>Prompt</p><p>Which result is correct for scenario 1 in this assessment?</p><p>Options</p><div data-testid="option"><p>Correct choice café 1</p></div><div data-testid="option"><p>Other choice 日本語 1</p></div></section></div>';
+ return '<!doctype html><style>a{display:inline-block}[data-testid=assignment-outline]{min-height:24px}</style><button id="open-assessment">Open assessment</button><main id="editor" style="display:none"></main><script>document.getElementById("open-assessment").onclick=()=>{const editor=document.getElementById("editor");editor.innerHTML='+JSON.stringify(layout)+';editor.style.display="block"};</script>';
+}
 const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem')),cert:fs.readFileSync(path.join(scratch,'cert.pem'))},(request,response)=>{
  const url=new URL(request.url,request.headers.host?.startsWith('cti-hardening')?controllerOrigin:'https://www.coursera.org');
  if(url.origin===controllerOrigin){
@@ -34,12 +49,18 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
  if(url.pathname==='/assets/question-diagram.svg'){
   response.setHeader('Content-Type','image/svg+xml');response.end('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="blue"/></svg>');return;
  }
+ if(apiReads && /^\/api\/authoringAssignment(?:QuestionGroups|MachineEvaluableQuestions)\.v1/.test(url.pathname)){
+  const group=url.pathname.includes('QuestionGroups');
+  const ids=url.searchParams.get('ids')?.split(',') || [decodeURIComponent(url.pathname.split('/')[3] || '')];
+  const elements=ids.map(id=>{const match=id.match(group?/^assessment~q(\d+)$/:/^assessment~definition(\d+)@1$/);if(!match)return null;const n=Number(match[1]);return group?{id,scoringWeight:1,questions:['assessment~definition'+n+'@1']}:apiQuestion(n)}).filter(Boolean).reverse();
+  response.setHeader('Content-Type','application/json');response.end(JSON.stringify({elements,paging:{},linked:{}}));return;
+ }
  if(url.pathname.startsWith('/api/')){
   response.setHeader('Content-Type','application/json');response.end(JSON.stringify(url.pathname.includes('authoringCourseMaterials')?
-   {elements:Array.from({length:168},(_,i)=>i===1?{id:'assessment-under-test',name:'Synthetic quiz',typeName:'staffGraded'}:
+   {elements:Array.from({length:168},(_,i)=>i===1?{id:'assessment-under-test',name:apiReads?'Untitled':'Synthetic quiz',typeName:'staffGraded'}:
     {id:'reading-'+i,name:'Reading '+i,typeName:'supplement'})}:{}));return;
  }
- let html=assessmentBrowserFixture(100,true);
+ let html=apiReads?cachedApiEditorHtml():assessmentBrowserFixture(100,true);
  if(loadedModel)html+=`<script>document.getElementById('editor').__reactProps$fixture={questions:Array.from({length:100},(_,i)=>({
   id:'assessment~q'+(i+1),questionType:'Multiple Choice',prompt:'Which result is correct for scenario '+(i+1)+' in this assessment?',
   options:[{text:'Correct choice café '+(i+1),correct:true},{text:'Other choice 日本語 '+(i+1),correct:false}],sourceMath:'<math><mi>α</mi></math>',unknownOriginal:{retained:true},
@@ -70,15 +91,15 @@ try{
  // headless shell can place these two sites in one renderer and crash both.
  browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{channel:'chromium'}),
   args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server',`--host-resolver-rules=MAP www.coursera.org 127.0.0.1:${server.address().port}, MAP cti-hardening.pages.dev 127.0.0.1:${server.address().port}`]});
- for(const bulk of [false,true]){
-  loadedModel=bulk;const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
+ for(const strategy of ['dom-recovery','loaded-model','cached-api']){
+  const bulk=strategy!=='dom-recovery';apiReads=strategy==='cached-api';loadedModel=strategy==='loaded-model';const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
   const parent=await context.newPage();await parent.goto(controllerOrigin+'/controller');
   const opening=context.waitForEvent('page');await parent.click('#open');const child=await opening;await child.waitForLoadState();
   const downloads=[],errors=[];child.on('download',d=>downloads.push(d));child.on('pageerror',e=>errors.push(e.message));
   const cdp=await context.newCDPSession(child);await cdp.send('Page.enable');
   const browserSession=await browser.newBrowserCDPSession();await browserSession.send('Target.setDiscoverTargets',{discover:true});
   const info=await cdp.send('Target.getTargetInfo');
-  const command=JSON.parse(createAutomaticLocalCourseraCommand(shell,program,token,undefined,{controllerOrigin,freshRun:bulk}));
+  const command=JSON.parse(createAutomaticLocalCourseraCommand(shell,apiReads?apiProgram:program,token,undefined,{controllerOrigin,freshRun:bulk}));
   await cdp.send(command.cmd,command.args);
   await parent.waitForFunction(()=>captureStatus?.state==='RUNNING',{},{timeout:15000});
   if(!bulk){
@@ -106,24 +127,32 @@ try{
   const status=await parent.evaluate(()=>captureStatus);assert.equal(status.recoveries,bulk?0:2);
   const questionRead=await cdp.send('Runtime.evaluate',{expression:"JSON.parse(localStorage.getItem('fixture-question-visits') || '[]')",returnByValue:true});
   const questions=questionRead.result.value;
-  if(bulk){
+  if(loadedModel){
    assert.equal(questions.length,0,'Loaded model still matches observed outline identities without opening each question');
    assert.equal(quiz.payload.loadedAssessmentEvidence.rawQuestionDefinitions.length,100);
    assert(quiz.payload.loadedAssessmentEvidence.rawQuestionDefinitions.every(q=>q.sourceMath==='<math><mi>α</mi></math>' && q.unknownOriginal.retained));
    assert(quiz.payload.images.includes('https://www.coursera.org/assets/question-diagram.svg'));
    assert(quiz.payload.assetDetails.some(asset=>asset.url==='https://www.coursera.org/assets/question-diagram.svg' && asset.sha256));
+  }else if(apiReads){
+   assert.equal(questions.length,0,'Cached API acquisition must not click any question');
+   assert.equal(quiz.payload.structuredAssessment.captureCompleteness.requiredAnswerCoverageComplete,true);
+   assert.equal(quiz.payload.assessmentApiEvidence.groups.length,100);
+   assert.equal(quiz.payload.assessmentApiEvidence.questionDefinitions.length,100);
+   assert.equal(quiz.payload.assessmentApiEvidence.resources.groups.source,'CAPTURE_ADAPTER');
+   assert.equal(quiz.payload.assessmentApiEvidence.resources.questions.source,'CAPTURE_ADAPTER');
+   assert(quiz.payload.structuredAssessment.questions.every(q=>q.observationMethod==='AUTHORING_API_MATCHED_TO_LIVE_OUTLINE'));
   }else{
    assert.equal(new Set(questions).size,99);assert(questions.length<=109,'Only uncommitted observations may be reread after two crashes');
    assert.equal(capture.meta.localCaptureBatch.maxQuestionObservations,5,'Later recovered documents retain the smaller renderer question budget');
   }
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({status:'PASS',courseItems:168,questions:100,mode:bulk?'loaded-data matched to live outline':'CTI-tab crash supervision',automaticRecoveries:status.recoveries,downloads:downloads.length,
+  console.log(JSON.stringify({status:'PASS',courseItems:168,questions:100,mode:strategy,automaticRecoveries:status.recoveries,downloads:downloads.length,
    scope:'Synthetic external content; real canonical entry, IndexedDB, cross-origin controller, Chrome renderer crashes and retained debugger registration.'}));
   await browserSession.detach();await context.close();
  }
  // The registered guard reports login or unrelated navigation before the
  // supervisor can mistake it for a renderer failure and repeatedly reload it.
- loadedModel=false;const loginContext=await browser.newContext({ignoreHTTPSErrors:true});
+ apiReads=false;loadedModel=false;const loginContext=await browser.newContext({ignoreHTTPSErrors:true});
  const loginParent=await loginContext.newPage();await loginParent.goto(controllerOrigin+'/controller');
  const loginOpening=loginContext.waitForEvent('page');await loginParent.click('#open');const loginChild=await loginOpening;await loginChild.waitForLoadState();
  const loginSession=await loginContext.newCDPSession(loginChild);
