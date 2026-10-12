@@ -51,6 +51,27 @@ Denied reads and server rate limits stop the run with saved evidence rather
 than repeatedly reopening editors. Direct reads use their own bounded evidence
 collector, avoiding duplicate generic-network response copies.
 
+## Single-resource reads when batching is unavailable
+
+A live v6.15.27 quiz check found all 100 group IDs and read their group records,
+but returned zero definitions and keys. Both batch resources returned HTTP 405;
+the resulting individual definition reads all returned HTTP 404. Its 202 GETs
+completed in about 31 seconds. A complete inventory alone is not a complete quiz.
+
+From v6.15.28, single reads match the working original response sample. The
+exact versioned definition ID keeps its literal `@` delimiter. Group reads use
+their observed `id` query parameter, while definition reads omit it. The field
+selection includes `validation` and excludes credentials; returned credential
+fields are still removed. HTTP failures are reported once with their actual
+status, rather than repeated as an additional parsing failure.
+
+The native unsupported-batch check now requires the raw request path to match,
+instead of decoding away a version-delimiter mismatch. It verifies 100 synthetic
+definitions and keys in 202 GETs without question clicks. The earlier fourteen
+GET fixture remains the supported-batch case; it is not the live endpoint's
+observed request count. Live confirmation of the corrected request form is
+still needed, and other genuine 404s remain explicit gaps.
+
 ## Check one currently open quiz
 
 From v6.15.27, **Copy current quiz API check** tests the direct reader before
@@ -69,6 +90,12 @@ question clicks, page reloads, course traversal or checkpoint changes. Its copie
 receipt excludes raw prompts, answer wording and credentials. A successful result
 means that this quiz verified; it does not certify the whole course. A failed
 check gives a focused diagnostic without another prolonged course rerun.
+
+After a request-format correction, refresh CTI before copying the check and
+confirm its result reports the current version. Compare `expectedCount`,
+`capturedCount` and `keyCount`; successful group reads or an established
+inventory method do not replace definition and key coverage. Check the one quiz
+before starting another full-course capture.
 
 ## Optional response sample for an unsupported schema
 

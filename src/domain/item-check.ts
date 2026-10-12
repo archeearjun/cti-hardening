@@ -154,8 +154,8 @@ export function buildItemCheckScript(
   if (
     offset < 0 ||
     source.indexOf(marker, offset + marker.length) !== -1 ||
-    delivery.version !== "v6.15.27" ||
-    delivery.buildId !== "v6.15.27-observed-body-inventory-recovery-20261013"
+    delivery.version !== "v6.15.28" ||
+    delivery.buildId !== "v6.15.28-observed-single-get-format-20261013"
   )
     throw new Error(
       "The targeted check needs a compatible extractor build. Reload the app; no script was generated.",

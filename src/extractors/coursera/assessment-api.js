@@ -394,18 +394,26 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
     finally{clearTimeout(timer);finishRequest();out.diagnostics.bytes=state.bytes;}
   }
   function readElements(response,requested){
-    if(!response.ok || !response.data || !Array.isArray(response.data.elements))return {ok:false,reason:response.reason || 'INVALID_API_ENVELOPE'};
+    if(!response.ok || !response.data || !Array.isArray(response.data.elements))return {ok:false,status:Number(response.status || 0),reason:response.reason || 'INVALID_API_ENVELOPE'};
     const elements=new Map(),allowed=new Set(requested);
     for(const element of response.data.elements){
-      if(!element || typeof element.id!=='string' || !allowed.has(element.id) || elements.has(element.id))return {ok:false,reason:'AMBIGUOUS_API_RESPONSE_IDENTITY'};
+      if(!element || typeof element.id!=='string' || !allowed.has(element.id) || elements.has(element.id))return {ok:false,status:Number(response.status || 0),reason:'AMBIGUOUS_API_RESPONSE_IDENTITY'};
       elements.set(element.id,element);
     }
     return {ok:true,elements};
   }
   async function acquire(resource,ids,fields){
     const found=new Map(),missing=new Set();if(!ids.length)return found;
-    function urlFor(batch,multiple){const url=new URL(resource.base+(multiple?'':'/'+encodeURIComponent(batch[0])));
-      if(multiple)url.searchParams.set('ids',batch.join(','));url.searchParams.set('fields',fields+',-writeAccessToken');return url.href;}
+    function urlFor(batch,multiple){
+      // Observed definition GETs keep @version literal in the path. Group
+      // singles also repeat their key in `id`; definition singles do not.
+      // Never infer a different version when a definition is absent.
+      const key=String(batch[0]),pathKey=encodeURIComponent(key).replace(/%40/g,'@');
+      const url=new URL(resource.base+(multiple?'':'/'+pathKey));
+      if(multiple)url.searchParams.set('ids',batch.join(','));
+      else if(resource===inventory.resources.groups)url.searchParams.set('id',key);
+      url.searchParams.set('fields',fields+',-writeAccessToken');return url.href;
+    }
     const firstIds=ids.slice(0,CTI_ASSESSMENT_API_BATCH_IDS_V61524),first=await request(urlFor(firstIds,true));
     const unsupported=[400,404,405,501].includes(first.status);
     if(unsupported)out.diagnostics.multiGetUnsupported.push(resource.base.split('/').pop());
@@ -415,22 +423,22 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
       for(const [id,element] of read.elements)found.set(id,element);
       if(!unsupported)for(const id of requested)if(!read.elements.has(id))missing.add(id);
     }
-    if(!unsupported){const read=readElements(first,firstIds);recordFailure(urlFor(firstIds,true),read);accept(read,firstIds);remaining=ids.slice(firstIds.length);}
+    if(!unsupported){const read=readElements(first,firstIds);if(first.ok)recordFailure(urlFor(firstIds,true),read);accept(read,firstIds);remaining=ids.slice(firstIds.length);}
     const batches=[];
     for(let i=0;i<remaining.length;i+=unsupported?1:CTI_ASSESSMENT_API_BATCH_IDS_V61524)batches.push(remaining.slice(i,i+(unsupported?1:CTI_ASSESSMENT_API_BATCH_IDS_V61524)));
     let cursor=0;
     async function worker(){while(cursor<batches.length && !state.stop && Date.now()<deadline){const batch=batches[cursor++],response=await request(urlFor(batch,!unsupported));
-      const read=readElements(response,batch);recordFailure(urlFor(batch,!unsupported),read);accept(read,batch);}}
+      const read=readElements(response,batch);if(response.ok)recordFailure(urlFor(batch,!unsupported),read);accept(read,batch);}}
     await Promise.all(Array.from({length:Math.min(CTI_ASSESSMENT_API_CONCURRENCY_V61524,batches.length)},()=>worker()));
     // Fill only omissions from structurally valid, identity-checked batch
     // responses. Ambiguous identities and failed batches remain explicit gaps.
     const missingIds=[...missing].filter(id=>!found.has(id));let missingCursor=0;
     async function fillMissing(){while(missingCursor<missingIds.length && !state.stop && Date.now()<deadline){
       const id=missingIds[missingCursor++],url=urlFor([id],false),response=await request(url),read=readElements(response,[id]);
-      recordFailure(url,read);if(read.ok && read.elements.has(id))found.set(id,read.elements.get(id));}}
+      if(response.ok)recordFailure(url,read);if(read.ok && read.elements.has(id))found.set(id,read.elements.get(id));}}
     await Promise.all(Array.from({length:Math.min(CTI_ASSESSMENT_API_CONCURRENCY_V61524,missingIds.length)},()=>fillMissing()));return found;
   }
-  const groupIds=inventory.candidates.map(c=>c.id),groups=await acquire(inventory.resources.groups,groupIds,'id,questions,scoringWeight');
+  const groupIds=inventory.candidates.map(c=>c.id),groups=await acquire(inventory.resources.groups,groupIds,'id,scoringWeight,questions,validation');
   if(out.authenticationFailed){out.stopReason=state.stop;return out;}
   const supported=new Map(),questionIds=[];
   for(const candidate of inventory.candidates){
@@ -440,7 +448,7 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
       !new RegExp('^'+inventory.assignmentId+'~[A-Za-z0-9_-]+@\\d+$').test(group.questions[0])){out.diagnostics.unsupportedGroups.push(candidate.id);continue;}
     supported.set(candidate.id,group);questionIds.push(group.questions[0]);
   }
-  const uniqueQuestionIds=[...new Set(questionIds)],definitions=await acquire(inventory.resources.questions,uniqueQuestionIds,'id,definition');
+  const uniqueQuestionIds=[...new Set(questionIds)],definitions=await acquire(inventory.resources.questions,uniqueQuestionIds,'id,definition,validation');
   if(out.authenticationFailed){out.stopReason=state.stop;return out;}
   const after=recheckAssessmentApiInventoryV61524(surfaceRoot,fp,options,inventory);
   if(!after.complete || after.signature!==inventory.signature){out.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return out;}

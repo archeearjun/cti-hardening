@@ -1,5 +1,35 @@
 # Coursera extractor runtime stability
 
+## v6.15.28: match the observed single-resource request format
+
+The live v6.15.27 quiz check established the complete 100-part body inventory
+and read all 100 group records, but captured zero definitions and zero keys.
+It made 202 GETs in about 31 seconds: both batch routes returned HTTP 405,
+then every individual definition read returned HTTP 404. Inventory success
+therefore did not establish successful question acquisition.
+
+The working original response sample used a literal `@` before the definition
+version. The request builder instead percent-encoded that delimiter as `%40`.
+Single reads now preserve the literal delimiter in the already validated exact
+versioned ID returned by the group. Group singles also repeat their exact
+group key in the observed `id` query parameter; definition singles omit that
+parameter, matching the sample. Positive fields include `validation`.
+Credential exclusion and sanitization remain in place. No question ID or
+revision is guessed, and strict key/coverage checks are unchanged.
+
+Earlier native fixtures decoded the request pathname before matching it and
+therefore masked the wire-format difference. The regression server now rejects
+a raw `%40` version delimiter before decoding. Its unsupported-batch case uses
+HTTP 405 and verifies 100 definitions and keys in 202 GETs with zero question
+clicks, including the actual copied Console check. HTTP failures are recorded
+once; semantic failures are recorded only for successful HTTP responses with
+their actual status. A separate regression preserves genuine definition 404s
+as incomplete evidence.
+
+This fixes an evidenced request-format mismatch. A new bounded live quiz result
+is still required; the change does not promise to resolve every 404 or certify
+the user's full private course.
+
 ## v6.15.27: observed body inventories and bounded recovery
 
 The next live run failed with 79 saved question observations, zero finished

@@ -73,6 +73,46 @@ test('unsupported multiGet is probed once per resource and falls back to finite 
  assert.equal(f.clicks(),0);assert(f.maxActive()<=2);
 });
 
+test('single GETs preserve the observed literal version separator and resource-specific query shape',async()=>{
+ const f=setup(100),fetch=f.fetchImpl;let probes=0,singles=0;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,fetchImpl:async(url,options)=>{
+  const request=new URL(url),groups=request.pathname.includes('QuestionGroups');
+  if(request.searchParams.has('ids')){probes++;return new Response(null,{status:405});}
+  singles++;
+  const key=request.pathname.split('/').pop();
+  if(groups)assert.equal(request.searchParams.get('id'),key);
+  else{
+   assert.equal(request.searchParams.has('id'),false);
+   // Match the successful Coursera path before URI decoding. Decoding here
+   // previously hid an encoded @ delimiter that returns a missing definition.
+   if(/%40/i.test(key))return new Response(null,{status:404});
+   assert.match(key,/^assessment~definition\d+@1$/);
+  }
+  assert(request.searchParams.get('fields').split(',').includes('validation'));
+  return fetch(url,options);
+ }});
+ assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,100);
+ assert.equal(result.diagnostics.requests,202);assert.equal(probes,2);assert.equal(singles,200);
+ assert.deepEqual(clone(result.diagnostics.failures).map(failure=>failure.status),[405,405]);
+ assert.equal(f.clicks(),0);assert(f.maxActive()<=2);
+});
+
+test('failed definition HTTP reads appear once per request with their actual status',async()=>{
+ const f=setup(20),fetch=f.fetchImpl;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,fetchImpl:async(url,options)=>{
+  const request=new URL(url);
+  if(request.searchParams.has('ids'))return new Response(null,{status:405});
+  if(request.pathname.includes('MachineEvaluable'))return new Response(null,{status:404});
+  return fetch(url,options);
+ }});
+ assert.equal(result.captured,false);assert.equal(result.diagnostics.requests,42);
+ assert.equal(result.diagnostics.missingGroups.length,0);assert.equal(result.diagnostics.missingDefinitions.length,20);
+ assert.equal(result.diagnostics.failures.length,22);
+ assert.equal(result.diagnostics.failures.filter(failure=>failure.status===405).length,2);
+ assert.equal(result.diagnostics.failures.filter(failure=>failure.status===404 && failure.reason==='HTTP_404').length,20);
+ assert.equal(result.diagnostics.failures.some(failure=>failure.status===0),false);
+});
+
 test('valid partial batches fill each omitted exact identity once with a single GET',async()=>{
  const f=setup(20),fetch=f.fetchImpl,omitted=new Set(),singles=[];
  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,fetchImpl:async(url,options)=>{
@@ -138,7 +178,9 @@ test('authentication failure is terminal and changed editor identities cannot co
 test('wrong MIME, redirect and a bounded item deadline report technical failures without accepting content',async()=>{
  for(const failure of ['mime','redirect','timeout']){
   const f=setup(10);
-  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,deadline:Date.now()+(failure==='timeout'?20:10000),fetchImpl:async()=>{
+  // Certify the DOM before testing the deliberately pending fetch. Twenty ms
+  // could expire before a request starts when other suites occupy the CPU.
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,deadline:Date.now()+(failure==='timeout'?1000:10000),fetchImpl:async()=>{
    if(failure==='timeout')return new Promise(()=>{});
    const response=new Response('{}',{headers:{'content-type':failure==='mime'?'text/html':'application/json'}});
    if(failure==='redirect')Object.defineProperty(response,'url',{value:'https://www.coursera.org/login'});return response;

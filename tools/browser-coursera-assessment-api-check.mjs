@@ -41,7 +41,7 @@ const questionLookup=new Map(Array.from({length:count},(_,i)=>[questionId(i+1),i
 
 function fixtureHtml(virtualRail=false,unhydratedFirst=false,bodyParts=false){
  const rows=Array.from({length:count},(_,i)=>{const n=i+1;return '<div data-testid="assignment-outline" data-rbd-drag-handle-draggable-id="'+groupId(n)+'"><span>'+n+' </span><a href="#'+groupId(n)+'" data-n="'+n+'">'+prompt(n)+'</a></div>';}).join('');
- const warmGroup='/api/'+groupResource+'/'+groupId(1)+'?fields=id,scoringWeight,questions,validation';
+ const warmGroup='/api/'+groupResource+'/'+groupId(1)+'?id='+encodeURIComponent(groupId(1))+'&fields=id,scoringWeight,questions,validation';
  const warmQuestion='/api/'+questionResource+'/'+questionId(1)+'?fields=id,definition,validation';
  return `<!doctype html><meta charset="utf-8"><style>
  #editor{display:flex;gap:20px}#rail{width:420px;height:${virtualRail?320:560}px;overflow-y:auto;flex-shrink:0}#content{width:650px;min-height:560px}
@@ -86,13 +86,19 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
  const pathname=decodeURIComponent(url.pathname),resource=pathname.split('/')[2];
  const requestedIds=url.searchParams.has('ids')?url.searchParams.get('ids').split(','):pathname.split('/')[3]?[pathname.split('/')[3]]:url.searchParams.has('id')?[url.searchParams.get('id')]:[];
  const isBatch=url.searchParams.has('ids');
- requests.push({method:request.method,resource,pathname,ids:requestedIds,fields:url.searchParams.get('fields'),isBatch});
+ requests.push({method:request.method,resource,pathname,rawPathname:url.pathname,idQuery:url.searchParams.get('id'),ids:requestedIds,fields:url.searchParams.get('fields'),isBatch});
  response.setHeader('Content-Type','application/json');
  try{
   await new Promise(resolve=>setTimeout(resolve,15));
   if(![groupResource,questionResource].includes(resource)){response.writeHead(404);response.end('{}');return;}
   if(mode==='authentication'){response.writeHead(401);response.end('{}');return;}
-  if(mode==='single'&&isBatch){response.writeHead(400);response.end('{}');return;}
+  if(mode==='single'&&isBatch){response.writeHead(405);response.end('{}');return;}
+  // The successful native definition path has a literal @version. Reject an
+  // encoded delimiter before decoding, as the real missing-definition report
+  // exposed a request difference the old fixture lookup silently normalized.
+  if(resource===questionResource && /%40/i.test(url.pathname)){
+   response.writeHead(404);response.end('{}');return;
+  }
   const lookup=resource===groupResource?groupLookup:questionLookup;
   let elements=requestedIds.filter(id=>lookup.has(id)).map(id=>resource===groupResource?group(lookup.get(id)):question(lookup.get(id))).reverse();
   if(mode==='duplicate-response'&&isBatch&&elements.length>1)elements[1]=structuredClone(elements[0]);
@@ -125,6 +131,7 @@ try{
   assert(maximumActive<=2,'Assessment API requests exceeded the bounded concurrency');
   assert(requests.every(r=>r.method==='GET'&&[groupResource,questionResource].includes(r.resource)),'Unexpected API route or method');
   assert(requests.every(r=>r.ids.length<=15&&r.ids.every(id=>(r.resource===groupResource?groupLookup:questionLookup).has(id))),'Requests must use observed group identities or returned exact versioned definition references');
+  assert(requests.filter(r=>!r.isBatch).every(r=>r.resource===groupResource?r.idQuery===r.ids[0]:r.idQuery===null && r.rawPathname.endsWith('/'+r.ids[0])),'Single GETs must preserve the observed resource-specific path and query format');
   assert(requests.every(r=>r.fields&&r.fields.split(',').every(field=>['id','scoringWeight','questions','definition','validation','-writeAccessToken'].includes(field))&&!r.fields.split(',').includes('writeAccessToken')),'Requested authoring write capability');
  }
  function assertComplete(observation){
@@ -357,6 +364,7 @@ try{
  console.log(JSON.stringify({status:'PASS',mode:'generic shell modal with pinned certificate and explicit GET observations',questions:count,questionEditorClicks:0,scope:'Real canonical cycle on unchanged course shell URI; performance URL strings alone do not certify item identity.'}));
  await modalCase.context.close();
  const probeCase=await openCase('body-virtual');
+ mode='single'; // Match the live check: both multi-get routes return 405.
  const probeInitialScrolls=await probeCase.page.evaluate(()=>railScrollEvents);
  await probeCase.page.evaluate(url=>history.replaceState(null,'',url),shell.replace(/\/content\/edit$/,'/content/item/project/'+itemId));
  const probeSource=createCourseraAssessmentProbeScript(shell,canonicalSource);
@@ -367,10 +375,11 @@ try{
   panelsInBody:document.body.querySelectorAll('[aria-label="CTI current quiz API check"]').length}));
  assert.equal(probe.report.status,'VERIFIED_CURRENT_QUIZ');assert.equal(probe.report.capturedCount,100);assert.equal(probe.report.keyCount,100);
  assert.equal(probe.report.inventoryMethod,'COMPLETE_OBSERVED_BODY_PART_INVENTORY');
- assert.equal(probe.report.requests,14);assert.equal(probe.report.wholeCourseVerified,false);
+ assert.equal(probe.report.requests,202);assert.equal(probe.report.wholeCourseVerified,false);
+ assert.deepEqual(probe.report.failures.map(failure=>failure.status),[405,405]);
  assert.deepEqual(probe.clicks,[]);assert.equal(probe.scrolls,probeInitialScrolls);assert.equal(probeDownloads.length,0);assert.equal(probe.panelsInBody,0);
  assert(!/writeAccessToken|SYNTHETIC_SECRET|SyntheticAssignment|question_/.test(JSON.stringify(probe.report)));
- console.log(JSON.stringify({status:'PASS',mode:'copied current-quiz API check',questions:100,keys:100,requests:14,scope:'Actual Console builder and canonical API on unmarked100-part/27-link editor; aggregate-only diagnostics, no click/reload/download.'}));
+ console.log(JSON.stringify({status:'PASS',mode:'copied current-quiz API check with observed literal version paths and unsupported batches',questions:100,keys:100,requests:202,scope:'Actual Console builder and canonical API on unmarked100-part/27-link editor; raw encoded version paths reject with404; aggregate-only diagnostics, no click/reload/download.'}));
  await probeCase.context.close();
  for(const defect of ['reused-layout','second-visible-layout']){
   const rejectedBuilder=await openCase('batch');

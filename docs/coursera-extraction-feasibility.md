@@ -4,7 +4,7 @@ Assessment dated 13 October 2026. The requirement is complete course evidence in
 the operator's authenticated local Chrome, without installing an extension,
 requiring local Node/Python, or paying for a remote browser.
 
-The v6.15.27 adapter uses the two read resources established by the real
+The v6.15.28 adapter uses the two read resources established by the real
 response sample. Complete observed body parts can supply the ordered group
 inventory when the sidebar mounts fewer links. Each group ID and ordinal must
 be present in the DOM, unique, within the declared count, associated with one
@@ -14,8 +14,15 @@ key must satisfy the strict coverage requirements. Fresh exact-item routes and
 fresh generic-address modals have separate identity certificates; a missing
 optional content test marker no longer rejects a structurally verified body.
 
-The live workflow is **not yet proven scalable**. The latest managed run failed
-with 79 saved question observations, zero finished visits and two recoveries.
+The live workflow is **not yet proven scalable**. The latest bounded v6.15.27
+quiz check established all 100 observed group identities and read 100 group
+records, but captured zero definitions and zero keys. Both batch routes returned
+HTTP 405, and all individual definition reads returned HTTP 404. The check made
+202 GETs in about 31 seconds. This isolates definition acquisition as the
+remaining failure, separately from inventory discovery.
+
+The preceding managed run failed with 79 saved question observations, zero
+finished visits and two recoveries.
 A normally opened quiz subsequently showed one sidebar, zero marked content
 bodies, 27 compound question links and 100 unique compound body group IDs with explicit
 `assignment-part-0` through `assignment-part-99` ordinals. This establishes a
@@ -28,8 +35,10 @@ endpoint discovery as an activation prerequisite and made continuation depend
 on durable evidence progress. v6.15.27 adds the observed body inventory and
 stops a recovery navigation that receives no new `READY` acknowledgement.
 CTI now offers a bounded one-quiz Console API check and read-only saved-progress
-Console export. The next acceptance evidence is that short quiz check, rather
-than another prolonged full-course rerun. Full-course scalability remains an
+Console export. v6.15.28 aligns single-resource requests with the working
+original sample, including its literal version delimiter and query/field form.
+The next acceptance evidence is the corrected short quiz check, rather than
+another prolonged full-course rerun. Full-course scalability remains an
 authenticated live-course acceptance requirement.
 
 ## What the existing captures establish
@@ -137,6 +146,15 @@ missing batch members fall back to the observed single-resource GET shape with
 bounded retries; they cannot be treated as complete responses. No unobserved
 question ID, revision, finder or collection-wide enumeration is invented.
 
+The live v6.15.27 result confirms that both resources rejected batching with
+HTTP 405; complete group records were available through single GETs. The
+definition builder's percent-encoded `%40` version delimiter differed from the
+literal `@` used in the original successful sample. v6.15.28 preserves that
+delimiter in the exact returned, validated versioned ID, repeats the group key
+in the observed group `id` query parameter, omits that parameter for definitions,
+and includes the observed `validation` field. This corrects the evidenced wire
+format; it does not establish that every definition 404 has the same cause.
+
 Naptime combines requested fields with default fields. Its documented negative
 field selection can exclude `writeAccessToken`; reads request the content fields
 and explicitly exclude that credential field. Returned credential fields must
@@ -228,6 +246,14 @@ demonstrate the tested mechanisms; they are not private-course throughput
 benchmarks or authenticated acceptance. The real sample
 confirms the native MCQ definition schema and explicit keys; authenticated
 whole-course acceptance and an editor-free course inventory remain unverified.
+
+The v6.15.28 request regression corrects a fixture limitation: the earlier server
+decoded pathnames before matching IDs, masking the `%40`/literal-`@` distinction.
+The server now checks the raw wire path before decoding. With both batch routes
+returning HTTP 405, the maintained reader and copied Console probe obtain all
+100 synthetic definitions and keys in 202 GETs with zero question clicks.
+Separate genuine-404 coverage remains incomplete. These are request-format
+regressions, not a replacement for a successful live quiz or full-course result.
 
 ## Browser documentation and scope
 

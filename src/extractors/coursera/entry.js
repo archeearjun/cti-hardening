@@ -24,7 +24,7 @@ import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS, CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61527() {
+javascript:(async function ctiCourseraCaptureV61528() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -184,12 +184,12 @@ javascript:(async function ctiCourseraCaptureV61527() {
     if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
     reportLocalSupervisorV61522('ERROR',{message:'Reload Coursera before starting another batch in this document.'});
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61527.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61528.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.27"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.28"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -199,7 +199,7 @@ javascript:(async function ctiCourseraCaptureV61527() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.27"
+          finishedAt: Date.now(), version: "v6.15.28"
         };
       }
     } catch (e) {}
@@ -1051,8 +1051,8 @@ javascript:(async function ctiCourseraCaptureV61527() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.27",
-      buildId: "v6.15.27-observed-body-inventory-recovery-20261013",
+      version: "v6.15.28",
+      buildId: "v6.15.28-observed-single-get-format-20261013",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1248,7 +1248,7 @@ javascript:(async function ctiCourseraCaptureV61527() {
         const found = directRecovery && directRecovery.captured ? null : await findNavigationTargetForFingerprint(fp, courseOrBranchId, scanTrace);
         const diag = {
           id: String(fp.id || ""),
-          version:"v6.15.27",
+          version:"v6.15.28",
           name: String(fp.name || ""),
           attempt: Number(fp.payload.captureAttempts || (retryPass ? 2 : 1)),
           startedAt:new Date(itemStartedAt).toISOString(),
@@ -1920,7 +1920,7 @@ javascript:(async function ctiCourseraCaptureV61527() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.27", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.28", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
   ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
     "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
     "Finding the course and its authoring outline."});
@@ -1936,7 +1936,7 @@ javascript:(async function ctiCourseraCaptureV61527() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.27", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.28", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1944,8 +1944,8 @@ javascript:(async function ctiCourseraCaptureV61527() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.27",
-      buildId: "v6.15.27-observed-body-inventory-recovery-20261013",
+      extractor: "CTI Item Fidelity Extractor v6.15.28",
+      buildId: "v6.15.28-observed-single-get-format-20261013",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -2359,7 +2359,7 @@ javascript:(async function ctiCourseraCaptureV61527() {
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   reportLocalSupervisorV61522(automaticLocalReload?'YIELD':'FINISHED',{complete:accounting.complete===true});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61527.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61528.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;
