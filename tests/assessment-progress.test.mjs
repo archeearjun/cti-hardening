@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {assessmentQuestionCheckpointV61518} from '../src/extractors/coursera/assessments-4.js';
+import {assessmentQuestionCheckpointV61518,rawAssessmentStateV61522,parseQuestionStateV664,loadedStateTextV61522} from '../src/extractors/coursera/assessments-4.js';
+import {stateSearchBudgetV61313} from '../src/extractors/coursera/text-and-dom-3.js';
 import {captureContractV6150} from '../src/extractors/coursera/completion.js';
 const {fixture,El}=createRequire(import.meta.url)('../tools/assessment-fixture.cjs');
 const clone=value=>JSON.parse(JSON.stringify(value));
@@ -84,10 +85,87 @@ test('all mounted identified questions finish without a redundant question trave
   assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
 });
 
+test('a fresh mounted question is saved before the first editor activation can crash',async()=>{
+ const f=fixture({count:100,mode:'virtual',budget:480000});let saved;
+ await assert.rejects(f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,
+  onCheckpoint:async model=>{saved=clone(model);throw Error('interrupt before activation');}}),/interrupt before activation/);
+ assert.equal(saved.questionCount,1);assert.equal(saved.questions[0].courseraQuestionId,'assessment~q1');assert.equal(f.clicks(),0);
+ assert.equal(saved.captureCompleteness.questionCoverageComplete,false);
+});
+
 test('a failed progress save stops repeat writes without discarding collected questions',async()=>{
   const f=fixture({count:100,mode:'virtual',budget:480000});let writes=0;
   const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,onCheckpoint:async()=>{writes++;return false;}});
   assert.equal(writes,1);assert.equal(result.assessment.questionCount,100);
+});
+
+test('loaded definitions bind to live outline identities without clicking question editors or losing raw fields',async()=>{
+ const f=fixture({count:100,mode:'virtual',budget:480000});f.fp.payload={};f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;f.c.MAX_WALK_NODES=40000;f.c.URL=URL;f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[f.now()]));}static now(){return f.now();}};
+ const raw=Array.from({length:100},(_,i)=>({id:'assessment~q'+(i+1),questionType:'Multiple Choice',
+  prompt:`Which result is correct for scenario ${i+1} in this assessment?`,
+  options:[{text:'Correct choice '+(i+1),correct:true},{text:'Wrong choice '+(i+1),correct:false}],
+  sourceMath:'<math><mi>α</mi></math>',unknownOriginalField:{unicode:'café 日本語'}}));
+ // The same question objects can appear in an earlier preview in another order.
+ f.envelope.__reactProps$fixture={preview:raw.slice(0,2).reverse(),questions:raw};
+ const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,certifiedItem:true});
+ assert.equal(result.assessment.questionCount,100);assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
+ assert.equal(f.clicks(),0);assert.equal(result.outlineDomTraversal.loadedModelQuestions,99);
+ assert.deepEqual(clone(f.fp.payload.loadedAssessmentEvidence.rawQuestionDefinitions),raw);
+ assert(result.assessment.questions.filter(q=>q.observationMethod==='LOADED_MODEL_MATCHED_TO_LIVE_OUTLINE')
+  .every(q=>raw[q.sourceArrayIndex].id===q.sourceQuestionId),'Raw definition indices belong to the selected array, even when parsed objects were cached');
+ assert(result.assessment.questions.every((q,i)=>q.courseraQuestionId==='assessment~q'+(i+1) && q.questionOrdinalObserved));
+});
+
+test('incomplete or ambiguous loaded models retain DOM recovery and cannot invent answer keys',async()=>{
+ const f=fixture({count:10,mode:'virtual',budget:480000});f.fp.payload={};f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;f.c.MAX_WALK_NODES=40000;f.c.URL=URL;f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[f.now()]));}static now(){return f.now();}};
+ f.envelope.__reactProps$fixture={questions:Array.from({length:10},(_,i)=>({id:'assessment~q'+(i+1),
+  prompt:`Which result is correct for scenario ${i+1} in this assessment?`,options:[{text:'A'},{text:'B'}]}))};
+ const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,certifiedItem:true});
+ assert.equal(result.assessment.questionCount,10);assert.equal(f.clicks(),9);assert.equal(result.outlineDomTraversal.loadedModelQuestions,0);
+ assert.equal(result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true,'Keys came from the observed DOM');
+});
+
+test('raw loaded-model copying preserves JSON data and declines getters, cycles, non-JSON objects and oversized strings',()=>{
+ const original={math:'<math><mi>α</mi></math>',unknown:{unicode:'café 日本語'},options:[null,true,3,'A']};
+ const copied=rawAssessmentStateV61522(original,Date.now()+1000);assert.equal(copied.complete,true);assert.deepEqual(clone(copied.value),original);
+ const unusual=JSON.parse('{"__proto__":{"retained":true},"text":"observed"}');
+ const unusualCopy=rawAssessmentStateV61522(unusual,Date.now()+1000);assert.equal(unusualCopy.complete,true);
+ assert.deepEqual(unusualCopy.value,unusual);assert.equal(Object.getPrototypeOf(unusualCopy.value),Object.prototype);
+ assert.equal(String(unusualCopy.value),'[object Object]');assert.equal({}.retained,undefined);
+ let invoked=0;const accessor={};Object.defineProperty(accessor,'question',{enumerable:true,get(){invoked++;return 'unobserved'}});
+ assert.equal(rawAssessmentStateV61522(accessor,Date.now()+1000).reason,'ACCESSOR_STATE');assert.equal(invoked,0);
+ const cycle={};cycle.self=cycle;assert.equal(rawAssessmentStateV61522(cycle,Date.now()+1000).reason,'CYCLIC_STATE');
+ assert.equal(rawAssessmentStateV61522(new Date(),Date.now()+1000).reason,'NON_JSON_OBJECT');
+ assert.equal(rawAssessmentStateV61522({prompt:'x'.repeat(2500001)},Date.now()+1000).reason,'RAW_MODEL_LIMIT_REACHED');
+});
+
+test('recognized loaded markup wrappers keep full prompt and feedback text without mixing metadata into content',()=>{
+ const prompt='Which result is correct? '+('Observed learner wording. '.repeat(100));
+ const feedback='Full feedback explanation. '.repeat(100);
+ const q=parseQuestionStateV664({id:'observed-source-id',questionType:'Multiple Choice',
+  prompt:{typeName:'cml',definition:{dtdId:'metadata-not-learner-text',value:'<p>'+prompt+'</p>'}},
+  options:[{text:'A',correct:true},{text:'B',correct:false}],feedback:{definition:{value:'<p>'+feedback+'</p>'}}},0);
+ assert.equal(q.loadedTextComplete,true);assert.equal(q.prompt,prompt.trim());assert.equal(q.feedback,feedback.trim());
+ assert(!q.prompt.includes('metadata-not-learner-text'));
+ const work=stateSearchBudgetV61313();
+ assert.equal(loadedStateTextV61522('x'.repeat(1500000),work).complete,true);
+ assert.equal(loadedStateTextV61522('y'.repeat(1500000),work).complete,false);
+ assert.equal(work.stopReason,'STATE_TEXT_CHARACTER_LIMIT','Aggregate string allocation stops before decoding an oversized loaded bank');
+});
+
+test('duplicate loaded prompts cannot substitute one question identity or answer for another',async()=>{
+ const f=fixture({count:100,mode:'virtual',duplicates:true,budget:480000});f.fp.payload={};f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;f.c.MAX_WALK_NODES=40000;
+ f.c.URL=URL;f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[f.now()]));}static now(){return f.now();}};
+ f.envelope.__reactProps$fixture={questions:Array.from({length:100},(_,i)=>({id:'assessment~q'+(i+1),questionType:'Multiple Choice',
+  prompt:`Which result is correct for scenario ${i===27?27:i+1} in this assessment?`,
+  options:[{text:'Correct choice '+(i+1),correct:true},{text:'Wrong choice '+(i+1),correct:false}]}))};
+ const result=await f.c.collectCourseraAssessmentByQuestionCycleV662(f.envelope,f.fp,{deadline:480000,certifiedItem:true});
+ assert.equal(result.assessment.questionCount,100);assert.equal(f.clicks(),1);
+ assert.equal(result.assessment.questions[27].courseraQuestionId,'assessment~q28');
+ assert.deepEqual(clone(result.assessment.questions[27].correctAnswers),['Correct choice 28']);
 });
 test('safe pauses resume an unfinished keyed or unkeyed assessment without repeating its observed prefix',async()=>{
  for(const unkeyed of [false,true]){

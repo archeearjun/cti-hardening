@@ -21,9 +21,9 @@ import { objectTextV664, exactPointElements, cleanAttachmentDisplayName, collect
 import { nativeAssignmentSectionsFromText, trimCourseraAssignmentLearnerText, normalizeAssignmentMetadataV61325, collectCourseraNativeAssignment, retainAssessmentSurfaceEvidenceV6138, assessmentTextReceiptV6146, genericAssessmentTextHeuristicNotApplicableV6146 } from "./assessments-5.js";
 import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
-import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS } from "./config.js";
+import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS, CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61521() {
+javascript:(async function ctiCourseraCaptureV61522() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -44,6 +44,18 @@ javascript:(async function ctiCourseraCaptureV61521() {
   let automaticLocalPlan=null;
   let automaticLocalPlanKey='';
   let automaticLocalReload=false;
+  let ctiProgress=null,ctiSupervisorTimer=null;
+  let supervisorSnapshot={completeItems:0,savedQuestions:0,itemId:''};
+  function reportLocalSupervisorV61522(event,extra) {
+    if(!automaticLocalConfig?.controllerOrigin || !window.opener)return;
+    let display={};try{display=ctiProgress?.snapshot() || {};}catch(_){}
+    try{window.opener.postMessage(Object.assign({kind:'CTI_LOCAL_CAPTURE_STATUS_V1',event,
+      token:automaticLocalConfig.token,courseId:automaticLocalConfig.courseId,visibility:document.visibilityState,
+      phase:String(display.phase || 'Starting'),count:String(display.count || ''),
+      completeItems:supervisorSnapshot.completeItems,savedQuestions:supervisorSnapshot.savedQuestions,
+      itemId:supervisorSnapshot.itemId},extra || {}),automaticLocalConfig.controllerOrigin);}catch(_){}
+  }
+
   if(automaticLocalConfig){
     // Registered scripts also run in frames and after unrelated navigation.
     // Never start outside the exact, authenticated authoring course.
@@ -67,12 +79,14 @@ javascript:(async function ctiCourseraCaptureV61521() {
         if(active && active.state==='RUNNING' && sessionStorage.getItem(activeKey)!==activeToken &&
           Date.now()-Number(active.updatedAt || active.startedAt || 0)<CTI_RUN_LOCK_STALE_MS){
           localStorage.setItem(automaticLocalPlanKey,JSON.stringify({state:'REJECTED',reason:'ANOTHER_LOCAL_CAPTURE_RUNNING'}));
+          reportLocalSupervisorV61522('ERROR',{message:'Another tab recently ran this course. Close that extraction tab and allow its 45-second liveness window to expire.'});
           console.warn('CTI automatic capture is already registered for this course. Reload its existing tab to continue.');return;
         }
       }
       if(!automaticLocalPlan && existingRunLock && existingRunLock.running &&
         nowForLock-Number(existingRunLock.lastHeartbeatAt || existingRunLock.startedAt || 0)<CTI_RUN_LOCK_STALE_MS){
-        localStorage.setItem(automaticLocalPlanKey,JSON.stringify({state:'REJECTED',reason:'ANOTHER_EXTRACTOR_RUNNING'}));return;
+        localStorage.setItem(automaticLocalPlanKey,JSON.stringify({state:'REJECTED',reason:'ANOTHER_EXTRACTOR_RUNNING'}));
+        reportLocalSupervisorV61522('ERROR',{message:'Another extractor is already running in this document.'});return;
       }
       automaticLocalPlan=automaticLocalPlan || {state:'RUNNING',token:automaticLocalConfig.token,
         courseId:courseId(),startedAt:Date.now(),batches:0,stalled:0,
@@ -84,7 +98,39 @@ javascript:(async function ctiCourseraCaptureV61521() {
       // Clear previous page-object references held by the Console. Durable
       // diagnostics are in the item checkpoints, not DevTools history.
       console.clear();
-    }catch(error){console.error('CTI automatic capture needs working local browser storage:',error.message);return;}
+    }catch(error){reportLocalSupervisorV61522('ERROR',{message:'Working local browser storage is required.'});console.error('CTI automatic capture needs working local browser storage:',error.message);return;}
+    if(automaticLocalConfig.controllerOrigin){
+      let linked=false;
+      try{
+        const origin=new URL(automaticLocalConfig.controllerOrigin);
+        if(origin.origin!==automaticLocalConfig.controllerOrigin || !(origin.protocol==='https:' ||
+          origin.protocol==='http:' && ['localhost','127.0.0.1'].includes(origin.hostname)) || !window.opener)throw Error('Controller connection unavailable');
+        const acknowledged=await new Promise(resolve=>{
+          let timer;
+          function onAck(event){
+            const data=event.data;
+            if(event.origin!==origin.origin || event.source!==window.opener || data?.kind!=='CTI_LOCAL_CAPTURE_ACK_V1' ||
+              data.token!==automaticLocalConfig.token || data.courseId!==automaticLocalConfig.courseId)return;
+            window.removeEventListener('message',onAck);clearTimeout(timer);resolve(data);
+          }
+          window.addEventListener('message',onAck);
+          timer=setTimeout(()=>{window.removeEventListener('message',onAck);resolve(null);},10000);
+          reportLocalSupervisorV61522('READY');
+        });
+        if(acknowledged && Number.isInteger(acknowledged.recoveries) && acknowledged.recoveries>=0 && acknowledged.recoveries<=30){
+          linked=true;automaticLocalPlan.supervisorRecoveries=Math.max(Number(automaticLocalPlan.supervisorRecoveries || 0),acknowledged.recoveries);
+          localStorage.setItem(automaticLocalPlanKey,JSON.stringify(automaticLocalPlan));
+          ctiSupervisorTimer=setInterval(()=>reportLocalSupervisorV61522('HEARTBEAT'),CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS);
+        }
+      }catch(_){}
+      if(!linked){
+        automaticLocalPlan.state='FINISHED';automaticLocalPlan.reason='LOCAL_SUPERVISOR_LINK_UNAVAILABLE';
+        try{localStorage.setItem(automaticLocalPlanKey,JSON.stringify(automaticLocalPlan));}catch(_){}
+        const panel=createCtiProgressPanelV1('CTI · Managed capture');
+        panel.finish('error','The CTI controller connection could not be verified. Keep CTI open. If the browser blocks the connection, use the regular local command. Saved checkpoints remain intact.');
+        reportLocalSupervisorV61522('ERROR',{message:'Controller connection could not be verified.'});return;
+      }
+    }
     if(document.readyState==='loading')await new Promise(resolve=>document.addEventListener('DOMContentLoaded',resolve,{once:true}));
   }
   if(localResumeCapture) {
@@ -93,11 +139,13 @@ javascript:(async function ctiCourseraCaptureV61521() {
         throw new Error('Paste the resume script in the matching Coursera authoring tab.');
       }
       validateSavedCaptureResumeV61515(localResumeCapture,courseId());
-    } catch(error) {console.error('CTI resume stopped:',error.message);return;}
+    } catch(error) {if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);reportLocalSupervisorV61522('ERROR',{message:'The saved capture could not be validated for this course.'});console.error('CTI resume stopped:',error.message);return;}
   }
   // Remote sessions need the same renderer bounds as local Chrome. The Worker
   // owns reopening their browser; only the local path needs continuation UI.
-  const rendererCaptureSession=createLocalCaptureSessionV61514();
+  const recoveryQuestions=automaticLocalConfig?.controllerOrigin && Number(automaticLocalPlan?.supervisorRecoveries || 0)>0
+    ? (automaticLocalPlan.supervisorRecoveries===1?10:5) : undefined;
+  const rendererCaptureSession=createLocalCaptureSessionV61514({questionLimit:recoveryQuestions});
   const localCaptureSession=backgroundChunkMode?null:rendererCaptureSession;
   // The final chunk may spend up to 120 s hashing assets. Keep another minute
   // for normalization/JSON/checkpoint handoff so acquisition never consumes it.
@@ -110,6 +158,8 @@ javascript:(async function ctiCourseraCaptureV61521() {
     : CTI_WHOLE_RUN_DEADLINE;
   if (existingRunLock && existingRunLock.running &&
       (nowForLock - Number(existingRunLock.lastHeartbeatAt || existingRunLock.startedAt || 0)) < CTI_RUN_LOCK_STALE_MS) {
+    if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
+    reportLocalSupervisorV61522('ERROR',{message:'Another extractor is already running in this document.'});
     console.warn("CTI Item Fidelity Extractor is already running. Second invocation blocked.", existingRunLock);
     return;
   }
@@ -126,13 +176,15 @@ javascript:(async function ctiCourseraCaptureV61521() {
       automaticLocalPlan.state='FINISHED';automaticLocalPlan.reason='LOCAL_CHECKPOINT_UNAVAILABLE';
       try{localStorage.setItem(automaticLocalPlanKey,JSON.stringify(automaticLocalPlan));}catch(_){}
     }
+    if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
+    reportLocalSupervisorV61522('ERROR',{message:'Reload Coursera before starting another batch in this document.'});
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61521.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61522.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.21"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.22"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -142,14 +194,13 @@ javascript:(async function ctiCourseraCaptureV61521() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.21"
+          finishedAt: Date.now(), version: "v6.15.22"
         };
       }
     } catch (e) {}
   }
 
   // CTI_PROGRESS_BEGIN
-  let ctiProgress = null;
   function ctiProgressUpdateV1(patch) {
     try { if (typeof ctiProgress !== "undefined" && ctiProgress) ctiProgress.update(patch); } catch (_) {}
   }
@@ -345,12 +396,27 @@ javascript:(async function ctiCourseraCaptureV61521() {
     // ID, ordinal and prompt prefix. Incomplete evidence is reusable only within
     // the same unfinished visit, and cannot acquire an inferred answer key.
     const seeds=new Map();let reusedQuestions=0;
+    const priorQuestionIds=new Set((options.seedAssessment?.questions || []).map(q=>q.courseraQuestionId).filter(Boolean));
+    const freshMountedIds=new Set((options.mountedAssessment?.questions || []).map(q=>q.courseraQuestionId).filter(id=>id && !priorQuestionIds.has(id)));
+    const loadedQuestions=options.loadedAssessment?.questions || [],usedLoaded=new Set();out.loadedModelQuestions=0;
     for(const model of [options.seedAssessment,options.mountedAssessment])for(const q of model?.questions || []) {
       if(q.courseraQuestionId && q.questionOrdinalObserved &&
         (questionEvidenceReadyV6138(q) || options.resumeInProgress===true && String(q.prompt || '').trim()))seeds.set(String(q.courseraQuestionId),q);
     }
     let lastCheckpointQuestions=0,lastCheckpointAt=start,questionCheckpointFailed=false,newObservations=0,questionYieldReason='';
     let idle = 0, turn = 0, stopReason = 'NO_FURTHER_QUESTIONS';
+    function chooseLoaded(candidate){
+      const matches=loadedQuestions.filter(q=>q.loadedTextComplete===true && questionEvidenceReadyV6138(q) && assessmentOutlinePromptAlignedV613(candidate.label,q.prompt));
+      const identities=[candidate.id,candidate.dragId,...String(candidate.id).split(/[~!]/)];
+      const exact=matches.filter(q=>q.sourceQuestionId && identities.includes(q.sourceQuestionId));
+      const selected=exact.length===1?exact[0]:matches.length===1 && !matches[0].sourceQuestionId?matches[0]:null;
+      return selected && !usedLoaded.has(selected)?selected:null;
+    }
+    function retainLoadedMedia(question){
+      const definitions=options.loadedAssessment?.stateEvidence?.rawQuestionDefinitions;
+      if(typeof options.onLoadedQuestion==='function' && Array.isArray(definitions) && Number.isInteger(question.sourceArrayIndex) && question.sourceArrayIndex>=0 && question.sourceArrayIndex<definitions.length)
+        options.onLoadedQuestion(definitions[question.sourceArrayIndex]);
+    }
     function discover(sidebar) {
       const count = assessmentPartCountV8(sidebar);
       declared = Math.max(declared, count);
@@ -360,7 +426,7 @@ javascript:(async function ctiCourseraCaptureV61521() {
       for (const candidate of live) known.set(candidate.id, {id:candidate.id,ordinal:candidate.ordinal,
         href:candidate.href,label:candidate.label,targetTestId:candidate.targetTestId});
       for(const candidate of live)if(/~textBlock!~/i.test(candidate.id)||isAssignmentTextBlockV61321(candidate.target))textPartOrdinals.add(candidate.ordinal);
-      return live.map(candidate=>({id:candidate.id,ordinal:candidate.ordinal,href:candidate.href,label:candidate.label}));
+      return live.map(candidate=>({id:candidate.id,ordinal:candidate.ordinal,href:candidate.href,label:candidate.label,dragId:candidate.dragId}));
     }
     function currentQuestions() { return [...questions.values()].sort((a,b)=>Number(a.id)-Number(b.id)); }
     function complete() { return assessmentCaptureCoverageV613(currentQuestions(), Math.max(0,declared-textPartOrdinals.size),'',{declaredContentParts:declared,nonQuestionPartOrdinals:[...textPartOrdinals]}).requiredAnswerCoverageComplete; }
@@ -400,10 +466,28 @@ javascript:(async function ctiCourseraCaptureV61521() {
           const seed=seeds.get(candidate.id);
           if(!questions.has(candidate.id) && seed && Number(seed.id)===candidate.ordinal && assessmentOutlinePromptAlignedV613(candidate.label,seed.prompt)) {
             questions.set(candidate.id,JSON.parse(JSON.stringify(seed)));reusedQuestions++;
+            const loaded=chooseLoaded(candidate);if(loaded){usedLoaded.add(loaded);retainLoadedMedia(loaded);}
+            if(freshMountedIds.has(candidate.id)){
+              const current=questions.get(candidate.id);current.observedAtMs=Date.now();current.observationMethod='CURRENT_MOUNTED_DOM';
+              newObservations++;await checkpointQuestions(false);
+              if(questionYieldReason){stopReason='LOCAL_ASSESSMENT_CHECKPOINT_YIELD';break questionTraversal;}
+            }
             // An earlier observation from this unfinished visit already spent
             // its loading wait. Keep missing answers explicit and move forward;
             // a later recovery attempt can inspect them again.
             if(!questionEvidenceReadyV6138(seed) && options.resumeInProgress===true)attempts.set(candidate.id,2);
+          }
+          // Bind loaded definitions to live outline identities and ordinals.
+          // Array positions alone do not prove a Coursera question's position.
+          if(!questionEvidenceReadyV6138(questions.get(candidate.id)) && loadedQuestions.length){
+            const loaded=chooseLoaded(candidate);
+            if(loaded){
+              const q=JSON.parse(JSON.stringify(loaded));q.id=String(candidate.ordinal);q.courseraQuestionId=candidate.id;
+              q.questionOrdinalObserved=true;q.observedAtMs=Date.now();q.observationMethod='LOADED_MODEL_MATCHED_TO_LIVE_OUTLINE';
+              retainLoadedMedia(q);
+              questions.set(candidate.id,q);usedLoaded.add(loaded);out.loadedModelQuestions++;newObservations++;await checkpointQuestions(false);
+              if(questionYieldReason){stopReason='LOCAL_ASSESSMENT_CHECKPOINT_YIELD';break questionTraversal;}
+            }
           }
           const previous = questions.get(candidate.id);
           if (questionEvidenceReadyV6138(previous)) continue;
@@ -495,7 +579,7 @@ javascript:(async function ctiCourseraCaptureV61521() {
     out.captureCompleteness=coverage;
     if (!captured.length) return out;
     const evidence={anchors:known.size,resolvedTargets:questions.size,scrollSteps:out.scrollSteps,paginationClicks:out.paginationClicks,
-      navigationClicks:out.navigationClicks,hydrationAttempts:out.hydrationAttempts,reusedQuestions,stopReason,elapsedMs:out.elapsedMs,budgetMs:budget,effectiveBudgetMs:Math.max(0,deadline-start),preview:out.preview,errors:out.errors};
+      navigationClicks:out.navigationClicks,hydrationAttempts:out.hydrationAttempts,reusedQuestions,loadedModelQuestions:out.loadedModelQuestions,stopReason,elapsedMs:out.elapsedMs,budgetMs:budget,effectiveBudgetMs:Math.max(0,deadline-start),preview:out.preview,errors:out.errors};
     out.assessment={schemaVersion:6,parser:'coursera-assignment-outline-dom-v2-dynamic',origin:'coursera-authoring-dom',
       declaredQuestionCount:finalDeclared,questionCount:captured.length,answerEvidenceQuestionCount:coverage.answerEvidence,
       questions:captured,parserConfidence:coverage.requiredAnswerCoverageComplete?0.98:0.84,
@@ -554,12 +638,34 @@ javascript:(async function ctiCourseraCaptureV61521() {
     const questionMap = new Map();
     mergeAssessmentModelIntoCycleV662(questionMap, wideModel);
 
+    // Prefer the already loaded, item-scoped model before repeated rendering.
+    // Only a certified live editor can take this early path; incomplete models
+    // still fall through to the observed outline and normal evidence checks.
+    const earlyStateProbe = options.certifiedItem===true ? collectReactAssessmentStateV664(envelope, fp, declared, {deadline:cycleDeadline}) : null;
+    if(earlyStateProbe){
+      stats.reactStateElapsedMs=Number(earlyStateProbe.elapsedMs || 0);stats.reactStateStopReason=String(earlyStateProbe.stopReason || '');
+      stats.reactStateTruncated=Boolean(earlyStateProbe.truncated);stats.reactStateAttempted=Boolean(earlyStateProbe.attempted);
+      stats.reactStateQuestions=Number(earlyStateProbe.questionCount || 0);stats.reactStateArraysScanned=Number(earlyStateProbe.arraysScanned || 0);
+      stats.reactStateCandidates=earlyStateProbe.candidateArrays || [];
+    }
+    const loadedAssessment=earlyStateProbe && !earlyStateProbe.truncated &&
+      earlyStateProbe.assessment?.stateEvidence?.rawCapture?.complete===true ? earlyStateProbe.assessment : null;
+    if(loadedAssessment)fp.payload.loadedAssessmentEvidence={itemId:String(fp.id),observedAt:new Date().toISOString(),
+      selectedPath:loadedAssessment.stateEvidence.selectedPath,rawCapture:loadedAssessment.stateEvidence.rawCapture,
+      rawQuestionDefinitions:loadedAssessment.stateEvidence.rawQuestionDefinitions};
+
     // v6.6.11: first use Coursera's own assignment outline as a deterministic
     // index into the matching question panels. This is read-only DOM evidence and
     // avoids guessing from generic React children.
     const outlineProbe = await collectAssessmentFromOutlineDomV665(envelope, fp, declared, {deadline:cycleDeadline,
       seedAssessment:options.seedAssessment,mountedAssessment:wideModel,onCheckpoint:options.onCheckpoint,
-      resumeInProgress:options.resumeInProgress,shouldYield:options.shouldYield});
+      resumeInProgress:options.resumeInProgress,shouldYield:options.shouldYield,loadedAssessment,
+      onLoadedQuestion:raw=>{
+        const observed=harvestEvidence(raw);
+        mergeEvidence(fp.payload,{files:observed.files,links:observed.links,images:observed.images,embeddedRefs:observed.embeddedRefs,
+          assetDetails:observed.assetDetails,assetEvidenceConfidence:observed.assetDetails.length?0.9:0,
+          linkEvidenceConfidence:observed.links.length?0.9:0},'loaded-question-definition');
+      }});
     stats.outlineDomAttempted = Boolean(outlineProbe && outlineProbe.attempted);
     stats.attempted = stats.outlineDomAttempted;
     stats.clicks += Number(outlineProbe && outlineProbe.navigationClicks || 0);
@@ -584,28 +690,28 @@ javascript:(async function ctiCourseraCaptureV61521() {
       }
     }
 
-    // v6.6.5: before clicking anything, inspect the bounded React component/query
-    // state for the strongly identified assignment. Untouched Smart Ingestion
-    // assignments can keep all question objects in React state while rendering only
-    // one selected question in the visible editor DOM.
-    const stateProbe = collectReactAssessmentStateV664(envelope, fp, declared, {deadline:cycleDeadline});
-    stats.reactStateElapsedMs=Number(stateProbe && stateProbe.elapsedMs || 0);
-    stats.reactStateStopReason=String(stateProbe && stateProbe.stopReason || '');
-    stats.reactStateTruncated=Boolean(stateProbe && stateProbe.truncated);
-    stats.reactStateAttempted = Boolean(stateProbe && stateProbe.attempted);
-    stats.reactStateQuestions = Number(stateProbe && stateProbe.questionCount || 0);
-    stats.reactStateArraysScanned = Number(stateProbe && stateProbe.arraysScanned || 0);
-    stats.reactStateCandidates = stateProbe && Array.isArray(stateProbe.candidateArrays) ? stateProbe.candidateArrays : [];
-    if (stateProbe && stateProbe.assessment) {
-      declared = Math.max(declared, Number(stateProbe.assessment.declaredQuestionCount || 0));
+
+    // Prefer the already loaded, item-scoped model before repeated rendering.
+    // Only a certified live editor can take this early path; incomplete models
+    // still fall through to the observed outline and normal evidence checks.
+    const fallbackStateProbe = earlyStateProbe || collectReactAssessmentStateV664(envelope, fp, declared, {deadline:cycleDeadline});
+    stats.reactStateElapsedMs=Number(fallbackStateProbe && fallbackStateProbe.elapsedMs || 0);
+    stats.reactStateStopReason=String(fallbackStateProbe && fallbackStateProbe.stopReason || '');
+    stats.reactStateTruncated=Boolean(fallbackStateProbe && fallbackStateProbe.truncated);
+    stats.reactStateAttempted = Boolean(fallbackStateProbe && fallbackStateProbe.attempted);
+    stats.reactStateQuestions = Number(fallbackStateProbe && fallbackStateProbe.questionCount || 0);
+    stats.reactStateArraysScanned = Number(fallbackStateProbe && fallbackStateProbe.arraysScanned || 0);
+    stats.reactStateCandidates = fallbackStateProbe && Array.isArray(fallbackStateProbe.candidateArrays) ? fallbackStateProbe.candidateArrays : [];
+    if (fallbackStateProbe && fallbackStateProbe.assessment) {
+      declared = Math.max(declared, Number(fallbackStateProbe.assessment.declaredQuestionCount || 0));
       stats.declared = declared;
-      mergeAssessmentModelIntoCycleV662(questionMap, stateProbe.assessment);
+      mergeAssessmentModelIntoCycleV662(questionMap, fallbackStateProbe.assessment);
       const mergedAfterState = assessmentFromCycleMapV667(questionMap, declared, {
         contentPartCoverage:stats.captureCompleteness,
         reactStateAttempted:true,
-        reactStateQuestions:Number(stateProbe.assessment.questionCount || 0),
-        reactStateArraysScanned:Number(stateProbe.arraysScanned || 0),
-        reactStateCandidates:Array.isArray(stateProbe.candidateArrays) ? stateProbe.candidateArrays : [],
+        reactStateQuestions:Number(fallbackStateProbe.assessment.questionCount || 0),
+        reactStateArraysScanned:Number(fallbackStateProbe.arraysScanned || 0),
+        reactStateCandidates:Array.isArray(fallbackStateProbe.candidateArrays) ? fallbackStateProbe.candidateArrays : [],
         outlineDomAttempted:stats.outlineDomAttempted,
         outlineDomAnchors:stats.outlineDomAnchors,
         outlineDomResolvedTargets:stats.outlineDomResolvedTargets,
@@ -669,9 +775,9 @@ javascript:(async function ctiCourseraCaptureV61521() {
       if (merged) {
         stats.captured = Number(merged.questionCount || 0);
         stats.assessment = merged;
-      } else if (stateProbe && stateProbe.assessment) {
-        stats.captured = Number(stateProbe.assessment.questionCount || 0);
-        stats.assessment = stateProbe.assessment;
+      } else if (fallbackStateProbe && fallbackStateProbe.assessment) {
+        stats.captured = Number(fallbackStateProbe.assessment.questionCount || 0);
+        stats.assessment = fallbackStateProbe.assessment;
       } else if (wideModel) {
         stats.captured = Number(wideModel.questionCount || 0);
         stats.assessment = wideModel;
@@ -850,8 +956,8 @@ javascript:(async function ctiCourseraCaptureV61521() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.21",
-      buildId: "v6.15.21-assessment-slices-recovery-20261012",
+      version: "v6.15.22",
+      buildId: "v6.15.22-managed-local-data-first-20261012",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1408,9 +1514,11 @@ javascript:(async function ctiCourseraCaptureV61521() {
                 meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
                 diag.questionCheckpointErrors=Number(diag.questionCheckpointErrors || 0)+1;
               }
+              if(saved){supervisorSnapshot.savedQuestions=assessment.questionCount;supervisorSnapshot.itemId=String(fp.id);reportLocalSupervisorV61522('PROGRESS');}
               if(options.localSession)options.localSession.checkpointWritten(saved);
               if(options.allowQuestionYield && options.localSession){
                 for(const q of assessment.questions || [])if(q.courseraQuestionId &&
+                  q.observationMethod!=='LOADED_MODEL_MATCHED_TO_LIVE_OUTLINE' &&
                   (!questionBaseline.has(q.courseraQuestionId) || questionBaseline.get(q.courseraQuestionId)!==q.observedAtMs))observedThisVisit.add(q.courseraQuestionId);
                 assessmentCheckpointYieldReason=options.localSession.afterQuestionCheckpoint(observedThisVisit.size-reportedQuestions,
                   saved && assessment.captureCompleteness?.requiredAnswerCoverageComplete===true);
@@ -1687,7 +1795,7 @@ javascript:(async function ctiCourseraCaptureV61521() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.21", {key:"__CTI_COURSERA_PROGRESS__"});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.22", {key:"__CTI_COURSERA_PROGRESS__"});
   ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
     "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
     "Finding the course and its authoring outline."});
@@ -1703,7 +1811,7 @@ javascript:(async function ctiCourseraCaptureV61521() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.21", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.22", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1711,8 +1819,8 @@ javascript:(async function ctiCourseraCaptureV61521() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.21",
-      buildId: "v6.15.21-assessment-slices-recovery-20261012",
+      extractor: "CTI Item Fidelity Extractor v6.15.22",
+      buildId: "v6.15.22-managed-local-data-first-20261012",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -2087,6 +2195,8 @@ javascript:(async function ctiCourseraCaptureV61521() {
   result.meta.itemsWithCurrentStateEvidence = result.fingerprints.filter(fp => fp.payload.currentState && ((fp.payload.currentState.attachmentFacts || []).length || fp.payload.currentState.grading)).length;
   result.meta.currentAttachmentFacts = result.fingerprints.reduce((n,fp) => n + (((fp.payload.currentState || {}).attachmentFacts || []).length), 0);
   result.meta.captureAccounting=finalCaptureAccountingV6150(result.fingerprints,result.meta.activeSpaCrawl);
+  supervisorSnapshot.completeItems=result.meta.captureAccounting.completeCount;
+  reportLocalSupervisorV61522('PROGRESS');
   result.meta.noSilentMisses=Boolean(result.meta.captureAccounting.noSilentMisses);
   result.meta.wholeRunHardLimitMs=CTI_WHOLE_RUN_MAX_MS;
   result.meta.wholeRunDeadlineReached=Date.now()>=CTI_WHOLE_RUN_DEADLINE;
@@ -2120,8 +2230,9 @@ javascript:(async function ctiCourseraCaptureV61521() {
   }
   await exportCaptureWithCheckpoints(result.meta.exportFileName, result, ctiCheckpointManager, retainCheckpoint,
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
+  reportLocalSupervisorV61522(automaticLocalReload?'YIELD':'FINISHED',{complete:accounting.complete===true});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61521.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61522.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;
@@ -2135,6 +2246,8 @@ javascript:(async function ctiCourseraCaptureV61521() {
     Number(accounting.unvisitedCount || 0) + " unvisited");
   // CTI_PROGRESS_END
   } finally {
+    if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
+    if(['running','error'].includes(ctiProgress?.snapshot().outcome))reportLocalSupervisorV61522('ERROR',{message:'The run did not reach the JSON export. Check the Coursera progress card.'});
   // CTI_PROGRESS_BEGIN
     if (ctiProgress && ctiProgress.snapshot().outcome === "running") {
       ctiProgressUpdateV1({phase:"Capture interrupted"});

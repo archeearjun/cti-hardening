@@ -1,13 +1,13 @@
 import { assessmentDeclaredCountV662, assessmentEnvelopeRootV662, assessmentPartCountV8, assessmentPromptKey_, isAssessmentLikeFingerprintV662, mergeCourseraAssessmentEvidence, questionEvidenceReadyV6138 } from "./assessments-2.js";
 import { ctiGuardOptionEvidence_, parseAssignmentPartDomV665 } from "./assessments-3.js";
 import { assessmentLayoutDiagnosticV61318, assessmentTypeKey, emptyAssessmentProbeV61320, exactAssessmentBadgeElements, isAssignmentTextBlockV61321, observedAssignmentLayoutV61319, optionRowForBadge, optionSemanticPartsFromRow, parseCourseraAssessmentTextFallback } from "./assessments.js";
-import { CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_PER_QUESTION_MS } from "./config.js";
+import { CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_PER_QUESTION_MS, MAX_CAPTURED_RESPONSE_CHARS } from "./config.js";
 import { isItemSpecificCourseRoute } from "./navigation-2.js";
 import { choiceDiagnosticsV61318, elementAttributeBlob, isDocumentScrollRoot, observedEmptyLayoutV61318, scrollRootMax } from "./text-and-dom-2.js";
 import { ctiPlainTextV664, findNamedValueV664, isObservedWrittenResponseV6138, isVisibleElement, ownStateValueV61313, reactFiberForElementV664, stateSearchBudgetV61313, stateSearchStepV61313, textWithoutExactBadges } from "./text-and-dom-3.js";
 import { isDangerousEditorControl, isGlobalChromeElement, objectTextV664 } from "./text-and-dom-4.js";
 import { reactSignalsForElement } from "./text-and-dom-5.js";
-import { courseId } from "./text-and-dom.js";
+import { courseId, stripHtml } from "./text-and-dom.js";
 
 export function assessmentOutlineCandidatesV613(sidebar, declared, requestedId) {
     const found = new Map();
@@ -204,18 +204,37 @@ export function assessmentStateSeedsV664(surfaceRoot, work) {
     return seeds.slice(0, 700);
   }
 
+export function loadedStateTextV61522(value, work, depth = 5, seen = new WeakSet()) {
+    if(!stateSearchStepV61313(work) || depth<0)return {complete:false,text:''};
+    if(typeof value==='string' || typeof value==='number' || typeof value==='boolean'){
+      work.loadedTextCharacters=Number(work.loadedTextCharacters || 0)+String(value).length;
+      if(work.loadedTextCharacters>MAX_CAPTURED_RESPONSE_CHARS){work.stopReason='STATE_TEXT_CHARACTER_LIMIT';return {complete:false,text:''};}
+      return {complete:true,text:stripHtml(String(value))};
+    }
+    if(!value || typeof value!=='object' || Array.isArray(value) || seen.has(value))return {complete:false,text:''};
+    seen.add(value);const candidates=[];
+    for(const key of ['text','label','html','cml','value','content','body','definition']){
+      const v=ownStateValueV61313(value,key);if(v===undefined)continue;
+      const result=loadedStateTextV61522(v,work,depth-1,seen);
+      if(result.complete && result.text && !candidates.includes(result.text))candidates.push(result.text);
+    }
+    return candidates.length===1?{complete:true,text:candidates[0]}:{complete:false,text:''};
+  }
+
 export function parseOptionStateV664(value, index, work) {
     work=work || stateSearchBudgetV61313();
     if (!stateSearchStepV61313(work)) return null;
     if (value == null) return null;
     if (typeof value === 'string' || typeof value === 'number') {
-      const text = ctiPlainTextV664(value, 900);
-      return text ? {id:String(index + 1), text, label:text, description:'', aliases:[], correct:false} : null;
+      const exact=loadedStateTextV61522(value,work);if(!exact.complete)return null;
+      const text = exact.text;
+      return text ? {id:String(index + 1), text, label:text, description:'', aliases:[], correct:false,stateTextCaptureComplete:true} : null;
     }
     if (typeof value !== 'object') return null;
     const textHit = findNamedValueV664(value, /^(?:text|label|content|answerText|optionText|displayText|title)$/i, 2, undefined, work);
-    let text = textHit ? objectTextV664(textHit.value, 2, undefined, work) : objectTextV664(value, 2, undefined, work);
-    text = ctiPlainTextV664(text, 900);
+    const exactText=loadedStateTextV61522(textHit?textHit.value:value,work);
+    let text = exactText.complete?exactText.text:textHit ? objectTextV664(textHit.value, 2, undefined, work) : objectTextV664(value, 2, undefined, work);
+    if(!exactText.complete)text = ctiPlainTextV664(text, 900);
     if (!text || text.length < 1) return null;
     let correct = false;
     const correctHit = findNamedValueV664(value, /^(?:correct|isCorrect|is_correct|correctness|isAnswer|isKey)$/i, 2, undefined, work);
@@ -223,7 +242,7 @@ export function parseOptionStateV664(value, index, work) {
       const cv = correctHit.value;
       correct = cv === true || cv === 1 || /^(?:true|correct|yes|1)$/i.test(String(cv));
     }
-    return {id:String(index + 1), text, label:text, description:'', aliases:[], correct};
+    return {id:String(index + 1), text, label:text, description:'', aliases:[], correct,stateTextCaptureComplete:exactText.complete};
   }
 
 export function parseQuestionStateV664(obj, index, work) {
@@ -233,8 +252,9 @@ export function parseQuestionStateV664(obj, index, work) {
     if (ownStateValueV61313(obj,'$$typeof')) return null; // React UI element, not a question record.
     const questionPromptHit = findNamedValueV664(obj, /^(?:prompt|questionPrompt|questionText|stem|question)$/i, 4, undefined, work);
     const promptHit = questionPromptHit || findNamedValueV664(obj, /^title$/i, 4, undefined, work);
-    let prompt = promptHit ? objectTextV664(promptHit.value, 3, undefined, work) : '';
-    prompt = ctiPlainTextV664(prompt, 1400);
+    const promptText=promptHit?loadedStateTextV61522(promptHit.value,work):{complete:false,text:''};
+    let prompt = promptText.complete?promptText.text:promptHit ? objectTextV664(promptHit.value, 3, undefined, work) : '';
+    if(!promptText.complete)prompt = ctiPlainTextV664(prompt, 1400);
     if (!prompt || prompt.length < 8) {
       // Fallback only when the object itself strongly looks question-shaped.
       const keys = (() => { try { return Object.keys(obj); } catch (e) { return []; } })();
@@ -257,12 +277,13 @@ export function parseQuestionStateV664(obj, index, work) {
 
     const typeHit = findNamedValueV664(obj, /^(?:questionType|type|interactionType|answerType|responseType)$/i, 3, undefined, work);
     const rawType = typeHit ? ctiPlainTextV664(objectTextV664(typeHit.value, 1, undefined, work), 180) : '';
-    const ownIdentity=[obj.id,obj.type,obj.partType,obj.contentType].filter(v=>typeof v==='string').join(' ');
+    const ownIdentity=['id','type','partType','contentType'].map(k=>ownStateValueV61313(obj,k)).filter(v=>typeof v==='string').join(' ');
     if (/(?:^|[^a-z])text[-_ ]?block(?:[^a-z]|$)/i.test(ownIdentity+' '+rawType)) return null;
 
-    let options = [];
+    let options = [],answersComplete=true;
     const optionsHit = findNamedValueV664(obj, /^(?:options|choices|answers|answerOptions|responseOptions|possibleAnswers)$/i, 4, undefined, work);
     if (optionsHit && Array.isArray(optionsHit.value)) {
+      if(optionsHit.value.length>40)answersComplete=false;
       options = optionsHit.value.slice(0, 40).map((v,i) => parseOptionStateV664(v,i,work)).filter(Boolean);
     }
 
@@ -272,12 +293,17 @@ export function parseQuestionStateV664(obj, index, work) {
       if (answerHit) {
         const av = answerHit.value;
         const vals = Array.isArray(av) ? av : [av];
-        correctAnswers = vals.map(v => ctiPlainTextV664(objectTextV664(v,2, undefined, work) || v, 900)).filter(Boolean).slice(0,20);
+        if(vals.length>20)answersComplete=false;
+        correctAnswers = vals.slice(0,20).map(v=>{
+          const exact=loadedStateTextV61522(v,work);if(!exact.complete)answersComplete=false;
+          return exact.complete?exact.text:ctiPlainTextV664(objectTextV664(v,2, undefined, work) || v,900);
+        }).filter(Boolean);
       }
     }
 
     const feedbackHit = findNamedValueV664(obj, /^(?:feedback|explanation|incorrectFeedback|generalFeedback)$/i, 3, undefined, work);
-    const feedback = feedbackHit ? ctiPlainTextV664(objectTextV664(feedbackHit.value,2, undefined, work), 1500) : '';
+    const feedbackText=feedbackHit?loadedStateTextV61522(feedbackHit.value,work):{complete:true,text:''};
+    const feedback = feedbackText.complete?feedbackText.text:ctiPlainTextV664(objectTextV664(feedbackHit.value,2, undefined, work),1500);
     const pointHit = findNamedValueV664(obj, /^(?:points|pointValue|maxPoints|score|weight)$/i, 2, undefined, work);
     let points = pointHit ? Number(pointHit.value) : null;
     if (!Number.isFinite(points)) points = null;
@@ -293,11 +319,43 @@ export function parseQuestionStateV664(obj, index, work) {
     if (!questionPromptHit && type==='unknown' && !options.length && !correctAnswers.length) return null;
     return {
       id:String(index + 1), type, rawType:rawType || type, prompt, options,
+      sourceQuestionId:String(['courseraQuestionId','questionId','id'].map(k=>ownStateValueV61313(obj,k)).find(v=>typeof v==='string' || typeof v==='number' && Number.isFinite(v)) || ''),
+      sourceArrayIndex:index,
+      loadedTextComplete:promptText.complete && feedbackText.complete && answersComplete && options.every(o=>o.stateTextCaptureComplete===true),
       correctAnswers:[...new Set(correctAnswers)], feedback, points,
       optionTextReliable:options.length > 0,
       answerTextReliable:correctAnswers.length > 0,
       parserConfidence:correctAnswers.length ? 0.90 : (options.length ? 0.84 : 0.78)
     };
+  }
+
+export function rawAssessmentStateV61522(value, deadline) {
+    deadline=Math.min(Number(deadline || Infinity),Date.now()+5000);
+    const active=new WeakSet();let nodes=0,characters=0;
+    function copyRaw(v,depth) {
+      if(++nodes>60000 || depth>24 || Date.now()>=deadline)throw Error('RAW_MODEL_LIMIT_REACHED');
+      if(v===null || typeof v==='boolean')return v;
+      if(typeof v==='number'){if(!Number.isFinite(v))throw Error('NON_JSON_VALUE');return v;}
+      if(typeof v==='string'){characters+=v.length;if(characters>MAX_CAPTURED_RESPONSE_CHARS)throw Error('RAW_MODEL_LIMIT_REACHED');return v;}
+      if(typeof v!=='object' || (typeof Element!=='undefined' && v instanceof Element))throw Error('NON_JSON_VALUE');
+      const proto=Object.getPrototypeOf(v);
+      const ctor=proto && Object.getOwnPropertyDescriptor(proto,'constructor')?.value;
+      const ctorName=typeof ctor==='function'?Object.getOwnPropertyDescriptor(ctor,'name')?.value:'';
+      if(!Array.isArray(v) && proto!==null && ctorName!=='Object')throw Error('NON_JSON_OBJECT');
+      if(active.has(v))throw Error('CYCLIC_STATE');active.add(v);
+      const out=Array.isArray(v)?[]:{};
+      if(Array.isArray(v))out.length=v.length;
+      for(const key of Object.keys(v)){
+        const descriptor=Object.getOwnPropertyDescriptor(v,key);
+        if(!descriptor || !('value' in descriptor))throw Error('ACCESSOR_STATE');
+        // Define own data properties so JSON consumers get normal objects
+        // without invoking prototype setters such as __proto__.
+        Object.defineProperty(out,key,{value:copyRaw(descriptor.value,depth+1),enumerable:true,writable:true,configurable:true});
+      }
+      active.delete(v);return out;
+    }
+    try{return {complete:true,value:copyRaw(value,0),nodes,characters,method:'OWN_DATA_PROPERTIES'};}
+    catch(error){return {complete:false,nodes,characters,reason:String(error.message)};}
   }
 
 export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, options) {
@@ -332,7 +390,7 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
       const answerRich = qs.filter(q => q.answerTextReliable).length;
       const optionRich = qs.filter(q => q.optionTextReliable).length;
       const score = countFit + qs.length * 22 + answerRich * 12 + optionRich * 6 - Math.max(0, arr.length - qs.length) * 2;
-      return {score, questions:qs, path, arrayLength:arr.length, answerRich, optionRich};
+      return {score, questions:qs, path, array:arr, arrayLength:arr.length, answerRich, optionRich};
     }
 
     while (cursor < queue.length && nodes < 18000 && stateSearchStepV61313(work)) {
@@ -347,7 +405,7 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
         if (v.length >= 2 && !/(?:^|[.\[])rubrics?(?:[.\[]|$)|gradingCriteria|rubricCriteria|rubricParts?/i.test(cur.path)) {
           const parsed=[];
           for (let i=0;i<v.length && stateSearchStepV61313(work);i++) {
-            const value=v[i];
+            const value=ownStateValueV61313(v,String(i));
             if (!value || typeof value!=='object') continue;
             if (!parsedQuestions.has(value)) {
               const parsedQuestion=parseQuestionStateV664(value,i,work);
@@ -355,7 +413,7 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
               parsedQuestions.set(value,parsedQuestion);
             }
             const question=parsedQuestions.get(value);
-            if (question) parsed.push(Object.assign({},question,{id:String(i+1)}));
+            if (question) parsed.push(Object.assign({},question,{id:String(i+1),sourceArrayIndex:i}));
           }
           const candidate = scoreCandidate(parsed, v, cur.path);
           if (candidate) {
@@ -365,7 +423,7 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
         }
         if (cur.depth < 7) {
           for (let i = 0; i < Math.min(v.length, 120); i++) {
-            const child = v[i];
+            const child = ownStateValueV61313(v,String(i));
             if (child && typeof child === 'object') queue.push({value:child, path:cur.path + '[' + i + ']', depth:cur.depth + 1});
           }
         }
@@ -397,6 +455,7 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
     questions = questions.map((q,i) => Object.assign({}, q, {id:String(i+1)}));
     out.questionCount = questions.length;
     const finalDeclared = Math.max(declared, questions.length, out.truncated?best.arrayLength:0);
+    const raw=rawAssessmentStateV61522(best.array,work.deadline);
     out.assessment = {
       schemaVersion:3,
       parser:'coursera-react-assessment-state-v1',
@@ -407,7 +466,9 @@ export function collectReactAssessmentStateV664(surfaceRoot, fp, declaredHint, o
       questions,
       parserConfidence:finalDeclared === questions.length ? 0.92 : 0.82,
       warnings:finalDeclared === questions.length ? [] : ['React-state recovery did not observe every declared Coursera question.'],
-      stateEvidence:{arraysScanned:out.arraysScanned, selectedPath:best.path, candidateArrays:out.candidateArrays}
+      stateEvidence:{arraysScanned:out.arraysScanned, selectedPath:best.path, candidateArrays:out.candidateArrays,
+        rawCapture:{complete:raw.complete,method:raw.method || '',reason:raw.reason || '',characters:raw.characters},
+        ...(raw.complete?{rawQuestionDefinitions:raw.value}:{})}
     };
     return out;
   }

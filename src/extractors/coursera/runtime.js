@@ -18,11 +18,12 @@ export function validateSavedCaptureResumeV61515(capture, expectedCourseId) {
   return capture;
 }
 
-export function createLocalCaptureSessionV61514() {
+export function createLocalCaptureSessionV61514(options = {}) {
   // A second invocation in the same document cannot reset renderer pressure.
   // Only a real reload creates a new session; durable item checkpoints survive it.
   const key="__CTI_LOCAL_CAPTURE_RENDERER_SESSION__";
   const state=window[key] || (window[key]={visits:0,startedAt:0,yieldReason:"",checkpointFailed:false});
+  if(!state.questionLimit)state.questionLimit=Math.max(5,Math.min(CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,Number(options.questionLimit || CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS)));
   function heapBytes() {
     const bytes=Number(window.performance && window.performance.memory && window.performance.memory.usedJSHeapSize);
     return Number.isFinite(bytes) && bytes>0?bytes:0;
@@ -42,7 +43,7 @@ export function createLocalCaptureSessionV61514() {
       state.questionObservations=Number(state.questionObservations || 0)+Math.max(0,Number(newQuestions || 0));
       if(complete)return '';
       if(state.checkpointFailed)state.yieldReason='LOCAL_CHECKPOINT_UNAVAILABLE';
-      else if(state.questionObservations>=CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS)state.yieldReason='LOCAL_RENDERER_QUESTION_LIMIT';
+      else if(state.questionObservations>=state.questionLimit)state.yieldReason='LOCAL_RENDERER_QUESTION_LIMIT';
       else if(state.startedAt && Date.now()-state.startedAt>=CTI_LOCAL_ASSESSMENT_MAX_MS)state.yieldReason='LOCAL_RENDERER_QUESTION_TIME_LIMIT';
       else if(heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason='LOCAL_RENDERER_HEAP_LIMIT';
       else if(state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason='LOCAL_RENDERER_HEAP_GROWTH_LIMIT';
@@ -51,7 +52,7 @@ export function createLocalCaptureSessionV61514() {
     checkpointWritten(saved) { if(saved!==true)state.checkpointFailed=true; },
     snapshot() {
       return {visits:state.visits,elapsedMs:state.startedAt?Date.now()-state.startedAt:0,
-        questionObservations:Number(state.questionObservations || 0),maxQuestionObservations:CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,
+        questionObservations:Number(state.questionObservations || 0),maxQuestionObservations:state.questionLimit,
         maxVisits:CTI_LOCAL_BATCH_MAX_VISITS,maxMs:CTI_LOCAL_BATCH_MAX_MS,
         observedHeapBytes:heapBytes(),heapYieldBytes:CTI_LOCAL_HEAP_YIELD_BYTES,
         baselineHeapBytes:state.baselineHeapBytes || 0,heapGrowthLimitBytes:CTI_LOCAL_HEAP_GROWTH_BYTES,

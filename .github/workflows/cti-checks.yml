@@ -92,6 +92,8 @@ jobs:
         run: npm run test:browser:local-capture
       - name: Long assessment continuation and real renderer crash recovery
         run: npm run test:browser:assessment-slices
+      - name: Managed local capture, automatic renderer recovery and loaded question data
+        run: npm run test:browser:supervised-capture
       - name: Verify isolated activity designer and capture reader
         run: npm run test:browser:activities
       - name: Verify owner-only CTI and colleague activity access

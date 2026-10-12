@@ -136,7 +136,7 @@ export function createAutomaticLocalCourseraCommand(
   currentScript: string,
   token = crypto.randomUUID(),
   savedCapture?: unknown,
-  options: { freshRun?: boolean } = {},
+  options: { freshRun?: boolean; controllerOrigin?: string } = {},
 ): string {
   const target = parseCourseraShellUrl(shellUrl);
   if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
@@ -145,9 +145,18 @@ export function createAutomaticLocalCourseraCommand(
     throw new Error("Invalid local capture identifier.");
   if (options.freshRun && savedCapture !== undefined)
     throw new Error("A fresh full-course capture cannot import a saved capture.");
+  let controllerOrigin = "";
+  if(options.controllerOrigin){
+    const controller=new URL(options.controllerOrigin);
+    if(controller.origin!==options.controllerOrigin || controller.username || controller.password ||
+      !(controller.protocol==='https:' || controller.protocol==='http:' && ['localhost','127.0.0.1'].includes(controller.hostname)))
+      throw new Error('Invalid local CTI controller origin.');
+    controllerOrigin=controller.origin;
+  }
   const config = JSON.stringify({
     token, courseId: target.courseId, shellUrl: target.shellUrl,
     ...(options.freshRun ? { freshRun: true } : {}),
+    ...(controllerOrigin ? { controllerOrigin } : {}),
   });
   // Chrome owns this registration outside the page's JavaScript context. The
   // extractor checks the durable run state before every subsequent invocation.
@@ -155,7 +164,10 @@ export function createAutomaticLocalCourseraCommand(
     JSON.stringify("https://www.coursera.org") +
     " || !location.pathname.startsWith(" +
     JSON.stringify(new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content")) +
-    "))return;\nwindow.__CTI_AUTOMATIC_LOCAL_CONFIG__=" + config + ";\n" +
+    ")){" + (controllerOrigin ?
+      "if(window===window.top && window.opener)try{window.opener.postMessage({kind:'CTI_LOCAL_CAPTURE_OUTSIDE_COURSE_V1',token:"+
+      JSON.stringify(token)+",courseId:"+JSON.stringify(target.courseId)+"},"+JSON.stringify(controllerOrigin)+");}catch{}" : "") +
+    "return;}\nwindow.__CTI_AUTOMATIC_LOCAL_CONFIG__=" + config + ";\n" +
     (savedCapture === undefined ? "" :
       "try{if(!JSON.parse(localStorage.getItem(" +
       JSON.stringify("__CTI_AUTOMATIC_LOCAL_V61517_" + token) +

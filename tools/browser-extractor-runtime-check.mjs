@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61521')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61522')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 
@@ -388,6 +388,23 @@ try{
   assert.equal(recoveryCommand.cmd,'Runtime.evaluate');assert.equal(recoveryCommand.args.awaitPromise,true);
   assert(recoveryCommand.args.expression.includes('__CTI_LOCAL_CHECKPOINT_EXPORT__='));
   assert(recoveryCommand.args.expression.includes(courseraSource.slice('javascript:'.length)));
+  await context.route('https://www.coursera.org/**',route=>route.fulfill({contentType:'text/html',body:'<html><body>Managed Coursera shell fixture</body></html>'}));
+  await quickLocal.getByLabel('Fresh full-course managed run',{exact:true}).check();
+  const managedOpening=context.waitForEvent('page');
+  await quickLocal.getByRole('button',{name:'Open managed Coursera tab',exact:true}).click();
+  const managedTab=await managedOpening;
+  await quickLocal.getByRole('button',{name:'Copy managed capture command',exact:true}).waitFor({state:'visible'});
+  await quickLocal.getByText('Managed command ready.',{exact:false}).waitFor();
+  await app.bringToFront();
+  await quickLocal.getByRole('button',{name:'Copy managed capture command',exact:true}).click();
+  await quickLocal.getByText('Managed command copied.',{exact:false}).waitFor();
+  const managedCommand=JSON.parse(await app.evaluate(()=>navigator.clipboard.readText()));
+  assert.equal(managedCommand.cmd,'Page.addScriptToEvaluateOnNewDocument');
+  assert(managedCommand.args.source.includes('"controllerOrigin":'+JSON.stringify(new URL(app.url()).origin)));
+  assert(managedCommand.args.source.includes('"freshRun":true'));assert(!managedCommand.args.source.includes('previous-reading'));
+  assert(managedCommand.args.source.includes(courseraSource.slice('javascript:'.length)));
+  await quickLocal.getByRole('button',{name:'Stop managed run',exact:true}).click();
+  assert(managedTab.isClosed());
   await app.getByText('Manual extractor script',{exact:true}).click();
   await app.getByRole('button',{name:'Copy script',exact:true}).click();
   await app.getByText(CTI_RELEASE_REGISTRY_.courseraExtractor.version+' copied.',{exact:true}).waitFor();

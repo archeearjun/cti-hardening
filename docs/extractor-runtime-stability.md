@@ -1,5 +1,42 @@
 # Coursera extractor runtime stability
 
+## v6.15.22: CTI-tab supervision and loaded question definitions
+
+The next live report crashed during the first quiz around 1/168 visits. The
+operator can open that quiz normally with the extractor stopped. This rejects
+any claim that v6.15.21 solved the private-course crash. Error code 5 alone does
+not identify memory exhaustion, and simulated content is not a live acceptance
+certificate.
+
+Two changes address the extraction architecture. A normal CTI tab now holds a
+verified supervisor for the Coursera tab it opens. It navigates an unresponsive
+renderer back to the course and relies on the attached debugger's retained
+registration to restart the canonical program and restore checkpoints. Progress
+receipts contain no cookies or raw question data. The supervisor checks window,
+origin, token and course; it does not navigate before pairing, during login, or
+after explicit errors. It stops at repeated failures without saved progress.
+A browser policy that severs the opener link prevents managed acquisition;
+there is no silent downgrade or security-header bypass.
+
+The assessment flow previously traversed the outline before its supposedly
+pre-click React-state probe. Safe question yields therefore prevented that
+probe from running on many large items. The bounded loaded-model probe now runs
+first for a certified live editor. It retains the original JSON-compatible
+question fields, then binds eligible definitions to observed outline IDs,
+positions and prompts while scrolling the outline. It does not infer ordinal
+identity from array position or manufacture missing answers. Missing/ambiguous
+definitions retain DOM recovery. Eligible loaded definitions do not consume a
+renderer activation budget; time and heap checks still apply. After managed
+crash recovery, remaining DOM question batches decrease to ten then five.
+
+Native verification forces two renderer crashes in a 168-item synthetic course,
+then completes its 100-question quiz with the same controller, tab and debugger
+registration and one final JSON. A loaded-model case has zero question-editor
+clicks, complete strict coverage and preserved math/unknown raw fields. A COOP
+case stops before editor visits. See [local workflow](local-coursera-extraction.md)
+for official references, limitations and operator setup. No extension or local
+software installation is required.
+
 ## v6.15.21: safe question batches and saved-progress recovery
 
 A new live report described an Aw, Snap! crash around 18 of 165 items after a

@@ -7,6 +7,66 @@ the canonical extractor with `Page.addScriptToEvaluateOnNewDocument` and
 `runImmediately: true`. The registration belongs to that open debugger session;
 a Console paste or a DevTools Snippet alone cannot survive document reloads.
 
+## Managed capture, recommended from v6.15.22
+
+Keep CTI on its Extract page as a controller for a separate Coursera tab. It uses
+normal browser windows and the same signed-in Chrome profile; there is no
+extension, installed local runtime, remote browser or password transfer.
+
+1. Close an earlier extraction tab so its debugger registration cannot compete.
+2. Enter the course URL in CTI and click **Open managed Coursera tab**.
+   Leave **Fresh full-course managed run** unchecked to resume saved work;
+   select it before opening the tab when you need fresh observations of the whole course.
+3. Return to CTI and click **Copy managed capture command**. In the opened
+   Coursera tab, show Protocol monitor, turn Record off, clear its log, paste in
+   its bottom command input and press Enter once.
+4. Keep the CTI Extract page, the managed Coursera tab and its DevTools open.
+   CTI verifies the connection and displays progress. One final automatic JSON
+   is prepared in Coursera after acquisition finishes or an explicit limit stops it.
+
+Coursera sends only small progress receipts through the verified window link.
+CTI checks the sending window, origin, course and run token before accepting
+receipts or acknowledging registration. Authentication and raw course evidence
+remain in Coursera's origin. The controller uses browser-level window navigation
+after a missing heartbeat; it can therefore navigate a crashed renderer without
+running JavaScript inside that renderer. The existing debugger registration is
+restored on the new document while its session remains attached. Saved item and
+question checkpoints then resume normally. The native test preserves the same
+tab, controller and registration through two real renderer crashes.
+
+The visible-tab heartbeat window is 45 seconds. A hidden Coursera tab gets
+three minutes to account for Chrome's background timer throttling. The
+controller never navigates an unpaired tab or a login screen. It stops after
+three recoveries without new saved progress, thirty total recoveries, a lost
+window link or an explicit extraction error. Existing course and batch limits
+still apply. After a renderer recovery, the question budget decreases to ten,
+then five observations per document. **Stop managed run** closes the managed
+tab while preserving browser checkpoints.
+
+Browser opener-isolation policies can sever the link, and managed capture
+refuses to start without a verified acknowledgement. No security policy or
+header is bypassed. Closing DevTools removes its registration; the CTI tab
+cannot recreate that registration. Closing, refreshing or leaving CTI's Extract
+page also ends its supervisor. These interruptions require a new command.
+
+## Loaded quiz data before question rendering
+
+A certified editor now checks its bounded, already-loaded React model before
+traversing questions. Eligible definitions are matched to observed live outline
+identities, positions and prompt text. Unique prompt matches can be used only
+when the model does not supply a conflicting source ID. Array positions alone
+do not establish Coursera positions. Ambiguous matches or missing keys fall
+back to normal observed DOM capture. Complete models can avoid opening each
+question, substantially reducing editor rendering work.
+
+Original question-definition fields are retained separately, including markup,
+math and unknown fields. The copier reads data properties without invoking
+getters and declines cyclic, non-JSON or oversized models. It never truncates
+raw data and calls the result complete. Strict capture completeness is unchanged.
+
+The following standalone workflow remains available when window supervision
+is unavailable. Its crash recovery requires an operator.
+
 ## Once per Chrome profile
 
 In a Coursera authoring tab, open DevTools Settings → Experiments and enable
@@ -87,8 +147,8 @@ copying another fresh command intentionally starts a separate rerun.
 ## Recovery and resource limits
 
 Closing DevTools ends its registration. Reload the matching course and copy a
-new command to resume from saved checkpoints. A renderer crash also requires
-browser-level recovery: page JavaScript cannot control Chrome's crash screen.
+new command to resume from saved checkpoints. For standalone capture, a renderer crash requires
+browser-level recovery: page JavaScript cannot control its own crash screen.
 Reload and register a new command. This implementation reduces accumulation
 between editors and within long assessments; it cannot guarantee that a single defective or exceptionally
 large Coursera editor will fit in available memory. Full raw course evidence
@@ -127,14 +187,17 @@ and clear old traffic before each command. The crash error code alone does not
 establish memory exhaustion; renderer, DevTools and operating-system evidence
 are distinct. Page JavaScript cannot recover Chrome's crash screen.
 
-Fully automatic recovery from an actual renderer crash requires an outside
-browser controller. That is a separate option only if workplace policy permits
-local automation. Chrome 136+ requires a non-default `--user-data-dir` for remote
+The managed path supplies its outside controller in the normal CTI tab. An
+external installed automation tool is a separate option only if workplace policy
+permits local automation. Chrome 136+ requires a non-default `--user-data-dir` for remote
 debugging flags, so an external tool cannot simply attach to the ordinary work
 profile using a debugging port. This feature does not change that security rule.
 
 ## Official references and verification
 
+- [MDN window.open](https://developer.mozilla.org/en-US/docs/Web/API/Window/open): window references and opener-isolation policies.
+- [MDN postMessage](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage): verify origin, source and target origin.
+- [Chrome background timers](https://developer.chrome.com/blog/timer-throttling-in-chrome-88): hidden-page heartbeat limits.
 - [Chrome Protocol monitor](https://developer.chrome.com/docs/devtools/protocol-monitor): enabling the panel and sending parameterized `cmd`/`args` JSON commands.
 - [Chrome DevTools Protocol Page domain](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-addScriptToEvaluateOnNewDocument): registration on every new frame, `runImmediately`, and the registration identifier.
 - [Chrome memory problems](https://developer.chrome.com/docs/devtools/memory-problems): heap growth, detached DOM trees and browser Task Manager.
@@ -169,3 +232,17 @@ the checkpoint store and proceeds in a new document. The final download follows
 completion of those visits or an explicit safety stop. Terminal incomplete
 items remain reported gaps and do not trigger repeated capture. The native
 local-capture check verifies this recovery-budget boundary and one final JSON.
+
+`npm run test:browser:supervised-capture` runs the canonical entry and the actual
+CTI supervisor in separate HTTPS origins. Its 168-item course has a 100-question
+quiz. It forces two renderer crashes and verifies automatic recovery with the
+same tab and debugger registration, matching checkpoints and one final JSON. A
+second case captures loaded definitions without question-editor clicks and
+preserves raw math and unknown fields. An opener-isolation case stops before
+editor visits. Diagram references from matched definitions are fetched and hashed,
+and login navigation pauses recovery. Course responses are synthetic; private Coursera acceptance
+still requires verification with the operator's account.
+
+Coursera's native **Export** button was reported to produce an Excel outline.
+An outline alone does not establish complete question, answer-key or media
+coverage, so CTI does not treat that export as a replacement for content capture.
