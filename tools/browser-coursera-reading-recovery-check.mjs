@@ -65,7 +65,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
- browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{}),args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server',`--host-resolver-rules=MAP www.coursera.org 127.0.0.1:${server.address().port}, MAP cti-hardening.pages.dev 127.0.0.1:${server.address().port}`]});
+ // Match the other managed crash fixtures: full Chromium isolates the
+ // cross-origin controller when Page.crash deliberately kills Coursera.
+ browser=await chromium.launch({headless:true,...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{channel:'chromium'}),args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server',`--host-resolver-rules=MAP www.coursera.org 127.0.0.1:${server.address().port}, MAP cti-hardening.pages.dev 127.0.0.1:${server.address().port}`]});
  for(const stalled of [false,true]){
   const courseId=stalled?'Reading_stalled_course_123':'Reading_progress_course_123',shell='https://www.coursera.org/teach/synthetic/'+courseId+'/content/edit';
   const state={courseId,shell,token:'reading_recovery_'+(stalled?'stalled':'progress')+'_123',hold:false,
@@ -123,4 +125,6 @@ try{
   assert.deepEqual(errors,[]);await browserSession.detach();await context.close();
  }
  console.log(JSON.stringify({status:'PASS',scope:'Synthetic Coursera pages; unchanged canonical acquisition/entry/checkpoint contracts, native Chromium renderer crashes, exact completed-item reuse and final strict JSON. No live private course acceptance claim.'}));
+}catch(error){
+ console.error('::error::Reading crash fixture: '+String(error.message).replace(/[\r\n]+/g,' ').slice(0,1500));throw error;
 }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(scratch,{recursive:true,force:true});}
