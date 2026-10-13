@@ -26,7 +26,7 @@ export default function CourseraBookmarkSetup({
     <div className="section-divider coursera-bookmark-setup">
       <h3>Bookmark course data check</h3>
       <p>
-        Full-course bookmark extraction is still being verified. This short
+        Full-course bookmark extraction is not available yet. This short
         check reads the current course structure without opening quizzes or
         reloading Coursera. It produces a diagnostic JSON to establish the data
         path; it is not a complete course capture.

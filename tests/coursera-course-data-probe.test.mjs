@@ -563,6 +563,9 @@ test("relative and protocol-relative credential URL parameters and separator var
     relative: "/path?access_token=secret-relative&id=keep",
     protocolRelative: "//host.test/path?access_token=secret-protocol&order=2",
     uppercase: "HTTPS://user:password@example.test/a?item=good",
+    relativeFragment: "/path#accessToken=secret-fragment",
+    hashOnly: "#password=secret-hash",
+    namedAnchor: "/path#assignment-part-0",
     nested: JSON.stringify({
       href: "../atom?itemId=keep&amp;accessToken=secret-nested",
     }),
@@ -572,10 +575,13 @@ test("relative and protocol-relative credential URL parameters and separator var
     },
   });
   assert.equal(result.removedFields, 2);
-  assert.equal(result.redactedUrls, 4);
+  assert.equal(result.redactedUrls, 6);
   assert.equal(result.data.relative, "/path?id=keep");
   assert.equal(result.data.protocolRelative, "//host.test/path?order=2");
   assert.equal(result.data.uppercase, "https://example.test/a?item=good");
+  assert.equal(result.data.relativeFragment, "/path");
+  assert.equal(result.data.hashOnly, "");
+  assert.equal(result.data.namedAnchor, "/path#assignment-part-0");
   assert.equal(JSON.parse(result.data.nested).href, "../atom?itemId=keep");
   assert.deepEqual(result.data.content.orderedGroupIds, [
     "keep~second",

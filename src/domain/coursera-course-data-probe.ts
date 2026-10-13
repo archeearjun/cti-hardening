@@ -107,7 +107,7 @@ export function sanitizeCourseraCourseDataModel(value: unknown) {
     limitReached = false;
   function cleanUrl(text: string): string {
     return text.replace(
-      /(?:https?:\/\/|\/\/)[^\s"'<>]+|[^\s"'<>]*\?[^\s"'<>]+/gi,
+      /(?:https?:\/\/|\/\/)[^\s"'<>]+|[^\s"'<>]*[?#][^\s"'<>]+/gi,
       (original) => {
         try {
           const absolute = /^https?:\/\//i.test(original),
