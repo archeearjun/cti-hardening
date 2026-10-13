@@ -97,6 +97,44 @@ totals, yield/fallback histograms and its latest twenty batch receipts. These
 measure the remaining costs across reloads. They do not establish live private
 whole-course completion or guarantee a particular extraction speed.
 
+## Targeted navigation and smaller managed documents
+
+The reported v6.15.31 run crashed after approximately thirteen items, restored
+itself with the tabs kept open, and then crashed during **Expanding course
+outline...**. The second card showed eighteen seconds in that document and
+eleven seconds in the step. This observed phase does not establish the crash
+cause; Chrome error code 5 alone does not prove memory exhaustion.
+
+From v6.15.32, navigation uses the target's observed path and stable identities
+without warming or expanding the whole outline. Unknown paths are searched one
+safe branch at a time; missed branches and scroll positions are restored.
+CTI does not invoke the global **Expand all** control. Exact item/course checks
+and read-only control restrictions remain in force.
+
+Managed documents allow at most six item visits, or four after renderer recovery.
+A durably checkpointed item with at least 100 declared assessment parts or
+2 MiB of measured evidence yields before opening another item. Documents also
+yield at 8 MiB of accumulated measured evidence. That counter covers available
+retained API evidence and text; it does not measure total renderer memory.
+Manual/unsupervised capture keeps the twenty-visit limit. Existing time, heap
+and question limits still apply.
+
+CTI checkpoints completed editor observations before returning to the outline
+and skips that extra return when a document reload is already required. An API
+pressure signal stops new reads while preserving settled partial definitions
+and checksum receipts. Reuse on resume still needs a fresh matching inventory,
+fresh group references and exact version/integrity agreement. Restored complete
+item counts appear immediately, and saved/current question copies are not
+double-counted.
+
+The [official Chrome memory guidance](https://developer.chrome.com/docs/devtools/memory-problems)
+distinguishes JavaScript heap from OS memory footprint and DOM storage. There
+is no universal safe threshold for all devices. Smaller documents reduce
+accumulation; they do not establish that the reported private crash is fixed
+or that every course can complete. The v6.15.31 benchmark remains historical:
+its two-batch and 84-second result is not a measurement of v6.15.32's smaller
+managed document budgets.
+
 ## Single-resource reads when batching is unavailable
 
 A live v6.15.27 quiz check found all 100 group IDs and read their group records,
@@ -352,8 +390,9 @@ The app also offers a selectable, complete copy fallback; ChatGPT downloads and
 its file viewer are not part of this workflow.
 
 Keep Coursera and DevTools open. Every item is checkpointed to IndexedDB. At the
-shared renderer boundary (20 visits, five minutes between items, 64 MiB heap
-growth, or 384 MiB total reported heap), CTI automatically returns to the shell
+renderer boundary (six managed visits, four after a managed renderer recovery,
+or twenty manual/unsupervised visits; five minutes of active work between items;
+64 MiB heap growth; or 384 MiB reported JavaScript heap), CTI returns to the shell
 in a new document and restores matching checkpoints. Automatic long assessments
 also yield at a committed question checkpoint after roughly 25 new observations,
 two minutes of renderer work while collecting questions, or the same heap limits. An unfinished visit does not
@@ -545,7 +584,7 @@ readings. Median fixture time fell from 21,676 ms for released v6.15.30 to
 132 to zero, preliminary outline scroll events from 35 to zero, and setup from
 approximately 12.5 seconds to 0.15 seconds.
 
-Its larger case added 28 readings and a 609-question virtual MCQ bank to the
+Its v6.15.31 larger case added 28 readings and a 609-question virtual MCQ bank to the
 same completed corpus: 161 strictly complete items, two renderer batches,
 one JSON, 84,363 ms, 84 API requests including setup, at most two concurrent
 requests and zero question-editor clicks. The 132 completed raw payloads
@@ -568,3 +607,12 @@ Network responses and editor content in these checks are synthetic, running
 through real Chrome. These measurements establish the tested performance and
 preservation behavior, not live private-course latency, support for every
 content type or an 84-second Coursera completion promise.
+
+The v6.15.32 reading-recovery check forces four real renderer crashes and checks
+that durable completed reading records survive four recoveries, are not reopened,
+and reach one final JSON. The unchanged-progress case stops after three recovery
+attempts. Targeted outline-navigation checks exercise safe known/unknown branch
+search, miss restoration, identity rejection and a late virtual target. Their
+course content is synthetic; neither fixture identifies the private crash cause
+or certifies full private-course extraction. The smaller managed budgets also
+mean that the earlier v6.15.31 benchmark's batch count is not a v6.15.32 result.

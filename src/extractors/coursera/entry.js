@@ -1,5 +1,5 @@
 import { createCtiProgressPanelV1 } from "./progress.js";
-import { collectCourseraAssessmentApiV61524, createAssessmentApiSessionCertificateV61525, assessmentApiSessionStillCurrentV61525, assessmentApiRouteEditorCertifiedV61526 } from "./assessment-api.js";
+import { collectCourseraAssessmentApiV61524, retainAssessmentApiRawEvidenceV61532, createAssessmentApiSessionCertificateV61525, assessmentApiSessionStillCurrentV61525, assessmentApiRouteEditorCertifiedV61526 } from "./assessment-api.js";
 import { automaticLocalCaptureNeedsContinuationV61519, advanceAutomaticLocalCaptureV61517, resumeAutomaticLocalCaptureV61529 } from "./automatic-local.js";
 import { CTI_CHECKPOINT_SESSION_PREFIX } from "./config.js";
 import { createLocalCaptureSessionV61514, offerCheckpointContinuationV61514, validateSavedCaptureResumeV61515 } from "./runtime.js";
@@ -25,7 +25,7 @@ import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS, CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150, checkpointCaptureAccountingV61531 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61531() {
+javascript:(async function ctiCourseraCaptureV61532() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -48,7 +48,22 @@ javascript:(async function ctiCourseraCaptureV61531() {
   let automaticLocalReload=false;
   let automaticLocalTerminalDecision=null;
   let ctiProgress=null,ctiSupervisorTimer=null;
-  let supervisorSnapshot={completeItems:0,savedQuestions:0,itemId:''};
+  let supervisorSnapshot={completeItems:0,savedQuestions:0,savedQuestionsTotal:0,itemId:''};
+  const supervisorCompletedItems=new Set(),supervisorQuestionCounts=new Map();
+  function recordLocalSupervisorCheckpointV61532(fp,contract,progress) {
+    if(!automaticLocalConfig?.controllerOrigin || !fp?.id)return;
+    const id=String(fp.id),payload=fp.payload || {};
+    if((contract || captureContractSummaryV6150(fp)).complete===true)supervisorCompletedItems.add(id);
+    const count=Array.isArray(progress)?Number(progress[0] || 0):Math.max(
+      Number(payload.structuredAssessment?.questionCount || 0),
+      Number(payload.assessmentCaptureInProgress?.assessment?.questionCount || 0));
+    const previous=supervisorQuestionCounts.get(id) || 0;
+    if(Number.isInteger(count) && count>previous && count<=20000){
+      supervisorQuestionCounts.set(id,count);supervisorSnapshot.savedQuestionsTotal+=count-previous;
+    }
+    supervisorSnapshot.completeItems=supervisorCompletedItems.size;
+    supervisorSnapshot.itemId=id;supervisorSnapshot.savedQuestions=supervisorQuestionCounts.get(id) || 0;
+  }
   function reportLocalSupervisorV61522(event,extra) {
     if(!automaticLocalConfig?.controllerOrigin || !window.opener)return;
     let display={};try{display=ctiProgress?.snapshot() || {};}catch(_){}
@@ -57,6 +72,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
       phase:String(display.phase || 'Starting'),count:String(display.count || ''),note:String(display.note || ''),
       recoveries:Number(automaticLocalPlan?.supervisorRecoveries || 0),
       completeItems:supervisorSnapshot.completeItems,savedQuestions:supervisorSnapshot.savedQuestions,
+      savedQuestionsTotal:supervisorSnapshot.savedQuestionsTotal,
       itemId:supervisorSnapshot.itemId},extra || {}),automaticLocalConfig.controllerOrigin);}catch(_){}
   }
 
@@ -170,7 +186,8 @@ javascript:(async function ctiCourseraCaptureV61531() {
   // owns reopening their browser; only the local path needs continuation UI.
   const recoveryQuestions=automaticLocalConfig?.controllerOrigin && Number(automaticLocalPlan?.supervisorRecoveries || 0)>0
     ? (automaticLocalPlan.supervisorRecoveries===1?10:5) : undefined;
-  const rendererCaptureSession=createLocalCaptureSessionV61514({questionLimit:recoveryQuestions});
+  const rendererCaptureSession=createLocalCaptureSessionV61514({questionLimit:recoveryQuestions,
+    managed:Boolean(automaticLocalConfig),recoveryCount:Number(automaticLocalPlan?.supervisorRecoveries || 0)});
   const localCaptureSession=backgroundChunkMode?null:rendererCaptureSession;
   // The final chunk may spend up to 120 s hashing assets. Keep another minute
   // for normalization/JSON/checkpoint handoff so acquisition never consumes it.
@@ -204,12 +221,12 @@ javascript:(async function ctiCourseraCaptureV61531() {
     if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
     reportLocalSupervisorV61522('ERROR',{message:'Reload Coursera before starting another batch in this document.'});
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61531.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61532.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.31"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.32"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -219,7 +236,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.31"
+          finishedAt: Date.now(), version: "v6.15.32"
         };
       }
     } catch (e) {}
@@ -235,21 +252,20 @@ javascript:(async function ctiCourseraCaptureV61531() {
 
   // CTI_PROGRESS_END
   let ctiCheckpointManager=null;
-  let ctiOutlineHydrationPromise=null;
   let ctiOutlineHydrationStats=null;
   function navigationContractV61531(fp) {
     return ctiCheckpointManager?.contractFor?.(fp) || captureContractSummaryV6150(fp);
   }
-  async function ensureOutlineHydrationV61531(deadline) {
-    if(!ctiOutlineHydrationPromise){
-      const started=Date.now();
-      ctiProgressUpdateV1({detail:'Expanding the course outline for an item that needs outline navigation.'});
-      ctiOutlineHydrationPromise=hydrateOutlineSurfaceForCrawl({deadline}).then(stats=>{
-        ctiOutlineHydrationStats=Object.assign({},stats,{deferred:false,elapsedMs:Date.now()-started});
-        return ctiOutlineHydrationStats;
-      });
-    }
-    return ctiOutlineHydrationPromise;
+  function recordOutlineNavigationV61532(trace) {
+    if(!trace || !trace.targetedOutlineNavigation)return;
+    if(!ctiOutlineHydrationStats)ctiOutlineHydrationStats={targeted:true,deferred:false,roots:0,positions:0,disclosuresExpanded:0,disclosuresRestored:0,maxRange:0,elapsedMs:0,timeBudgetExhausted:false};
+    ctiOutlineHydrationStats.roots+=Number(trace.scrollRootsTried || 0);
+    ctiOutlineHydrationStats.positions+=Number(trace.viewportScanSteps || 0);
+    ctiOutlineHydrationStats.disclosuresExpanded+=Number(trace.outlineExpanded || 0);
+    ctiOutlineHydrationStats.disclosuresRestored+=Number(trace.outlineRestored || 0);
+    ctiOutlineHydrationStats.maxRange=Math.max(ctiOutlineHydrationStats.maxRange,Number(trace.maxRange || 0));
+    ctiOutlineHydrationStats.elapsedMs+=Number(trace.elapsedMs || 0);
+    ctiOutlineHydrationStats.timeBudgetExhausted=ctiOutlineHydrationStats.timeBudgetExhausted || Boolean(trace.timeBudgetExhausted);
   }
   try {
   ctiRunHeartbeat=setInterval(()=>{
@@ -700,12 +716,14 @@ javascript:(async function ctiCourseraCaptureV61531() {
     // question panel. A partial response never certifies the whole inventory.
     const apiCourseId=options.certifiedItem===true || options.sessionCertificate ? courseId() : '';
     const apiSessionCurrent=()=>assessmentApiSessionStillCurrentV61525(envelope,fp,apiCourseId,options.sessionCertificate);
+    let apiRawRetentionBlocked='';
     function retainApiObservation(observation) {
       if(!observation)return;
       if(typeof options.onApiDiagnostic==='function')options.onApiDiagnostic(observation.stopReason,observation.diagnostics);
-      if(!observation.rawEvidence || fp.payload?.assessmentApiEvidence===observation.rawEvidence)return;
-      fp.payload=fp.payload || {};
-      fp.payload.assessmentApiEvidence=observation.rawEvidence;
+      if(!retainAssessmentApiRawEvidenceV61532(fp,observation)){
+        if(observation.retentionBlocked)apiRawRetentionBlocked=String(observation.retentionBlocked);
+        return;
+      }
       const observed=harvestEvidence(observation.rawEvidence);
       mergeEvidence(fp.payload,{files:observed.files,links:observed.links,images:observed.images,
         embeddedRefs:observed.embeddedRefs,assetDetails:observed.assetDetails,
@@ -719,10 +737,12 @@ javascript:(async function ctiCourseraCaptureV61531() {
       fetchImpl:typeof assessmentApiFetch==='function'?assessmentApiFetch:undefined,
       observedRequests:options.observedRequests,
       priorEvidence:fp.payload?.assessmentApiEvidence,
+      pressureYieldReason:options.pressureYieldReason,
       onProgress:(captured,total)=>ctiProgressUpdateV1({phase:'Reading quiz definitions',detail:String(fp.name || fp.id)+
         ' · reading question definitions directly · '+captured+'/'+total}),
       onCheckpoint:typeof options.onCheckpoint==='function'?async(assessment,observation)=>{
         retainApiObservation(observation);
+        if(apiRawRetentionBlocked)return false;
         return options.onCheckpoint(assessment);
       }:undefined
     });
@@ -737,6 +757,12 @@ javascript:(async function ctiCourseraCaptureV61531() {
       stats.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return stats;
     }
     retainApiObservation(apiProbe);
+    if(apiRawRetentionBlocked){
+      stats.attempted=apiProbe.attempted;stats.pressureYieldReason='LOCAL_CHECKPOINT_UNAVAILABLE';
+      stats.rawRetentionBlocked=true;
+      if(typeof options.onApiDiagnostic==='function')options.onApiDiagnostic(apiRawRetentionBlocked,apiProbe.diagnostics);
+      stats.stopReason=apiRawRetentionBlocked;return stats;
+    }
     if(apiProbe.authenticationFailed) {
       stats.attempted=apiProbe.attempted;stats.authenticationFailed=true;
       stats.stopReason=apiProbe.stopReason;return stats;
@@ -752,6 +778,12 @@ javascript:(async function ctiCourseraCaptureV61531() {
         stats.assessment=apiProbe.assessment;stats.captureCompleteness=apiProbe.assessment.captureCompleteness;
         stats.stopReason='AUTHORING_API_COMPLETE';return stats;
       }
+    }
+    if(apiProbe.pressureYieldReason){
+      stats.attempted=apiProbe.attempted;stats.pressureYieldReason=apiProbe.pressureYieldReason;
+      stats.assessment=apiProbe.assessment || (questionMap.size?assessmentFromCycleMapV667(questionMap,declared,{}):null);
+      stats.captured=Number(stats.assessment?.questionCount || 0);
+      stats.stopReason='LOCAL_ASSESSMENT_CHECKPOINT_YIELD';return stats;
     }
     const apiOutlineSeeds=apiProbe.assessment ? assessmentFromCycleMapV667(questionMap,declared,
       {contentPartCoverage:apiProbe.assessment.captureCompleteness}) : wideModel;
@@ -1093,8 +1125,8 @@ javascript:(async function ctiCourseraCaptureV61531() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.31",
-      buildId: "v6.15.31-lazy-checkpoints-and-large-assessment-20261013",
+      version: "v6.15.32",
+      buildId: "v6.15.32-targeted-outline-and-durable-recovery-20261013",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1185,6 +1217,16 @@ javascript:(async function ctiCourseraCaptureV61531() {
         if(saved===true)meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;
         else meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
         if(options.localSession)options.localSession.checkpointWritten(saved);
+        if(options.allowQuestionYield && diag.completed===true && options.localSession?.afterItemCheckpoint){
+          const reason=options.localSession.afterItemCheckpoint({itemId:String(fp.id || ''),
+            declaredParts:Math.max(Number(fp.payload.structuredAssessment?.declaredQuestionCount || 0),Number(diag.questionCycleDeclared || 0)),
+            evidenceBytes:Math.max(0,Math.floor(Number(diag.authoringAssessmentApi?.evidenceBytes || 0)))+
+              new TextEncoder().encode(String(fp.payload.textSample || '')).byteLength},saved);
+          if(reason){
+            diag.localRendererYieldReason=reason;meta.timeBudgetExhausted=true;meta.cooperativeChunkYielded=true;
+            meta.cooperativeYieldReason=reason;
+          }
+        }
       }
     };
 
@@ -1270,7 +1312,6 @@ javascript:(async function ctiCourseraCaptureV61531() {
         } else {
           await returnToOutlineV6142(startUrl);
           await sleepMs(220);
-          await ensureOutlineHydrationV61531(Math.min(itemAttemptDeadline,evidenceWorkDeadline()));
         }
 
         const scanTrace = {deadline:Math.min(itemAttemptDeadline,Date.now()+30000)};
@@ -1286,14 +1327,14 @@ javascript:(async function ctiCourseraCaptureV61531() {
         if(directRecovery && !directRecovery.captured){
           await returnToOutlineV6142(startUrl);
           await sleepMs(600);
-          await ensureOutlineHydrationV61531(Math.min(itemAttemptDeadline,evidenceWorkDeadline()));
           meta.directRouteFallbacks++;
         }
         scanTrace.deadline=Math.min(itemAttemptDeadline,Date.now()+30000);
         const found = directRecovery && directRecovery.captured ? null : await findNavigationTargetForFingerprint(fp, courseOrBranchId, scanTrace);
+        recordOutlineNavigationV61532(scanTrace);
         const diag = {
           id: String(fp.id || ""),
-          version:"v6.15.31",
+          version:"v6.15.32",
           name: String(fp.name || ""),
           attempt: Number(fp.payload.captureAttempts || (retryPass ? 2 : 1)),
           startedAt:new Date(itemStartedAt).toISOString(),
@@ -1405,8 +1446,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
             meta.discoveredTargets++;meta.navigated++;meta.domCaptures++;meta.evidenceUpgrades++;
             meta.routeScopedSurfaceCaptures++;meta.launchUrlsFound+=diag.launchUrlsFound;
             if (diag.bodyScoped) meta.scopedBodyCaptures++;
-            if(!directRouteFastPath){await returnToOutlineV6142(startUrl);meta.returned++;}
-            else meta.outlineResetsAvoided++;
+            if(directRouteFastPath)meta.outlineResetsAvoided++;
           } else {
             meta.skippedNoTarget++;
             if (recovery.attempted) meta.routeFailures++;
@@ -1416,6 +1456,8 @@ javascript:(async function ctiCourseraCaptureV61531() {
           diag.itemAttemptDeadlineReached=Date.now()>=itemAttemptDeadline;
           diag.captureContract=captureContractSummaryV6150(fp);
           await checkpointItem(fp,diag);
+          if(diag.localRendererYieldReason)break;
+          if(!directRouteFastPath && diag.completed===true){await returnToOutlineV6142(startUrl);meta.returned++;}
           continue;
         }
         try {
@@ -1650,9 +1692,12 @@ javascript:(async function ctiCourseraCaptureV61531() {
             seedAssessment:fp.payload.assessmentCaptureInProgress?.assessment || fp.payload.structuredAssessment,
             resumeInProgress:Boolean(fp.payload.assessmentCaptureInProgress),
             shouldYield:()=>assessmentCheckpointYieldReason,
+            pressureYieldReason:()=>options.localSession?.pressureYieldReason?.() || '',
             onCheckpoint:typeof options.checkpoint==='function'?async assessment=>{
               if(!assessment){
-                let saved=false;try{saved=await options.checkpoint(fp,diag,'assessment-api-progress');}catch(_){}
+                const snapshot={...fp,payload:{...fp.payload,
+                  captureAttempts:Math.max(0,Number(fp.payload.captureAttempts || 0)-1)}};
+                let saved=false;try{saved=await options.checkpoint(snapshot,diag,'assessment-api-progress');}catch(_){}
                 if(options.localSession)options.localSession.checkpointWritten(saved);
                 if(saved)meta.checkpointWrites=Number(meta.checkpointWrites || 0)+1;
                 else meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
@@ -1671,7 +1716,6 @@ javascript:(async function ctiCourseraCaptureV61531() {
                 meta.checkpointErrors=Number(meta.checkpointErrors || 0)+1;
                 diag.questionCheckpointErrors=Number(diag.questionCheckpointErrors || 0)+1;
               }
-              if(saved){supervisorSnapshot.savedQuestions=snapshot.payload.assessmentCaptureInProgress.assessment.questionCount;supervisorSnapshot.itemId=String(fp.id);reportLocalSupervisorV61522('PROGRESS');}
               if(options.localSession)options.localSession.checkpointWritten(saved);
               if(options.allowQuestionYield && options.localSession){
                 for(const q of assessment.questions || [])if(q.courseraQuestionId &&
@@ -1691,6 +1735,8 @@ javascript:(async function ctiCourseraCaptureV61531() {
           if(apiSessionCertificate && !assessmentApiSessionStillCurrentV61525(openedSurface.root,fp,courseOrBranchId,apiSessionCertificate)) {
             cycle.itemIdentityChanged=true;cycle.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';
           }
+          if(cycle.pressureYieldReason)assessmentCheckpointYieldReason=String(cycle.pressureYieldReason);
+          if(cycle.rawRetentionBlocked)options.localSession?.checkpointWritten(false);
           diag.assessmentMs=Date.now()-assessmentStartedAt;
           diag.authoringAssessmentApiElapsedMs=Number(cycle.authoringApiElapsedMs || 0);
           diag.questionCycleReactStateMs=Number(cycle.reactStateElapsedMs || 0);
@@ -1924,14 +1970,14 @@ javascript:(async function ctiCourseraCaptureV61531() {
         }
 
         diag.networkRecorderRelease=recorder.releaseFor(fp);
-        await returnToOutlineV6142(startUrl);
         diag.harvestMs=Date.now()-harvestStartedAt;
         diag.elapsedMs=Date.now()-itemStartedAt;
         diag.itemAttemptDeadlineReached=diag.itemAttemptDeadlineReached || Date.now()>=itemAttemptDeadline;
         diag.completed = !assessmentCheckpointYieldReason;
         if(assessmentCheckpointYieldReason)fp.payload.captureAttempts=Math.max(0,Number(fp.payload.captureAttempts || 0)-1);
         diag.captureContract=captureContractSummaryV6150(fp);
-        meta.returned++;
+        // Persist the observed editor before mounting the course outline again.
+        // A renderer failure during that navigation must not erase this item.
         await checkpointItem(fp,diag);
         if(assessmentCheckpointYieldReason){
           meta.timeBudgetExhausted=true;meta.cooperativeChunkYielded=true;
@@ -1940,6 +1986,13 @@ javascript:(async function ctiCourseraCaptureV61531() {
           diag.assessmentCheckpointYieldReason=assessmentCheckpointYieldReason;
           break;
         }
+        if(diag.localRendererYieldReason){
+          meta.unvisitedDueToBudget=targets.length-index-1;
+          meta.nextItemId=String(targets[index+1]?.id || '');
+          break;
+        }
+        await returnToOutlineV6142(startUrl);
+        meta.returned++;
         await sleepMs(220);
       }
     } finally {
@@ -1964,7 +2017,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
       meta.allTargetsAttempted = Number(meta.routeAttempts || 0) >= Number(targets.length || 0) && Number(meta.unvisitedDueToBudget || 0) === 0;
       recorder.restore();
       meta.networkRecorderAfterCleanup=recorder.stats();
-      await returnToOutlineV6142(startUrl);
+      if(!(options.allowQuestionYield && options.localSession?.snapshot().requiresReload))await returnToOutlineV6142(startUrl);
     }
     return meta;
   }
@@ -1973,7 +2026,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.31", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.32", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
   ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
     "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
     "Finding the course and its authoring outline."});
@@ -1989,7 +2042,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.31", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.32", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -1997,8 +2050,8 @@ javascript:(async function ctiCourseraCaptureV61531() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.31",
-      buildId: "v6.15.31-lazy-checkpoints-and-large-assessment-20261013",
+      extractor: "CTI Item Fidelity Extractor v6.15.32",
+      buildId: "v6.15.32-targeted-outline-and-durable-recovery-20261013",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -2149,6 +2202,19 @@ javascript:(async function ctiCourseraCaptureV61531() {
     return;
   }
 
+  // Restore receipts describe durable observations, not a new course capture.
+  // Publish them before visits so a crash cannot hide completed checkpoint work
+  // from the supervisor's repeated-failure guard.
+  if(automaticLocalConfig?.controllerOrigin){
+    for(const fp of result.fingerprints){
+      const contract=ctiCheckpointManager?.contractFor?.(fp);
+      if(contract || fp.payload?.checkpointRestored===true)
+        recordLocalSupervisorCheckpointV61532(fp,contract,ctiCheckpointManager?.progressFor?.(fp));
+    }
+    supervisorSnapshot.itemId='';supervisorSnapshot.savedQuestions=0;
+    reportLocalSupervisorV61522('PROGRESS');
+  }
+
   if(checkpointExportConfig){
     const restored=Number(result.meta.checkpointResume.restored || 0);
     if(!restored){
@@ -2192,13 +2258,20 @@ javascript:(async function ctiCourseraCaptureV61531() {
   ctiProgressUpdateV1({detail:"Checking additional content evidence only where the completion contract still has a gap."});
   // CTI_PROGRESS_END
   result.meta.autoDeepVerify = await automaticDeepVerify(result.fingerprints.filter(fp=>!ctiCheckpointManager?.contractFor?.(fp)), probeOptions);
-  // Certified direct routes do not need a warmed outline. The original full
-  // expansion/scroll pass remains available on the first actual fallback.
-  result.meta.outlineHydration={deferred:true,roots:0,positions:0,disclosuresExpanded:0,maxRange:0,elapsedMs:0,timeBudgetExhausted:false};
+  // Direct routes skip outline work. Fallback searches only the target path or
+  // one collapsed branch at a time; it never warms the whole course outline.
+  result.meta.outlineHydration={targeted:true,deferred:true,roots:0,positions:0,disclosuresExpanded:0,disclosuresRestored:0,maxRange:0,elapsedMs:0,timeBudgetExhausted:false};
   result.meta.preCrawlChunkBudgetExhausted=backgroundChunkMode && Date.now()>=preCrawlDeadline;
   console.log(backgroundChunkMode?"CTI background crawl: bounded recovery visits untouched items first.":automaticLocalPlan?"CTI automatic local capture: checkpointed renderer batches; reload and continuation are automatic. Keep DevTools open.":"CTI local capture: checkpointed batches of up to 20 editor visits or 5 minutes; reload between batches to continue.");
   const primaryStartedAt=Date.now();
-  const checkpointWriter=ctiCheckpointManager ? ((fp,diag,pass)=>ctiCheckpointManager.save(fp,diag,pass)) : null;
+  const checkpointWriter=ctiCheckpointManager ? (async (fp,diag,pass)=>{
+    const saved=await ctiCheckpointManager.save(fp,diag,pass);
+    if(saved===true){
+      recordLocalSupervisorCheckpointV61532(fp);
+      reportLocalSupervisorV61522('PROGRESS');
+    }
+    return saved;
+  }) : null;
   const crawlBudgetRemaining=()=>Math.max(0,evidenceWorkDeadline()-Date.now());
   // A resumed background chunk must not turn an already-used first attempt into
   // another "primary" attempt with shorter budgets. Finish all untouched items
@@ -2301,10 +2374,11 @@ javascript:(async function ctiCourseraCaptureV61531() {
     result.meta.captureAccounting=checkpointCaptureAccountingV61531(result.fingerprints,combinedCrawl,
       fp=>ctiCheckpointManager?.contractFor?.(fp));
     supervisorSnapshot.completeItems=result.meta.captureAccounting.completeCount;
-    supervisorSnapshot.savedQuestions=result.fingerprints.reduce((sum,fp)=>sum+
+    supervisorSnapshot.savedQuestionsTotal=result.fingerprints.reduce((sum,fp)=>sum+
       Number(ctiCheckpointManager?.progressFor?.(fp)?.[0] || Math.max(
         Number(fp.payload.structuredAssessment?.questionCount || 0),
         Number(fp.payload.assessmentCaptureInProgress?.assessment?.questionCount || 0))),0);
+    supervisorSnapshot.itemId='';supervisorSnapshot.savedQuestions=0;
     if(automaticLocalCaptureNeedsContinuationV61519(result,fp=>navigationContractV61531(fp))){
       const candidate=advanceAutomaticLocalCaptureV61517(automaticLocalPlan,result,
         Boolean(ctiCheckpointManager?.available),localCaptureSession.snapshot().checkpointFailed,true,Date.now(),
@@ -2324,7 +2398,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
           // No JSON, asset pass or deferred complete payload is needed here.
           window.__CTI_LAST_RESULT=result;delete window.__CTI_LAST_JSON;
           ctiProgress.finish('review','Items checkpointed locally. Continuing automatically; the full JSON is prepared after acquisition stops.',
-            supervisorSnapshot.completeItems+'/'+result.fingerprints.length+' items complete · '+supervisorSnapshot.savedQuestions+' question observations saved');
+            supervisorSnapshot.completeItems+'/'+result.fingerprints.length+' items complete · '+supervisorSnapshot.savedQuestionsTotal+' question observations saved');
           reportLocalSupervisorV61522('YIELD',{complete:false});
           return;
         }
@@ -2498,7 +2572,7 @@ javascript:(async function ctiCourseraCaptureV61531() {
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   reportLocalSupervisorV61522(automaticLocalReload?'YIELD':'FINISHED',{complete:accounting.complete===true});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61531.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61532.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;

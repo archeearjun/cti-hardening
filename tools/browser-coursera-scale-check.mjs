@@ -72,12 +72,12 @@ function completedSeed(){
 const completed=completedSeed(),payloadBytes=Buffer.byteLength(JSON.stringify(completed.map(fp=>fp.payload)));
 assert.equal(completed.length,132);assert(payloadBytes>=16*1024*1024&&payloadBytes<=21*1024*1024,'Keep the seeded corpus comparable to the observed 17 MB completed-item payload');
 const cases=new Map();
-function createCase(name,{remainingReadings=4,bankCount=0,collapsed=false,seed=true}={}){
+function createCase(name,{remainingReadings=4,bankCount=0,collapsed=false,seed=true,recoveryCount=0}={}){
  const courseId='Scale_'+name+'_course_123',assignment='Assignment_'+name+'_123',shell='https://www.coursera.org/teach/synthetic/'+courseId+'/content/edit';
  const prior=seed?completed:[],materials=[...prior.map(({id,name,typeName})=>({id,name,typeName})),
   ...Array.from({length:remainingReadings},(_,i)=>({id:'reading-'+i,name:'New synthetic reading '+i,typeName:'supplement'})),
   ...(bankCount?[{id:'bank',name:'Large synthetic bank',typeName:'staffGraded'}]:[])];
- const state={name,courseId,assignment,shell,remainingReadings,bankCount,collapsed,seed,materials,active:0,maxConcurrent:0,requests:[]};cases.set(courseId,state);return state;
+ const state={name,courseId,assignment,shell,remainingReadings,bankCount,collapsed,seed,recoveryCount,materials,active:0,maxConcurrent:0,requests:[]};cases.set(courseId,state);return state;
 }
 function fixtureHtml(state){
  const setup={courseId:state.courseId,assignment:state.assignment,materials:state.materials,bankCount:state.bankCount,collapsed:state.collapsed};
@@ -101,7 +101,7 @@ function pageFixture(setup,helpers){
    anchor.onclick=event=>{event.preventDefault();history.replaceState(history.state,'',anchor.href);render();};row.append(anchor);holder.append(row);}
  }
  function reading(id){
-  record(o=>o.readingMounts.push({id,outlineScrollEvents:o.outlineScrollEvents,completeRawRowsRead:window.scaleNativeReads?.completedRows||0,at:Date.now()}));
+  record(o=>o.readingMounts.push({id,documentId:window.scaleDocumentId,outlineScrollEvents:o.outlineScrollEvents,completeRawRowsRead:window.scaleNativeReads?.completedRows||0,at:Date.now()}));
   app.innerHTML='<main><h1>New synthetic reading '+id+'</h1><div role="textbox" contenteditable="true" aria-label="Reading Content" data-testid="'+courseId+'+'+id+'"></div></main>';
   document.querySelector('[aria-label="Reading Content"]').textContent='Complete local browser observation for '+id+'. café 日本語 ∑x². '+('Read and retain this synthetic course content. ').repeat(180);
  }
@@ -146,6 +146,7 @@ try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true});
   await context.addInitScript(({courseId})=>{
    const measureKey='scale-batch-receipts-'+courseId,activeKey='scale-measure-active-'+courseId;
+   window.scaleDocumentId=crypto.randomUUID();
    window.scaleNativeReads={rawRows:0,completedRows:0,metadataRows:0};
    function observe(request,storeName){request.addEventListener('success',()=>{
     if(sessionStorage.getItem(activeKey)!=='1')return;
@@ -161,7 +162,7 @@ try{
    Object.defineProperty(window,'__CTI_LAST_RESULT',{configurable:true,get:()=>actualResult,set:result=>{
     actualResult=result;if(sessionStorage.getItem(activeKey)!=='1')return;
     const receipts=JSON.parse(sessionStorage.getItem(measureKey)||'[]');
-    receipts.push({at:Date.now(),reads:{...window.scaleNativeReads},checkpointResume:result?.meta?.checkpointResume,checkpointMaterialization:result?.meta?.checkpointMaterialization,
+    receipts.push({at:Date.now(),documentId:window.scaleDocumentId,reads:{...window.scaleNativeReads},checkpointResume:result?.meta?.checkpointResume,checkpointMaterialization:result?.meta?.checkpointMaterialization,
      localCaptureBatch:result?.meta?.localCaptureBatch,runtime:result?.meta?.runtime,outlineHydration:result?.meta?.outlineHydration,
      automatic:result?.meta?.automaticLocalCapture,inventory:result?.fingerprints?.length,complete:result?.meta?.captureAccounting?.completeCount,
      bankApi:result?.fingerprints?.find(fp=>fp.id==='bank')?.payload?.captureDiagnostics?.authoringAssessmentApi,
@@ -194,7 +195,15 @@ try{
   }
   await page.evaluate(courseId=>{sessionStorage.setItem('scale-measure-active-'+courseId,'1');window.scaleNativeReads={rawRows:0,completedRows:0,metadataRows:0};},state.courseId);
   const cdp=await context.newCDPSession(page);await cdp.send('Page.enable');
-  const command=JSON.parse(createAutomaticLocalCourseraCommand(state.shell,source,'scale_'+state.name+'_token_123'));
+  const token='scale_'+state.name+'_token_123';
+  if(state.recoveryCount && !baseline)await page.evaluate(({courseId,token,recoveryCount})=>{
+   // Exercise a previously acknowledged recovery's smaller document budget.
+   // This fixture does not pretend to trigger a real renderer crash.
+   localStorage.setItem('__CTI_AUTOMATIC_LOCAL_V61517_'+token,JSON.stringify({state:'RUNNING',token,courseId,
+    startedAt:Date.now(),updatedAt:Date.now(),batches:0,stalled:0,captureMode:'RESUME_AVAILABLE_WORK',
+    checkpointRunId:'',supervisorRecoveries:recoveryCount}));
+  },{courseId:state.courseId,token,recoveryCount:state.recoveryCount});
+  const command=JSON.parse(createAutomaticLocalCourseraCommand(state.shell,source,token));
   const started=Date.now();await cdp.send(command.cmd,command.args);
   await page.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:large?240000:120000});
   if(!downloads.length)await page.waitForEvent('download',{timeout:10000});
@@ -209,10 +218,26 @@ try{
    if(expected.payload.assessmentApiEvidence){const wanted={...expected.payload.assessmentApiEvidence,courseId:state.courseId};assert.deepEqual(fp.payload.assessmentApiEvidence,wanted,'Completed original CML/IDs/keys/feedback wrappers changed');}}
   const readingMounts=observed.observations.readingMounts.filter(row=>row.id.startsWith('reading-'));
   assert.equal(new Set(readingMounts.map(row=>row.id)).size,state.remainingReadings);
+  assert.equal(readingMounts.length,state.remainingReadings,'Completed readings were reopened in later documents');
   if(!baseline){assert(readingMounts.every(row=>row.outlineScrollEvents===0),'Certified direct readings warmed or reset the full course outline');
    assert(readingMounts.every(row=>row.completeRawRowsRead===0),'Completed raw payload was loaded before direct reading acquisition');
    if(state.seed){assert(observed.batches[0].checkpointResume.deferred>=132,'Completed raw rows were not deferred');assert.equal(observed.batches[0].checkpointResume.loaded,state.bankCount?1:0,'Only incomplete raw rows should be loaded at initial restore');}}
   else {assert(readingMounts[0].outlineScrollEvents>0,'The released baseline must demonstrate its eager outline warmup');assert(readingMounts[0].completeRawRowsRead>=132,'The released baseline did not read the completed raw corpus');}
+  const documentVisits=observed.batches.map(batch=>Number(batch.localCaptureBatch?.visits || 0));
+  if(!baseline){
+   const visitLimit=state.recoveryCount?config.CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532:config.CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532;
+   assert.equal(visitLimit,state.recoveryCount?4:6,'The native scale case must exercise the released managed bounds');
+   assert.equal(new Set(observed.batches.map(batch=>batch.documentId)).size,observed.batches.length,'A receipt was counted twice in one document');
+   for(const batch of observed.batches){
+    assert.equal(batch.localCaptureBatch.managed,true);
+    assert.equal(batch.localCaptureBatch.maxVisits,visitLimit);
+    assert(batch.localCaptureBatch.visits<=visitLimit,'A managed document exceeded its visit budget');
+    assert(readingMounts.filter(row=>row.documentId===batch.documentId).length<=visitLimit,'The fixture mounted too many reading editors in a document');
+   }
+   assert.equal(documentVisits.reduce((sum,visits)=>sum+visits,0),state.remainingReadings+(state.bankCount?1:0),'An acquired item was duplicated or omitted across renderer documents');
+   if(state.seed)assert.equal(observed.batches.reduce((sum,batch)=>sum+batch.reads.completedRows,0),132,'The completed raw corpus should be read only once for final materialization');
+  }
+
   if(state.bankCount){
    const bank=capture.fingerprints.find(fp=>fp.id==='bank'),model=bank.payload.structuredAssessment;
    assert.equal(model.questionCount,state.bankCount);assert.equal(model.captureCompleteness.requiredAnswerCoverageComplete,true);
@@ -224,9 +249,25 @@ try{
    assert(state.requests.every(r=>r.method==='GET'&&r.ids.length<=15&&r.ids.every(id=>Array.from({length:state.bankCount},(_,i)=>r.resource===groupResource?groupId(state.assignment,i+1):questionId(state.assignment,i+1)).includes(id))));
    if(state.bankCount>27)assert(observed.observations.railScrollEvents>1,'Large bank identities were not observed across the actual virtual rail');
    if(state.collapsed)assert(observed.observations.expansions>0,'Collapsed non-direct outline fallback was skipped');
+   if(!baseline && state.bankCount>=config.CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532){
+    const heavy=observed.batches.find(batch=>batch.localCaptureBatch?.yieldReason==='LOCAL_RENDERER_HEAVY_ITEM_LIMIT');
+    assert(heavy,'A completed heavy assessment did not yield at its durable boundary');
+    assert.equal(heavy.localCaptureBatch.heavyItems,1);
+    assert(heavy.localCaptureBatch.durableItems>0,'Heavy-item yield occurred before evidence was durably checkpointed');
+    assert.equal(heavy.automatic.state,'RUNNING','A heavy editor must yield before final materialization');
+    assert.equal(heavy.checkpointMaterialization,undefined,'Heavy-item document materialized completed raw payloads');
+    assert.equal(heavy.reads.completedRows,0,'Heavy editor retained the completed raw corpus before cleanup');
+    const final=observed.batches.at(-1);
+    assert.notEqual(final.documentId,heavy.documentId);
+    assert.equal(final.localCaptureBatch.visits,0,'Final cleanup document reopened an editor');
+    assert.equal(final.automatic.state,'FINISHED');
+    assert.equal(readingMounts.filter(row=>row.documentId===final.documentId).length,0);
+    assert(final.checkpointMaterialization.loaded>=132,'Cleanup document did not materialize the old raw corpus');
+   }
+
   }
   const receipt={mode:state.name,elapsedMs:Date.now()-started,items:capture.fingerprints.length,batches:capture.meta.automaticLocalCapture.batches,
-   completedSeedPayloadBytes:state.seed?payloadBytes:0,rawRowsRead:observed.batches.reduce((sum,batch)=>sum+batch.reads.rawRows,0),
+   documentVisits,recoveryCount:state.recoveryCount,completedSeedPayloadBytes:state.seed?payloadBytes:0,rawRowsRead:observed.batches.reduce((sum,batch)=>sum+batch.reads.rawRows,0),
    completedRawRowsRead:observed.batches.reduce((sum,batch)=>sum+batch.reads.completedRows,0),metadataRowsRead:observed.batches.reduce((sum,batch)=>sum+batch.reads.metadataRows,0),
    firstReadingOutlineScrollEvents:readingMounts[0]?.outlineScrollEvents||0,firstReadingCompletedRawReads:readingMounts[0]?.completeRawRowsRead||0,
    outlineScrollEvents:observed.observations.outlineScrollEvents,railScrollEvents:observed.observations.railScrollEvents,questionEditorClicks:observed.observations.questionClicks.length,
@@ -244,7 +285,8 @@ try{
   baselineFirstReadingOutlineScrolls:controls.map(c=>c.baseline.firstReadingOutlineScrollEvents),currentFirstReadingOutlineScrolls:controls.map(c=>c.current.firstReadingOutlineScrollEvents)},
   scope:'Identical synthetic 132-row completed corpus and four real rendered readings; descriptive wall times, no elapsed-time pass threshold.'}));
  const large=await runCase(createCase('large',{remainingReadings:28,bankCount:609}),currentSource,{large:true});
- assert.equal(large.batches,2,'Twenty renderer visits should durably continue the remaining 29 targets in a second document');
+ assert(large.batches>=Math.ceil(29/config.CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532)+1,'Managed acquisition needs bounded documents plus a separate heavy-editor cleanup document');
+ await runCase(createCase('recovered',{remainingReadings:10,recoveryCount:1}),currentSource);
  await runCase(createCase('collapsed',{remainingReadings:0,bankCount:3,collapsed:true,seed:false}),currentSource);
- console.log(JSON.stringify({status:'PASS',scope:'Real canonical Chrome continuation, completed raw deferred until final export, unchanged original rich wrappers, direct reading zero warmup, collapsed outline fallback, and 609 virtual identities with zero question-editor clicks. Synthetic fixture does not measure live Coursera latency or certify every content type.'}));
+ console.log(JSON.stringify({status:'PASS',scope:'Real canonical Chrome continuation, completed raw deferred until final export, unchanged original rich wrappers, direct reading zero warmup, collapsed outline fallback, six-visit managed / four-visit recovery bounds, heavy-bank cleanup-only document, and 609 virtual identities with zero question-editor clicks. Synthetic fixture does not measure live Coursera latency or certify every content type.'}));
 }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(scratch,{recursive:true,force:true});}

@@ -3,17 +3,19 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { CTI_NETWORK_MAX_RETAINED_CHARS, CTI_NETWORK_MAX_RETAINED_RECORDS, CTI_NETWORK_MAX_PENDING_REQUESTS, CTI_NETWORK_MAX_RESPONSE_COPIES } from '../src/extractors/coursera/config.js';
 import { captureContractV6150, finalCaptureAccountingV6150 } from '../src/extractors/coursera/completion.js';
-import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS, CTI_LOCAL_ASSESSMENT_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from '../src/extractors/coursera/config.js';
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS, CTI_LOCAL_ASSESSMENT_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES, CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532, CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532, CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532, CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532, CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532 } from '../src/extractors/coursera/config.js';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {functionCode}=require('../tools/assessment-fixture.cjs');
 
-function localSessionFixture(heap=0){
+function localSessionFixture(heap=0,options={}){
   let now=1000;
   const context={window:{performance:{memory:{usedJSHeapSize:heap}}},Date:{now:()=>now},
-    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,CTI_LOCAL_ASSESSMENT_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES,CTI_LOCAL_HEAP_GROWTH_BYTES};
+    CTI_LOCAL_BATCH_MAX_VISITS,CTI_LOCAL_BATCH_MAX_MS,CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,CTI_LOCAL_ASSESSMENT_MAX_MS,CTI_LOCAL_HEAP_YIELD_BYTES,CTI_LOCAL_HEAP_GROWTH_BYTES,
+    CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532,CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532,CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532,
+    CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532,CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532};
   vm.createContext(context);vm.runInContext(functionCode('createLocalCaptureSessionV61514'),context);
-  return {context,session:context.createLocalCaptureSessionV61514(),advance:ms=>{now+=ms;}};
+  return {context,session:context.createLocalCaptureSessionV61514(options),advance:ms=>{now+=ms;}};
 }
 test('Local primary, retry and repeat invocations share a renderer visit budget',()=>{
   const f=localSessionFixture();
@@ -121,6 +123,98 @@ test('Observed pauses cannot reset heap, visit, question-count or checkpoint bou
     const reason=f.session.snapshot().yieldReason;f.advance(1000);f.session.recordVisibilityPause(1000);
     assert.equal(f.context.createLocalCaptureSessionV61514().snapshot().yieldReason,reason);
   }
+});
+
+test('Managed small readings retain a multi-item document but recycle before twenty visits',()=>{
+  const f=localSessionFixture(0,{managed:true});delete f.context.window.performance.memory;
+  for(let index=0;index<CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532;index++){
+    assert.equal(f.session.beforeItem(),'');f.session.startItem();
+    assert.equal(f.session.pressureYieldReason(),'','Starting the last permitted item does not interrupt its API reads');
+    const reason=f.session.afterItemCheckpoint({itemId:'reading-'+index,declaredParts:0,evidenceBytes:4096},true);
+    assert.equal(reason,index+1===CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532?'LOCAL_RENDERER_VISIT_LIMIT':'');
+  }
+  assert.equal(f.session.snapshot().durableItems,CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532);
+  assert.equal(f.session.snapshot().retainedEvidenceBytes,4096*CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532);
+  assert.equal(f.context.createLocalCaptureSessionV61514().beforeItem(),'LOCAL_RENDERER_VISIT_LIMIT');
+  assert.equal(f.session.snapshot().maxVisits,CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532);
+});
+
+test('A managed heavy complete API quiz yields after its save without changing fidelity or attempts',()=>{
+  const f=localSessionFixture(0,{managed:true});delete f.context.window.performance.memory;
+  const fp={id:'quiz',type:'Assessment',name:'Large quiz',payload:{captureAttempts:1,structuredAssessment:{
+    declaredQuestionCount:100,questionCount:100,
+    questions:Array.from({length:100},(_,index)=>({id:String(index+1),prompt:'Source prompt',questionOrdinalObserved:true})),
+    captureCompleteness:{questionCoverageComplete:true,requiredAnswerCoverageComplete:true,missingQuestionOrdinals:[],missingRequiredAnswerOrdinals:[]}
+  }}};
+  const before=JSON.stringify(fp);assert.equal(captureContractV6150(fp).complete,true);
+  f.session.startItem();
+  assert.equal(f.session.afterQuestionCheckpoint(0,true),'','A complete definition model needs no panel-count slice');
+  assert.equal(f.session.afterItemCheckpoint({itemId:fp.id,declaredParts:100,evidenceBytes:500000},true),'LOCAL_RENDERER_HEAVY_ITEM_LIMIT');
+  assert.equal(JSON.stringify(fp),before);assert.equal(captureContractV6150(fp).complete,true);
+  assert.equal(fp.payload.captureAttempts,1);assert.equal(f.session.snapshot().heavyItems,1);
+  assert.equal(f.session.afterItemCheckpoint({itemId:fp.id,declaredParts:100,evidenceBytes:500000},true),'LOCAL_RENDERER_HEAVY_ITEM_LIMIT');
+  assert.equal(f.session.snapshot().durableItems,1);assert.equal(f.session.snapshot().retainedEvidenceBytes,500000);
+  assert.equal(f.context.createLocalCaptureSessionV61514({managed:true}).beforeItem(),'LOCAL_RENDERER_HEAVY_ITEM_LIMIT');
+});
+
+test('Managed large raw evidence has a durable boundary even with no JavaScript heap reading',()=>{
+  const f=localSessionFixture(0,{managed:true});delete f.context.window.performance.memory;f.session.startItem();
+  assert.equal(f.session.afterItemCheckpoint({itemId:'large-reading',declaredParts:0,evidenceBytes:CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532},true),'LOCAL_RENDERER_HEAVY_ITEM_LIMIT');
+  assert.equal(f.session.snapshot().observedHeapBytes,0);assert.equal(f.session.snapshot().heavyItems,1);
+  const manual=localSessionFixture();manual.session.startItem();
+  assert.equal(manual.session.afterItemCheckpoint({itemId:'quiz',declaredParts:100,evidenceBytes:CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532},true),'');
+  assert.equal(manual.session.snapshot().maxVisits,CTI_LOCAL_BATCH_MAX_VISITS);
+});
+
+test('Managed evidence retention accumulates once per item and is bounded independently of visits',()=>{
+  const f=localSessionFixture(0,{managed:true});f.session.startItem();
+  const bytes=CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532-1;
+  assert.equal(f.session.afterItemCheckpoint({itemId:'first',declaredParts:0,evidenceBytes:bytes},true),'');
+  assert.equal(f.session.afterItemCheckpoint({itemId:'first',declaredParts:0,evidenceBytes:bytes},true),'');
+  assert.equal(f.session.snapshot().retainedEvidenceBytes,bytes);
+  for(let index=1;index<5;index++){
+    f.session.startItem();
+    assert.equal(f.session.afterItemCheckpoint({itemId:'reading-'+index,evidenceBytes:bytes},true),index===4?'LOCAL_RENDERER_EVIDENCE_LIMIT':'');
+  }
+  assert(f.session.snapshot().retainedEvidenceBytes>=CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532);
+  assert.equal(f.session.snapshot().heavyItems,0);
+});
+
+test('Failed heavy item save blocks continuation before recording its durable boundary',()=>{
+  const f=localSessionFixture(0,{managed:true});f.session.startItem();
+  assert.equal(f.session.afterItemCheckpoint({itemId:'quiz',declaredParts:609,evidenceBytes:500000},false),'LOCAL_CHECKPOINT_UNAVAILABLE');
+  assert.equal(f.session.snapshot().checkpointFailed,true);assert.equal(f.session.snapshot().durableItems,0);
+  assert.equal(f.session.afterItemCheckpoint({itemId:'quiz',declaredParts:609,evidenceBytes:500000},true),'LOCAL_CHECKPOINT_UNAVAILABLE');
+  assert.equal(f.session.snapshot().durableItems,0,'A later save cannot erase the earlier storage failure');
+  assert.equal(f.context.createLocalCaptureSessionV61514({managed:true}).beforeItem(),'LOCAL_CHECKPOINT_UNAVAILABLE');
+});
+
+test('A growing saved item counts only new retained bytes and can become heavy later',()=>{
+  const f=localSessionFixture(0,{managed:true});f.session.startItem();
+  assert.equal(f.session.afterItemCheckpoint({itemId:'reading',evidenceBytes:1000},true),'');
+  assert.equal(f.session.afterItemCheckpoint({itemId:'reading',evidenceBytes:2000},true),'');
+  assert.equal(f.session.snapshot().retainedEvidenceBytes,2000);assert.equal(f.session.snapshot().durableItems,1);
+  assert.equal(f.session.afterItemCheckpoint({itemId:'reading',evidenceBytes:CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532},true),'LOCAL_RENDERER_HEAVY_ITEM_LIMIT');
+  assert.equal(f.session.snapshot().retainedEvidenceBytes,CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532);assert.equal(f.session.snapshot().heavyItems,1);
+});
+
+test('Managed crash recovery uses a lower document cap that repeated setup cannot increase',()=>{
+  const f=localSessionFixture(0,{managed:true,recoveryCount:2});
+  assert.equal(f.session.snapshot().maxVisits,CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532);
+  for(let index=0;index<CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532;index++){
+    f.session.startItem();f.session.afterItemCheckpoint({itemId:'reading-'+index,evidenceBytes:1024},true);
+  }
+  assert.equal(f.context.createLocalCaptureSessionV61514({managed:true,recoveryCount:0}).snapshot().maxVisits,CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532);
+  assert.equal(f.session.beforeItem(),'LOCAL_RENDERER_VISIT_LIMIT');
+});
+
+test('API pressure polls detect growth and elapsed work without inventing question observations',()=>{
+  const f=localSessionFixture(128*1024*1024,{managed:true});f.session.startItem();
+  f.context.window.performance.memory.usedJSHeapSize+=CTI_LOCAL_HEAP_GROWTH_BYTES;
+  assert.equal(f.session.pressureYieldReason(),'LOCAL_RENDERER_HEAP_GROWTH_LIMIT');
+  assert.equal(f.session.snapshot().questionObservations,0);
+  const timed=localSessionFixture(0,{managed:true});timed.session.startItem();timed.advance(CTI_LOCAL_BATCH_MAX_MS);
+  assert.equal(timed.session.pressureYieldReason(),'LOCAL_RENDERER_TIME_LIMIT');assert.equal(timed.session.snapshot().questionObservations,0);
 });
 
 function recorderFor(response,limit=1024,overrides={}){

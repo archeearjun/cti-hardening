@@ -76,6 +76,10 @@ jobs:
         run: npm run test:browser:supervised-capture
       - name: Hidden Coursera pause accounting across renderer batches
         run: npm run test:browser:hidden-pause
+      - name: Targeted outline navigation with unrelated branches unmounted
+        run: npm run test:browser:outline-target
+      - name: Durable reading checkpoints across real renderer crashes
+        run: npm run test:browser:reading-recovery
       - name: Passive quiz response sample and authenticated lightweight data-tab feasibility
         run: npm run test:browser:response-sample
       - name: Exact versioned quiz definitions with no question rendering

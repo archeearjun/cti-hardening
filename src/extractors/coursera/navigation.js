@@ -239,10 +239,11 @@ export function findNavigationTargetInCurrentViewport(fp, courseOrBranchId) {
     for (const el of exactIdentityElements(fp)) {
       const attrs = elementAttributeBlob(el);
       if (!isVisibleElement(el)) { hiddenIdMatches++; continue; }
+      if (!outlineItemIdentityV61532(el,fp,courseOrBranchId)) continue;
       const route = routeCandidateFromElement(el, courseOrBranchId);
       const text = elementTextKey(el);
       let score = 0.997, reason = "visible-attribute-id";
-      if (id && route && route.toLowerCase().includes(id)) { score = 1; reason = "visible-route-id"; }
+      if (route && authoringItemRouteV61311(route)?.itemId===String(fp.id)) { score = 1; reason = "visible-route-id"; }
       if (score > bestScore) {
         bestScore = score;
         best = { element:el, route, score, reason, tag:String(el.tagName||"").toLowerCase(), text:text.slice(0,240), hiddenIdMatches };
@@ -259,8 +260,10 @@ export function findNavigationTargetInCurrentViewport(fp, courseOrBranchId) {
       let score = 0;
       let reason = "";
 
-      if (id && route && route.toLowerCase().includes(id)) { score = 1; reason = "visible-route-id"; }
-      else if (id && attrs.includes(id)) { score = 0.995; reason = "visible-attribute-id"; }
+      if (id && outlineItemIdentityV61532(el,fp,courseOrBranchId)) {
+        score = route && authoringItemRouteV61311(route)?.itemId===String(fp.id) ? 1 : 0.995;
+        reason = score===1 ? "visible-route-id" : "visible-attribute-id";
+      }
       else if (name && text === name) { score = 0.99; reason = "visible-exact-title"; }
       else if (name && text && (text.includes(name) || name.includes(text)) && Math.min(text.length, name.length) >= 8) {
         const lenPenalty = text.length > Math.max(900, name.length * 10) ? 0.08 : 0;
@@ -273,7 +276,7 @@ export function findNavigationTargetInCurrentViewport(fp, courseOrBranchId) {
       }
     }
 
-    if ((!best || bestScore < 0.995) && name) {
+    if ((!best || bestScore < 0.995) && name && !id) {
       const root = document.querySelector("main,[role='main']") || document.body;
       const textEls = [...root.querySelectorAll("span,div,p,h1,h2,h3,h4,h5,h6,[aria-label],[title]")].slice(0, 16000);
       for (const el of textEls) {
@@ -297,6 +300,37 @@ export function findNavigationTargetInCurrentViewport(fp, courseOrBranchId) {
     }
     if (best) best.hiddenIdMatches = hiddenIdMatches;
     return bestScore >= 0.86 ? best : null;
+  }
+
+export function outlineItemIdentityV61532(el,fp,courseOrBranchId) {
+    const id=String(fp && fp.id || '');
+    if(!id || !el)return false;
+    const owner=el.closest && el.closest('[data-item-id]');
+    if(owner && owner.getAttribute('data-item-id')!==id)return false;
+    const anchor=el.closest && el.closest('a[href]');
+    const linked=authoringItemRouteV61311(anchor && anchor.getAttribute('href'));
+    if(linked && (linked.itemId!==id || linked.courseId!==String(courseOrBranchId)))return false;
+    const route=routeCandidateFromElement(el,courseOrBranchId);
+    if(route){
+      const parsed=authoringItemRouteV61311(route);
+      if(parsed)return parsed.itemId===id && parsed.courseId===String(courseOrBranchId);
+      try {if(new URL(route).searchParams.get('itemId')===id)return true;}catch(_){}
+    }
+    let node=el;
+    for(let i=0;node && i<4;i++,node=node.parentElement){
+      if(node===document.body || node===document.documentElement)break;
+      for(const name of ['data-item-id','data-id','data-rbd-draggable-id']){
+        const value=node.getAttribute && node.getAttribute(name);
+        if(value!=null && value!=='')return value===id;
+      }
+      for(const name of ['id','data-testid','data-e2e']){
+        const value=String(node.getAttribute && node.getAttribute(name) || '');
+        if(value===id)return true;
+        const prefix=value.slice(0,Math.max(0,value.length-id.length));
+        if(value.endsWith(id) && /^(?:item|item-row|course-item|content-item|material)[-_:]$/.test(prefix))return true;
+      }
+    }
+    return false;
   }
 
 export function outlineScrollRoots() {
@@ -327,31 +361,75 @@ export function outlineScrollRoots() {
   }
 
 export function targetPathTokens(fp) {
-    const raw = Array.isArray(fp && fp.path) ? fp.path.join(" ") : String(fp && fp.path || "");
-    return normalizeName(raw).split(/\s*(?:>|\/|\||::)\s*/).filter(Boolean).slice(0, 8);
+    const raw = Array.isArray(fp && fp.path) ? fp.path : [String(fp && fp.path || "")];
+    return raw.flatMap(value=>String(value).split(/\s*(?:>|\/|\||::)\s*/)).map(normalizeName).filter(Boolean).slice(0, 8);
   }
 
-export async function expandSafeOutlineDisclosures(fp) {
-    const root = document.querySelector("main,[role='main']") || document.body;
-    const buttons = [...root.querySelectorAll("button[aria-expanded='false'],[role='button'][aria-expanded='false']")].slice(0, 400);
-    const pathTokens = targetPathTokens(fp);
-    let expanded = 0;
-    for (const el of buttons) {
-      if (!isVisibleElement(el) || isGlobalChromeElement(el) || isDangerousEditorControl(el)) continue;
-      const label = normalizeName(elementTextKey(el) + " " + elementAttributeBlob(el));
-      if (/\b(more|options|actions|menu|navigation|filter|sort|account|profile)\b/.test(label)) continue;
-      const controlsRegion = String(el.getAttribute && el.getAttribute("aria-controls") || "");
-      const pathHit = pathTokens.some(t => t.length >= 4 && (label.includes(t) || t.includes(label)));
-      const looksDisclosure = Boolean(controlsRegion) || pathHit || /\b(expand|show|module|week|section|content|resources|start here|student|instructor|course)\b/.test(label);
-      if (!looksDisclosure) continue;
-      try {
-        el.click();
-        expanded++;
-        await sleepMs(90);
-      } catch (e) {}
+export function outlineDisclosureInViewportV61532(el) {
+    if(!isVisibleElement(el))return false;
+    try {
+      const rect=el.getBoundingClientRect();
+      let left=0,top=0,right=Number(window.innerWidth || 2000),bottom=Number(window.innerHeight || 800);
+      for(let node=el.parentElement;node && node!==document.body;node=node.parentElement){
+        const style=getComputedStyle(node),box=node.getBoundingClientRect();
+        if(/auto|scroll|hidden|clip|overlay/.test(String(style.overflowY || ''))){top=Math.max(top,box.top);bottom=Math.min(bottom,box.bottom);}
+        if(/auto|scroll|hidden|clip|overlay/.test(String(style.overflowX || ''))){left=Math.max(left,box.left);right=Math.min(right,box.right);}
+      }
+      return rect.bottom>top && rect.top<bottom && rect.right>left && rect.left<right;
+    }catch(_){return false;}
+  }
+
+export function outlineDisclosureCandidateV61532(el,fp) {
+    if(!outlineDisclosureInViewportV61532(el) || isGlobalChromeElement(el) || isDangerousEditorControl(el))return null;
+    const controls=String(el.getAttribute && el.getAttribute('aria-controls') || '');
+    const label=normalizeName(elementTextKey(el)+' '+elementAttributeBlob(el));
+    if(/\b(more|options|actions|menu|navigation|filter|sort|account|profile|expand all|show all|collapse all)\b/.test(label))return null;
+    let scope=controls.split(/\s+/).map(id=>document.getElementById(id)).find(Boolean) || null;
+    const controlledScope=Boolean(scope);
+    if(!scope)scope=el.closest('section,article,[data-module-id],[data-section-id]');
+    let surrounding='';
+    for(let parent=el.parentElement,depth=0;parent && depth<4;parent=parent.parentElement,depth++){
+      if(parent===document.body || parent.matches('main,[role="main"]'))break;
+      const headings=[...parent.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')].slice(0,3);
+      if(!surrounding)surrounding=headings.map(node=>elementTextKey(node)).join(' ');
+      if(parent.querySelectorAll('[aria-expanded]').length>1)break;
+      if(!controlledScope && !el.closest('section,article,[data-module-id],[data-section-id]'))scope=parent;
     }
-    if (expanded) await sleepMs(350);
-    return expanded;
+    if(!scope)scope=el.parentElement;
+    if(!scope || scope===document.body || scope.matches('main,[role="main"]'))return null;
+    const context=normalizeName(label+' '+surrounding);
+    const tokens=targetPathTokens(fp);
+    const pathHit=tokens.some(token=>token.length>=3 && (' '+context+' ').includes(' '+token+' '));
+    const ancestorHit=(fp && fp.ancestors || []).some(ancestor=>{
+      const id=String(ancestor && ancestor.id || '');
+      return id && [el,scope,el.parentElement].some(node=>node && ['id','data-id','data-item-id','data-module-id','data-section-id'].some(name=>node.getAttribute(name)===id));
+    });
+    const id=String(fp && fp.id || '');
+    const containedId=Boolean(id && [...scope.querySelectorAll('[data-item-id],[data-id],a[href]')].some(node=>
+      node.getAttribute('data-item-id')===id || node.getAttribute('data-id')===id || authoringItemRouteV61311(node.getAttribute('href'))?.itemId===id));
+    if(!controls && !pathHit && !ancestorHit && !/\b(expand|show|module|week|section|content|resources|start here|student|instructor|course|lesson)\b/.test(context))return null;
+    return {element:el,scope,relevant:containedId || ancestorHit || pathHit,
+      priority:containedId?3:ancestorHit?2:pathHit?1:0,key:controls || String(el.id || '') || context};
+  }
+
+export async function expandSafeOutlineDisclosures(fp,options) {
+    options=options || {};
+    const deadline=Number.isFinite(Number(options.deadline))?Number(options.deadline):Infinity;
+    if(Date.now()>=deadline)return 0;
+    const root=options.scope || document.querySelector('main,[role="main"]') || document.body;
+    const candidates=[...root.querySelectorAll("button[aria-expanded='false'],[role='button'][aria-expanded='false']")].slice(0,700)
+      .map(el=>outlineDisclosureCandidateV61532(el,fp)).filter(candidate=>candidate &&
+        (!options.excluded || !options.excluded.has(candidate.key)) && (!options.requireRelevant || candidate.relevant))
+      .sort((a,b)=>b.priority-a.priority);
+    const candidate=candidates[0];
+    if(!candidate)return 0;
+    if(options.excluded)options.excluded.add(candidate.key);
+    try {
+      candidate.element.click();
+      options.lastExpansion=candidate;
+      await sleepMs(Math.min(250,Math.max(0,deadline-Date.now())));
+      return 1;
+    }catch(_){return 0;}
   }
 
 export async function expandAllSafeOutlineDisclosures(options) {
@@ -412,93 +490,107 @@ export async function hydrateOutlineSurfaceForCrawl(options) {
   }
 
 export async function findNavigationTargetForFingerprint(fp, courseOrBranchId, trace) {
-    const stats = trace || {};
-    const deadline=Number(stats.deadline || Infinity);
-    stats.viewportScanSteps = 0;
-    stats.outlineExpanded = 0;
-    stats.scrollRootsTried = 0;
-    stats.foundScrollY = 0;
-    stats.scanRootTag = "";
-    stats.weakMatchesIgnored = 0;
-
-    // V5.9: a broad module/container that merely *contains* an item title is not
-    // sufficient identity. In v5.7 this short-circuited viewport scanning when the
-    // outline was scrolled/virtualized, so the real data-item-id row was never
-    // brought into the DOM. Require stable-ID/exact-title strength before stopping.
-    const STRONG_TARGET_SCORE = 0.995;
-    let bestWeak = null;
-    function acceptStrong(hit) {
-      if (!hit) return null;
-      if (Number(hit.score || 0) >= STRONG_TARGET_SCORE) return hit;
-      stats.weakMatchesIgnored++;
-      if (!bestWeak || Number(hit.score || 0) > Number(bestWeak.score || 0)) bestWeak = hit;
-      return null;
+    const stats=trace || {},started=Date.now();
+    const deadline=Math.min(started+30000,Number.isFinite(Number(stats.deadline))?Number(stats.deadline):Infinity);
+    Object.assign(stats,{viewportScanSteps:0,outlineExpanded:0,outlineRestored:0,scrollRootsTried:0,foundScrollY:0,
+      scanRootTag:'',weakMatchesIgnored:0,targetedOutlineNavigation:true,maxSimultaneousNewBranches:0});
+    const STRONG_TARGET_SCORE=0.995;
+    let found=null,newBranches=0,expansionCount=0;
+    const excluded=new Set(),pathKnown=targetPathTokens(fp).length>0 || Boolean(fp && fp.ancestors && fp.ancestors.length);
+    const originals=new Map();
+    function acceptStrong(hit,root) {
+      if(!hit)return null;
+      if(Number(hit.score || 0)<STRONG_TARGET_SCORE){stats.weakMatchesIgnored++;return null;}
+      const y=root?scrollRootPosition(root):Math.round(window.scrollY || 0);
+      Object.assign(hit,{viewportScanSteps:stats.viewportScanSteps,outlineExpanded:stats.outlineExpanded,foundScrollY:y,
+        scrollRootsTried:stats.scrollRootsTried,scanRootTag:root?(isDocumentScrollRoot(root)?'document':String(root.tagName || 'scroll-root').toLowerCase()):'current',
+        weakMatchesIgnored:stats.weakMatchesIgnored});
+      stats.foundScrollY=y;stats.scanRootTag=hit.scanRootTag;
+      return hit;
     }
-
-    let found = acceptStrong(findNavigationTargetInCurrentViewport(fp, courseOrBranchId));
-    if (found) {
-      found.viewportScanSteps = 0;
-      found.outlineExpanded = 0;
-      found.foundScrollY = Math.round(window.scrollY || 0);
-      found.scrollRootsTried = 0;
-      found.scanRootTag = "current";
-      found.weakMatchesIgnored = stats.weakMatchesIgnored;
-      return found;
+    function captureScroll(roots) {
+      for(const root of roots)if(!originals.has(root))originals.set(root,scrollRootPosition(root));
     }
-
-    const roots = outlineScrollRoots();
-    stats.scrollRootsTried = roots.length;
-    const originals = roots.map(root => ({ root, pos:scrollRootPosition(root) }));
-
-    async function scanRoot(root) {
-      let maxY = scrollRootMax(root);
-      const viewport = isDocumentScrollRoot(root) ? Number(window.innerHeight || 800) : Number(root.clientHeight || 800);
-      const step = Math.max(420, Math.floor(viewport * 0.68));
-      const positions = [];
-      for (let y = 0; y <= maxY && positions.length < 42; y += step) positions.push(y);
-      if (!positions.length || positions[positions.length - 1] !== maxY) positions.push(maxY);
-      for (const y of positions) {
-        if (Date.now()>=deadline) {stats.timeBudgetExhausted=true;return null;}
-        await setScrollRootPosition(root, y);
-        stats.viewportScanSteps++;
-        const hit = acceptStrong(findNavigationTargetInCurrentViewport(fp, courseOrBranchId));
-        if (hit) {
-          hit.viewportScanSteps = stats.viewportScanSteps;
-          hit.outlineExpanded = stats.outlineExpanded;
-          hit.foundScrollY = scrollRootPosition(root);
-          hit.scrollRootsTried = stats.scrollRootsTried;
-          hit.scanRootTag = isDocumentScrollRoot(root) ? "document" : String(root.tagName || "scroll-root").toLowerCase();
-          hit.weakMatchesIgnored = stats.weakMatchesIgnored;
-          stats.foundScrollY = hit.foundScrollY;
-          stats.scanRootTag = hit.scanRootTag;
-          return hit;
+    async function restoreScroll(saved) {
+      for(const [root,pos] of saved)if(root.isConnected)await setScrollRootPosition(root,pos);
+    }
+    async function current(scope,depth,root) {
+      found=acceptStrong(findNavigationTargetInCurrentViewport(fp,courseOrBranchId),root);
+      if(found || Date.now()>=deadline)return found;
+      // A known module/lesson path restricts opening to that path or a region
+      // containing the exact target ID. Unknown paths are explored one branch at
+      // a time; each missed branch is closed before the next is mounted.
+      while(Date.now()<deadline && depth<10 && expansionCount<160){
+        const options={scope,deadline,excluded,requireRelevant:pathKnown};
+        const before=new Map(outlineScrollRoots().map(el=>[el,scrollRootPosition(el)]));captureScroll([...before.keys()]);
+        const expanded=await expandSafeOutlineDisclosures(fp,options);
+        if(!expanded)break;
+        stats.outlineExpanded+=expanded;expansionCount+=expanded;newBranches++;
+        stats.maxSimultaneousNewBranches=Math.max(stats.maxSimultaneousNewBranches,newBranches);
+        const candidate=options.lastExpansion;
+        let branchHit=null;
+        try {branchHit=await scan(candidate.scope,depth+1);}
+        finally {
+          newBranches--;
+          if(!branchHit){
+            try {
+              if(candidate.element.isConnected && candidate.element.getAttribute('aria-expanded')==='true' &&
+                  !isDangerousEditorControl(candidate.element)){
+                candidate.element.click();stats.outlineRestored++;
+                await sleepMs(70);
+              }
+            }catch(_){}
+            await restoreScroll(before);
+          }
         }
-        maxY = Math.max(maxY, scrollRootMax(root));
+        if(branchHit)return branchHit;
+        found=acceptStrong(findNavigationTargetInCurrentViewport(fp,courseOrBranchId),root);
+        if(found)return found;
       }
       return null;
     }
-
+    async function scan(scope,depth) {
+      found=await current(scope,depth,null);
+      if(found)return found;
+      const roots=outlineScrollRoots().filter(root=>root===scope || root.contains(scope) || scope.contains(root));
+      captureScroll(roots);stats.scrollRootsTried+=roots.length;
+      for(const root of roots){
+        if(Date.now()>=deadline){stats.timeBudgetExhausted=true;return null;}
+        const viewport=isDocumentScrollRoot(root)?Number(window.innerHeight || 800):Number(root.clientHeight || 800);
+        const step=Math.max(240,Math.floor(viewport*0.68));
+        let startY=0,endY=scrollRootMax(root);
+        if(root!==scope && root.contains(scope)){
+          const box=scope.getBoundingClientRect(),parentBox=root.getBoundingClientRect();
+          const parentTop=isDocumentScrollRoot(root)?0:parentBox.top;
+          const position=scrollRootPosition(root);
+          startY=Math.max(0,position+box.top-parentTop-viewport*0.15);
+          endY=Math.min(endY,Math.max(startY,position+box.bottom-parentTop-viewport*0.6));
+        }
+        let y=startY,previous=-1;
+        for(let positions=0;positions<160;positions++){
+          if(Date.now()>=deadline){stats.timeBudgetExhausted=true;return null;}
+          const maxY=scrollRootMax(root);stats.maxRange=Math.max(Number(stats.maxRange || 0),maxY);
+          y=Math.min(y,maxY,endY);
+          if(y===previous)break;
+          await setScrollRootPosition(root,y);stats.viewportScanSteps++;
+          found=await current(scope,depth,root);
+          if(found)return found;
+          if(y>=Math.min(scrollRootMax(root),endY))break;
+          previous=y;y=Math.min(y+step,scrollRootMax(root),endY);
+        }
+      }
+      return null;
+    }
     try {
-      for (const root of roots) {
-        found = await scanRoot(root);
-        if (found) return found;
-      }
-      if (Date.now()>=deadline) {stats.timeBudgetExhausted=true;return null;}
-      stats.outlineExpanded += await expandSafeOutlineDisclosures(fp);
-      if (stats.outlineExpanded) {
-        for (const root of roots) {
-          found = await scanRoot(root);
-          if (found) return found;
-        }
-      }
-
-      // Do not fall back to the v5.7 0.90 title-containment container: it may be
-      // an entire module or even a global "Resources" region and can expose controls
-      // for unrelated items. A miss is safer than a wrong-item click.
-      return null;
-    } finally {
-      if (!found) {
-        for (const item of originals) await setScrollRootPosition(item.root, item.pos);
-      }
+      found=acceptStrong(findNavigationTargetInCurrentViewport(fp,courseOrBranchId),null);
+      if(found)return found;
+      const scope=document.querySelector('main,[role="main"]') || document.body;
+      captureScroll(outlineScrollRoots());
+      found=await scan(scope,0);
+      if(!found && Date.now()>=deadline)stats.timeBudgetExhausted=true;
+      return found;
+    }finally {
+      if(!found)await restoreScroll(originals);
+      stats.elapsedMs=Date.now()-started;
     }
   }

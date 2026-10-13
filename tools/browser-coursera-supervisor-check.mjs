@@ -175,6 +175,11 @@ try{
  const freshCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,apiProgram,token,undefined,{controllerOrigin,freshRun:true}));
  const firstRegistration=await firstCdp.send(freshCommand.cmd,freshCommand.args);
  await resumeParent.waitForFunction(()=>captureStatus?.state==='RUNNING',{},{timeout:15000});
+ // Managed documents now release after six visits, and the 100-part quiz
+ // releases its document as soon as its checkpoint commits. Keep the original
+ // forty-completed-item handoff coverage instead of assuming two documents
+ // can still hold forty editor visits.
+ await resumeParent.waitForFunction(()=>captureStatus?.state==='RUNNING'&&captureStatus.completeItems>=40,{},{timeout:120000});
  await firstChild.waitForFunction(token=>Number(JSON.parse(localStorage.getItem('__CTI_AUTOMATIC_LOCAL_V61517_'+token) || 'null')?.batches || 0)>=2,token,{timeout:60000});
  await firstCdp.send('Page.removeScriptToEvaluateOnNewDocument',{identifier:firstRegistration.identifier});
  await firstChild.goto(shell,{waitUntil:'load'});

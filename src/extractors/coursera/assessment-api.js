@@ -432,11 +432,77 @@ export async function assessmentApiDefinitionCacheV61531(prior,inventory,fp,opti
   return out;
 }
 
+export function retainAssessmentApiRawEvidenceV61532(fp,observation) {
+  const raw=observation && observation.rawEvidence;
+  if(!fp || !raw || (!raw.groups?.length && !raw.questionDefinitions?.length))return false;
+  const payload=fp.payload && typeof fp.payload==='object' && !Array.isArray(fp.payload)?fp.payload:{};
+  const prior=payload.assessmentApiEvidence;
+  if(prior===raw)return false;
+  const deadline=Date.now()+10000,historyLimit=32*1024*1024;
+  let retainedHistory=payload.assessmentApiHistoricalEvidence;
+  function blocked(reason){observation.retentionBlocked=reason;return false;}
+  function exactRecordsCarried(before,after){
+    if(!Array.isArray(before) || !Array.isArray(after))return false;
+    if(before.length>CTI_ASSESSMENT_API_MAX_PARTS_V61524 || after.length>CTI_ASSESSMENT_API_MAX_PARTS_V61524)return false;
+    const current=new Map();
+    for(const record of after){
+      if(Date.now()>=deadline || !record || typeof record.id!=='string' || current.has(record.id))return false;
+      current.set(record.id,record);
+    }
+    for(const record of before){
+      if(Date.now()>=deadline || !record || typeof record.id!=='string' || !current.has(record.id))return false;
+      const next=current.get(record.id);
+      if(next!==record && JSON.stringify(next)!==JSON.stringify(record))return false;
+    }
+    return true;
+  }
+  try{
+    // Only source records actually carried with the same identity and content
+    // can replace an earlier receipt without retaining its historical raw.
+    const carried=!prior || prior.method===raw.method && prior.courseId===raw.courseId &&
+      prior.itemId===raw.itemId && prior.assignmentId===raw.assignmentId &&
+      JSON.stringify(prior.inventory)===JSON.stringify(raw.inventory) &&
+      exactRecordsCarried(prior.groups,raw.groups) && exactRecordsCarried(prior.questionDefinitions,raw.questionDefinitions);
+    if(Date.now()>=deadline)return blocked('ASSESSMENT_API_HISTORY_DEADLINE');
+    if(!carried){
+      const history=payload.assessmentApiHistoricalEvidence || [];
+      if(!Array.isArray(history) || history.length>CTI_ASSESSMENT_API_MAX_PARTS_V61524)
+        return blocked('ASSESSMENT_API_HISTORY_INVALID');
+      const original=JSON.stringify(prior);
+      if(typeof original!=='string')return blocked('ASSESSMENT_API_HISTORY_SERIALIZATION_FAILED');
+      if(original.length>historyLimit)return blocked('ASSESSMENT_API_HISTORY_LIMIT');
+      let historicalBytes=2,duplicate=false;
+      for(const entry of history){
+        if(Date.now()>=deadline)return blocked('ASSESSMENT_API_HISTORY_DEADLINE');
+        if(!entry || entry.notForCacheOrCompleteness!==true || !entry.rawEvidence)
+          return blocked('ASSESSMENT_API_HISTORY_INVALID');
+        const text=JSON.stringify(entry);
+        historicalBytes+=new TextEncoder().encode(text).byteLength+(historicalBytes>2?1:0);
+        if(historicalBytes>historyLimit)return blocked('ASSESSMENT_API_HISTORY_LIMIT');
+        if(JSON.stringify(entry.rawEvidence)===original)duplicate=true;
+      }
+      if(!duplicate){
+        const retained={notForCacheOrCompleteness:true,rawEvidence:prior};
+        // Count the fixed ASCII wrapper around the already-serialized raw;
+        // serializing a large pressure checkpoint twice would add allocations.
+        const wrapperBytes=JSON.stringify({notForCacheOrCompleteness:true,rawEvidence:null}).length-4;
+        const bytes=new TextEncoder().encode(original).byteLength+wrapperBytes+(history.length?1:0);
+        if(historicalBytes+bytes>historyLimit)return blocked('ASSESSMENT_API_HISTORY_LIMIT');
+        if(Date.now()>=deadline)return blocked('ASSESSMENT_API_HISTORY_DEADLINE');
+        retainedHistory=[...history,retained];
+      }
+    }
+    if(Date.now()>=deadline)return blocked('ASSESSMENT_API_HISTORY_DEADLINE');
+    if(retainedHistory!==undefined)payload.assessmentApiHistoricalEvidence=retainedHistory;
+    fp.payload=payload;payload.assessmentApiEvidence=raw;return true;
+  }catch(_){return blocked('ASSESSMENT_API_HISTORY_SERIALIZATION_FAILED');}
+}
+
 export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options={}) {
   const started=Date.now();
-  const out={attempted:false,captured:false,assessment:null,rawEvidence:null,stopReason:'',authenticationFailed:false,
+  const out={attempted:false,captured:false,assessment:null,rawEvidence:null,stopReason:'',pressureYieldReason:'',authenticationFailed:false,
     diagnostics:{requests:0,groupsRequests:0,definitionRequests:0,reusedDefinitions:0,cachedBytes:0,elapsedMs:0,
-      maxConcurrentRequests:0,bytes:0,evidenceBytes:0,evidenceOmissions:0,rateLimitRetries:0,multiGetUnsupported:[],missingGroups:[],missingDefinitions:[],unsupportedGroups:[],failures:[]}};
+      maxConcurrentRequests:0,bytes:0,evidenceBytes:0,evidenceOmissions:0,rateLimitRetries:0,pressureHookFailures:0,multiGetUnsupported:[],missingGroups:[],missingDefinitions:[],unsupportedGroups:[],failures:[]}};
   const inventory=await discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,options);
   out.stopReason=inventory.reason;
   out.diagnostics.inventoryDiscovery=inventory.discovery || {method:'COMPLETE_MOUNTED_RAIL',scrollSteps:0,restored:true};
@@ -446,12 +512,29 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   const deadline=Math.min(Number(options.deadline || Infinity),Date.now()+120000);
   const fetchImpl=options.fetchImpl || window.fetch.bind(window);
   const state={active:0,stop:'',bytes:0,cachedBytes:0},multiGetModes=new Map();out.attempted=true;
+  function checkPressure(){
+    if(out.pressureYieldReason)return out.pressureYieldReason;
+    if(state.stop || typeof options.pressureYieldReason!=='function')return '';
+    try{
+      const reason=options.pressureYieldReason();
+      // Accept only renderer-budget literals from the local session. Hook
+      // failures and arbitrary values cannot relabel raw evidence or halt it
+      // as if a checkpoint had already been durably saved.
+      if(['LOCAL_RENDERER_VISIT_LIMIT','LOCAL_RENDERER_TIME_LIMIT','LOCAL_RENDERER_HEAP_LIMIT',
+        'LOCAL_RENDERER_HEAP_GROWTH_LIMIT','LOCAL_RENDERER_HEAVY_ITEM_LIMIT','LOCAL_RENDERER_EVIDENCE_LIMIT',
+        'LOCAL_RENDERER_QUESTION_LIMIT','LOCAL_RENDERER_QUESTION_TIME_LIMIT'].includes(reason)){
+        out.pressureYieldReason=reason;state.stop=reason;return reason;
+      }
+    }catch(_){out.diagnostics.pressureHookFailures=Math.min(5000,out.diagnostics.pressureHookFailures+1);}
+    return '';
+  }
   function recordFailure(url,result){
     if(result.ok || out.diagnostics.failures.length>=40)return;
     let resource='';try{resource=new URL(url).pathname.split('/')[2] || '';}catch(_){}
     out.diagnostics.failures.push({resource,status:Number(result.status || 0),reason:String(result.reason || 'API_REQUEST_FAILED')});
   }
   async function request(url,retry=0){
+    checkPressure();
     if(state.stop || Date.now()>=deadline)return {ok:false,reason:state.stop || 'ITEM_API_DEADLINE'};
     const controller=new AbortController(),timeoutMs=Math.min(CTI_ASSESSMENT_API_REQUEST_MS_V61524,deadline-Date.now());
     let timer,counted=true;state.active++;out.diagnostics.requests++;
@@ -555,6 +638,7 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   // most two requests inside acquire, never two concurrent resource pools.
   const ordered=[...inventory.candidates].sort((a,b)=>Number(cached.groupVersions.has(a.id))-Number(cached.groupVersions.has(b.id)) || a.ordinal-b.ordinal);
   for(let offset=0;offset<ordered.length && !state.stop && Date.now()<deadline;){
+    if(checkPressure())break;
     // Probe one batch before committing to larger chunks. On a single-GET
     // server, interleave just two groups and their definitions after that
     // first batch, so slow group reads cannot repeatedly starve definitions.
@@ -581,8 +665,12 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
       }
       needed.add(id);
     }
+    checkPressure();
     const acquired=await acquire(inventory.resources.questions,[...needed],'id,definition,validation');
     for(const [id,element] of acquired)definitions.set(id,element);
+    // Let at most two in-flight reads settle and retain them. Once pressure
+    // has been observed, no next chunk, omission fill, or retry is scheduled.
+    checkPressure();
   }
   if(out.authenticationFailed){out.stopReason=state.stop;out.diagnostics.elapsedMs=Date.now()-started;return out;}
   const supported=new Map();
@@ -649,6 +737,6 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   }
   out.diagnostics.elapsedMs=Date.now()-started;
   if((rawGroups.length || rawDefinitions.length) && typeof options.onCheckpoint==='function')await options.onCheckpoint(out.assessment,
-    {rawEvidence:out.rawEvidence,diagnostics:out.diagnostics,stopReason:out.stopReason});
+    {rawEvidence:out.rawEvidence,diagnostics:out.diagnostics,stopReason:out.stopReason,pressureYieldReason:out.pressureYieldReason});
   return out;
 }

@@ -40,7 +40,9 @@
     "test:browser:response-sample": "node --enable-source-maps tools/browser-coursera-response-sample-check.mjs",
     "test:browser:assessment-api": "node --enable-source-maps tools/browser-coursera-assessment-api-check.mjs",
     "test:browser:scale-capture": "node --enable-source-maps tools/browser-coursera-scale-check.mjs",
-    "test:browser:mixed-bank": "node --enable-source-maps tools/browser-coursera-mixed-bank-check.mjs"
+    "test:browser:mixed-bank": "node --enable-source-maps tools/browser-coursera-mixed-bank-check.mjs",
+    "test:browser:outline-target": "node --enable-source-maps tools/browser-coursera-outline-target-check.mjs",
+    "test:browser:reading-recovery": "node --enable-source-maps tools/browser-coursera-reading-recovery-check.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

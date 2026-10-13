@@ -608,3 +608,157 @@ test('a609-part mixed bank preserves all original unsupported definitions and re
  assert.equal(ids.length,13);assert(ids.every(id=>unsupported.has(Number(id.match(/~definition(\d+)@1$/)?.[1]))));
  assert.equal(f.clicks(),0);assert(!JSON.stringify(resumed.rawEvidence).includes('writeAccessToken'));
 });
+
+test('renderer pressure checkpoints a useful exact-definition chunk and resumes only after fresh group bindings',async()=>{
+ const f=setup(30),fetch=f.fetchImpl;let definitionsRead=false,writes=0,saved=null;
+ const partial=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,
+  pressureYieldReason:()=>definitionsRead?'LOCAL_RENDERER_HEAP_GROWTH_LIMIT':'',
+  fetchImpl:async(url,options)=>{const response=await fetch(url,options);if(url.includes('MachineEvaluable'))definitionsRead=true;return response;},
+  onCheckpoint:async(model,observation)=>{writes++;saved={model,observation};}});
+ assert.equal(partial.pressureYieldReason,'LOCAL_RENDERER_HEAP_GROWTH_LIMIT');
+ assert.equal(partial.stopReason,'LOCAL_RENDERER_HEAP_GROWTH_LIMIT');assert.equal(partial.captured,false);
+ assert.equal(partial.assessment.questionCount,15);assert.equal(partial.assessment.captureCompleteness.requiredAnswerCoverageComplete,false);
+ assert.equal(f.calls.length,2,'No new group/definition reads follow the pressure transition');
+ assert.equal(partial.rawEvidence.groups.length,15);assert.equal(partial.rawEvidence.questionDefinitions.length,15);
+ assert.equal(partial.rawEvidence.cacheIntegrity.definitions.length,15);assert.equal(writes,1);
+ assert.equal(saved.observation.pressureYieldReason,partial.pressureYieldReason);
+ assert.equal(saved.model.questionCount,15);assert.equal(f.clicks(),0);
+ assert(partial.assessment.questions.every((q,i)=>q.courseraQuestionId==='assessment~q'+(i+1) &&
+  q.sourceDefinitionId==='assessment~definition'+(i+1)+'@1' && q.correctAnswers[0]==='Correct choice '+(i+1)));
+ f.calls.length=0;
+ const complete=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:clone(partial.rawEvidence)});
+ assert.equal(complete.pressureYieldReason,'');assert.equal(complete.captured,true);
+ assert.equal(complete.assessment.questionCount,30);assert.equal(complete.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
+ assert.equal(complete.rawEvidence.freshGroupIds.length,30,'Every current group is freshly read before completeness');
+ assert.equal(complete.diagnostics.reusedDefinitions,15);assert.equal(complete.diagnostics.definitionRequests,1);
+ const requestedDefinitions=f.calls.filter(call=>call.url.includes('MachineEvaluable')).flatMap(call=>new URL(call.url).searchParams.get('ids').split(','));
+ assert.equal(requestedDefinitions.length,15);assert(requestedDefinitions.every(id=>Number(id.match(/~definition(\d+)@1$/)[1])>15));
+ assert(complete.diagnostics.maxConcurrentRequests<=2);assert.equal(f.clicks(),0);
+});
+
+test('pressure between mutable groups and definitions saves raw groups without inventing a question model',async()=>{
+ const f=setup(30),fetch=f.fetchImpl;let groupsRead=false,writes=0;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,
+  pressureYieldReason:()=>groupsRead?'LOCAL_RENDERER_TIME_LIMIT':'',
+  fetchImpl:async(url,options)=>{const response=await fetch(url,options);if(url.includes('QuestionGroups'))groupsRead=true;return response;},
+  onCheckpoint:async(model,observation)=>{writes++;assert.equal(model,null);assert.equal(observation.rawEvidence.groups.length,15);
+   assert.equal(observation.rawEvidence.questionDefinitions.length,0);assert.equal(observation.pressureYieldReason,'LOCAL_RENDERER_TIME_LIMIT');}});
+ assert.equal(result.captured,false);assert.equal(result.assessment,null);assert.equal(result.pressureYieldReason,'LOCAL_RENDERER_TIME_LIMIT');
+ assert.equal(result.stopReason,'LOCAL_RENDERER_TIME_LIMIT');assert.equal(f.calls.length,1);assert.equal(writes,1);
+ assert.equal(result.rawEvidence.groups.length,15);assert.equal(result.rawEvidence.questionDefinitions.length,0);
+ assert.equal(result.diagnostics.missingGroups.length,15);assert.equal(result.diagnostics.missingDefinitions.length,15);
+ assert.equal(f.clicks(),0);
+});
+
+test('single-GET pressure lets bounded in-flight reads settle but starts no later read',async()=>{
+ const f=setup(30),fetch=f.fetchImpl;let definitionsRead=0,pressureObserved=false,readsAfterPressure=0;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,
+  pressureYieldReason:()=>{if(definitionsRead<3)return '';pressureObserved=true;return 'LOCAL_RENDERER_HEAP_LIMIT';},
+  fetchImpl:async(url,options)=>{
+   if(pressureObserved)readsAfterPressure++;
+   if(new URL(url).searchParams.has('ids'))return new Response(null,{status:405});
+   const response=await fetch(url,options);if(url.includes('MachineEvaluable'))definitionsRead++;return response;
+  }});
+ assert.equal(result.captured,false);assert.equal(result.pressureYieldReason,'LOCAL_RENDERER_HEAP_LIMIT');
+ assert.equal(readsAfterPressure,0);assert.equal(result.rawEvidence.groups.length,15);
+ assert(result.rawEvidence.questionDefinitions.length>=3 && result.rawEvidence.questionDefinitions.length<=4,
+  'At most the second already-started definition read may settle after pressure');
+ assert.equal(result.assessment.questionCount,result.rawEvidence.questionDefinitions.length);
+ assert(result.diagnostics.maxConcurrentRequests<=2);assert.equal(f.clicks(),0);
+});
+
+test('unknown and throwing pressure hooks do not silently halt or certify an incomplete assessment',async()=>{
+ for(const value of ['LOCAL_RENDERER_UNKNOWN_LIMIT',{reason:'LOCAL_RENDERER_HEAP_LIMIT'},'throws']){
+  const f=setup(20);
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,
+   pressureYieldReason:()=>{if(value==='throws')throw new Error('private synthetic hook context');return value;}});
+  assert.equal(result.pressureYieldReason,'');assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,20);
+  assert.equal(result.stopReason,'COMPLETE_ITEM_BOUND_AUTHORING_API');assert.equal(f.calls.length,4);
+  assert.equal(result.diagnostics.pressureHookFailures>0,value==='throws');
+  assert(!JSON.stringify(result).includes('private synthetic hook context'));assert.equal(f.clicks(),0);
+ }
+});
+
+test('pressure after the final definition chunk keeps independently complete evidence complete',async()=>{
+ const f=setup(10),fetch=f.fetchImpl;let definitionsRead=false,writes=0;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,
+  pressureYieldReason:()=>definitionsRead?'LOCAL_RENDERER_HEAP_LIMIT':'',
+  fetchImpl:async(url,options)=>{const response=await fetch(url,options);if(url.includes('MachineEvaluable'))definitionsRead=true;return response;},
+  onCheckpoint:async(model,observation)=>{writes++;assert.equal(model.captureCompleteness.requiredAnswerCoverageComplete,true);
+   assert.equal(observation.pressureYieldReason,'LOCAL_RENDERER_HEAP_LIMIT');}});
+ assert.equal(result.captured,true);assert.equal(result.stopReason,'COMPLETE_ITEM_BOUND_AUTHORING_API');
+ assert.equal(result.pressureYieldReason,'LOCAL_RENDERER_HEAP_LIMIT');assert.equal(result.assessment.questionCount,10);
+ assert.equal(result.rawEvidence.freshGroupIds.length,10);assert.equal(f.calls.length,2);assert.equal(writes,1);
+});
+
+test('an empty pressure receipt cannot replace historical raw definitions rejected for cache reuse',async()=>{
+ const f=setup(20),original=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ const prior=clone(original.rawEvidence);delete prior.cacheIntegrity;f.fp.payload={assessmentApiEvidence:prior};f.calls.length=0;
+ const empty=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:prior,
+  pressureYieldReason:()=> 'LOCAL_RENDERER_HEAP_LIMIT'});
+ assert.equal(f.calls.length,0);assert.equal(empty.rawEvidence.groups.length,0);assert.equal(empty.rawEvidence.questionDefinitions.length,0);
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,empty),false);
+ assert.equal(f.fp.payload.assessmentApiEvidence,prior);assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,undefined);
+ assert.equal(empty.retentionBlocked,undefined);assert.equal(empty.captured,false);
+});
+
+test('group-only pressure preserves rejected legacy raw separately and never promotes its bodies into cache or completeness',async()=>{
+ const f=setup(20),fetch=f.fetchImpl,original=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ const prior=clone(original.rawEvidence);delete prior.cacheIntegrity;
+ prior.questionDefinitions[0].definition.definition.correctOption='other-1';
+ const originalText=JSON.stringify(prior);f.fp.payload={assessmentApiEvidence:prior};f.calls.length=0;let groupsRead=false;
+ const partial=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:prior,
+  pressureYieldReason:()=>groupsRead?'LOCAL_RENDERER_HEAP_LIMIT':'',
+  fetchImpl:async(url,options)=>{const response=await fetch(url,options);if(url.includes('QuestionGroups'))groupsRead=true;return response;}});
+ assert.equal(partial.assessment,null);assert.equal(partial.rawEvidence.groups.length,15);assert.equal(partial.rawEvidence.questionDefinitions.length,0);
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,partial),true);assert.equal(f.fp.payload.assessmentApiEvidence,partial.rawEvidence);
+ const historical=f.fp.payload.assessmentApiHistoricalEvidence;
+ assert.equal(historical.length,1);assert.equal(historical[0].notForCacheOrCompleteness,true);
+ assert.equal(JSON.stringify(historical[0].rawEvidence),originalText,'Historical unknown fields and original receipt remain exact');
+ assert.equal(historical[0].rawEvidence.cacheIntegrity,undefined,'A rejected body is not given a new cache receipt');
+ f.calls.length=0;
+ const complete=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:f.fp.payload.assessmentApiEvidence});
+ assert.equal(complete.captured,true);assert.equal(complete.diagnostics.reusedDefinitions,0);
+ const definitionIds=f.calls.filter(call=>call.url.includes('MachineEvaluable')).flatMap(call=>new URL(call.url).searchParams.get('ids').split(','));
+ assert.equal(definitionIds.length,20,'Every definition comes from a current GET, even with 20 historical bodies retained');
+ assert.equal(complete.rawEvidence.freshGroupIds.length,20);assert.equal(complete.assessment.questions[0].correctAnswers[0],'Correct choice 1');
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,complete),true);assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,historical);
+ assert.equal(JSON.stringify(historical[0].rawEvidence),originalText);assert.equal(f.clicks(),0);
+});
+
+test('exact carried records do not create redundant history while changed same-ID raw and duplicate receipts remain preserved',async()=>{
+ const f=setup(20),complete=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ const full=clone(complete.rawEvidence),partial=clone(full);
+ partial.groups=partial.groups.slice(0,15);partial.questionDefinitions=partial.questionDefinitions.slice(0,15);
+ f.fp.payload={assessmentApiEvidence:partial};
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,{rawEvidence:full}),true);
+ assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,undefined,'All exact partial records are already carried in the current raw');
+ const changed=clone(full);changed.questionDefinitions[0].definition.definition.unknownOriginalField.unicode='changed original body';
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,{rawEvidence:changed}),true);
+ assert.equal(f.fp.payload.assessmentApiHistoricalEvidence.length,1);
+ assert.equal(f.fp.payload.assessmentApiHistoricalEvidence[0].rawEvidence,full);
+ const history=f.fp.payload.assessmentApiHistoricalEvidence;f.fp.payload.assessmentApiEvidence=clone(full);
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,{rawEvidence:changed}),true);
+ assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,history,'The identical original receipt is not archived twice');
+ assert.equal(history.length,1);assert.equal(history[0].rawEvidence.questionDefinitions[0].definition.definition.unknownOriginalField.unicode,'café 日本語');
+});
+
+test('historical raw beyond 32 MiB blocks destructive replacement with an explicit retention reason',()=>{
+ const f=setup(1),prior={method:'OBSERVED_ITEM_BOUND_AUTHORING_GETS',courseId:'Assessment_fixture_123',itemId:f.fp.id,
+  assignmentId:'assessment',inventory:[{id:'assessment~q1',ordinal:1}],groups:[{id:'assessment~q1',rawOriginal:'x'.repeat(32*1024*1024)}],questionDefinitions:[]};
+ f.fp.payload={assessmentApiEvidence:prior};
+ const observation={rawEvidence:{...prior,groups:[{id:'assessment~q1',questions:['assessment~definition1@1']}],questionDefinitions:[definition(1)]}};
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,observation),false);
+ assert.equal(observation.retentionBlocked,'ASSESSMENT_API_HISTORY_LIMIT');assert.equal(f.fp.payload.assessmentApiEvidence,prior);
+ assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,undefined,'Capacity failure does not mutate the previous raw or history');
+});
+
+test('unrepresentable historical raw fails closed without replacing the original receipt',()=>{
+ const f=setup(1),prior={method:'OBSERVED_ITEM_BOUND_AUTHORING_GETS',courseId:'Assessment_fixture_123',itemId:f.fp.id,
+  assignmentId:'assessment',inventory:[],groups:[{id:'assessment~q1'}],questionDefinitions:[]};
+ prior.groups[0].unrepresentableOriginal=prior;f.fp.payload={assessmentApiEvidence:prior};
+ const observation={rawEvidence:{...prior,groups:[{id:'assessment~q2'}]}};
+ assert.equal(f.c.retainAssessmentApiRawEvidenceV61532(f.fp,observation),false);
+ assert.equal(observation.retentionBlocked,'ASSESSMENT_API_HISTORY_SERIALIZATION_FAILED');assert.equal(f.fp.payload.assessmentApiEvidence,prior);
+ assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,undefined);
+});

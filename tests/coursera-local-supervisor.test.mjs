@@ -81,3 +81,38 @@ test('a replacement controller retains the previous recovery budget',()=>{
  f.advance(101);
  assert.equal(f.manager.getStatus().state,'STOPPED');assert.equal(f.navigations.length,2);
 });
+
+test('new confirmed reading checkpoints reset recovery failures while repeated counts do not',()=>{
+ const f=fixture();f.send({event:'READY'});
+ for(let complete=1;complete<=5;complete++){
+  f.send({event:'PROGRESS',completeItems:complete,savedQuestionsTotal:0});
+  assert.equal(f.manager.getStatus().failuresWithoutProgress,0);
+  f.advance(101);assert.equal(f.manager.getStatus().state,'RECOVERING');
+  f.send({event:'READY'});
+  f.send({event:'PROGRESS',completeItems:complete,savedQuestionsTotal:0});
+  assert.equal(f.manager.getStatus().failuresWithoutProgress,1,'Restoring the same checkpoint is not new evidence');
+ }
+ assert.equal(f.manager.getStatus().recoveries,5);
+ for(let remaining=0;remaining<2;remaining++){
+  f.advance(101);f.send({event:'READY'});f.send({event:'PROGRESS',completeItems:5,savedQuestionsTotal:0});
+ }
+ f.advance(101);assert.equal(f.manager.getStatus().state,'STOPPED');
+ assert.equal(f.navigations.length,7);
+});
+
+test('course question totals are not added again as per-item counts across restored documents',()=>{
+ const f=fixture();f.send({event:'READY'});
+ f.send({event:'PROGRESS',itemId:'quiz-a',savedQuestions:100,savedQuestionsTotal:100});
+ f.send({event:'PROGRESS',itemId:'quiz-b',savedQuestions:80,savedQuestionsTotal:180});
+ assert.equal(f.manager.getStatus().savedQuestions,180);
+ f.send({event:'YIELD',itemId:'',savedQuestions:0,savedQuestionsTotal:180});
+ f.advance(101);f.send({event:'READY'});
+ f.send({event:'PROGRESS',itemId:'',savedQuestions:0,savedQuestionsTotal:180});
+ assert.equal(f.manager.getStatus().savedQuestions,180);
+ assert.equal(f.manager.getStatus().failuresWithoutProgress,1);
+ f.send({event:'PROGRESS',itemId:'quiz-b',savedQuestions:90,savedQuestionsTotal:190});
+ assert.equal(f.manager.getStatus().savedQuestions,190);
+ assert.equal(f.manager.getStatus().failuresWithoutProgress,0);
+ f.send({event:'PROGRESS',itemId:'quiz-b',savedQuestions:90,savedQuestionsTotal:190});
+ assert.equal(f.manager.getStatus().savedQuestions,190);
+});

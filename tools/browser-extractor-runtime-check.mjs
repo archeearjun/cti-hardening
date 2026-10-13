@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61531')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61532')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 

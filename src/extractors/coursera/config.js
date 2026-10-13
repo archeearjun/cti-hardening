@@ -12,6 +12,13 @@ export const CTI_NETWORK_MAX_RETAINED_RECORDS = 48;
 export const CTI_NETWORK_MAX_PENDING_REQUESTS = 8;
 export const CTI_NETWORK_MAX_RESPONSE_COPIES = 4;
 export const CTI_LOCAL_BATCH_MAX_VISITS = 20;
+// Managed documents recycle before prolonged SPA editor/query-cache growth.
+// These bounds contain work; they are not a measured renderer memory ceiling.
+export const CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532 = 6;
+export const CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532 = 4;
+export const CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532 = 100;
+export const CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532 = 2 * 1024 * 1024;
+export const CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532 = 8 * 1024 * 1024;
 export const CTI_LOCAL_BATCH_MAX_MS = 5 * 60 * 1000;
 export const CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS = 25;
 export const CTI_LOCAL_ASSESSMENT_MAX_MS = 2 * 60 * 1000;

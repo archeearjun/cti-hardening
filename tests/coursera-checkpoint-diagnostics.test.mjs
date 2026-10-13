@@ -25,7 +25,7 @@ async function withCheckpointStore(check) {
 test('question checkpoints retain safe API decisions before the item visit finishes',async()=>{
   await withCheckpointStore(async(manager,records)=>{
     const fp={id:'Synthetic_quiz',name:'Synthetic quiz',typeName:'staffGraded',payload:{captureAttempts:0}};
-    const diagnostic={id:fp.id,attempt:1,completed:false,version:'v6.15.31',strongIdentitySeed:false,
+    const diagnostic={id:fp.id,attempt:1,completed:false,version:'v6.15.32',strongIdentitySeed:false,
       routeEditorCertified:true,sessionEditorCertified:false,
       authoringAssessmentApiStopReason:'AUTHORING_API_EVIDENCE_INCOMPLETE',
       questionCycleStopReason:'LOCAL_ASSESSMENT_CHECKPOINT_YIELD',
@@ -37,7 +37,7 @@ test('question checkpoints retain safe API decisions before the item visit finis
         rawBody:{writeAccessToken:'SECRET_TOKEN'}}};
     assert.equal(await manager.save(fp,diagnostic,'assessment-progress'),true);
     const saved=records[0].diagnostic;
-    assert.equal(saved.extractorVersion,'v6.15.31');assert.equal(saved.routeEditorCertified,true);
+    assert.equal(saved.extractorVersion,'v6.15.32');assert.equal(saved.routeEditorCertified,true);
     assert.equal(saved.strongIdentitySeed,false);assert.equal(saved.sessionEditorCertified,false);
     assert.equal(saved.authoringAssessmentApiStopReason,'AUTHORING_API_EVIDENCE_INCOMPLETE');
     assert.equal(saved.questionCycleStopReason,'LOCAL_ASSESSMENT_CHECKPOINT_YIELD');

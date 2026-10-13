@@ -108,24 +108,27 @@ try{
  const firstBatch=await child.evaluate(()=>JSON.parse(localStorage.getItem('fixture-first-batch')));
  assert.equal(firstBatch.plan.state,'RUNNING','Hidden time incorrectly exhausted the automatic capture run limit');
  assert.equal(firstBatch.plan.startedAt,beforePause.original,'An observed pause reset the original course-run start');
- assert.equal(firstBatch.renderer.visits,20,'A hidden wait prematurely exhausted the five-minute renderer batch');
+ assert.equal(firstBatch.renderer.visits,6,'A hidden wait prematurely exhausted the managed renderer visit allowance');
  assert(firstBatch.renderer.visibilityPausedMs>=hiddenMilliseconds);
  const firstWall=firstBatch.observedNow-firstBatch.renderer.startedAt,firstActive=firstWall-firstBatch.renderer.visibilityPausedMs;
  assert(firstWall>=hiddenMilliseconds);assert(firstActive>=0&&firstActive<5*60*1000);
- assert.equal(firstBatch.readingVisits.length,20);assert.equal(downloads.length,0,'An intermediate renderer batch downloaded a partial JSON');
+ assert.equal(firstBatch.readingVisits.length,6);assert.equal(downloads.length,0,'An intermediate renderer batch downloaded a partial JSON');
  await parent.waitForFunction(()=>captureStatus?.state==='FINISHED',{},{timeout:60000});
- assert.equal(downloads.length,1,'The run must produce one final JSON after both renderer batches');
+ assert.equal(downloads.length,1,'The run must produce one final JSON after all renderer batches');
  const capture=JSON.parse(fs.readFileSync(await downloads[0].path(),'utf8'));
  const plan=capture.meta.automaticLocalCapture;
  assert.equal(capture.fingerprints.length,25);assert.equal(evaluateCourseraCapture(capture,courseId).complete,true);
  assert.equal(plan.reason,'INVENTORY_FINISHED');assert.equal(plan.startedAt,beforePause.original);
- assert.equal(plan.batches,2);assert(plan.visibilityPausedMs>=hiddenMilliseconds&&plan.visibilityPausedMs<hiddenMilliseconds+10000);
+ assert.equal(plan.batches,5);assert(plan.visibilityPausedMs>=hiddenMilliseconds&&plan.visibilityPausedMs<hiddenMilliseconds+10000);
  assert(plan.wallElapsedMs>8*60*60*1000);assert(plan.activeElapsedMs>=previousActiveMilliseconds&&plan.activeElapsedMs<8*60*60*1000);
  assert.equal((await parent.evaluate(()=>captureStatus)).recoveries,0,'The verified controller link must survive the simulated hidden wait');
  const controllerElapsed=(await parent.evaluate(()=>Date.now()))-controllerStarted;
  assert(controllerElapsed>=0&&controllerElapsed<60000,'The fixture changed the CTI controller clock');
+ const readingVisits=await child.evaluate(()=>JSON.parse(localStorage.getItem('fixture-reading-visits')||'[]'));
+ assert.equal(readingVisits.length,25);assert.equal(new Set(readingVisits).size,25,'A completed reading reopened after a managed renderer yield');
+ for(const fp of capture.fingerprints)assert(fp.payload.textSample.includes('Observed learner text café 日本語 '+fp.id),'Original observed reading text changed during hidden continuation');
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({status:'PASS',items:25,batches:2,downloads:1,hiddenHours:5,
+ console.log(JSON.stringify({status:'PASS',items:25,batches:5,downloads:1,hiddenHours:5,duplicateCompletedEditorVisits:0,
   wallHours:plan.wallElapsedMs/3600000,activeHours:plan.activeElapsedMs/3600000,supervisorRecoveries:0,
   scope:'Synthetic readings, coherent Coursera-only clock and visibility inputs; actual canonical pause wait, renderer guards, automatic accounting, durable reload and verified CTI supervisor.'}));
  await context.close();

@@ -1,4 +1,4 @@
-import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS, CTI_LOCAL_ASSESSMENT_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES } from "./config.js";
+import { CTI_LOCAL_BATCH_MAX_VISITS, CTI_LOCAL_BATCH_MAX_MS, CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS, CTI_LOCAL_ASSESSMENT_MAX_MS, CTI_LOCAL_HEAP_YIELD_BYTES, CTI_LOCAL_HEAP_GROWTH_BYTES, CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532, CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532, CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532, CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532, CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532 } from "./config.js";
 
 export function validateSavedCaptureResumeV61515(capture, expectedCourseId) {
   if(!capture || capture.schemaVersion!==35 || capture.notForCourseAudit===true || capture.kind ||
@@ -23,6 +23,14 @@ export function createLocalCaptureSessionV61514(options = {}) {
   // Only a real reload creates a new session; durable item checkpoints survive it.
   const key="__CTI_LOCAL_CAPTURE_RENDERER_SESSION__";
   const state=window[key] || (window[key]={visits:0,startedAt:0,yieldReason:"",checkpointFailed:false});
+  state.managed=state.managed===true || options.managed===true;
+  const visitLimit=state.managed
+    ? (Number(options.recoveryCount || 0)>0?CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532:CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532)
+    : CTI_LOCAL_BATCH_MAX_VISITS;
+  state.maxVisits=Math.min(Number.isSafeInteger(state.maxVisits) && state.maxVisits>0?state.maxVisits:visitLimit,visitLimit);
+  if(!Array.isArray(state.durableItems))state.durableItems=[];
+  if(!Number.isSafeInteger(state.retainedEvidenceBytes) || state.retainedEvidenceBytes<0)state.retainedEvidenceBytes=0;
+  if(!Number.isSafeInteger(state.heavyItems) || state.heavyItems<0)state.heavyItems=0;
   if(!state.questionLimit)state.questionLimit=Math.max(5,Math.min(CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,Number(options.questionLimit || CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS)));
   if(!Number.isSafeInteger(state.visibilityPausedMs) || state.visibilityPausedMs<0)state.visibilityPausedMs=0;
   function wallElapsedMs() {return state.startedAt?Math.max(0,Date.now()-state.startedAt):0;}
@@ -31,17 +39,38 @@ export function createLocalCaptureSessionV61514(options = {}) {
     const bytes=Number(window.performance && window.performance.memory && window.performance.memory.usedJSHeapSize);
     return Number.isFinite(bytes) && bytes>0?bytes:0;
   }
+  function pressureYieldReason(atItemBoundary = false) {
+    if(state.checkpointFailed)state.yieldReason="LOCAL_CHECKPOINT_UNAVAILABLE";
+    if(state.yieldReason)return state.yieldReason;
+    if(atItemBoundary && state.visits>=state.maxVisits)state.yieldReason="LOCAL_RENDERER_VISIT_LIMIT";
+    else if(state.startedAt && activeElapsedMs()>=CTI_LOCAL_BATCH_MAX_MS)state.yieldReason="LOCAL_RENDERER_TIME_LIMIT";
+    else if(state.visits>0 && heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_LIMIT";
+    else if(state.visits>0 && state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_GROWTH_LIMIT";
+    return state.yieldReason || "";
+  }
   return {
-    beforeItem() {
-      if(state.yieldReason)return state.yieldReason;
-      if(state.checkpointFailed)state.yieldReason="LOCAL_CHECKPOINT_UNAVAILABLE";
-      else if(state.visits>=CTI_LOCAL_BATCH_MAX_VISITS)state.yieldReason="LOCAL_RENDERER_VISIT_LIMIT";
-      else if(state.startedAt && activeElapsedMs()>=CTI_LOCAL_BATCH_MAX_MS)state.yieldReason="LOCAL_RENDERER_TIME_LIMIT";
-      else if(state.visits>0 && heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_LIMIT";
-      else if(state.visits>0 && state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_GROWTH_LIMIT";
-      return state.yieldReason;
-    },
+    beforeItem() {return pressureYieldReason(true);},
+    pressureYieldReason,
     startItem() { if(!state.startedAt){state.startedAt=Date.now();state.baselineHeapBytes=heapBytes();}state.visits++; },
+    afterItemCheckpoint(metrics, saved) {
+      // A completed API quiz need not click 25 panels to reach a safe reload.
+      // Yield after its raw evidence has been durably saved; this changes only
+      // the document budget, never the item's capture contract or attempt count.
+      if(saved!==true || state.checkpointFailed){state.checkpointFailed=true;return pressureYieldReason(true);}
+      if(state.managed && metrics && typeof metrics.itemId==='string' && metrics.itemId){
+        let receipt=state.durableItems.find(item=>item.id===metrics.itemId);
+        if(!receipt){receipt={id:metrics.itemId,bytes:0,heavy:false};state.durableItems.push(receipt);}
+        const bytes=Number.isSafeInteger(metrics.evidenceBytes) && metrics.evidenceBytes>0?metrics.evidenceBytes:0;
+        state.retainedEvidenceBytes=Math.min(Number.MAX_SAFE_INTEGER,state.retainedEvidenceBytes+Math.max(0,bytes-receipt.bytes));
+        receipt.bytes=Math.max(receipt.bytes,bytes);
+        const heavy=Number.isSafeInteger(metrics.declaredParts) && metrics.declaredParts>=CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532 ||
+          bytes>=CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532;
+        if(heavy){if(!receipt.heavy)state.heavyItems++;receipt.heavy=true;state.yieldReason="LOCAL_RENDERER_HEAVY_ITEM_LIMIT";}
+        else if(state.retainedEvidenceBytes>=CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532)
+          state.yieldReason="LOCAL_RENDERER_EVIDENCE_LIMIT";
+      }
+      return pressureYieldReason(true);
+    },
     recordVisibilityPause(milliseconds) {
       if(!state.startedAt || !Number.isSafeInteger(milliseconds) || milliseconds<=0)return 0;
       const endedAt=Date.now(),startedAt=endedAt-milliseconds;
@@ -64,7 +93,12 @@ export function createLocalCaptureSessionV61514(options = {}) {
       const wall=wallElapsedMs(),active=activeElapsedMs(wall);
       return {visits:state.visits,elapsedMs:active,activeElapsedMs:active,wallElapsedMs:wall,visibilityPausedMs:Math.min(wall,state.visibilityPausedMs),
         questionObservations:Number(state.questionObservations || 0),maxQuestionObservations:state.questionLimit,
-        maxVisits:CTI_LOCAL_BATCH_MAX_VISITS,maxMs:CTI_LOCAL_BATCH_MAX_MS,
+        maxVisits:state.maxVisits,maxMs:CTI_LOCAL_BATCH_MAX_MS,
+        managed:state.managed,durableItems:state.durableItems.length,heavyItems:state.heavyItems,
+        retainedEvidenceBytes:state.retainedEvidenceBytes,
+        heavyItemParts:CTI_LOCAL_MANAGED_HEAVY_PARTS_V61532,
+        heavyItemBytes:CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532,
+        evidenceYieldBytes:CTI_LOCAL_MANAGED_EVIDENCE_BYTES_V61532,
         observedHeapBytes:heapBytes(),heapYieldBytes:CTI_LOCAL_HEAP_YIELD_BYTES,
         baselineHeapBytes:state.baselineHeapBytes || 0,heapGrowthLimitBytes:CTI_LOCAL_HEAP_GROWTH_BYTES,
         requiresReload:Boolean(state.yieldReason),yieldReason:state.yieldReason,

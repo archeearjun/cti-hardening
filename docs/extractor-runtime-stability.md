@@ -1,5 +1,92 @@
 # Coursera extractor runtime stability
 
+## v6.15.32: targeted outline navigation and smaller managed documents
+
+The operator reported a v6.15.31 crash after approximately thirteen items while
+keeping the managed tabs open. The run restored itself, then crashed again
+while its card showed **Expanding course outline...**, eighteen seconds in the
+document and eleven seconds in that step, with batch counts 1/1. This identifies
+an observed failing phase, not a confirmed memory diagnosis. Chrome error code
+5 alone does not establish out-of-memory failure or its underlying cause.
+
+Navigation now searches the target's observed path and stable identities rather
+than warming or expanding the whole course outline. When no usable path is
+known, it opens one safe branch at a time and restores unsuccessful branches
+and scroll positions. It never invokes the mass **Expand all** control. Existing
+exact item and course checks remain required; a matching title cannot override
+a conflicting ID or foreign course route.
+
+Managed documents now allow at most six item visits, reduced to four after a
+renderer recovery. After a successful item checkpoint, an item with at least
+100 declared assessment parts or 2 MiB of measured evidence requests a new
+document before another item. Accumulated measured evidence also requests a
+yield at 8 MiB. These measurements cover available retained API evidence and
+text, not total renderer RSS or all native allocations. Manual/unsupervised
+capture retains its twenty-visit limit. Existing time, heap and question limits
+continue to apply; none is a universally safe memory threshold.
+
+Completed editor observations are saved before returning to the outline. If
+pressure already requires a document reload, the extra outline return is
+skipped. During API acquisition, a pressure signal stops scheduling new reads;
+the bounded in-flight reads settle and their sanitized partial raw definitions
+and integrity receipts are retained. Resume still requires a fresh matching
+inventory, fresh group references and exact version/checksum agreement before
+reusing a definition.
+
+When a new API receipt does not carry every prior raw record unchanged, the
+earlier receipt is preserved separately as historical evidence. That history
+is bounded at 32 MiB and excluded from definition-cache reuse and completeness
+decisions. Reaching its bound blocks replacement with an explicit stop reason
+instead of truncating or discarding the existing raw evidence. A raw-only
+progress checkpoint also decrements the unfinished visit's temporary attempt
+count, so preserving API observations alone does not spend a completed attempt.
+
+Restoration now reports durably complete item counts immediately, so repeated
+reading-only recoveries can recognize saved progress. Course question totals
+combine the current observation with its saved counterpart without counting
+both copies. This changes progress accounting, not the strict capture contract.
+
+The native reading-recovery check exercises four real `Page.crash` events,
+preservation of completed reading records, four successful recoveries and one
+final JSON without reopening completed editors. Its unchanged-progress case
+stops after three recovery attempts instead of looping. Targeted navigation
+cases cover known and unknown paths, miss cleanup, conflicting identities,
+unsafe controls and virtualized late targets. These use synthetic course
+responses and do not identify the private browser's crash cause or certify its
+whole-course completion.
+
+The final v6.15.32 scale run passed three paired comparisons against released
+v6.15.30 revision `b7024f5`, using the same 132 already completed item payloads
+(17,457,590 bytes) and four new readings. Median total fixture time was
+22,883 ms for the baseline and 11,592 ms for v6.15.32. Before the first new
+reading, baseline completed-raw reads and outline scroll events were 132 and
+35; both were zero in v6.15.32.
+
+The larger v6.15.32 case combined those 132 completed items, 28 new readings and
+a 609-question virtual MCQ bank. All 161 items passed the strict gate and one
+JSON was produced in 88,175 ms. Document item visits were `[6, 6, 6, 6, 5, 0]`:
+the last document opened no editors and performed final materialization after
+the heavy bank's checkpoint-triggered reload. The run made 84 API requests
+including setup, with at most two concurrent requests and zero question-editor
+clicks. The original completed payloads remained deferred until final export.
+A separate recovered-plan case processed ten remaining readings with document
+visits `[4, 4, 2]`, confirming the smaller post-recovery visit bound.
+
+These are measured synthetic network/editor fixtures running through the
+canonical program in real Chrome, with 132 items already captured before the
+measurement. They do not certify live Coursera latency, every content type,
+the private crash cause or whole-course completion, and supply no private-course
+completion deadline.
+
+[Chrome's memory guidance](https://developer.chrome.com/docs/devtools/memory-problems)
+distinguishes JavaScript heap from OS memory footprint, which includes DOM
+nodes, and says there are no universal hard numbers for excessive memory use.
+The new document budgets reduce retained work before navigation; they do not
+prove that every Coursera editor fits every workplace machine. The v6.15.31
+benchmark below remains evidence for that version: v6.15.32's smaller managed
+budgets change renderer batch counts, so its two-batch and 84-second result
+must not be presented as a v6.15.32 measurement.
+
 ## v6.15.31: reduce repeated work across automatic batches
 
 Automatic documents now read a small IndexedDB checkpoint manifest first and
@@ -57,7 +144,7 @@ completed corpus (17,457,590 payload bytes) and four remaining readings:
 | Outline scroll events before the first reading | 35 | 0 |
 | Setup time, approximately | 12.5 s | 0.15 s |
 
-A larger fixture retained the same completed corpus, added 28 readings and a
+A larger v6.15.31 fixture retained the same completed corpus, added 28 readings and a
 609-question virtual MCQ bank, and finished all 161 items through the strict
 gate in two renderer batches with one JSON. Its measured time was 84,363 ms,
 with 84 API requests including setup, at most two concurrent requests and zero

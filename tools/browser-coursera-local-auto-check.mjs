@@ -5,13 +5,15 @@ import {courseraSource} from '../src/generated/extractor-sources.js';
 import {createAutomaticLocalCourseraCommand} from '../src/domain/coursera-local-extraction.ts';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
 import {extractorFunctions} from './extractor-functions.cjs';
-import {CTI_CHECKPOINT_DB,CTI_CHECKPOINT_STORE,CTI_CHECKPOINT_SESSION_PREFIX} from '../src/extractors/coursera/config.js';
+import {CTI_CHECKPOINT_DB,CTI_CHECKPOINT_STORE,CTI_CHECKPOINT_SESSION_PREFIX,CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532,CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532,CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532,MAX_EXACT_READING_TEXT_V61318} from '../src/extractors/coursera/config.js';
 
 // Run the maintained entry, checkpoint store, completion accounting, renderer
 // bounds, automatic controller and export in Chromium. Substitute only the
 // authenticated external editor observations and its waiting/navigation boundary.
 const courseId='Native_local_fixture_123';
 const shell=`https://www.coursera.org/teach/synthetic/${courseId}/content/edit`;
+const courseBatchCount=Math.ceil(188/CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532);
+const courseLastRestore=(courseBatchCount-1)*CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532;
 const functions=extractorFunctions(courseraSource);
 let fixtureProgram=courseraSource;
 const substitutes={
@@ -59,8 +61,8 @@ try{
  const downloaded=JSON.parse(fs.readFileSync(await downloads[0].path(),'utf8'));
  assert.equal(downloaded.fingerprints.length,188);
  assert.equal(downloaded.meta.captureAccounting.complete,true);
- assert.equal(downloaded.meta.automaticLocalCapture.batches,10);
- assert.equal(documents.length,10,'Each bounded batch creates a new document');
+ assert.equal(downloaded.meta.automaticLocalCapture.batches,courseBatchCount);
+ assert.equal(documents.length,courseBatchCount,'Each bounded batch creates a new document');
  const receipt=await page.evaluate(()=>({visits:JSON.parse(sessionStorage.getItem('fixture-visits')),json:window.__CTI_LAST_JSON,
    blob:window.__CTI_LAST_JSON_BLOB.size,continuation:!!document.getElementById('__cti_checkpoint_continuation')}));
  assert.equal(receipt.visits.length,188);assert.equal(new Set(receipt.visits).size,188);
@@ -125,12 +127,12 @@ try{
  const nextSession=await recoveryContext.newCDPSession(recoveryPage);await nextSession.send('Page.enable');
  const nextCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,'recovery_next_token_123'));
  await nextSession.send(nextCommand.cmd,nextCommand.args);
- await recoveryPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:10000});
+ await recoveryPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:30000});
  await recoveryPage.waitForTimeout(100);
  assert.equal(recoveryDownloads.length,1);
  const recovered=await recoveryPage.evaluate(()=>({result:window.__CTI_LAST_RESULT,visits:JSON.parse(sessionStorage.getItem('fixture-visits'))}));
  assert.equal(recovered.result.meta.captureAccounting.complete,true);
- assert.equal(recovered.result.meta.checkpointResume.restored,40);
+ assert.equal(recovered.result.meta.checkpointResume.restored,Math.floor(55/CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532)*CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532);
  assert.equal(recovered.visits.length,55);assert.equal(new Set(recovered.visits).size,55);
  await recoveryContext.close();
  const importContext=await browser.newContext({acceptDownloads:true});
@@ -152,6 +154,72 @@ try{
  assert(imported.visits.every(id=>Number(id.split('-')[1])>=25));
  for(let i=0;i<25;i++)assert.equal(imported.result.fingerprints[i].payload.textSample,downloaded.fingerprints[i].payload.textSample);
  await importContext.close();
+ // A recovered managed run uses the lower four-visit cap across documents.
+ // Seed only its saved controller counter; acquisition and raw checkpoints
+ // remain the maintained entry and IndexedDB implementation.
+ inventoryCount=9;
+ const guardedContext=await browser.newContext({acceptDownloads:true});
+ await guardedContext.route('https://www.coursera.org/**',fulfillFixture);
+ const guardedPage=await guardedContext.newPage(),guardedDownloads=[],guardedDocuments=[];
+ guardedPage.on('download',download=>guardedDownloads.push(download));
+ guardedPage.on('pageerror',error=>errors.push(error.message));
+ guardedPage.on('domcontentloaded',()=>guardedDocuments.push(Date.now()));
+ await guardedPage.goto(shell);
+ const guardedToken='guarded_recovery_token_123';
+ await guardedPage.evaluate(({courseId,token})=>{
+   const plan={state:'RUNNING',token,courseId,startedAt:Date.now(),batches:0,stalled:0,supervisorRecoveries:1,
+     captureMode:'RESUME_AVAILABLE_WORK',checkpointRunId:''};
+   localStorage.setItem('__CTI_AUTOMATIC_LOCAL_V61517_'+token,JSON.stringify(plan));
+   localStorage.setItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_'+courseId,token);
+   sessionStorage.setItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_'+courseId,token);
+ },{courseId,token:guardedToken});
+ const guardedSession=await guardedContext.newCDPSession(guardedPage);await guardedSession.send('Page.enable');
+ const guardedCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,guardedToken));
+ await guardedSession.send(guardedCommand.cmd,guardedCommand.args);
+ await guardedPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:15000});
+ if(!guardedDownloads.length)await guardedPage.waitForEvent('download',{timeout:10000});
+ const guardedResult=JSON.parse(fs.readFileSync(await guardedDownloads[0].path(),'utf8'));
+ assert.equal(guardedDownloads.length,1);assert.equal(guardedDocuments.length,Math.ceil(9/CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532));
+ assert.equal(guardedResult.meta.localCaptureBatch.maxVisits,CTI_LOCAL_MANAGED_RECOVERY_MAX_VISITS_V61532);
+ assert.equal(guardedResult.meta.captureAccounting.complete,true);assert.equal(evaluateCourseraCapture(guardedResult,courseId).complete,true);
+ const guardedVisits=await guardedPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
+ assert.equal(guardedVisits.length,9);assert.equal(new Set(guardedVisits).size,9);
+ assert(guardedResult.fingerprints.every(fp=>fp.payload.captureAttempts===1));
+ await guardedContext.close();
+ // A heavy final item has already finished acquisition. It still reloads to
+ // prepare the single JSON from raw checkpoints in a fresh document, without
+ // revisiting the completed item or incrementing its attempt count.
+ inventoryCount=1;
+ const heavyContext=await browser.newContext({acceptDownloads:true});
+ await heavyContext.route('https://www.coursera.org/**',fulfillFixture);
+ const heavyPage=await heavyContext.newPage(),heavyDownloads=[],heavyDocuments=[];
+ heavyPage.on('download',download=>heavyDownloads.push(download));heavyPage.on('pageerror',error=>errors.push(error.message));
+ heavyPage.on('domcontentloaded',()=>heavyDocuments.push(Date.now()));
+ await heavyPage.goto(shell);
+ const heavyTextCount=CTI_LOCAL_MANAGED_HEAVY_ITEM_BYTES_V61532+512;
+ const heavyProgram=fixtureProgram.replace(substitutes.recoverReadingRouteV61311,
+   substitutes.recoverReadingRouteV61311.replace("'x'.repeat(16000)","'x'.repeat("+heavyTextCount+")")
+     .replace('capturedCharacters:text.length}}','capturedCharacters:text.length,limit:'+MAX_EXACT_READING_TEXT_V61318+'}}'));
+ const heavySession=await heavyContext.newCDPSession(heavyPage);await heavySession.send('Page.enable');
+ const heavyCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,heavyProgram,'heavy_final_token_123'));
+ await heavySession.send(heavyCommand.cmd,heavyCommand.args);
+ await heavyPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:15000});
+ if(!heavyDownloads.length)await heavyPage.waitForEvent('download',{timeout:10000});
+ const heavyResult=JSON.parse(fs.readFileSync(await heavyDownloads[0].path(),'utf8'));
+ assert.equal(heavyDownloads.length,1);
+ const heavyReceipt={documents:heavyDocuments.length,batches:heavyResult.meta.automaticLocalCapture.batches,
+   reason:heavyResult.meta.automaticLocalCapture.reason,accounting:heavyResult.meta.captureAccounting,
+   yields:heavyResult.meta.automaticLocalCapture.performance.yieldReasons,
+   item:heavyResult.fingerprints.map(fp=>({id:fp.id,attempts:fp.payload.captureAttempts,textCharacters:fp.payload.textSample.length,
+     contract:fp.payload.captureContract}))};
+ assert.equal(heavyDocuments.length,2,JSON.stringify(heavyReceipt));assert.equal(heavyResult.meta.automaticLocalCapture.batches,2);
+ assert.equal(heavyResult.meta.automaticLocalCapture.performance.yieldReasons.LOCAL_RENDERER_HEAVY_ITEM_LIMIT,1);
+ assert.equal(heavyResult.meta.localCaptureBatch.visits,0,'The export document acquires no completed items');
+ assert.equal(heavyResult.meta.captureAccounting.complete,true);assert.equal(evaluateCourseraCapture(heavyResult,courseId).complete,true);
+ assert.equal(heavyResult.fingerprints[0].payload.captureAttempts,1);
+ assert.equal(heavyResult.fingerprints[0].payload.textSample,'Observed learner content café 日本語 reading-0 '+ 'x'.repeat(heavyTextCount));
+ assert.deepEqual(await heavyPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits'))),['reading-0']);
+ await heavyContext.close();
  // Reproduce a recovery budget ending after every primary item was visited.
  // The real entry/controller must retain checkpoints and finish pending retries
  // in another document, rather than downloading and clearing the partial run.
@@ -168,7 +236,9 @@ try{
   if(attempt===1)return {attempted:true,captured:true,route:'fixture:'+fp.id,dwellMs:1,samples:3,
    evidence:{textSample:text,textConfidence:'medium',textEvidenceCompleteness:0.5,textScopeKind:'reading-content-field'}};
   if(!sessionStorage.getItem('fixture-recovery-budget-ended')){
-   sessionStorage.setItem('fixture-recovery-budget-ended','true');const actualNow=Date.now.bind(Date);Date.now=()=>actualNow()+1300000;
+   // Exhaust the 90-second recovery pass, while staying below the separate
+   // five-minute renderer bound so this specifically tests pending retries.
+   sessionStorage.setItem('fixture-recovery-budget-ended','true');const actualNow=Date.now.bind(Date);Date.now=()=>actualNow()+100000;
   }
   return {attempted:true,captured:true,route:'fixture:'+fp.id,dwellMs:1,samples:3,
    evidence:{textSample:text,textConfidence:'high',textEvidenceCompleteness:1,textScopeKind:'reading-content-field',
@@ -179,8 +249,10 @@ try{
  await retrySession.send(retryCommand.cmd,retryCommand.args);
  await retryPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.batches===1,{},{timeout:10000});
  const pending=await retryPage.evaluate(()=>({accounting:window.__CTI_LAST_RESULT.meta.captureAccounting,
-  controller:window.__CTI_LAST_RESULT.meta.automaticLocalCapture,retained:window.__CTI_LAST_RESULT.meta.checkpointRetainedForResume}));
- assert.equal(pending.accounting.unvisitedCount,0);assert.equal(pending.accounting.retryableUnresolvedCount,2);
+  controller:window.__CTI_LAST_RESULT.meta.automaticLocalCapture,retained:window.__CTI_LAST_RESULT.meta.checkpointRetainedForResume,
+  renderer:window.__CTI_LAST_RESULT.meta.localCaptureBatch,visits:JSON.parse(sessionStorage.getItem('fixture-visits')),
+  primary:window.__CTI_LAST_RESULT.meta.activeSpaCrawl.targetDiagnostics.map(diag=>({id:diag.id,pass:diag.pass,completed:diag.completed,reason:diag.localRendererYieldReason}))}));
+ assert.equal(pending.accounting.unvisitedCount,0,JSON.stringify(pending));assert.equal(pending.accounting.retryableUnresolvedCount,2);
  assert.equal(pending.controller.state,'RUNNING');assert.equal(pending.retained,true);assert.equal(retryDownloads.length,0);
  await retryPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:10000});
  if(!retryDownloads.length)await retryPage.waitForEvent('download',{timeout:10000});
@@ -192,7 +264,7 @@ try{
  assert.equal(retryVisits.length,6);assert(retryVisits.every(id=>retryVisits.filter(other=>other===id).length===2));
  await retryContext.close();
  // A fresh full-course run must ignore an interrupted run's real IndexedDB
- // records, retain them unchanged, and reset only once across all ten documents.
+ // records, retain them unchanged, and reset only once across bounded documents.
  inventoryCount=188;
  const freshContext=await browser.newContext({acceptDownloads:true});
  await freshContext.route('https://www.coursera.org/**',fulfillFixture);
@@ -209,7 +281,7 @@ try{
   const db=await new Promise((resolve,reject)=>{const request=indexedDB.open(dbName);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)});
   try{return await new Promise((resolve,reject)=>{const request=db.transaction(storeName,'readonly').objectStore(storeName).getAll();request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}finally{db.close()}
  },{dbName:CTI_CHECKPOINT_DB,storeName:CTI_CHECKPOINT_STORE});
- const oldRecords=await readRecords();assert.equal(oldRecords.length,20);
+ const oldRecords=await readRecords();assert.equal(oldRecords.length,CTI_LOCAL_MANAGED_BATCH_MAX_VISITS_V61532);
  await freshPage.evaluate(()=>{localStorage.setItem('unrelated-app-setting','keep');sessionStorage.setItem('fixture-visits','[]')});
  await freshContext.addCookies([{name:'fixture-login',value:'keep',domain:'www.coursera.org',path:'/'}]);
  const freshSession=await freshContext.newCDPSession(freshPage);await freshSession.send('Page.enable');
@@ -231,9 +303,9 @@ try{
  if(!freshDownloads.length)await freshPage.waitForEvent('download',{timeout:10000});
  const freshResult=JSON.parse(fs.readFileSync(await freshDownloads[0].path(),'utf8'));
  const freshVisits=await freshPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
- assert.equal(freshDownloads.length,1);assert.equal(freshResult.meta.automaticLocalCapture.batches,10);
+ assert.equal(freshDownloads.length,1);assert.equal(freshResult.meta.automaticLocalCapture.batches,courseBatchCount);
  assert.equal(freshResult.meta.checkpoint.runId,freshFirst.meta.checkpoint.runId,'Reloads keep this fresh run rather than restarting it');
- assert.equal(freshResult.meta.checkpointResume.restored,180);assert.equal(evaluateCourseraCapture(freshResult,courseId).complete,true);
+ assert.equal(freshResult.meta.checkpointResume.restored,courseLastRestore);assert.equal(evaluateCourseraCapture(freshResult,courseId).complete,true);
  assert.equal(freshVisits.length,188);assert.equal(new Set(freshVisits).size,188);
  assert(freshResult.fingerprints.every(fp=>fp.payload.captureAttempts===1));
  assert.deepEqual(await readRecords(),oldRecords,'Earlier item snapshots remain untouched');
@@ -251,12 +323,12 @@ try{
  await freshPage.waitForFunction(()=>window.__CTI_LAST_RESULT?.meta?.automaticLocalCapture?.state==='FINISHED',{},{timeout:90000});
  if(freshDownloads.length<2)await freshPage.waitForEvent('download',{timeout:10000});
  const rerunResult=JSON.parse(fs.readFileSync(await freshDownloads[1].path(),'utf8'));
- assert.equal(freshDownloads.length,2);assert.equal(rerunResult.meta.automaticLocalCapture.batches,10);
+ assert.equal(freshDownloads.length,2);assert.equal(rerunResult.meta.automaticLocalCapture.batches,courseBatchCount);
  assert.equal(rerunResult.meta.checkpoint.runId,'fresh-fresh_rerun_token_123');
  assert.equal(evaluateCourseraCapture(rerunResult,courseId).complete,true);
  const rerunVisits=await freshPage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits')));
  assert.equal(rerunVisits.length,188);assert.equal(new Set(rerunVisits).size,188);assert.deepEqual(await readRecords(),oldRecords);
  await freshContext.close();
  assert.deepEqual(errors,[]);
- console.log('Native Chrome debugger: 188 items / 10 automatic documents, one final lossless JSON, no repeat visits, course guard, checkpoint-failure stop and debugger-disconnect recovery, saved-file import, unavailable-inventory stop, recovery-budget continuation and two fresh full-course reruns with old checkpoints/cookies preserved and concurrent fresh capture blocked verified.');
+ console.log('Native Chrome debugger: 188 items / '+courseBatchCount+' automatic documents, one final lossless JSON, no repeat visits, course guard, checkpoint-failure stop and debugger-disconnect recovery, saved-file import, unavailable-inventory stop, four-visit recovered documents, heavy-item fresh finalization, recovery-budget continuation and two fresh full-course reruns with old checkpoints/cookies preserved and concurrent fresh capture blocked verified.');
 }finally{await browser.close()}

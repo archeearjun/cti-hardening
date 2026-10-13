@@ -26,8 +26,8 @@ export async function checkItemRefreshUi(page, capture, shots) {
           ...spec,
           expectations: spec.checks,
           openedUrl: spec.url,
-          extractorVersion: "v6.15.31",
-          extractorBuild: "v6.15.31-lazy-checkpoints-and-large-assessment-20261013",
+          extractorVersion: "v6.15.32",
+          extractorBuild: "v6.15.32-targeted-outline-and-durable-recovery-20261013",
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
           crawl: {

@@ -47,10 +47,13 @@ export function startCourseraLocalSupervisor(
       catch{stop('The Coursera controller connection could not be acknowledged. Keep saved checkpoints.');return;}
     }
     const complete=Number(data.completeItems),saved=Number(data.savedQuestions),id=String(data.itemId || '').slice(0,160);
+    const courseSaved=Number(data.savedQuestionsTotal),hasCourseSaved=Number.isInteger(courseSaved) && courseSaved>=0 && courseSaved<=400000000;
     let advanced=false;
     if(Number.isInteger(complete) && complete>status.completeItems && complete<=20000){status.completeItems=complete;advanced=true;}
+    if(hasCourseSaved && courseSaved>status.savedQuestions){status.savedQuestions=courseSaved;advanced=true;}
     if(id && Number.isInteger(saved) && saved>0 && saved<=20000 && saved>(questions.get(id) || 0)){
-      status.savedQuestions+=saved-(questions.get(id)||0);questions.set(id,saved);advanced=true;
+      if(!hasCourseSaved)status.savedQuestions+=saved-(questions.get(id)||0);
+      questions.set(id,saved);advanced=true;
     }
     if(advanced)status.failuresWithoutProgress=0;
     status.note=String(data.note || '').slice(0,350);
