@@ -14,6 +14,7 @@ on:
       - ".github/workflows/deploy-coursera-extractor.yml"
       - ".github/workflows/cti-checks.yml"
       - "tools/browser-coursera-*-check.mjs"
+      - "tools/browser-item-refresh-ui.mjs"
   workflow_dispatch:
 
 permissions:

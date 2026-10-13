@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 
 // Built-app UI contract with a controlled extension transport. The separate
 // browser-extension-check executes the real MV3 extension and extractor.
 export async function checkItemRefreshUi(page, capture, shots) {
-  await page.evaluate((base) => {
+  const extensionVersion=JSON.parse(readFileSync(new URL('../src/browser-extension/manifest.json',import.meta.url),'utf8')).version;
+  await page.evaluate(({base,extensionVersion}) => {
     window.ctiRefreshTest = { mode: "complete", cancelled: 0, saved: 0 };
     let spec, result;
     window.addEventListener("message", (event) => {
@@ -18,7 +20,7 @@ export async function checkItemRefreshUi(page, capture, shots) {
         test = window.ctiRefreshTest;
       let response = { ok: true };
       if (body.type === "PING")
-        response = { ok: true, version: "1.0.20", protocol: 1 };
+        response = { ok: true, version: extensionVersion, protocol: 1 };
       if (body.type === "START") {
         spec = body.spec;
         result = {
@@ -69,7 +71,7 @@ export async function checkItemRefreshUi(page, capture, shots) {
         location.origin,
       );
     });
-  }, capture);
+  }, {base:capture,extensionVersion});
   // Remount detection after installing the controlled transport.
   const card = page.locator(".action-card").first();
   if ((await card.getAttribute("open")) !== null)
