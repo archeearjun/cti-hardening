@@ -62,6 +62,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -78,6 +80,10 @@ jobs:
         run: npm run test:browser:response-sample
       - name: Exact versioned quiz definitions with no question rendering
         run: npm run test:browser:assessment-api
+      - name: Large completed checkpoints, direct readings and virtual quiz capture
+        run: npm run test:browser:scale-capture
+      - name: Large mixed quiz API evidence with interrupted editor-key recovery
+        run: npm run test:browser:mixed-bank
       - name: Verify package scanning in Chromium
         run: npm run test:browser:package
       - name: Verify workspace workflow in Chromium

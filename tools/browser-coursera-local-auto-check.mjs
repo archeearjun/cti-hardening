@@ -81,6 +81,22 @@ try{
  assert.equal(partial.meta.automaticLocalCapture.reason,'LOCAL_CHECKPOINT_UNAVAILABLE');
  assert.equal(partial.meta.captureAccounting.complete,false);assert(partial.meta.captureAccounting.unvisitedCount>0);
  assert.equal(partial.meta.automaticLocalCapture.state,'FINISHED');
+ // A late restore failure can occur after one legacy row was restored. It must
+ // stop acquisition before bare placeholders can replace durable raw evidence.
+ const restoreContext=await browser.newContext({acceptDownloads:true});
+ await restoreContext.route('https://www.coursera.org/**',fulfillFixture);
+ const restorePage=await restoreContext.newPage(),restoreDownloads=[];
+ restorePage.on('download',download=>restoreDownloads.push(download));
+ restorePage.on('pageerror',error=>errors.push(error.message));
+ await restorePage.goto(shell);
+ const restoreSession=await restoreContext.newCDPSession(restorePage);await restoreSession.send('Page.enable');
+ const restoreFailureProgram=fixtureProgram.replace(functions.get('createCheckpointManagerV6150'),`async function createCheckpointManagerV6150(){return {available:true,saved:0,error:'synthetic late restore failure',restore:async()=>({available:true,restored:1,deferred:0,error:'synthetic late restore failure'}),save:async()=>{throw Error('Acquisition must not overwrite saved evidence')},close(){}}}`);
+ const restoreFailureCommand=JSON.parse(createAutomaticLocalCourseraCommand(shell,restoreFailureProgram,'restore_failure_token_123'));
+ await restoreSession.send(restoreFailureCommand.cmd,restoreFailureCommand.args);
+ await restorePage.waitForFunction(()=>JSON.parse(localStorage.getItem('__CTI_AUTOMATIC_LOCAL_V61517_restore_failure_token_123') || 'null')?.reason==='LOCAL_CHECKPOINT_RESTORE_FAILED',{},{timeout:10000});
+ assert.equal(await restorePage.evaluate(()=>JSON.parse(sessionStorage.getItem('fixture-visits') || '[]').length),0);
+ assert.equal(restoreDownloads.length,0,'A failed restoration must not publish a complete or replacement capture');
+ await restoreContext.close();
  await page.reload();apiFails=true;
  const unavailable=JSON.parse(createAutomaticLocalCourseraCommand(shell,fixtureProgram,'unavailable_fixture_token_123'));
  await cdp.send(unavailable.cmd,unavailable.args);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
+import {webcrypto} from 'node:crypto';
 import * as config from '../src/extractors/coursera/config.js';
 
 const {fixture,El}=createRequire(import.meta.url)('../tools/assessment-fixture.cjs');
@@ -16,6 +17,7 @@ function setup(count=100,windowSize=count){
  f.c.URL=URL;f.c.AbortController=AbortController;f.c.TextEncoder=TextEncoder;f.c.TextDecoder=TextDecoder;f.c.setTimeout=setTimeout;f.c.clearTimeout=clearTimeout;
  f.c.MAX_CAPTURED_RESPONSE_CHARS=2500000;
  f.c.Date=Date;
+ f.c.crypto=webcrypto;
  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit/assessment/assessment-under-test');
  f.c.performance={getEntriesByType:()=>[
   {initiatorType:'fetch',name:'https://www.coursera.org/api/authoringAssignmentQuestionGroups.v1/assessment~q1?fields=id,questions'},
@@ -448,4 +450,161 @@ test('complete unmarked body inventory rejects duplicate IDs, ordinals, roots, o
   if(defect!=='conflicting-internal-marker')assert.equal(inventory.complete,false,defect);
   assert.equal(f.c.assessmentApiRouteEditorCertifiedV61526(f.envelope,f.fp,'Assessment_fixture_123',new Set()),false,defect);
  }
+});
+
+test('609 and 2000 virtual rail identities fit observed-span bounds without question clicks',async()=>{
+ for(const count of [609,2000]){
+  const f=setup(count,27);f.sidebar.scrollTop=64;
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+  assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,count);assert.equal(f.clicks(),0);
+  assert.equal(result.diagnostics.inventoryDiscovery.observedParts,count);
+  assert(result.diagnostics.inventoryDiscovery.scrollSteps>80);assert(result.diagnostics.inventoryDiscovery.scrollSteps<=420);
+  assert.equal(result.diagnostics.inventoryDiscovery.restored,true);assert.equal(f.sidebar.scrollTop,64);
+  assert.equal(result.rawEvidence.inventory.length,count);
+  assert(result.rawEvidence.inventory.every((candidate,i)=>candidate.ordinal===i+1&&candidate.id==='assessment~q'+(i+1)));
+  assert.equal(result.diagnostics.requests,2*Math.ceil(count/15));assert(result.diagnostics.maxConcurrentRequests<=2);
+ }
+});
+
+test('failed discovery preserves counts, explicit limits and restoration diagnostics',async()=>{
+ const f=setup(609,27);f.sidebar.scrollTop=64;f.sidebar.onScroll=null;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ assert.equal(result.attempted,false);assert.equal(result.captured,false);assert.equal(f.calls.length,0);
+ assert.equal(result.diagnostics.inventoryDiscovery.declaredParts,609);
+ assert.equal(result.diagnostics.inventoryDiscovery.observedParts,27);
+ assert(result.diagnostics.inventoryDiscovery.stepLimit>=80);assert(result.diagnostics.inventoryDiscovery.stepLimit<=420);
+ assert(result.diagnostics.inventoryDiscovery.timeLimitMs<=45000);assert.equal(result.diagnostics.inventoryDiscovery.restored,true);
+ assert.equal(f.sidebar.scrollTop,64);assert.equal(result.diagnostics.inventoryDiscovery.stopReason,result.stopReason);
+ const rejected=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,certifiedItem:false});
+ assert.equal(rejected.diagnostics.inventoryDiscovery.method,'INVENTORY_PRECONDITION_DECLINED');
+ assert.equal(rejected.diagnostics.inventoryDiscovery.stopReason,'EDITOR_NOT_CERTIFIED');
+});
+
+test('an exact current inventory rereads mutable groups and reuses only validated immutable definition bodies',async()=>{
+ const f=setup(100),first=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ assert.equal(first.rawEvidence.cacheIntegrity.algorithm,'SHA-256');assert.equal(first.rawEvidence.cacheIntegrity.definitions.length,100);
+ f.calls.length=0;
+ const resumed=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:clone(first.rawEvidence)});
+ assert.equal(resumed.captured,true);assert.equal(resumed.diagnostics.reusedDefinitions,100);
+ assert.equal(resumed.diagnostics.groupsRequests,7);assert.equal(resumed.diagnostics.definitionRequests,0);
+ assert.equal(f.calls.length,7);assert(f.calls.every(call=>new URL(call.url).pathname.includes('QuestionGroups')));
+ assert(resumed.diagnostics.cachedBytes>0);assert.equal(resumed.rawEvidence.questionDefinitions.length,100);assert.equal(f.clicks(),0);
+ assert(!JSON.stringify(resumed.rawEvidence).includes('writeAccessToken'));
+});
+
+test('wrong prior identity, old receipts, reordered inventory and changed cached bodies never suppress required GETs',async()=>{
+ const f=setup(20),first=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);
+ for(const defect of ['course','item','assignment','inventory','receipts','duplicate-definition','tampered-definition','invalid-key','changed-group-version','oversized-prior-group']){
+  const prior=clone(first.rawEvidence);f.calls.length=0;
+  if(defect==='course')prior.courseId='another-course';
+  if(defect==='item')prior.itemId='another-item';
+  if(defect==='assignment')prior.assignmentId='another-assignment';
+  if(defect==='inventory')prior.inventory.reverse();
+  if(defect==='receipts')delete prior.cacheIntegrity;
+  if(defect==='duplicate-definition')prior.questionDefinitions.push(clone(prior.questionDefinitions[0]));
+  if(defect==='tampered-definition')prior.questionDefinitions.find(d=>d.id==='assessment~definition1@1').definition.definition.correctOption='other-1';
+  if(defect==='invalid-key')prior.questionDefinitions.find(d=>d.id==='assessment~definition1@1').definition.definition.correctOption='missing-id';
+  if(defect==='changed-group-version')prior.groups.find(g=>g.id==='assessment~q1').questions=['assessment~definition1@2'];
+  if(defect==='oversized-prior-group')prior.groups.find(g=>g.id==='assessment~q1').oversizedUnknownField='x'.repeat(2600000);
+  const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:prior});
+  assert.equal(result.captured,true,defect);assert(result.diagnostics.definitionRequests>0,defect);
+  const requested=f.calls.filter(call=>new URL(call.url).pathname.includes('MachineEvaluable')).flatMap(call=>{
+   const url=new URL(call.url);return url.searchParams.has('ids')?url.searchParams.get('ids').split(','):[decodeURIComponent(url.pathname.split('/').pop())];
+  });
+  assert(requested.includes('assessment~definition1@1'),defect);
+  assert.equal(result.assessment.questions[0].correctAnswers[0],'Correct choice 1',defect);
+ }
+});
+
+test('partial definition acquisition survives its deadline and resumes fulfilled exact versions',async()=>{
+ const f=setup(20);let now=Date.now(),expired=false,saved=null;
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ const fetch=f.fetchImpl,first=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,deadline:now+1000,
+  fetchImpl:async(url,options)=>{const response=await fetch(url,options);if(!expired&&url.includes('MachineEvaluable')){expired=true;now+=2000;}return response;},
+  onCheckpoint:async(model,observation)=>{saved={model,observation};}});
+ assert.equal(first.captured,false);assert.equal(first.stopReason,'ITEM_API_DEADLINE');
+ assert.equal(first.rawEvidence.questionDefinitions.length,15);assert.equal(saved.observation.rawEvidence.questionDefinitions.length,15);
+ assert.equal(first.rawEvidence.cacheIntegrity.definitions.length,15);f.calls.length=0;
+ const resumed=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,deadline:now+30000,priorEvidence:clone(first.rawEvidence)});
+ assert.equal(resumed.captured,true);assert.equal(resumed.diagnostics.reusedDefinitions,15);
+ assert.equal(resumed.diagnostics.groupsRequests,2);assert.equal(resumed.diagnostics.definitionRequests,1);assert.equal(f.calls.length,3);
+ assert.equal(resumed.assessment.questionCount,20);assert.equal(f.clicks(),0);
+});
+
+test('raw unsupported definitions checkpoint even when no supported question model exists',async()=>{
+ const f=setup(10),fetch=f.fetchImpl;let saved=0;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,fetchImpl:async(url,options)=>{
+  const response=await fetch(url,options),body=await response.json();
+  if(url.includes('MachineEvaluable'))for(const element of body.elements)element.definition.typeName='unknown-text-entry-fixture';
+  return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
+ },onCheckpoint:async(model,observation)=>{saved++;assert.equal(model,null);assert.equal(observation.rawEvidence.questionDefinitions.length,10);}});
+ assert.equal(result.captured,false);assert.equal(result.assessment,null);assert.equal(saved,1);
+ assert.equal(result.rawEvidence.questionDefinitions.length,10);assert.equal(result.diagnostics.missingDefinitions.length,10);
+ assert(!JSON.stringify(result.rawEvidence).includes('writeAccessToken'));assert.equal(f.clicks(),0);
+});
+
+test('slow single-GET attempts obtain useful definitions and carry fulfilled bodies across bounded resumes',async()=>{
+ const f=setup(100),fetch=f.fetchImpl;let now=Date.now();
+ f.c.Date=class extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ const slowSingles=async(url,options)=>{
+  if(new URL(url).searchParams.has('ids'))return new Response(null,{status:405});
+  const response=await fetch(url,options);now+=5000;return response;
+ };
+ const first=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,deadline:now+120000,fetchImpl:slowSingles});
+ assert.equal(first.captured,false);assert.equal(first.stopReason,'ITEM_API_DEADLINE');
+ assert(first.rawEvidence.questionDefinitions.length>0,'Definitions must be acquired before all100group reads');
+ assert(first.rawEvidence.questionDefinitions.length<100);assert.equal(first.diagnostics.multiGetUnsupported.length,2);
+ const initialIds=new Set(first.rawEvidence.questionDefinitions.map(def=>def.id));f.calls.length=0;
+ const second=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,deadline:now+120000,fetchImpl:slowSingles,priorEvidence:clone(first.rawEvidence)});
+ assert.equal(second.captured,false);assert.equal(second.stopReason,'ITEM_API_DEADLINE');
+ assert(second.rawEvidence.questionDefinitions.length>initialIds.size,'Each resume adds fulfilled definitions instead of replacing the earlier partial cache');
+ assert([...initialIds].every(id=>second.rawEvidence.questionDefinitions.some(def=>def.id===id)));
+ assert(second.rawEvidence.carriedDefinitionIds.length>0);assert(second.rawEvidence.carriedGroupIds.length>0);
+ assert(second.diagnostics.definitionRequests>0);assert(second.diagnostics.maxConcurrentRequests<=2);
+ assert(second.assessment.questionCount<100,'Carried definitions alone cannot certify current fresh-group coverage');
+ const requestedDefinitions=f.calls.filter(call=>call.url.includes('MachineEvaluable')).map(call=>decodeURIComponent(new URL(call.url).pathname.split('/').pop()));
+ assert(requestedDefinitions.every(id=>!initialIds.has(id)),'Resume prioritizes exact definitions not already fulfilled');
+ assert.equal(f.clicks(),0);assert(!JSON.stringify(second.rawEvidence).includes('writeAccessToken'));
+});
+
+test('a freshly returned version change fetches that exact new definition and cannot reuse the old key',async()=>{
+ const f=setup(20),fetch=f.fetchImpl,first=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,f.options);f.calls.length=0;let versionRead=false;
+ const result=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,priorEvidence:clone(first.rawEvidence),fetchImpl:async(url,options)=>{
+  const parsed=new URL(url),ids=parsed.searchParams.has('ids')?parsed.searchParams.get('ids').split(','):[decodeURIComponent(parsed.pathname.split('/').pop())];
+  if(url.includes('MachineEvaluable')&&ids.includes('assessment~definition1@2')){
+   versionRead=true;assert.equal(options.method,'GET');assert(parsed.searchParams.get('fields').includes('validation,-writeAccessToken'));
+   const element=definition(1);element.id='assessment~definition1@2';element.definition.definition.correctOption='other-1';
+   return new Response(JSON.stringify({elements:[element]}),{headers:{'content-type':'application/json'}});
+  }
+  const response=await fetch(url,options),body=await response.json();
+  if(url.includes('QuestionGroups'))for(const group of body.elements)if(group.id==='assessment~q1')group.questions=['assessment~definition1@2'];
+  return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
+ }});
+ assert.equal(result.captured,true);assert.equal(result.diagnostics.reusedDefinitions,19);assert.equal(result.diagnostics.definitionRequests,1);
+ assert.equal(result.assessment.questions[0].sourceDefinitionId,'assessment~definition1@2');
+ assert.equal(result.assessment.questions[0].correctAnswers[0],'Wrong choice 1');
+ assert.equal(versionRead,true);
+ assert.equal(f.clicks(),0);assert(!JSON.stringify(result.rawEvidence).includes('writeAccessToken'));
+});
+
+test('a609-part mixed bank preserves all original unsupported definitions and resumes only supported exact keys',async()=>{
+ const f=setup(609,27),fetch=f.fetchImpl,unsupported=new Set([136,143,149,154,164,166,169,172,178,181,187,190,197]);
+ const mixed=async(url,options)=>{
+  const response=await fetch(url,options),body=await response.json();
+  if(url.includes('MachineEvaluable'))for(const element of body.elements){
+   const n=Number(element.id.match(/~definition(\d+)@1$/)?.[1]);
+   if(unsupported.has(n))element.definition.typeName='unknown-bank-part-fixture';
+  }
+  return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
+ };
+ const first=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,fetchImpl:mixed});
+ assert.equal(first.captured,false);assert.equal(first.assessment.questionCount,596);assert.equal(first.rawEvidence.questionDefinitions.length,609);
+ assert.equal(first.rawEvidence.groups.length,609);assert.equal(first.diagnostics.missingDefinitions.length,13);
+ assert.equal(first.assessment.captureCompleteness.requiredAnswerCoverageComplete,false);f.calls.length=0;
+ const resumed=await f.c.collectCourseraAssessmentApiV61524(f.envelope,f.fp,{...f.options,fetchImpl:mixed,priorEvidence:clone(first.rawEvidence)});
+ assert.equal(resumed.captured,false);assert.equal(resumed.diagnostics.reusedDefinitions,596);assert.equal(resumed.diagnostics.definitionRequests,1);
+ assert.equal(resumed.rawEvidence.questionDefinitions.length,609);assert.equal(resumed.assessment.questionCount,596);
+ const ids=f.calls.filter(call=>call.url.includes('MachineEvaluable')).flatMap(call=>new URL(call.url).searchParams.get('ids').split(','));
+ assert.equal(ids.length,13);assert(ids.every(id=>unsupported.has(Number(id.match(/~definition(\d+)@1$/)?.[1]))));
+ assert.equal(f.clicks(),0);assert(!JSON.stringify(resumed.rawEvidence).includes('writeAccessToken'));
 });

@@ -44,6 +44,14 @@ test('automatic continuation requires durable evidence and stops repeated stalle
   assert.equal(next.state,'FINISHED');assert.equal(next.reason,'LOCAL_CHECKPOINT_UNAVAILABLE');
  }
 });
+test('fresh navigation contracts stop a completed retry without trusting its stale stored contract',()=>{
+ const fp={id:'repaired',payload:{captureContract:{complete:false,needsEditor:true,retryable:true}}};
+ const result={fingerprints:[fp],meta:{captureAccounting:{completeCount:1,unvisitedCount:0,retryableUnresolvedCount:0},activeSpaCrawl:{timeBudgetExhausted:false}}};
+ assert.equal(automaticLocalCaptureNeedsContinuationV61519(result),true);
+ assert.equal(automaticLocalCaptureNeedsContinuationV61519(result,()=>({complete:true,needsEditor:false,retryable:false})),false);
+ assert.equal(automaticLocalCaptureNeedsContinuationV61519(result,()=>({complete:false,needsEditor:true,retryable:true})),true);
+ assert.equal(fp.payload.captureContract.complete,false,'Navigation decisions do not rewrite raw evidence or contracts');
+});
 test('final inventory and run limits preserve incomplete verdicts',()=>{
  const final=advanceAutomaticLocalCaptureV61517(initial,capture(),true,false,false,200);
  assert.equal(final.reason,'INVENTORY_FINISHED');assert.equal(final.complete,false);

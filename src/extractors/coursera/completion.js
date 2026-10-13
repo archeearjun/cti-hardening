@@ -1,4 +1,5 @@
 import { isAssessmentLikeFingerprintV662 } from "./assessments-2.js";
+import { automaticLocalEvidenceProgressV61526 } from "./automatic-local.js";
 import { assessmentTypeKey } from "./assessments.js";
 import { isObservedWrittenResponseV6138 } from "./text-and-dom-3.js";
 import { uniqueAssetDetails } from "./assets.js";
@@ -585,41 +586,392 @@ export function checkpointSessionIdV6150(courseId, requestedRunId = "", readOnly
   }
 }
 
-export function openCheckpointDbV6150() {
+export function checkpointManifestRevisionV61531(manifest) {
+  return JSON.stringify([
+    manifest.runKey,
+    manifest.itemId,
+    manifest.savedAt,
+    manifest.name,
+    manifest.typeName,
+    manifest.type,
+    manifest.contract,
+    manifest.progress,
+  ]);
+}
+
+export function checkpointDiagnosticV61531(diag, fp) {
+  if (!diag || typeof diag !== "object") return null;
+  function code(value) {
+    if (!value) return "";
+    return /^(?:EDITOR_NOT_CERTIFIED|SESSION_EDITOR_IDENTITY_NOT_VERIFIED|EDITOR_OUTLINE_UNAVAILABLE|UNSUPPORTED_DECLARED_PART_COUNT|AMBIGUOUS_OUTLINE_IDENTITY|INCOMPLETE_LIVE_OUTLINE_INVENTORY|COMPLETE_LIVE_OUTLINE_INVENTORY|INCOMPLETE_OBSERVED_BODY_INVENTORY|AMBIGUOUS_OBSERVED_BODY_INVENTORY|COMPLETE_OBSERVED_BODY_PART_INVENTORY|SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED|EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY|EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE|AUTHORING_API_AUTHENTICATION_FAILED|AUTHORING_API_RATE_LIMITED|ITEM_API_BYTE_LIMIT|API_RESPONSE_BYTE_LIMIT|ITEM_API_DEADLINE|COMPLETE_ITEM_BOUND_AUTHORING_API|AUTHORING_API_EVIDENCE_INCOMPLETE|API_REQUEST_FAILED|API_REQUEST_TIMEOUT|UNEXPECTED_API_REDIRECT|UNEXPECTED_API_MIME|RATE_LIMITED|INVALID_API_ENVELOPE|AMBIGUOUS_API_RESPONSE_IDENTITY|AUTHORING_API_COMPLETE|STABLE_EMPTY_EDITOR|STABLE_TEXT_BLOCK_ONLY_EDITOR|MOUNTED_QUESTIONS_COMPLETE|LOCAL_ASSESSMENT_CHECKPOINT_YIELD|TIME_BUDGET|NO_FURTHER_QUESTIONS|COMPLETE|HTTP_[1-5]\d\d)$/.test(
+      String(value),
+    )
+      ? String(value)
+      : "UNRECOGNIZED_DIAGNOSTIC_REASON";
+  }
+  function count(value, maximum = 20000) {
+    return Number.isFinite(Number(value))
+      ? Math.min(maximum, Math.max(0, Math.floor(Number(value))))
+      : 0;
+  }
+  function arrayCount(value) {
+    return count(Array.isArray(value) ? value.length : value);
+  }
+  const api = diag.authoringAssessmentApi,
+    version = String(diag.version || diag.extractorVersion || "");
+  return {
+    id: String(fp?.id || ""),
+    attempt: count(diag.attempt),
+    completed: diag.completed === true,
+    captureContract: captureContractSummaryV6150(fp),
+    extractorVersion: /^v\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version)
+      ? version
+      : "",
+    strongIdentitySeed: diag.strongIdentitySeed === true,
+    routeEditorCertified: diag.routeEditorCertified === true,
+    sessionEditorCertified: diag.sessionEditorCertified === true,
+    authoringAssessmentApiStopReason: code(
+      diag.authoringAssessmentApiStopReason,
+    ),
+    questionCycleStopReason: code(diag.questionCycleStopReason),
+    authoringAssessmentApi:
+      api && typeof api === "object"
+        ? {
+            requests: count(api.requests),
+            maxConcurrentRequests: count(api.maxConcurrentRequests, 100),
+            bytes: count(api.bytes, 1024 * 1024 * 1024),
+            rateLimitRetries: count(api.rateLimitRetries),
+            missingGroups: arrayCount(api.missingGroups),
+            missingDefinitions: arrayCount(api.missingDefinitions),
+            unsupportedGroups: arrayCount(api.unsupportedGroups),
+            failures: (Array.isArray(api.failures) ? api.failures : [])
+              .slice(0, 40)
+              .map((failure) => ({
+                resource:
+                  /^(?:authoringAssignmentQuestionGroups\.v1|authoringAssignmentMachineEvaluableQuestions\.v1)$/.test(
+                    String(failure?.resource || ""),
+                  )
+                    ? String(failure.resource)
+                    : "",
+                status: count(failure?.status, 599),
+                reason: code(failure?.reason),
+              })),
+            inventoryDiscovery: api.inventoryDiscovery
+              ? {
+                  method:
+                    /^(?:OBSERVED_VIRTUAL_RAIL_SCROLL|COMPLETE_MOUNTED_RAIL|COMPLETE_OBSERVED_BODY_PART_INVENTORY)$/.test(
+                      String(api.inventoryDiscovery.method || ""),
+                    )
+                      ? String(api.inventoryDiscovery.method)
+                      : "",
+                  scrollSteps: count(api.inventoryDiscovery.scrollSteps, 1000),
+                  elapsedMs: count(api.inventoryDiscovery.elapsedMs, 900000),
+                  restored: api.inventoryDiscovery.restored === true,
+                }
+              : null,
+          }
+        : null,
+  };
+}
+
+export function checkpointManifestV61531(record) {
+  const fp = record.fingerprint;
+  const manifest = {
+    schemaVersion: 1,
+    key: String(record.key),
+    runKey: String(record.runKey),
+    itemId: String(record.itemId),
+    savedAt: Number(record.savedAt),
+    name: String(fp.name || ""),
+    typeName: String(fp.typeName || ""),
+    type: String(fp.type || ""),
+    contract: captureContractSummaryV6150(fp),
+    diagnostic: checkpointDiagnosticV61531(record.diagnostic, fp),
+  };
+  const snapshot = {
+    ...fp,
+    payload: { ...fp.payload, captureContract: manifest.contract },
+  };
+  const progress = automaticLocalEvidenceProgressV61526(
+    {},
+    { fingerprints: [snapshot] },
+  );
+  manifest.progress = progress.record.items[0]?.slice(1) || [
+    0, 0, 0, 0, 0, 0, 0,
+  ];
+  manifest.manifestRevision = checkpointManifestRevisionV61531(manifest);
+  return manifest;
+}
+
+export function checkpointIdentityMatchesV61531(saved, fp) {
+  return Boolean(
+    saved &&
+      fp &&
+      String(saved.id || "") === String(fp.id || "") &&
+      String(saved.name || "") === String(fp.name || "") &&
+      String(saved.typeName || "") === String(fp.typeName || "") &&
+      String(saved.type || "") === String(fp.type || "") &&
+      saved.payload &&
+      typeof saved.payload === "object" &&
+      !Array.isArray(saved.payload),
+  );
+}
+
+export function checkpointManifestMatchesV61531(manifest, fp, runKey) {
+  if (
+    !manifest ||
+    manifest.schemaVersion !== 1 ||
+    manifest.runKey !== runKey ||
+    manifest.itemId !== String(fp?.id || "") ||
+    manifest.key !== runKey + "|" + String(fp?.id || "") ||
+    manifest.name !== String(fp?.name || "") ||
+    manifest.typeName !== String(fp?.typeName || "") ||
+    manifest.type !== String(fp?.type || "") ||
+    !Number.isFinite(manifest.savedAt) ||
+    manifest.savedAt <= 0
+  )
+    return false;
+  const c = manifest.contract;
+  if (
+    !c ||
+    c.itemId !== manifest.itemId ||
+    c.type !== normalizeType(fp.typeName || fp.type || "") ||
+    typeof c.status !== "string" ||
+    !/^[A-Z0-9_]{1,120}$/.test(c.status) ||
+    !["complete", "accounted", "needsEditor", "retryable"].every(
+      (k) => typeof c[k] === "boolean",
+    ) ||
+    !Number.isInteger(c.attempts) ||
+    c.attempts < 0 ||
+    c.attempts > CTI_MAX_ITEM_ATTEMPTS ||
+    c.maxAttempts !== CTI_MAX_ITEM_ATTEMPTS ||
+    (c.externalBodyVerified !== null &&
+      typeof c.externalBodyVerified !== "boolean") ||
+    !Array.isArray(c.reasons) ||
+    c.reasons.length > 12 ||
+    !c.reasons.every(
+      (r) => typeof r === "string" && /^[A-Z0-9_]{1,120}$/.test(r),
+    )
+  )
+    return false;
+  if (
+    c.complete &&
+    (!c.accounted ||
+      c.needsEditor ||
+      c.retryable ||
+      !/^(?:COMPLETE_|INGESTION_FAILURE_CAPTURED$)/.test(c.status))
+  )
+    return false;
+  if (
+    !Array.isArray(manifest.progress) ||
+    manifest.progress.length !== 7 ||
+    !manifest.progress.every(
+      (value) => Number.isInteger(value) && value >= 0 && value <= 20000,
+    ) ||
+    manifest.progress[1] > manifest.progress[0] ||
+    manifest.progress[5] !== Number(c.complete) ||
+    manifest.progress[6] !==
+      Number(c.accounted && !c.needsEditor && !c.retryable)
+  )
+    return false;
+  return (
+    manifest.manifestRevision === checkpointManifestRevisionV61531(manifest)
+  );
+}
+
+export function mergeCheckpointFingerprintV61531(fp, record) {
+  const saved = record.fingerprint,
+    old = fp.payload || {},
+    next = saved.payload || {};
+  fp.payload = Object.assign({}, old, next);
+  fp.payload.files = unique([...(old.files || []), ...(next.files || [])], 600);
+  fp.payload.links = unique([...(old.links || []), ...(next.links || [])], 600);
+  fp.payload.images = unique(
+    [...(old.images || []), ...(next.images || [])],
+    600,
+  );
+  fp.payload.embeddedRefs = unique(
+    [...(old.embeddedRefs || []), ...(next.embeddedRefs || [])],
+    600,
+  );
+  fp.payload.assetDetails = uniqueAssetDetails(
+    [...(old.assetDetails || []), ...(next.assetDetails || [])],
+    800,
+  );
+  fp.evidenceSources = unique(
+    [
+      ...(fp.evidenceSources || []),
+      ...(saved.evidenceSources || []),
+      "checkpoint-resume",
+    ],
+    50,
+  );
+  const diagnostic = checkpointDiagnosticV61531(record.diagnostic, saved);
+  if (diagnostic) fp.payload.captureDiagnostics = diagnostic;
+  fp.payload.checkpointRestored = true;
+}
+
+export async function openCheckpointDbV6150(options = {}) {
+  if (typeof indexedDB === "undefined") throw Error("IndexedDB unavailable");
+  if (options.readOnly && typeof indexedDB.databases === "function") {
+    const databases = await indexedDB.databases();
+    if (!databases.some((database) => database.name === CTI_CHECKPOINT_DB))
+      throw Error("No saved checkpoint database was found.");
+  }
   return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB unavailable"));
-      return;
-    }
-    const req = indexedDB.open(CTI_CHECKPOINT_DB, 1);
+    const req = options.readOnly
+      ? indexedDB.open(CTI_CHECKPOINT_DB)
+      : indexedDB.open(CTI_CHECKPOINT_DB, 2);
     req.onupgradeneeded = () => {
+      if (options.readOnly) {
+        req.transaction.abort();
+        reject(Error("No saved checkpoint stores were found."));
+        return;
+      }
       const db = req.result;
       const store = db.objectStoreNames.contains(CTI_CHECKPOINT_STORE)
         ? req.transaction.objectStore(CTI_CHECKPOINT_STORE)
         : db.createObjectStore(CTI_CHECKPOINT_STORE, { keyPath: "key" });
       if (!store.indexNames.contains("runKey"))
         store.createIndex("runKey", "runKey", { unique: false });
+      if (!store.indexNames.contains("manifestRevision"))
+        store.createIndex("manifestRevision", "manifestRevision", {
+          unique: false,
+        });
+      const manifests = db.objectStoreNames.contains(
+        "item-checkpoint-manifests",
+      )
+        ? req.transaction.objectStore("item-checkpoint-manifests")
+        : db.createObjectStore("item-checkpoint-manifests", { keyPath: "key" });
+      if (!manifests.indexNames.contains("runKey"))
+        manifests.createIndex("runKey", "runKey", { unique: false });
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () =>
-      reject(req.error || new Error("IndexedDB open failed"));
+    let blocked = false;
+    req.onsuccess = () => {
+      if (blocked) {
+        req.result.close();
+        return;
+      }
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
+    req.onblocked = () => {
+      blocked = true;
+      reject(
+        Error(
+          "Checkpoint upgrade is blocked by another open capture. Close its tab before retrying.",
+        ),
+      );
+    };
+    req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
   });
 }
 
-export async function createCheckpointManagerV6150(courseId, requestedRunId = "", options = {}) {
-  const session = checkpointSessionIdV6150(courseId, requestedRunId, options.readOnly === true);
+export async function checkpointRequestV61531(db, storeName, operation) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    let result;
+    const request = operation(tx.objectStore(storeName));
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () =>
+      reject(tx.error || request.error || Error("Checkpoint read failed."));
+    tx.onabort = () =>
+      reject(tx.error || Error("Checkpoint read was aborted."));
+  });
+}
+
+export async function writeCheckpointRecordV61531(db, record) {
+  const manifest = checkpointManifestV61531(record);
+  record.manifestRevision = manifest.manifestRevision;
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(
+      [CTI_CHECKPOINT_STORE, "item-checkpoint-manifests"],
+      "readwrite",
+    );
+    try {
+      tx.objectStore(CTI_CHECKPOINT_STORE).put(record);
+      tx.objectStore("item-checkpoint-manifests").put(manifest);
+    } catch (e) {
+      tx.abort();
+      reject(e);
+      return;
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || Error("Checkpoint write failed."));
+    tx.onabort = () =>
+      reject(tx.error || Error("Checkpoint write was aborted."));
+  });
+  return manifest;
+}
+
+export function checkpointBoundRecordV61531(record, fp, runKey) {
+  return Boolean(
+    record &&
+      record.runKey === runKey &&
+      record.itemId === String(fp?.id || "") &&
+      record.key === runKey + "|" + String(fp?.id || "") &&
+      Number.isFinite(record.savedAt) &&
+      record.savedAt > 0 &&
+      checkpointIdentityMatchesV61531(record.fingerprint, fp),
+  );
+}
+
+export function checkpointSmallManifestV61531(manifest, fp) {
+  const c = manifest.contract;
+  // Retain only the schema's small fields. Unexpected database fields cannot
+  // keep a completed raw payload alive through this navigation cache.
+  return {
+    schemaVersion: 1,
+    key: manifest.key,
+    runKey: manifest.runKey,
+    itemId: manifest.itemId,
+    savedAt: manifest.savedAt,
+    name: manifest.name,
+    typeName: manifest.typeName,
+    type: manifest.type,
+    manifestRevision: manifest.manifestRevision,
+    progress: manifest.progress.slice(),
+    contract: {
+      itemId: c.itemId,
+      type: c.type,
+      status: c.status,
+      complete: c.complete,
+      accounted: c.accounted,
+      needsEditor: c.needsEditor,
+      retryable: c.retryable,
+      attempts: c.attempts,
+      maxAttempts: c.maxAttempts,
+      externalBodyVerified: c.externalBodyVerified,
+      reasons: c.reasons.slice(),
+    },
+    diagnostic: checkpointDiagnosticV61531(manifest.diagnostic, fp),
+  };
+}
+
+export async function createCheckpointManagerV6150(
+  courseId,
+  requestedRunId = "",
+  options = {},
+) {
+  const readOnly = options.readOnly === true;
+  const session = checkpointSessionIdV6150(courseId, requestedRunId, readOnly);
   const runKey = session.id + "|" + String(courseId || "");
-  let db = null;
-  let error = "";
+  let db = null,
+    error = "";
   try {
-    if (options.readOnly && !session.id)
-      throw new Error("No saved checkpoint session was found for this course.");
+    if (readOnly && !session.id)
+      throw Error("No saved checkpoint session was found for this course.");
     if (requestedRunId && !session.key)
-      throw new Error("Fresh capture checkpoint session could not be saved.");
-    db = await openCheckpointDbV6150();
+      throw Error("Fresh capture checkpoint session could not be saved.");
+    db = await openCheckpointDbV6150({ readOnly });
   } catch (e) {
-    error = String((e && e.message) || e);
+    error = String(e?.message || e);
   }
+  const deferred = new Map();
+  let restoreFailure = "";
   const manager = {
     available: !!db,
     runId: session.id,
@@ -628,112 +980,351 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
     restored: 0,
     saved: 0,
   };
-  manager.close = () => { if (db) db.close(); };
-  manager.seed = async (capture, fingerprints) => {
-    if(options.readOnly)throw new Error('Saved-progress export cannot import or change checkpoints.');
-    validateSavedCaptureResumeV61515(capture, courseId);
-    if(!db)throw new Error('Browser checkpoints are unavailable. Enable Coursera browser storage before resuming.');
-    const current=new Map((fingerprints || []).map(fp=>[String(fp.id),fp]));
-    const capturedAt=Date.parse(capture.extractedAt || capture.capturedAt);
-    let imported=0,keptNewer=0,skipped=0;
-    await new Promise((resolve,reject)=>{
-      const tx=db.transaction(CTI_CHECKPOINT_STORE,'readwrite');
-      const store=tx.objectStore(CTI_CHECKPOINT_STORE);
-      for(const saved of capture.fingerprints) {
-        const fresh=current.get(saved.id),p=saved.payload;
-        const observed=Number(p.captureAttempts || 0)>0 || p.checkpointRestored===true || captureContractV6150(saved).complete;
-        if(!fresh || String(saved.name || '')!==String(fresh.name || '') ||
-            String(saved.typeName || '')!==String(fresh.typeName || '') || !observed) {skipped++;continue;}
-        // A later batch export can contain older restored item observations.
-        // Compare the item's observation time before falling back to file time.
-        const observedAt=Date.parse(p.lastCaptureAttemptAt || '');
-        const savedAt=Number.isFinite(observedAt)?observedAt:capturedAt;
-        const key=runKey+'|'+saved.id;
-        const req=store.get(key);
-        req.onsuccess=()=>{
-          if(req.result && Number(req.result.savedAt)>=savedAt) {keptNewer++;return;}
-          store.put({key,runKey,itemId:saved.id,savedAt,pass:'saved-json-resume',fingerprint:saved});
-          imported++;
-        };
-      }
-      tx.oncomplete=()=>resolve();
-      tx.onerror=()=>reject(tx.error || new Error('Saved capture checkpoint import failed.'));
-      tx.onabort=()=>reject(tx.error || new Error('Saved capture checkpoint import was aborted.'));
-    });
-    return {available:true,imported,keptNewer,skipped,capturedAt:new Date(capturedAt).toISOString(),
-      meaning:'Saved observations restored against current item identities; remaining evidence must still be captured.'};
+  manager.close = () => {
+    deferred.clear();
+    if (db) db.close();
   };
-  manager.restore = async (fingerprints) => {
-    if (!db) return { available: false, restored: 0, error };
-    let rows = [];
-    try {
-      rows = await new Promise((resolve, reject) => {
-        const tx = db.transaction(CTI_CHECKPOINT_STORE, "readonly");
-        const idx = tx.objectStore(CTI_CHECKPOINT_STORE).index("runKey");
-        const req = idx.getAll(runKey);
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      });
-    } catch (e) {
-      return {
-        available: true,
-        restored: 0,
-        error: String((e && e.message) || e),
-      };
-    }
-    const byId = new Map(
-      (fingerprints || []).map((fp) => [String(fp.id || ""), fp]),
-    );
-    let restored = 0;
-    for (const row of rows) {
-      const fp = byId.get(String(row.itemId || ""));
-      const saved = row.fingerprint;
-      if (
-        !fp ||
-        !saved ||
-        String(saved.name || "") !== String(fp.name || "") ||
-        String(saved.typeName || "") !== String(fp.typeName || "")
-      )
-        continue;
-      const old = fp.payload || {};
-      const next = saved.payload || {};
-      fp.payload = Object.assign({}, old, next);
-      fp.payload.files = unique([...(old.files || []), ...(next.files || [])], 600);
-      fp.payload.links = unique([...(old.links || []), ...(next.links || [])], 600);
-      fp.payload.images = unique(
-        [...(old.images || []), ...(next.images || [])],
-        600,
-      );
-      fp.payload.embeddedRefs = unique(
-        [...(old.embeddedRefs || []), ...(next.embeddedRefs || [])],
-        600,
-      );
-      fp.payload.assetDetails = uniqueAssetDetails(
-        [...(old.assetDetails || []), ...(next.assetDetails || [])],
-        800,
-      );
-      fp.evidenceSources = unique(
-        [
-          ...(fp.evidenceSources || []),
-          ...(saved.evidenceSources || []),
-          "checkpoint-resume",
-        ],
-        50,
-      );
-      fp.payload.checkpointRestored = true;
-      restored++;
-    }
-    manager.restored = restored;
+  manager.contractFor = (fp) => {
+    if (restoreFailure) return null;
+    const manifest = deferred.get(String(fp?.id || ""));
+    if (!checkpointManifestMatchesV61531(manifest, fp, runKey)) return null;
     return {
-      available: true,
-      restored,
-      stored: rows.length,
-      runId: session.id,
+      ...manifest.contract,
+      reasons: manifest.contract.reasons.slice(),
+      checkpointDeferred: true,
+      scope: "CHECKPOINT_NAVIGATION_ONLY",
     };
   };
+  manager.progressFor = (fp) =>
+    manager.contractFor(fp)
+      ? deferred.get(String(fp.id)).progress.slice()
+      : null;
+  manager.seed = async (capture, fingerprints) => {
+    if (readOnly)
+      throw Error("Saved-progress export cannot import or change checkpoints.");
+    if (restoreFailure)
+      throw Error("CHECKPOINT_RESTORE_FAILED: " + restoreFailure);
+    validateSavedCaptureResumeV61515(capture, courseId);
+    if (!db)
+      throw Error(
+        "Browser checkpoints are unavailable. Enable Coursera browser storage before resuming.",
+      );
+    const current = new Map(
+      (fingerprints || []).map((fp) => [String(fp.id), fp]),
+    );
+    const capturedAt = Date.parse(capture.extractedAt || capture.capturedAt);
+    let imported = 0,
+      keptNewer = 0,
+      skipped = 0;
+    const updated = [];
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        [CTI_CHECKPOINT_STORE, "item-checkpoint-manifests"],
+        "readwrite",
+      );
+      const store = tx.objectStore(CTI_CHECKPOINT_STORE),
+        manifests = tx.objectStore("item-checkpoint-manifests");
+      for (const saved of capture.fingerprints) {
+        const fresh = current.get(String(saved.id)),
+          p = saved.payload;
+        const observed =
+          Number(p.captureAttempts || 0) > 0 ||
+          p.checkpointRestored === true ||
+          captureContractV6150(saved).complete;
+        if (!checkpointIdentityMatchesV61531(saved, fresh) || !observed) {
+          skipped++;
+          continue;
+        }
+        const observedAt = Date.parse(p.lastCaptureAttemptAt || ""),
+          savedAt = Number.isFinite(observedAt) ? observedAt : capturedAt;
+        const key = runKey + "|" + saved.id,
+          request = store.get(key);
+        request.onsuccess = () => {
+          if (request.result && Number(request.result.savedAt) >= savedAt) {
+            keptNewer++;
+            return;
+          }
+          const record = {
+            key,
+            runKey,
+            itemId: String(saved.id),
+            savedAt,
+            pass: "saved-json-resume",
+            fingerprint: saved,
+            diagnostic: checkpointDiagnosticV61531(p.captureDiagnostics, saved),
+          };
+          try {
+            const manifest = checkpointManifestV61531(record);
+            record.manifestRevision = manifest.manifestRevision;
+            store.put(record);
+            manifests.put(manifest);
+            updated.push(String(saved.id));
+            imported++;
+          } catch (e) {
+            tx.abort();
+            reject(e);
+          }
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error || Error("Saved capture checkpoint import failed."));
+      tx.onabort = () =>
+        reject(
+          tx.error || Error("Saved capture checkpoint import was aborted."),
+        );
+    });
+    for (const id of updated) deferred.delete(id);
+    return {
+      available: true,
+      imported,
+      keptNewer,
+      skipped,
+      capturedAt: new Date(capturedAt).toISOString(),
+      meaning:
+        "Saved observations restored against current item identities; remaining evidence must still be captured.",
+    };
+  };
+  manager.restore = async (fingerprints, restoreOptions = {}) => {
+    const result = {
+      available: !!db,
+      restored: 0,
+      loaded: 0,
+      deferred: 0,
+      stored: 0,
+      skipped: 0,
+      restoredBytes: 0,
+      rawRowsRead: 0,
+      legacyRowsMigrated: 0,
+      failures: [],
+      runId: session.id,
+    };
+    if (restoreFailure)
+      return {
+        ...result,
+        available: false,
+        deferred: deferred.size,
+        error: restoreFailure,
+      };
+    deferred.clear();
+    if (!db) return { ...result, error };
+    try {
+      // The run's raw index supplies keys, never completed fingerprint values.
+      const keys = await checkpointRequestV61531(
+        db,
+        CTI_CHECKPOINT_STORE,
+        (store) => store.index("runKey").getAllKeys(runKey),
+      );
+      const rawKeys = new Set(keys || []);
+      result.stored = rawKeys.size;
+      const canDefer = restoreOptions.deferComplete === true && !readOnly;
+      const byId = new Map(
+        (fingerprints || [])
+          .filter((fp) => fp?.id)
+          .map((fp) => [String(fp.id), fp]),
+      );
+      const manifests = db.objectStoreNames.contains(
+        "item-checkpoint-manifests",
+      )
+        ? await checkpointRequestV61531(
+            db,
+            "item-checkpoint-manifests",
+            (store) => store.index("runKey").getAll(runKey),
+          )
+        : [];
+      const manifestByKey = new Map(
+        (manifests || []).map((manifest) => [manifest.key, manifest]),
+      );
+      const candidates = [];
+      if (canDefer) {
+        for (const fp of byId.values()) {
+          const manifest = manifestByKey.get(runKey + "|" + fp.id);
+          if (
+            rawKeys.has(manifest?.key) &&
+            checkpointManifestMatchesV61531(manifest, fp, runKey) &&
+            manifest.contract.complete
+          )
+            candidates.push({ fp, manifest });
+        }
+      }
+      if (candidates.length) {
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(CTI_CHECKPOINT_STORE, "readonly");
+          const index = tx
+            .objectStore(CTI_CHECKPOINT_STORE)
+            .index("manifestRevision");
+          for (const { fp, manifest } of candidates) {
+            const request = index.getKey(manifest.manifestRevision);
+            request.onsuccess = () => {
+              if (request.result === manifest.key)
+                deferred.set(
+                  String(fp.id),
+                  checkpointSmallManifestV61531(manifest, fp),
+                );
+            };
+          }
+          tx.oncomplete = () => resolve();
+          tx.onerror = () =>
+            reject(
+              tx.error || Error("Checkpoint manifest verification failed."),
+            );
+          tx.onabort = () =>
+            reject(
+              tx.error ||
+                Error("Checkpoint manifest verification was aborted."),
+            );
+        });
+      }
+      for (const fp of byId.values()) {
+        const key = runKey + "|" + fp.id;
+        if (!rawKeys.has(key)) continue;
+        if (deferred.has(String(fp.id))) {
+          result.deferred++;
+          result.restored++;
+          continue;
+        }
+        const record = await checkpointRequestV61531(
+          db,
+          CTI_CHECKPOINT_STORE,
+          (store) => store.get(key),
+        );
+        result.rawRowsRead++;
+        if (!checkpointBoundRecordV61531(record, fp, runKey)) {
+          result.skipped++;
+          result.failures.push({
+            id: String(fp.id),
+            reason: record
+              ? "CHECKPOINT_IDENTITY_MISMATCH"
+              : "CHECKPOINT_RAW_MISSING",
+          });
+          continue;
+        }
+        const recomputed = checkpointManifestV61531(record),
+          savedManifest = manifestByKey.get(key);
+        const matching =
+          checkpointManifestMatchesV61531(savedManifest, fp, runKey) &&
+          record.manifestRevision === savedManifest.manifestRevision &&
+          recomputed.manifestRevision === savedManifest.manifestRevision;
+        if (!readOnly && !matching) {
+          // Legacy payloads are read once. Atomic migration preserves every raw
+          // field while adding only the small index used by later documents.
+          await writeCheckpointRecordV61531(db, record);
+          result.legacyRowsMigrated++;
+        }
+        if (canDefer && recomputed.contract.complete) {
+          deferred.set(
+            String(fp.id),
+            checkpointSmallManifestV61531(recomputed, fp),
+          );
+          result.deferred++;
+        } else {
+          mergeCheckpointFingerprintV61531(fp, record);
+          result.loaded++;
+          result.restoredBytes += new TextEncoder().encode(
+            JSON.stringify(record.fingerprint),
+          ).byteLength;
+        }
+        result.restored++;
+      }
+      result.skipped += Math.max(
+        0,
+        result.stored - result.restored - result.skipped,
+      );
+      result.failures = result.failures.slice(0, 500);
+      manager.restored = result.restored;
+      return result;
+    } catch (e) {
+      restoreFailure = String(e?.message || e);
+      manager.error = restoreFailure;
+      manager.available = false;
+      // A partial restore must never release the deferred overwrite guards.
+      // Preserve every stored row and stop writes until a new manager opens
+      // storage successfully; incomplete in-memory evidence is not a fallback.
+      return {
+        ...result,
+        available: false,
+        deferred: deferred.size,
+        error: restoreFailure,
+      };
+    }
+  };
+  manager.materialize = async (fingerprints) => {
+    const result = {
+      available: !!db,
+      loaded: 0,
+      deferred: deferred.size,
+      failed: [],
+      rawRowsRead: 0,
+      restoredBytes: 0,
+    };
+    if (restoreFailure)
+      return {
+        ...result,
+        available: false,
+        failed: [{ id: "", reason: "CHECKPOINT_RESTORE_FAILED" }],
+        error: restoreFailure,
+      };
+    if (!db) return { ...result, error: manager.error };
+    const current = new Map(
+      (fingerprints || [])
+        .filter((fp) => fp?.id)
+        .map((fp) => [String(fp.id), fp]),
+    );
+    for (const [id, manifest] of [...deferred]) {
+      const fp = current.get(id);
+      if (!fp || !checkpointManifestMatchesV61531(manifest, fp, runKey)) {
+        result.failed.push({ id, reason: "CHECKPOINT_IDENTITY_MISMATCH" });
+        deferred.delete(id);
+        continue;
+      }
+      try {
+        const record = await checkpointRequestV61531(
+          db,
+          CTI_CHECKPOINT_STORE,
+          (store) => store.get(manifest.key),
+        );
+        result.rawRowsRead++;
+        if (!record) {
+          result.failed.push({ id, reason: "CHECKPOINT_RAW_MISSING" });
+          deferred.delete(id);
+          continue;
+        }
+        if (!checkpointBoundRecordV61531(record, fp, runKey)) {
+          result.failed.push({ id, reason: "CHECKPOINT_IDENTITY_MISMATCH" });
+          deferred.delete(id);
+          continue;
+        }
+        const recomputed = checkpointManifestV61531(record);
+        // Only raw evidence is installed on the final fingerprint. A changed
+        // revision or completion contract fails finalization even if its old
+        // navigation receipt claimed the item was complete.
+        mergeCheckpointFingerprintV61531(fp, record);
+        result.loaded++;
+        result.restoredBytes += new TextEncoder().encode(
+          JSON.stringify(record.fingerprint),
+        ).byteLength;
+        if (
+          record.manifestRevision !== manifest.manifestRevision ||
+          recomputed.manifestRevision !== manifest.manifestRevision ||
+          !recomputed.contract.complete
+        )
+          result.failed.push({ id, reason: "CHECKPOINT_EVIDENCE_CHANGED" });
+        deferred.delete(id);
+      } catch (e) {
+        result.failed.push({ id, reason: "CHECKPOINT_READ_FAILED" });
+        manager.error = String(e?.message || e);
+      }
+    }
+    result.deferred = deferred.size;
+    result.failed = result.failed.slice(0, 500);
+    return result;
+  };
   manager.save = async (fp, diag, pass) => {
-    if(options.readOnly)return false;
-    if (!db || !fp || !fp.id) return false;
+    if (readOnly || restoreFailure || !db || !fp?.id) return false;
+    if (deferred.has(String(fp.id))) {
+      manager.error = "CHECKPOINT_DEFERRED_NOT_MATERIALIZED";
+      return false;
+    }
     let fingerprint;
     try {
       fingerprint = JSON.parse(
@@ -751,37 +1342,6 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
     } catch (_) {
       return false;
     }
-    // Keep the acquisition decision after a renderer restart. Only explicit
-    // codes and bounded counts belong in this receipt; API bodies, question
-    // labels, URLs and credentials remain outside the diagnostic projection.
-    const safeCode = value => {
-      if (!value) return "";
-      return /^(?:EDITOR_NOT_CERTIFIED|SESSION_EDITOR_IDENTITY_NOT_VERIFIED|EDITOR_OUTLINE_UNAVAILABLE|UNSUPPORTED_DECLARED_PART_COUNT|AMBIGUOUS_OUTLINE_IDENTITY|INCOMPLETE_LIVE_OUTLINE_INVENTORY|COMPLETE_LIVE_OUTLINE_INVENTORY|INCOMPLETE_OBSERVED_BODY_INVENTORY|AMBIGUOUS_OBSERVED_BODY_INVENTORY|COMPLETE_OBSERVED_BODY_PART_INVENTORY|SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED|EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY|EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE|AUTHORING_API_AUTHENTICATION_FAILED|AUTHORING_API_RATE_LIMITED|ITEM_API_BYTE_LIMIT|API_RESPONSE_BYTE_LIMIT|ITEM_API_DEADLINE|COMPLETE_ITEM_BOUND_AUTHORING_API|AUTHORING_API_EVIDENCE_INCOMPLETE|API_REQUEST_FAILED|API_REQUEST_TIMEOUT|UNEXPECTED_API_REDIRECT|UNEXPECTED_API_MIME|RATE_LIMITED|INVALID_API_ENVELOPE|AMBIGUOUS_API_RESPONSE_IDENTITY|AUTHORING_API_COMPLETE|STABLE_EMPTY_EDITOR|STABLE_TEXT_BLOCK_ONLY_EDITOR|MOUNTED_QUESTIONS_COMPLETE|LOCAL_ASSESSMENT_CHECKPOINT_YIELD|TIME_BUDGET|NO_FURTHER_QUESTIONS|COMPLETE|HTTP_[1-5]\d\d)$/.test(String(value))
-        ? String(value) : "UNRECOGNIZED_DIAGNOSTIC_REASON";
-    };
-    const safeCount = (value, maximum = 20000) =>
-      Number.isFinite(Number(value)) ? Math.min(maximum, Math.max(0, Math.floor(Number(value)))) : 0;
-    const api = diag && diag.authoringAssessmentApi;
-    const apiDiagnostic = api ? {
-      requests: safeCount(api.requests),
-      maxConcurrentRequests: safeCount(api.maxConcurrentRequests, 100),
-      bytes: safeCount(api.bytes, 1024 * 1024 * 1024),
-      rateLimitRetries: safeCount(api.rateLimitRetries),
-      missingGroups: safeCount(Array.isArray(api.missingGroups) ? api.missingGroups.length : 0),
-      missingDefinitions: safeCount(Array.isArray(api.missingDefinitions) ? api.missingDefinitions.length : 0),
-      unsupportedGroups: safeCount(Array.isArray(api.unsupportedGroups) ? api.unsupportedGroups.length : 0),
-      failures: (Array.isArray(api.failures) ? api.failures : []).slice(0, 40).map(failure => ({
-        resource: /^(?:authoringAssignmentQuestionGroups\.v1|authoringAssignmentMachineEvaluableQuestions\.v1)$/.test(String(failure?.resource || "")) ? String(failure.resource) : "",
-        status: safeCount(failure?.status, 599),
-        reason: safeCode(failure?.reason),
-      })),
-      inventoryDiscovery: api.inventoryDiscovery ? {
-        method: /^(?:OBSERVED_VIRTUAL_RAIL_SCROLL|COMPLETE_MOUNTED_RAIL|COMPLETE_OBSERVED_BODY_PART_INVENTORY)$/.test(String(api.inventoryDiscovery.method || "")) ? String(api.inventoryDiscovery.method) : "",
-        scrollSteps: safeCount(api.inventoryDiscovery.scrollSteps, 1000),
-        elapsedMs: safeCount(api.inventoryDiscovery.elapsedMs, 900000),
-        restored: api.inventoryDiscovery.restored === true,
-      } : null,
-    } : null;
     const record = {
       key: runKey + "|" + String(fp.id),
       runKey,
@@ -789,55 +1349,53 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
       savedAt: Date.now(),
       pass: String(pass || ""),
       fingerprint,
-      diagnostic: diag
-        ? {
-            id: String(diag.id || ""),
-            attempt: Number(diag.attempt || 0),
-            completed: Boolean(diag.completed),
-            captureContract:
-              diag.captureContract || captureContractSummaryV6150(fp),
-            extractorVersion: /^v\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(diag.version || "")) ? String(diag.version) : "",
-            strongIdentitySeed: diag.strongIdentitySeed === true,
-            routeEditorCertified: diag.routeEditorCertified === true,
-            sessionEditorCertified: diag.sessionEditorCertified === true,
-            authoringAssessmentApiStopReason: safeCode(diag.authoringAssessmentApiStopReason),
-            questionCycleStopReason: safeCode(diag.questionCycleStopReason),
-            authoringAssessmentApi: apiDiagnostic,
-          }
-        : null,
+      diagnostic: checkpointDiagnosticV61531(diag, fingerprint),
     };
     try {
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(CTI_CHECKPOINT_STORE, "readwrite");
-        tx.objectStore(CTI_CHECKPOINT_STORE).put(record);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
+      await writeCheckpointRecordV61531(db, record);
       manager.saved++;
       return true;
-    } catch (_) {
+    } catch (e) {
+      manager.error = String(e?.message || e);
       return false;
     }
   };
   manager.clear = async () => {
-    if(options.readOnly)return;
+    if (readOnly || restoreFailure) return;
     if (db) {
       try {
         await new Promise((resolve, reject) => {
-          const tx = db.transaction(CTI_CHECKPOINT_STORE, "readwrite");
-          const idx = tx.objectStore(CTI_CHECKPOINT_STORE).index("runKey");
-          const req = idx.openKeyCursor(IDBKeyRange.only(runKey));
-          req.onsuccess = () => {
-            const cur = req.result;
-            if (cur) {
-              tx.objectStore(CTI_CHECKPOINT_STORE).delete(cur.primaryKey);
-              cur.continue();
-            }
-          };
+          const tx = db.transaction(
+            [CTI_CHECKPOINT_STORE, "item-checkpoint-manifests"],
+            "readwrite",
+          );
+          for (const name of [
+            CTI_CHECKPOINT_STORE,
+            "item-checkpoint-manifests",
+          ]) {
+            const store = tx.objectStore(name),
+              request = store
+                .index("runKey")
+                .openKeyCursor(IDBKeyRange.only(runKey));
+            request.onsuccess = () => {
+              const cursor = request.result;
+              if (cursor) {
+                store.delete(cursor.primaryKey);
+                cursor.continue();
+              }
+            };
+          }
           tx.oncomplete = () => resolve();
-          tx.onerror = () => reject(tx.error);
+          tx.onerror = () =>
+            reject(tx.error || Error("Checkpoint clearing failed."));
+          tx.onabort = () =>
+            reject(tx.error || Error("Checkpoint clearing was aborted."));
         });
-      } catch (_) {}
+        deferred.clear();
+      } catch (e) {
+        manager.error = String(e?.message || e);
+        return;
+      }
     }
     try {
       if (session.key) localStorage.removeItem(session.key);
@@ -845,17 +1403,65 @@ export async function createCheckpointManagerV6150(courseId, requestedRunId = ""
   };
   return manager;
 }
-
 export function finalCaptureAccountingV6150(fingerprints, activeMeta) {
   const items = (fingerprints || []).map((fp) => ({
     id: String(fp.id || ""),
     name: String(fp.name || ""),
     ...captureContractSummaryV6150(fp),
   }));
+  return captureAccountingItemsV61531(items, activeMeta);
+}
+
+export function checkpointCaptureAccountingV61531(
+  fingerprints,
+  activeMeta,
+  contractFor,
+) {
+  let deferredCount = 0;
+  const items = (fingerprints || []).map((fp) => {
+    const navigation =
+      typeof contractFor === "function" ? contractFor(fp) : null;
+    const deferred =
+      navigation?.checkpointDeferred === true &&
+      navigation.scope === "CHECKPOINT_NAVIGATION_ONLY" &&
+      navigation.itemId === String(fp.id || "") &&
+      navigation.type === normalizeType(fp.typeName || fp.type || "") &&
+      navigation.complete === true;
+    if (deferred) deferredCount++;
+    const c = deferred ? navigation : captureContractSummaryV6150(fp);
+    return {
+      id: String(fp.id || ""),
+      name: String(fp.name || ""),
+      itemId: c.itemId,
+      type: c.type,
+      status: c.status,
+      complete: c.complete,
+      accounted: c.accounted,
+      needsEditor: c.needsEditor,
+      retryable: c.retryable,
+      attempts: c.attempts,
+      maxAttempts: c.maxAttempts,
+      externalBodyVerified: c.externalBodyVerified,
+      reasons: (c.reasons || []).slice(),
+    };
+  });
+  const accounting = captureAccountingItemsV61531(items, activeMeta);
+  return {
+    ...accounting,
+    scope: "CHECKPOINT_CONTINUATION_ONLY",
+    deferredCount,
+    complete: deferredCount ? false : accounting.complete,
+  };
+}
+
+export function captureAccountingItemsV61531(items, activeMeta) {
   const complete = items.filter((x) => x.complete);
   const unresolved = items.filter((x) => !x.complete);
   const unknown = items.filter((x) => !x.status || x.status === "UNVERIFIED");
-  const unvisited = ((activeMeta && activeMeta.unvisitedTargetIds) || []).slice();
+  const unvisited = (
+    (activeMeta && activeMeta.unvisitedTargetIds) ||
+    []
+  ).slice();
   const statusCounts = items.reduce(
     (m, x) => ((m[x.status] = (m[x.status] || 0) + 1), m),
     {},
@@ -871,9 +1477,7 @@ export function finalCaptureAccountingV6150(fingerprints, activeMeta) {
       unknown.length === 0,
     noSilentMisses: unknown.length === 0 && unvisited.length === 0,
     complete:
-      unresolved.length === 0 &&
-      unknown.length === 0 &&
-      unvisited.length === 0,
+      unresolved.length === 0 && unknown.length === 0 && unvisited.length === 0,
     terminalAccountedIncompleteCount: unresolved.filter(
       (x) => x.accounted && !x.retryable,
     ).length,

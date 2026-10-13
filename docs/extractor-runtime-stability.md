@@ -1,5 +1,92 @@
 # Coursera extractor runtime stability
 
+## v6.15.31: reduce repeated work across automatic batches
+
+Automatic documents now read a small IndexedDB checkpoint manifest first and
+load raw payloads for incomplete items that still need work. Completed raw
+payloads stay in storage until final materialization, avoiding repeated copies
+of all previously captured course content on every reload. The writable
+checkpoint database uses version 2; existing version-1 records migrate once
+without truncating or deleting their raw observations. Read-only saved-progress
+export does not upgrade the database or write checkpoint state.
+
+A manifest is an intermediate scheduling receipt, not final evidence of
+completion. Before export, deferred raw records are restored and their strict
+capture contracts are independently checked against the live inventory. A
+missing or inconsistent raw record cannot produce a complete export. Original
+observations, keys, source identities and diagnostic receipts remain in the
+downloaded capture.
+
+Whole-outline hydration now runs on demand when a navigation fallback needs it;
+certified direct routes avoid warming the outline first. Intermediate automatic
+chunks checkpoint progress and continue without repeating the course-wide asset
+pass, global normalization or final JSON preparation. Those final operations
+run after acquisition completes or a bounded stop is reached.
+
+Large virtual question rails receive a discovery allowance based on the
+observed part count and scroll geometry, capped at 45 seconds and 420 steps.
+This replaces a fixed small allowance that could not span long rails such as
+609- or 2,000-part outlines. Discovery still observes exact group identities and
+ordinals, restores scrolling and requires complete, unambiguous coverage.
+
+API work interleaves group reads with their exact versioned definitions instead
+of spending an entire item deadline on group records alone. At most two requests
+are in flight. Resume can reuse an immutable definition only when the freshly
+observed inventory agrees, a fresh group read returns the same exact versioned
+reference and its retained definition passes SHA-256 integrity checks. Changed
+versions need new reads. Unsupported definitions remain raw evidence and use
+the existing DOM fallback; cached data does not relax completeness checks.
+During that fallback, rediscovered API questions keep their original provenance
+and do not trigger repeated full-model checkpoint writes. New observed editor
+answers continue to be checkpointed.
+
+The durable automatic plan accumulates bounded phase timings, checkpoint and
+request totals, yield/fallback histograms and the most recent twenty batch
+receipts. Exported items retain `captureDiagnostics`, so reloads no longer erase
+the useful per-item acquisition explanation. Resource, identity and completion
+guards remain in place; only the bounded rail-discovery allowance scales with
+large inventories.
+
+The native scale check passed three paired runs using the identical 132-item
+completed corpus (17,457,590 payload bytes) and four remaining readings:
+
+| Measurement | Released v6.15.30 | v6.15.31 |
+| --- | ---: | ---: |
+| Median total fixture time | 21,676 ms | 9,952 ms |
+| Completed raw rows loaded before the first reading | 132 | 0 |
+| Outline scroll events before the first reading | 35 | 0 |
+| Setup time, approximately | 12.5 s | 0.15 s |
+
+A larger fixture retained the same completed corpus, added 28 readings and a
+609-question virtual MCQ bank, and finished all 161 items through the strict
+gate in two renderer batches with one JSON. Its measured time was 84,363 ms,
+with 84 API requests including setup, at most two concurrent requests and zero
+question-editor clicks. The original 132 completed payloads stayed deferred
+during both initial restores and were read once at final materialization;
+their rich original wrappers were preserved. A collapsed-outline case also
+passed, exercising the on-demand navigation fallback.
+
+A separate mixed-bank regression retains all 609 original definitions while
+certifying 596 supported keyed questions and preserving thirteen unsupported
+gaps. It does not invent a text-entry schema or turn retained raw data into
+complete normalized evidence.
+
+The native mixed-bank check then supplies thirteen observed text-match editor
+answers for those opaque unsupported API wrappers. A forced interruption after
+six answers preserves all 596 API questions and 602 durable questions in one
+item record. Reloading captures only the remaining seven editor answers, reuses
+596 verified definitions and finishes the strict 609-question contract. The
+two documents used four progress saves each and thirteen total question clicks;
+measured cycle times were 21,047 ms and 51,944 ms. All 609 sanitized original
+definition wrappers were preserved. This verifies DOM recovery without asserting
+an actual Coursera text-entry API schema.
+
+These are synthetic network and editor fixtures running in real Chrome. Their
+timings are descriptive measurements, not a live Coursera latency estimate or
+certification of every content type. The supplied private v6.15.29 capture
+remains partial; the 84-second fixture does not establish that the private
+course will finish in that time.
+
 ## v6.15.30: exclude observed visibility pauses from active budgets
 
 The supplied live v6.15.29 JSON contains 185 course items: 132 complete and

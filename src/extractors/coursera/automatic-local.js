@@ -66,18 +66,18 @@ export function resumeAutomaticLocalCaptureV61529(prior,config,checkpointSession
     message:'Resuming the saved run with its original browser checkpoints and limits.'});
 }
 
-export function automaticLocalCaptureNeedsContinuationV61519(capture) {
+export function automaticLocalCaptureNeedsContinuationV61519(capture,contractFor) {
   const meta=capture.meta || {},accounting=meta.captureAccounting || {};
   const crawl=meta.activeSpaCrawl || {};
   return Boolean(crawl.timeBudgetExhausted || Number(accounting.unvisitedCount || 0)>0 ||
     Number(accounting.retryableUnresolvedCount || 0)>0 ||
     (capture.fingerprints || []).some(fp=>{
-      const contract=fp.captureContract || fp.payload && fp.payload.captureContract;
+      const contract=typeof contractFor==='function'?contractFor(fp):fp.captureContract || fp.payload && fp.payload.captureContract;
       return contract && (contract.needsEditor===true || contract.retryable===true);
     }));
 }
 
-export function automaticLocalEvidenceProgressV61526(plan,capture) {
+export function automaticLocalEvidenceProgressV61526(plan,capture,progressFor) {
   const prior=plan.evidenceProgress?.version===1?plan.evidenceProgress:{version:1,completeCount:0,items:[]};
   const items=new Map();
   for(const row of (Array.isArray(prior.items)?prior.items:[]).slice(0,20000)){
@@ -105,7 +105,10 @@ export function automaticLocalEvidenceProgressV61526(plan,capture) {
     const terminal=contract.accounted===true && contract.needsEditor===false && contract.retryable===false?1:0;
     const textEvidence=payload.textCaptureEvidence;
     const textCharacters=textEvidence?.itemId===fp.id?Math.min(20000,Math.max(0,Number(textEvidence.capturedCharacters || 0))):0;
-    const observed=[questions.size,[...questions.values()].filter(Boolean).length,textCharacters,assets.size,hashes.size,complete,terminal];
+    const checkpointProgress=typeof progressFor==='function'?progressFor(fp):null;
+    const observed=Array.isArray(checkpointProgress) && checkpointProgress.length===7
+      ? checkpointProgress.map(value=>Math.max(0,Math.min(20000,Number(value)||0)))
+      : [questions.size,[...questions.values()].filter(Boolean).length,textCharacters,assets.size,hashes.size,complete,terminal];
     const previous=items.get(fp.id) || [],highWater=observed.map((value,index)=>{
       const before=Number(previous[index] || 0);if(value>before)advanced=true;return Math.max(value,before);
     });
@@ -118,15 +121,93 @@ export function automaticLocalEvidenceProgressV61526(plan,capture) {
   return {advanced,record,signature:JSON.stringify(record)};
 }
 
-export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvailable, checkpointFailed, retainCheckpoint, now) {
+export function accumulateAutomaticLocalPerformanceV61531(plan,capture) {
+  const prior=plan.performance?.version===1?plan.performance:{};
+  const dayMs=24*60*60*1000;
+  const limits={wallMs:31*dayMs,activeMs:31*dayMs,pausedMs:31*dayMs,setupMs:31*dayMs,
+    primaryMs:31*dayMs,primaryActiveMs:31*dayMs,primaryPausedMs:31*dayMs,
+    recoveryMs:31*dayMs,recoveryActiveMs:31*dayMs,recoveryPausedMs:31*dayMs,
+    postCrawlMs:31*dayMs,assetAndNormalizationMs:31*dayMs,finalizationMs:31*dayMs,
+    checkpointStored:20000,checkpointRestored:20000,checkpointDeferred:20000,checkpointSkipped:20000,
+    checkpointRestoredBytes:1024*1024*1024,apiRequests:20000,apiElapsedMs:31*dayMs};
+  function bounded(value,max){return typeof value==='number' && Number.isFinite(value) && value>=0?Math.min(max,Math.floor(value)):0;}
+  function metrics(value,scale){
+    const out={};for(const [key,max] of Object.entries(limits))out[key]=bounded(value?.[key],max*scale);return out;
+  }
+  function safeReason(value,kind){
+    if(!value)return '';
+    const allowed=kind==='yield'?['LOCAL_CHECKPOINT_UNAVAILABLE','LOCAL_RENDERER_VISIT_LIMIT','LOCAL_RENDERER_TIME_LIMIT',
+      'LOCAL_RENDERER_HEAP_LIMIT','LOCAL_RENDERER_HEAP_GROWTH_LIMIT','LOCAL_RENDERER_QUESTION_LIMIT',
+      'LOCAL_RENDERER_QUESTION_TIME_LIMIT','LOCAL_ASSESSMENT_CHECKPOINT_YIELD','CHUNK_CRAWL_BUDGET_EXHAUSTED',
+      'NEXT_ITEM_REQUIRES_FULL_ATTEMPT_BUDGET','OTHER']:
+      ['EDITOR_NOT_CERTIFIED','SESSION_EDITOR_IDENTITY_NOT_VERIFIED','EDITOR_OUTLINE_UNAVAILABLE',
+      'UNSUPPORTED_DECLARED_PART_COUNT','AMBIGUOUS_OUTLINE_IDENTITY','INCOMPLETE_LIVE_OUTLINE_INVENTORY',
+      'SAME_ASSIGNMENT_READ_ENDPOINTS_NOT_OBSERVED','EDITOR_IDENTITY_CHANGED_DURING_API_DISCOVERY',
+      'EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE','AUTHORING_API_AUTHENTICATION_FAILED','AUTHORING_API_RATE_LIMITED',
+      'ITEM_API_DEADLINE','ITEM_API_BYTE_LIMIT','API_RESPONSE_BYTE_LIMIT','API_REQUEST_TIMEOUT','API_REQUEST_FAILED',
+      'AUTHORING_API_EVIDENCE_INCOMPLETE','INVALID_API_ENVELOPE','AMBIGUOUS_API_RESPONSE_IDENTITY',
+      'UNEXPECTED_API_REDIRECT','UNEXPECTED_API_MIME','OTHER'];
+    return typeof value==='string' && allowed.includes(value)?value:'OTHER';
+  }
+  function histogram(value,kind,max){
+    const out={};if(!value || typeof value!=='object' || Array.isArray(value))return out;
+    for(const [key,count] of Object.entries(value).slice(0,40)){
+      const reason=safeReason(key,kind),n=bounded(count,max);
+      if(reason && n)out[reason]=Math.min(max,(out[reason] || 0)+n);
+    }return out;
+  }
+  function receipt(value){
+    return {batch:bounded(value?.batch,500),...metrics(value,1),yieldReason:safeReason(value?.yieldReason,'yield'),
+      apiFallbackReasons:histogram(value?.apiFallbackReasons,'api',20000)};
+  }
+  const next={version:1,recordedBatches:bounded(prior.recordedBatches,500),
+    lastDocumentStartedAt:bounded(prior.lastDocumentStartedAt,8640000000000000),
+    totals:metrics(prior.totals,500),yieldReasons:histogram(prior.yieldReasons,'yield',500),
+    apiFallbackReasons:histogram(prior.apiFallbackReasons,'api',500*20000),
+    recent:Array.isArray(prior.recent)?prior.recent.slice(-20).map(receipt):[]};
+  const documentStartedAt=typeof capture.extractedAt==='string'?Date.parse(capture.extractedAt):0;
+  if(next.recordedBatches>=500 || Number.isFinite(documentStartedAt) && documentStartedAt>0 &&
+    next.lastDocumentStartedAt>0 && documentStartedAt<=next.lastDocumentStartedAt)return next;
+  const runtime=capture.meta?.runtime || {},performance=capture.meta?.performance || {};
+  const checkpoint=capture.meta?.checkpointResume || {},api=performance.api || {};
+  const primaryMs=bounded(runtime.primaryMs,limits.primaryMs),recoveryMs=bounded(runtime.recoveryMs,limits.recoveryMs);
+  function pause(value,wall){return Number.isSafeInteger(value) && value>=0 && value<=wall?value:0;}
+  const primaryPausedMs=pause(performance.primaryVisibilityPausedMs,primaryMs);
+  const recoveryPausedMs=pause(performance.recoveryVisibilityPausedMs,recoveryMs);
+  const wallMs=bounded(runtime.totalBeforeDownloadMs,limits.wallMs);
+  const pausedMs=performance.primaryVisibilityPausedMs!==undefined || performance.recoveryVisibilityPausedMs!==undefined?
+    Math.min(wallMs,primaryPausedMs+recoveryPausedMs):pause(capture.meta?.activeSpaCrawl?.visibilityPausedMs,wallMs);
+  const fallback={};
+  for(const value of (Array.isArray(api.fallbackReasons)?api.fallbackReasons:[]).slice(0,20000)){
+    const reason=safeReason(value,'api');if(reason)fallback[reason]=(fallback[reason] || 0)+1;
+  }
+  const current=receipt({batch:bounded(plan.batches,499)+1,wallMs,activeMs:wallMs-pausedMs,pausedMs,
+    setupMs:runtime.setupMs,primaryMs,primaryActiveMs:primaryMs-primaryPausedMs,primaryPausedMs,
+    recoveryMs,recoveryActiveMs:recoveryMs-recoveryPausedMs,recoveryPausedMs,
+    postCrawlMs:runtime.postCrawlCaptureMs,assetAndNormalizationMs:runtime.assetAndNormalizationMs,finalizationMs:runtime.finalizationMs,
+    checkpointStored:checkpoint.stored,checkpointRestored:checkpoint.restored,checkpointDeferred:checkpoint.deferred,
+    checkpointSkipped:checkpoint.skipped,checkpointRestoredBytes:checkpoint.restoredBytes,
+    apiRequests:api.requests,apiElapsedMs:api.elapsedMs,yieldReason:capture.meta?.localCaptureBatch?.yieldReason,
+    apiFallbackReasons:fallback});
+  for(const [key,max] of Object.entries(limits))next.totals[key]=Math.min(max*500,next.totals[key]+current[key]);
+  if(current.yieldReason)next.yieldReasons[current.yieldReason]=Math.min(500,(next.yieldReasons[current.yieldReason] || 0)+1);
+  for(const [reason,count] of Object.entries(current.apiFallbackReasons))
+    next.apiFallbackReasons[reason]=Math.min(500*20000,(next.apiFallbackReasons[reason] || 0)+count);
+  next.recordedBatches++;next.recent=[...next.recent,current].slice(-20);
+  if(Number.isFinite(documentStartedAt) && documentStartedAt>0)next.lastDocumentStartedAt=documentStartedAt;
+  return next;
+}
+
+export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvailable, checkpointFailed, retainCheckpoint, now,progressFor) {
   const accounting=capture.meta && capture.meta.captureAccounting || {};
   const fingerprints=Array.isArray(capture.fingerprints)?capture.fingerprints:[];
-  const progress=automaticLocalEvidenceProgressV61526(plan,capture);
+  const progress=automaticLocalEvidenceProgressV61526(plan,capture,progressFor);
   const timing=automaticLocalRunTimingV61530(plan,capture,now);
   const next=Object.assign({},plan,{batches:Number(plan.batches || 0)+1,lastProgress:progress.signature,evidenceProgress:progress.record,
     stalled:progress.advanced?0:Number(plan.stalled || 0)+1,updatedAt:now,
     visibilityPausedMs:timing.visibilityPausedMs,wallElapsedMs:timing.wallElapsedMs,activeElapsedMs:timing.activeElapsedMs,
-    visibilityPauseAccountedAt:timing.visibilityPauseAccountedAt,visibilityPauseReceiptRejected:timing.visibilityPauseReceiptRejected});
+    visibilityPauseAccountedAt:timing.visibilityPauseAccountedAt,visibilityPauseReceiptRejected:timing.visibilityPauseReceiptRejected,
+    performance:accumulateAutomaticLocalPerformanceV61531(plan,capture)});
   let reason='';
   if(capture.meta?.activeSpaCrawl?.authoringApiAccessStopped)reason='AUTHORING_API_ACCESS_REQUIRED';
   else if(capture.meta?.activeSpaCrawl?.authoringApiRateLimited)reason='AUTHORING_API_RATE_LIMITED';

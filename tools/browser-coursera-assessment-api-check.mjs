@@ -221,6 +221,7 @@ try{
  assert.equal(partial.result.assessment.questionCount,count);assert.equal(partial.result.assessment.captureCompleteness.requiredAnswerCoverageComplete,true);
  assert.equal(partial.contract.complete,true);assert.deepEqual(partial.clicks,[55],'Only the question without an API key may activate its editor');
  assert.equal(partial.charged,1,'API definitions were charged to the renderer observation budget');assert(partial.checkpoints>0);
+ assert(partial.checkpoints<=12,'Rediscovered API definitions caused redundant full-model checkpoint writes');
  assert.equal(partial.result.assessment.questions.filter(q=>q.observationMethod==='AUTHORING_API_MATCHED_TO_LIVE_OUTLINE').length,99,'Partial API seeds lost their source provenance');
  for(const q of partial.result.assessment.questions){
   const n=Number(q.id);assert.equal(q.courseraQuestionId,groupId(n));assert.deepEqual(q.correctAnswers,[label(n,n%4+1)]);

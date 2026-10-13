@@ -56,6 +56,47 @@ Denied reads and server rate limits stop the run with saved evidence rather
 than repeatedly reopening editors. Direct reads use their own bounded evidence
 collector, avoiding duplicate generic-network response copies.
 
+## Less repeated work on long courses
+
+From v6.15.31, each automatic document reads a small checkpoint manifest and
+restores raw evidence for incomplete items that still need work. Completed raw
+records remain in IndexedDB until final export. This avoids reloading every
+previously captured definition and asset on each continuation. The writable
+database upgrades to version 2 and migrates older records once; the performance
+change does not truncate or delete raw observations. Read-only saved-progress
+export leaves the database version and checkpoint state unchanged.
+
+Before preparing the final JSON, CTI restores deferred raw records and
+independently rechecks their strict capture contracts against the current
+inventory. A manifest alone cannot certify the downloaded course. Missing or
+inconsistent records stop complete export. Original retained definitions and
+per-item `captureDiagnostics` are included in the final evidence.
+If restoration or migration fails partway through, CTI stops before editor
+visits and blocks replacement writes, preserving the saved raw records.
+
+Global outline hydration is deferred until navigation needs a fallback;
+certified direct item routes avoid that preliminary scan. Intermediate automatic
+chunks save their observations and continue without another global asset pass,
+course-wide normalization or final JSON preparation. Those operations remain
+part of the final capture.
+
+Virtual question-list discovery scales to the observed count and scroll
+geometry, within 45 seconds and 420 steps. Exact observed identities, ordinals,
+full coverage and scroll restoration remain required. Group and definition reads
+are interleaved with at most two requests in flight, so a long group inventory
+does not consume the entire API allowance before definitions are read.
+Saved definitions are reusable only after a fresh inventory and group read
+confirm the exact versioned reference and the retained definition passes its
+SHA-256 integrity check. Changed versions are fetched again. Unsupported types
+retain their raw evidence and fall back to editor observations.
+The editor fallback does not repeatedly checkpoint API questions it merely
+rediscovers; new editor answers still receive durable progress checkpoints.
+
+The automatic plan retains cumulative bounded timing, checkpoint and request
+totals, yield/fallback histograms and its latest twenty batch receipts. These
+measure the remaining costs across reloads. They do not establish live private
+whole-course completion or guarantee a particular extraction speed.
+
 ## Single-resource reads when batching is unavailable
 
 A live v6.15.27 quiz check found all 100 group IDs and read their group records,
@@ -496,3 +537,34 @@ a managed run. A real cross-origin `READY` message with 79 saved observations
 must still receive an acknowledgement while the component is unmounted; the
 same child, command, course URL and counts must reappear afterward. It does not
 start a replacement capture merely because the UI view changed.
+
+`npm run test:browser:scale-capture` passed three paired runs against an
+identical 132-item completed corpus of 17,457,590 payload bytes and four remaining
+readings. Median fixture time fell from 21,676 ms for released v6.15.30 to
+9,952 ms for v6.15.31. Completed raw reads before the first reading fell from
+132 to zero, preliminary outline scroll events from 35 to zero, and setup from
+approximately 12.5 seconds to 0.15 seconds.
+
+Its larger case added 28 readings and a 609-question virtual MCQ bank to the
+same completed corpus: 161 strictly complete items, two renderer batches,
+one JSON, 84,363 ms, 84 API requests including setup, at most two concurrent
+requests and zero question-editor clicks. The 132 completed raw payloads
+remained deferred during initial restores and were read once at final
+materialization, with their original rich wrappers preserved. A collapsed
+outline also passed the on-demand fallback check. Separate API regressions
+retain all 609 original mixed-bank definitions while leaving thirteen
+unsupported parts as explicit gaps and verifying 596 supported keyed questions.
+
+`npm run test:browser:mixed-bank` also passed a native 609-question mixed bank:
+596 API questions plus thirteen observed text-match editor answers. An
+interruption after six editor answers retained 602 durable questions; reload
+captured only the remaining seven. Each document used four progress saves,
+all 609 original sanitized wrappers survived, and completeness stayed false
+until all required keys were observed. The resumed API reused 596 exact
+definitions with one definition request. Cycle times were 21,047 ms and
+51,944 ms; the unsupported API wrappers are opaque synthetic data.
+
+Network responses and editor content in these checks are synthetic, running
+through real Chrome. These measurements establish the tested performance and
+preservation behavior, not live private-course latency, support for every
+content type or an 84-second Coursera completion promise.

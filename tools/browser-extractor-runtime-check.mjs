@@ -143,7 +143,7 @@ try{
     else await target.goto(base+'/runtime-fixture');
     await target.addScriptTag({content:constants+'\n'+definitions});
     await target.evaluate((background)=>{
-      Object.assign(window,{backgroundChunkMode:background,CTI_WHOLE_RUN_DEADLINE:Infinity,
+      Object.assign(window,{ctiCheckpointManager:null,backgroundChunkMode:background,CTI_WHOLE_RUN_DEADLINE:Infinity,
         __CTI_BACKGROUND_CHUNK_DEADLINE_MS:background?Date.now()+25*60*1000:0,
         sleepMs:async()=>{},
         readingRouteForTargetV61311:fp=>'fixture:'+fp.id,
@@ -345,7 +345,7 @@ try{
   const manualContinuation=await batchPage.evaluate(()=>({
     source:fixtureContinuationRoot.getElementById('manual').value,
     visible:!fixtureContinuationRoot.getElementById('manual').hidden,
-    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61530')}));
+    bodyContainsScript:document.body.textContent.includes('ctiCourseraCaptureV61531')}));
   assert.equal(manualContinuation.source.trimEnd(),courseraSource.trimEnd());assert.equal(manualContinuation.visible,true);
   assert.equal(manualContinuation.bodyContainsScript,false);
 

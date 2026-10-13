@@ -2,13 +2,15 @@ import { assessmentOutlineCandidatesV613, assessmentLayoutV61313, assessmentCapt
 import { assessmentPartCountV8 } from './assessments-2.js';
 import { assessmentOutlinePromptAlignedV613 } from './assessments-3.js';
 import { isGenericCourseEditRoute, isItemSpecificCourseRoute } from './navigation-2.js';
-import { courseId, stripHtml } from './text-and-dom.js';
+import { courseId, stripHtml, sha256 } from './text-and-dom.js';
 import { sleepMs } from './text-and-dom-2.js';
 import { isVisibleElement } from './text-and-dom-3.js';
 import { isGlobalChromeElement } from './text-and-dom-4.js';
 import { CTI_ASSESSMENT_API_BATCH_IDS_V61524, CTI_ASSESSMENT_API_CONCURRENCY_V61524, CTI_ASSESSMENT_API_REQUEST_MS_V61524,
   CTI_ASSESSMENT_API_BODY_BYTES_V61524, CTI_ASSESSMENT_API_TOTAL_BYTES_V61524, CTI_ASSESSMENT_API_MAX_PARTS_V61524,
-  CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524, CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524 } from './config.js';
+  CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524, CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524,
+  CTI_ASSESSMENT_API_RAIL_MIN_DISCOVERY_MS_V61531, CTI_ASSESSMENT_API_RAIL_MIN_STEPS_V61531,
+  CTI_ASSESSMENT_API_EVIDENCE_MS_V61531 } from './config.js';
 
 export function sanitizeAssessmentApiValueV61524(value, deadline) {
   const copied=rawAssessmentStateV61522(value,deadline);
@@ -270,10 +272,15 @@ export function observedAssessmentApiInventoryV61524(surfaceRoot,fp,options={}) 
 
 export async function discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,options={}) {
   const initial=observedAssessmentApiInventoryV61524(surfaceRoot,fp,options);
-  if(initial.reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY')return initial;
+  if(initial.reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY'){
+    initial.discovery=initial.discovery || {method:initial.complete?'COMPLETE_MOUNTED_RAIL':'INVENTORY_PRECONDITION_DECLINED',
+      scrollSteps:0,restored:true,elapsedMs:0,declaredParts:initial.declared || 0,observedParts:initial.candidates.length,stopReason:initial.reason};
+    return initial;
+  }
   const layout=assessmentLayoutV61313(surfaceRoot),sidebar=layout && layout.sidebar,content=layout && layout.content,route=location.href;
-  if(!sidebar)return initial;
-  const started=Date.now(),deadline=Math.min(Number(options.deadline || Infinity),started+CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524);
+  if(!sidebar){initial.discovery={method:'INVENTORY_PRECONDITION_DECLINED',scrollSteps:0,restored:true,elapsedMs:0,
+    declaredParts:initial.declared,observedParts:initial.candidates.length,stopReason:initial.reason};return initial;}
+  const started=Date.now();let deadline=started,stepLimit=0,restored=true;
   const seen=new Map(),ordinals=new Map(),roots=[],originals=new Map();let steps=0,reason='INCOMPLETE_LIVE_OUTLINE_INVENTORY';
   function observe(){
     const current=assessmentLayoutV61313(surfaceRoot);
@@ -298,12 +305,29 @@ export async function discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,op
   }
   addRoot(sidebar);for(let parent=sidebar.parentElement;parent && parent!==layout.root;parent=parent.parentElement)addRoot(parent);
   try{for(const node of sidebar.querySelectorAll('div,section,ul,ol'))addRoot(node);}catch(_){}
-  if(!observe())return {...initial,reason};
+  function resultWithDiscovery(result){
+    result.discovery={method:'OBSERVED_VIRTUAL_RAIL_SCROLL',scrollSteps:steps,restored,elapsedMs:Date.now()-started,
+      declaredParts:initial.declared,observedParts:seen.size,stepLimit,timeLimitMs:Math.max(0,deadline-started),stopReason:result.reason};
+    return result;
+  }
+  if(!observe())return resultWithDiscovery({...initial,reason});
+  // Derive work from the observed scroll extent and viewport, rather than an
+  // 80-step allowance that cannot span a 609/2000-part virtual rail. Each step
+  // overlaps the previous viewport; identities still come only from mounted
+  // anchors with explicit ordinals. Hard caps bound even a malformed rail.
+  const safeRoots=roots.slice(0,3);
+  const observedSpanSteps=safeRoots.reduce((sum,root)=>sum+Math.ceil(Math.max(0,root.scrollHeight-root.clientHeight)/
+    Math.max(80,Math.floor(root.clientHeight*0.7)))+2,0);
+  stepLimit=Math.min(CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524,
+    Math.max(CTI_ASSESSMENT_API_RAIL_MIN_STEPS_V61531,observedSpanSteps));
+  const discoveryMs=Math.min(CTI_ASSESSMENT_API_RAIL_DISCOVERY_MS_V61524,
+    Math.max(CTI_ASSESSMENT_API_RAIL_MIN_DISCOVERY_MS_V61531,(stepLimit+safeRoots.length+2)*80+2000));
+  deadline=Math.min(Number(options.deadline || Infinity),started+discoveryMs);
   try{
-    for(const root of roots.slice(0,3)){
+    for(const root of safeRoots){
       originals.set(root,Number(root.scrollTop || 0));
       const step=Math.max(80,Math.floor(root.clientHeight*0.7));
-      for(let y=0;Date.now()<deadline && steps<CTI_ASSESSMENT_API_RAIL_MAX_STEPS_V61524;y+=step){
+      for(let y=0;Date.now()<deadline && steps<stepLimit;y+=step){
         const max=Math.max(0,root.scrollHeight-root.clientHeight),position=Math.min(y,max);
         if(Number(root.scrollTop || 0)!==position){root.scrollTop=position;steps++;await sleepMs(80);}
         if(!observe())break;
@@ -312,14 +336,20 @@ export async function discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,op
       if(reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY' || seen.size===initial.declared)break;
     }
   }finally{
-    for(const [root,position] of originals)if(root.isConnected && Number(root.scrollTop || 0)!==position){root.scrollTop=position;await sleepMs(80);}
+    for(const [root,position] of originals){
+      if(root.isConnected && Number(root.scrollTop || 0)!==position){root.scrollTop=position;await sleepMs(80);}
+      if(!root.isConnected || Math.abs(Number(root.scrollTop || 0)-position)>1)restored=false;
+    }
   }
-  if(reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY')return {...initial,reason};
-  if(!observe())return {...initial,reason};
+  if(reason!=='INCOMPLETE_LIVE_OUTLINE_INVENTORY')return resultWithDiscovery({...initial,reason});
+  if(!observe())return resultWithDiscovery({...initial,reason});
   const candidates=[...seen.values()].sort((a,b)=>a.ordinal-b.ordinal);
   const result=assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,fp,options,candidates);
-  result.discovery={method:'OBSERVED_VIRTUAL_RAIL_SCROLL',scrollSteps:steps,restored:true,elapsedMs:Date.now()-started};
-  return result;
+  if(!result.complete){
+    if(Date.now()>=deadline)result.reason='LIVE_OUTLINE_DISCOVERY_DEADLINE';
+    else if(steps>=stepLimit)result.reason='LIVE_OUTLINE_DISCOVERY_STEP_LIMIT';
+  }
+  return resultWithDiscovery(result);
 }
 
 export function recheckAssessmentApiInventoryV61524(surfaceRoot,fp,options,inventory) {
@@ -337,17 +367,85 @@ export function recheckAssessmentApiInventoryV61524(surfaceRoot,fp,options,inven
   return assessmentApiInventoryFromObservedCandidatesV61524(surfaceRoot,fp,options,inventory.candidates);
 }
 
+export async function assessmentApiDefinitionCacheV61531(prior,inventory,fp,options,groups,deadline,availableBytes) {
+  const out={definitions:new Map(),retainedDefinitions:new Map(),groupVersions:new Map(),retainedGroups:new Map(),bytes:0,definitionBytes:0,reason:'NO_PRIOR_API_EVIDENCE'};
+  if(!prior)return out;
+  out.reason='PRIOR_API_IDENTITY_NOT_VERIFIED';
+  if(prior.method!=='OBSERVED_ITEM_BOUND_AUTHORING_GETS' || prior.courseId!==String(options.courseId) ||
+    prior.itemId!==String(fp.id) || prior.assignmentId!==inventory.assignmentId ||
+    !Array.isArray(prior.inventory) || prior.inventory.length!==inventory.declared ||
+    !Array.isArray(prior.groups) || prior.groups.length>inventory.declared ||
+    !Array.isArray(prior.questionDefinitions) || prior.questionDefinitions.length>CTI_ASSESSMENT_API_MAX_PARTS_V61524 ||
+    prior.cacheIntegrity?.version!==1 || prior.cacheIntegrity.algorithm!=='SHA-256' ||
+    !Array.isArray(prior.cacheIntegrity.definitions) || prior.cacheIntegrity.definitions.length>CTI_ASSESSMENT_API_MAX_PARTS_V61524 ||
+    typeof crypto==='undefined' || !crypto.subtle)return out;
+  for(let i=0;i<inventory.candidates.length;i++){
+    const current=inventory.candidates[i],before=prior.inventory[i];
+    if(!before || before.id!==current.id || before.ordinal!==current.ordinal)return out;
+  }
+  const inventoryDigest=await sha256(JSON.stringify(inventory.candidates.map(candidate=>[candidate.id,candidate.ordinal])));
+  if(!inventoryDigest || inventoryDigest!==prior.cacheIntegrity.inventorySha256){out.reason='PRIOR_API_INVENTORY_INTEGRITY_FAILED';return out;}
+  const priorGroups=new Map(),definitions=new Map(),receipts=new Map(),allowed=new Set(inventory.candidates.map(candidate=>candidate.id));
+  for(const group of prior.groups){
+    if(!group || !allowed.has(group.id) || priorGroups.has(group.id))return out;
+    priorGroups.set(group.id,group);
+  }
+  for(const definition of prior.questionDefinitions){
+    if(!definition || typeof definition.id!=='string' || definitions.has(definition.id) ||
+      !new RegExp('^'+inventory.assignmentId+'~[A-Za-z0-9_-]+@\\d+$').test(definition.id))return out;
+    definitions.set(definition.id,definition);
+  }
+  for(const receipt of prior.cacheIntegrity.definitions){
+    if(!receipt || !definitions.has(receipt.id) || receipts.has(receipt.id) || !/^[a-f0-9]{64}$/.test(receipt.sha256 || ''))return out;
+    receipts.set(receipt.id,receipt.sha256);
+  }
+  out.reason='VALIDATED_EXACT_VERSION_DEFINITION_CACHE';
+  for(const candidate of inventory.candidates){
+    if(Date.now()>=deadline)break;
+    const old=priorGroups.get(candidate.id),fresh=groups?groups.get(candidate.id):old;
+    // Without fresh groups this builds cache candidates only. The collector
+    // must GET each mutable group and verify this exact relation before reuse.
+    if(!fresh || !old || !Array.isArray(fresh.questions) || fresh.questions.length!==1 ||
+      !Array.isArray(old.questions) || old.questions.length!==1 || old.questions[0]!==fresh.questions[0])continue;
+    const rawGroup=sanitizeAssessmentApiValueV61524(old,deadline);
+    if(!rawGroup)continue;
+    const groupBytes=new TextEncoder().encode(JSON.stringify(rawGroup)).byteLength;
+    if(groupBytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || out.bytes+groupBytes>availableBytes)continue;
+    const id=fresh.questions[0],original=definitions.get(id);
+    if(out.retainedDefinitions.has(id)){
+      out.retainedGroups.set(candidate.id,rawGroup);out.bytes+=groupBytes;
+      if(parseCourseraMcqDefinitionV61524(out.retainedDefinitions.get(id),candidate))out.groupVersions.set(candidate.id,id);
+      continue;
+    }
+    if(!original || !receipts.has(id))continue;
+    const raw=sanitizeAssessmentApiValueV61524(original,deadline);
+    if(!raw)continue;
+    const text=JSON.stringify(raw),bytes=new TextEncoder().encode(text).byteLength;
+    if(bytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || out.bytes+groupBytes+bytes>availableBytes)continue;
+    const digest=await sha256(text);
+    if(!digest || digest!==receipts.get(id))continue;
+    out.retainedDefinitions.set(id,raw);out.retainedGroups.set(candidate.id,rawGroup);out.bytes+=groupBytes+bytes;out.definitionBytes+=bytes;
+    if(parseCourseraMcqDefinitionV61524(raw,candidate)){
+      out.definitions.set(id,raw);out.groupVersions.set(candidate.id,id);
+    }
+  }
+  return out;
+}
+
 export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options={}) {
+  const started=Date.now();
   const out={attempted:false,captured:false,assessment:null,rawEvidence:null,stopReason:'',authenticationFailed:false,
-    diagnostics:{requests:0,maxConcurrentRequests:0,bytes:0,rateLimitRetries:0,multiGetUnsupported:[],missingGroups:[],missingDefinitions:[],unsupportedGroups:[],failures:[]}};
+    diagnostics:{requests:0,groupsRequests:0,definitionRequests:0,reusedDefinitions:0,cachedBytes:0,elapsedMs:0,
+      maxConcurrentRequests:0,bytes:0,evidenceBytes:0,evidenceOmissions:0,rateLimitRetries:0,multiGetUnsupported:[],missingGroups:[],missingDefinitions:[],unsupportedGroups:[],failures:[]}};
   const inventory=await discoverAssessmentApiRailInventoryV61524(surfaceRoot,fp,options);
   out.stopReason=inventory.reason;
-  if(!inventory.complete)return out;
   out.diagnostics.inventoryDiscovery=inventory.discovery || {method:'COMPLETE_MOUNTED_RAIL',scrollSteps:0,restored:true};
+  out.diagnostics.elapsedMs=Date.now()-started;
+  if(!inventory.complete)return out;
   if(typeof options.onProgress==='function')options.onProgress(0,inventory.declared);
   const deadline=Math.min(Number(options.deadline || Infinity),Date.now()+120000);
   const fetchImpl=options.fetchImpl || window.fetch.bind(window);
-  const state={active:0,stop:'',bytes:0};out.attempted=true;
+  const state={active:0,stop:'',bytes:0,cachedBytes:0},multiGetModes=new Map();out.attempted=true;
   function recordFailure(url,result){
     if(result.ok || out.diagnostics.failures.length>=40)return;
     let resource='';try{resource=new URL(url).pathname.split('/')[2] || '';}catch(_){}
@@ -356,7 +454,10 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   async function request(url,retry=0){
     if(state.stop || Date.now()>=deadline)return {ok:false,reason:state.stop || 'ITEM_API_DEADLINE'};
     const controller=new AbortController(),timeoutMs=Math.min(CTI_ASSESSMENT_API_REQUEST_MS_V61524,deadline-Date.now());
-    let timer,counted=true;state.active++;out.diagnostics.requests++;out.diagnostics.maxConcurrentRequests=Math.max(out.diagnostics.maxConcurrentRequests,state.active);
+    let timer,counted=true;state.active++;out.diagnostics.requests++;
+    if(new URL(url).pathname.includes('/authoringAssignmentQuestionGroups.v1'))out.diagnostics.groupsRequests++;
+    else out.diagnostics.definitionRequests++;
+    out.diagnostics.maxConcurrentRequests=Math.max(out.diagnostics.maxConcurrentRequests,state.active);
     function finishRequest(){if(counted){state.active--;counted=false;}}
     try{
       const result=await Promise.race([(async()=>{
@@ -371,13 +472,13 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
         if(response.body && typeof response.body.getReader==='function'){
           const reader=response.body.getReader();
           try{while(true){const next=await reader.read();if(next.done)break;bodyBytes+=next.value.byteLength;state.bytes+=next.value.byteLength;
-            if(bodyBytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || state.bytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524){state.stop=state.bytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524?'ITEM_API_BYTE_LIMIT':'API_RESPONSE_BYTE_LIMIT';controller.abort();await reader.cancel();return {ok:false,reason:state.stop};}chunks.push(next.value);}}
+            if(bodyBytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || state.bytes+state.cachedBytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524){state.stop=state.bytes+state.cachedBytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524?'ITEM_API_BYTE_LIMIT':'API_RESPONSE_BYTE_LIMIT';controller.abort();await reader.cancel();return {ok:false,reason:state.stop};}chunks.push(next.value);}}
           finally{reader.releaseLock();}
           const bytes=new Uint8Array(bodyBytes);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
           return {ok:true,data:JSON.parse(new TextDecoder().decode(bytes)),status:response.status};
         }
         const text=await response.text();bodyBytes=new TextEncoder().encode(text).byteLength;state.bytes+=bodyBytes;
-        if(bodyBytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || state.bytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524){state.stop='API_RESPONSE_BYTE_LIMIT';return {ok:false,reason:state.stop};}
+        if(bodyBytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || state.bytes+state.cachedBytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524){state.stop=state.bytes+state.cachedBytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524?'ITEM_API_BYTE_LIMIT':'API_RESPONSE_BYTE_LIMIT';return {ok:false,reason:state.stop};}
         return {ok:true,data:JSON.parse(text),status:response.status};
       })(),new Promise(resolve=>{timer=setTimeout(()=>{controller.abort();resolve({ok:false,reason:'API_REQUEST_TIMEOUT'});},timeoutMs);})]);
       recordFailure(url,result);
@@ -391,7 +492,7 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
       if(result.status===429){state.stop='AUTHORING_API_RATE_LIMITED';return {...result,reason:state.stop};}
       return result;
     }catch(_){const result={ok:false,reason:controller.signal.aborted?'API_REQUEST_TIMEOUT':'API_REQUEST_FAILED'};recordFailure(url,result);return result;}
-    finally{clearTimeout(timer);finishRequest();out.diagnostics.bytes=state.bytes;}
+    finally{clearTimeout(timer);finishRequest();out.diagnostics.bytes=state.bytes;out.diagnostics.elapsedMs=Date.now()-started;}
   }
   function readElements(response,requested){
     if(!response.ok || !response.data || !Array.isArray(response.data.elements))return {ok:false,status:Number(response.status || 0),reason:response.reason || 'INVALID_API_ENVELOPE'};
@@ -414,16 +515,19 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
       else if(resource===inventory.resources.groups)url.searchParams.set('id',key);
       url.searchParams.set('fields',fields+',-writeAccessToken');return url.href;
     }
-    const firstIds=ids.slice(0,CTI_ASSESSMENT_API_BATCH_IDS_V61524),first=await request(urlFor(firstIds,true));
-    const unsupported=[400,404,405,501].includes(first.status);
-    if(unsupported)out.diagnostics.multiGetUnsupported.push(resource.base.split('/').pop());
-    let remaining=ids;
+    let unsupported=multiGetModes.get(resource.base)===false,remaining=ids;
     function accept(read,requested){
       if(!read.ok)return;
       for(const [id,element] of read.elements)found.set(id,element);
       if(!unsupported)for(const id of requested)if(!read.elements.has(id))missing.add(id);
     }
-    if(!unsupported){const read=readElements(first,firstIds);if(first.ok)recordFailure(urlFor(firstIds,true),read);accept(read,firstIds);remaining=ids.slice(firstIds.length);}
+    if(!unsupported){
+      const firstIds=ids.slice(0,CTI_ASSESSMENT_API_BATCH_IDS_V61524),first=await request(urlFor(firstIds,true));
+      unsupported=[400,404,405,501].includes(first.status);
+      if(unsupported){multiGetModes.set(resource.base,false);out.diagnostics.multiGetUnsupported.push(resource.base.split('/').pop());}
+      else{const read=readElements(first,firstIds);if(first.ok)recordFailure(urlFor(firstIds,true),read);accept(read,firstIds);remaining=ids.slice(firstIds.length);
+        if(read.ok)multiGetModes.set(resource.base,true);}
+    }
     const batches=[];
     for(let i=0;i<remaining.length;i+=unsupported?1:CTI_ASSESSMENT_API_BATCH_IDS_V61524)batches.push(remaining.slice(i,i+(unsupported?1:CTI_ASSESSMENT_API_BATCH_IDS_V61524)));
     let cursor=0;
@@ -438,23 +542,84 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
       if(response.ok)recordFailure(url,read);if(read.ok && read.elements.has(id))found.set(id,read.elements.get(id));}}
     await Promise.all(Array.from({length:Math.min(CTI_ASSESSMENT_API_CONCURRENCY_V61524,missingIds.length)},()=>fillMissing()));return found;
   }
-  const groupIds=inventory.candidates.map(c=>c.id),groups=await acquire(inventory.resources.groups,groupIds,'id,scoringWeight,questions,validation');
-  if(out.authenticationFailed){out.stopReason=state.stop;return out;}
-  const supported=new Map(),questionIds=[];
+  const cached=await assessmentApiDefinitionCacheV61531(options.priorEvidence,inventory,fp,options,null,deadline,
+    CTI_ASSESSMENT_API_TOTAL_BYTES_V61524);
+  out.diagnostics.definitionCacheReason=cached.reason;
+  state.cachedBytes=cached.definitionBytes;out.diagnostics.cachedBytes=cached.bytes;
+  const groups=new Map(),definitions=new Map();
+  // Complete useful group -> exact-version definition chunks before moving
+  // on. Reading every group first can spend the entire item deadline without
+  // obtaining a single reusable definition on a single-GET-only server.
+  // Missing validated definitions come first on resume; every group still gets
+  // a fresh GET. Resources execute sequentially, with one shared pool of at
+  // most two requests inside acquire, never two concurrent resource pools.
+  const ordered=[...inventory.candidates].sort((a,b)=>Number(cached.groupVersions.has(a.id))-Number(cached.groupVersions.has(b.id)) || a.ordinal-b.ordinal);
+  for(let offset=0;offset<ordered.length && !state.stop && Date.now()<deadline;){
+    // Probe one batch before committing to larger chunks. On a single-GET
+    // server, interleave just two groups and their definitions after that
+    // first batch, so slow group reads cannot repeatedly starve definitions.
+    const chunkSize=offset===0?CTI_ASSESSMENT_API_BATCH_IDS_V61524:
+      multiGetModes.get(inventory.resources.groups.base)===false?CTI_ASSESSMENT_API_CONCURRENCY_V61524:
+      CTI_ASSESSMENT_API_BATCH_IDS_V61524*(CTI_ASSESSMENT_API_CONCURRENCY_V61524+1);
+    const candidates=ordered.slice(offset,offset+chunkSize),freshGroups=await acquire(inventory.resources.groups,
+      candidates.map(candidate=>candidate.id),'id,scoringWeight,questions,validation');
+    offset+=candidates.length;
+    for(const [id,group] of freshGroups)groups.set(id,group);
+    if(out.authenticationFailed)break;
+    const needed=new Set();
+    for(const candidate of candidates){
+      const group=freshGroups.get(candidate.id);
+      if(!group || !Array.isArray(group.questions) || group.questions.length!==1 || typeof group.questions[0]!=='string' ||
+        !new RegExp('^'+inventory.assignmentId+'~[A-Za-z0-9_-]+@\\d+$').test(group.questions[0]))continue;
+      const id=group.questions[0];if(definitions.has(id))continue;
+      const reusable=cached.groupVersions.get(candidate.id)===id && cached.definitions.get(id);
+      if(reusable && parseCourseraMcqDefinitionV61524(reusable,candidate)){
+        const bytes=new TextEncoder().encode(JSON.stringify(reusable)).byteLength;
+        if(bytes<=CTI_ASSESSMENT_API_BODY_BYTES_V61524 && state.bytes+state.cachedBytes<=CTI_ASSESSMENT_API_TOTAL_BYTES_V61524){
+          definitions.set(id,reusable);out.diagnostics.reusedDefinitions++;continue;
+        }
+      }
+      needed.add(id);
+    }
+    const acquired=await acquire(inventory.resources.questions,[...needed],'id,definition,validation');
+    for(const [id,element] of acquired)definitions.set(id,element);
+  }
+  if(out.authenticationFailed){out.stopReason=state.stop;out.diagnostics.elapsedMs=Date.now()-started;return out;}
+  const supported=new Map();
   for(const candidate of inventory.candidates){
     const group=groups.get(candidate.id);
     if(!group){out.diagnostics.missingGroups.push(candidate.id);continue;}
     if(!Array.isArray(group.questions) || group.questions.length!==1 || typeof group.questions[0]!=='string' ||
       !new RegExp('^'+inventory.assignmentId+'~[A-Za-z0-9_-]+@\\d+$').test(group.questions[0])){out.diagnostics.unsupportedGroups.push(candidate.id);continue;}
-    supported.set(candidate.id,group);questionIds.push(group.questions[0]);
+    supported.set(candidate.id,group);
   }
-  const uniqueQuestionIds=[...new Set(questionIds)],definitions=await acquire(inventory.resources.questions,uniqueQuestionIds,'id,definition,validation');
-  if(out.authenticationFailed){out.stopReason=state.stop;return out;}
   const after=recheckAssessmentApiInventoryV61524(surfaceRoot,fp,options,inventory);
-  if(!after.complete || after.signature!==inventory.signature){out.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';return out;}
-  const questions=[],rawGroups=[],rawDefinitions=[],sanitizedGroups=new Map(),sanitizedDefinitions=new Map();
-  for(const [id,group] of groups){const raw=sanitizeAssessmentApiValueV61524(group,deadline);if(raw){rawGroups.push(raw);sanitizedGroups.set(id,raw);}}
-  for(const [id,element] of definitions){const raw=sanitizeAssessmentApiValueV61524(element,deadline);if(raw){rawDefinitions.push(raw);sanitizedDefinitions.set(id,raw);}}
+  if(!after.complete || after.signature!==inventory.signature){out.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';out.diagnostics.elapsedMs=Date.now()-started;return out;}
+  // Acquisition may have exhausted its deadline after receiving a valid
+  // partial batch. Preserve it within a separate bounded receipt window so a
+  // subsequent renderer can resume exact definitions rather than reread them.
+  const evidenceDeadline=Date.now()+CTI_ASSESSMENT_API_EVIDENCE_MS_V61531;
+  const questions=[],rawGroups=[],rawDefinitions=[],integrityDefinitions=[],sanitizedGroups=new Map(),sanitizedDefinitions=new Map();
+  const retainedGroups=new Map(groups),retainedDefinitions=new Map(definitions);
+  for(const [id,group] of cached.retainedGroups)if(!retainedGroups.has(id))retainedGroups.set(id,group);
+  const retainedReferences=new Set();
+  for(const group of retainedGroups.values())if(Array.isArray(group.questions))for(const id of group.questions)retainedReferences.add(id);
+  for(const [id,element] of cached.retainedDefinitions)if(!retainedDefinitions.has(id) && retainedReferences.has(id))retainedDefinitions.set(id,element);
+  function boundedRaw(value){
+    const raw=sanitizeAssessmentApiValueV61524(value,evidenceDeadline);
+    if(!raw){out.diagnostics.evidenceOmissions++;return null;}
+    const bytes=new TextEncoder().encode(JSON.stringify(raw)).byteLength;
+    if(bytes>CTI_ASSESSMENT_API_BODY_BYTES_V61524 || out.diagnostics.evidenceBytes+bytes>CTI_ASSESSMENT_API_TOTAL_BYTES_V61524){
+      out.diagnostics.evidenceOmissions++;return null;
+    }
+    out.diagnostics.evidenceBytes+=bytes;return raw;
+  }
+  // Carried records preserve previous observed raw evidence across an expired
+  // attempt. They never populate `supported` or the current model unless their
+  // group was freshly GET/read above and its exact version relation rechecked.
+  for(const [id,group] of retainedGroups){const raw=boundedRaw(group);if(raw){rawGroups.push(raw);sanitizedGroups.set(id,raw);}}
+  for(const [id,element] of retainedDefinitions){const raw=boundedRaw(element);if(raw){rawDefinitions.push(raw);sanitizedDefinitions.set(id,raw);
+    if(typeof crypto!=='undefined' && crypto.subtle && Date.now()<evidenceDeadline){const digest=await sha256(JSON.stringify(raw));if(digest)integrityDefinitions.push({id,sha256:digest});}}}
   for(const candidate of inventory.candidates){
     const group=supported.get(candidate.id);if(!group)continue;
     const element=definitions.get(group.questions[0]);
@@ -471,11 +636,19 @@ export async function collectCourseraAssessmentApiV61524(surfaceRoot,fp,options=
   out.captured=coverage.requiredAnswerCoverageComplete===true;
   out.stopReason=out.captured?'COMPLETE_ITEM_BOUND_AUTHORING_API':state.stop || (Date.now()>=deadline?'ITEM_API_DEADLINE':'AUTHORING_API_EVIDENCE_INCOMPLETE');
   out.rawEvidence={method:'OBSERVED_ITEM_BOUND_AUTHORING_GETS',identityMethod:inventory.identityMethod,courseId:String(options.courseId),itemId:String(fp.id),assignmentId:inventory.assignmentId,
-    observedAt:new Date().toISOString(),inventory:inventory.candidates,groups:rawGroups,questionDefinitions:rawDefinitions,resources:inventory.resources};
+    observedAt:new Date().toISOString(),inventory:inventory.candidates,groups:rawGroups,questionDefinitions:rawDefinitions,resources:inventory.resources,
+    freshGroupIds:[...groups.keys()],carriedGroupIds:[...cached.retainedGroups.keys()].filter(id=>!groups.has(id)&&sanitizedGroups.has(id)),
+    carriedDefinitionIds:[...cached.retainedDefinitions.keys()].filter(id=>!definitions.has(id)&&sanitizedDefinitions.has(id))};
+  if(typeof crypto!=='undefined' && crypto.subtle && Date.now()<evidenceDeadline){
+    const inventoryDigest=await sha256(JSON.stringify(inventory.candidates.map(candidate=>[candidate.id,candidate.ordinal])));
+    if(inventoryDigest)out.rawEvidence.cacheIntegrity={version:1,algorithm:'SHA-256',inventorySha256:inventoryDigest,definitions:integrityDefinitions};
+  }
   if(questions.length){out.assessment={schemaVersion:6,parser:'coursera-item-bound-authoring-api-v1',origin:'coursera-authoring-api',
     declaredQuestionCount:inventory.declared,questionCount:questions.length,answerEvidenceQuestionCount:questions.length,questions,
     captureCompleteness:coverage,parserConfidence:out.captured?0.98:0.84,warnings:out.captured?[]:['Item-bound API capture is incomplete; inspect explicit missing identities.']};
-    if(typeof options.onCheckpoint==='function')await options.onCheckpoint(out.assessment,
-      {rawEvidence:out.rawEvidence,diagnostics:out.diagnostics,stopReason:out.stopReason});}
+  }
+  out.diagnostics.elapsedMs=Date.now()-started;
+  if((rawGroups.length || rawDefinitions.length) && typeof options.onCheckpoint==='function')await options.onCheckpoint(out.assessment,
+    {rawEvidence:out.rawEvidence,diagnostics:out.diagnostics,stopReason:out.stopReason});
   return out;
 }
