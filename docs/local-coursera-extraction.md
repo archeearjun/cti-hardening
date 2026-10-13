@@ -80,6 +80,29 @@ chunks save their observations and continue without another global asset pass,
 course-wide normalization or final JSON preparation. Those operations remain
 part of the final capture.
 
+From v6.15.33, a deep question field and an unmarked assignment body resolve to
+the same verified assignment boundary before certification and acquisition.
+This addresses the observed Final Assessment's `EDITOR_NOT_CERTIFIED` fallback:
+its sidebar and body shared an ancestor nine levels above the first part, and
+its complete inventory contained 609 unique, visible, ordered group IDs.
+Existing course/item, fresh-editor and global uniqueness checks still apply.
+An ambiguous or reused editor is declined rather than broadened to the page.
+
+If direct definitions remain unsupported, fallback can use a complete observed
+body inventory despite a virtual sidebar displaying only 27 links. It scrolls
+actual unresolved body nodes. A current prompt-only placeholder cannot erase a
+saved explicit key when its ID, ordinal and whitespace-normalized prompt match;
+changed prompt text and newly ready current keys take precedence. IDs alone
+never supply a question or an answer. Resume keeps the original checkpoint
+namespace and its limits; it does not reset a run or delete saved evidence.
+
+The native deep-surface regression reproduces v6.15.32's certification failure
+through the full entry. v6.15.33 captures all 609 synthetic MCQs, raw groups,
+versioned definitions and explicit keys through either supported editor route,
+with zero question clicks and one strictly complete JSON. See the
+[measured regression and limits](extractor-runtime-stability.md) before treating
+fixture timings as a live-course estimate.
+
 Virtual question-list discovery scales to the observed count and scroll
 geometry, within 45 seconds and 420 steps. Exact observed identities, ordinals,
 full coverage and scroll restoration remain required. Group and definition reads

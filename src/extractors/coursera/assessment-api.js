@@ -183,6 +183,61 @@ export function createAssessmentApiSessionCertificateV61525(surfaceRoot,fp,expec
   return {exactItemControl:true,itemId:String(fp.id),courseId:String(expectedCourseId),route:location.href,sidebar:layout.sidebar,content:layout.content};
 }
 
+export function assessmentApiCaptureSurfaceV61533(surfaceRoot,fp,expectedCourseId,exactItemControl,baselineSet) {
+  const diagnostic={status:'DECLINED',reason:'EDITOR_LAYOUT_NOT_OBSERVED',routeKind:'OTHER',
+    exactItemControl:exactItemControl===true,baselineRegions:Number(baselineSet?.size || 0),
+    searchedAncestors:0,layoutFound:false,uniqueLayout:false,freshLayout:false,
+    reusedSidebar:false,reusedContent:false,baselineOverlaps:0,layoutMethod:''};
+  const out={surfaceRoot,routeCertified:false,sessionCertificate:null,diagnostic};
+  if(!fp || !fp.id || location.origin!=='https://www.coursera.org' ||
+    String(expectedCourseId || '')!==courseId()){
+    diagnostic.reason='COURSE_ITEM_IDENTITY_NOT_VERIFIED';return out;
+  }
+  const exactRoute=isItemSpecificCourseRoute(location.href,fp,expectedCourseId);
+  const genericRoute=isGenericCourseEditRoute(location.href,expectedCourseId);
+  diagnostic.routeKind=exactRoute?'ITEM_SPECIFIC':genericRoute?'GENERIC_COURSE_EDIT':'OTHER';
+  if(!exactRoute && !genericRoute){diagnostic.reason='EDITOR_ROUTE_NOT_VERIFIED';return out;}
+  if(!exactRoute && exactItemControl!==true){diagnostic.reason='EXACT_ITEM_CONTROL_NOT_VERIFIED';return out;}
+  if(!baselineSet || typeof baselineSet.has!=='function' ||
+    typeof baselineSet[Symbol.iterator]!=='function'){
+    diagnostic.reason='EDITOR_BASELINE_UNAVAILABLE';return out;
+  }
+  // Mutation observation can select a deeply nested question field. Resolve
+  // its assignment boundary once, then use that same bounded surface for the
+  // certificate, API inventory and post-acquisition identity check. Never
+  // discover an unrelated editor elsewhere in the document.
+  const ancestors=[];
+  for(let node=surfaceRoot;node && ancestors.length<24;node=node.parentElement){
+    if(node===document.body || node===document.documentElement)break;
+    ancestors.push(node);
+  }
+  const allowed=new Set(ancestors);let layout=null;
+  for(const node of ancestors){
+    diagnostic.searchedAncestors++;
+    const candidate=assessmentLayoutV61313(node);
+    if(candidate && allowed.has(candidate.root) && candidate.root.contains(surfaceRoot)){
+      layout=candidate;break;
+    }
+  }
+  if(!layout)return out;
+  diagnostic.layoutFound=true;diagnostic.layoutMethod=String(layout.method || 'MARKED_OUTLINE_AND_BODY');
+  diagnostic.uniqueLayout=assessmentApiUniqueLayoutV61525(layout);
+  if(!diagnostic.uniqueLayout){diagnostic.reason='EDITOR_LAYOUT_NOT_UNIQUE';return out;}
+  diagnostic.reusedSidebar=baselineSet.has(layout.sidebar);diagnostic.reusedContent=baselineSet.has(layout.content);
+  for(const region of baselineSet){
+    if(region && typeof region.contains==='function' &&
+      (region.contains(layout.sidebar) || region.contains(layout.content) ||
+      layout.sidebar.contains(region) || layout.content.contains(region)))diagnostic.baselineOverlaps++;
+  }
+  diagnostic.freshLayout=assessmentApiFreshLayoutV61527(layout,baselineSet);
+  if(!diagnostic.freshLayout){diagnostic.reason='EDITOR_LAYOUT_NOT_FRESH';return out;}
+  if(exactRoute)out.routeCertified=assessmentApiRouteEditorCertifiedV61526(layout.root,fp,expectedCourseId,baselineSet);
+  else out.sessionCertificate=createAssessmentApiSessionCertificateV61525(layout.root,fp,expectedCourseId,exactItemControl,baselineSet);
+  if(!out.routeCertified && !out.sessionCertificate){diagnostic.reason='EDITOR_CERTIFICATE_NOT_CREATED';return out;}
+  out.surfaceRoot=layout.root;diagnostic.status='CERTIFIED';diagnostic.reason='VERIFIED_FRESH_ITEM_BOUND_EDITOR';
+  return out;
+}
+
 export function assessmentApiEditorIdentityV61524(surfaceRoot,fp,options={}) {
   const failed={verified:false,method:'',layout:null,reason:options.sessionCertificate?'SESSION_EDITOR_IDENTITY_NOT_VERIFIED':'EDITOR_NOT_CERTIFIED'};
   if(options.certifiedItem!==true && !options.sessionCertificate)return failed;

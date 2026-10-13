@@ -1,5 +1,55 @@
 # Coursera extractor runtime stability
 
+## v6.15.33: one verified assignment boundary and body-based resume
+
+The reported v6.15.32 run repeatedly revisited Final Assessment and displayed
+`EDITOR_NOT_CERTIFIED` while reading questions individually. Read-only live
+diagnostics established one sidebar, no optional content marker, 609 visible
+parts with unique compound IDs, contiguous ordinals 0–608 and a declared count
+of 609. The shared sidebar/body ancestor was nine levels above the first part.
+The earlier 601 card was not evidence of an inventory shrinking during capture.
+
+Entry now resolves its selected deep field to the observed assignment boundary
+before constructing an API certificate. Certification, acquisition and final
+editor observations use that same boundary. The resolver searches at most 24
+ancestors, excludes document roots, and retains existing course/item identity,
+freshness, uniqueness and pinned generic-editor checks. Its safe decision flags
+are included in checkpoints so a declined path can be diagnosed without
+collecting another hour-long run.
+
+Fallback now uses complete observed body IDs and ordinals when the sidebar is
+virtualized. Only actual unresolved parts are scrolled; there are no invented
+navigation links or inferred answers. A matching current prompt-only
+placeholder cannot replace a saved keyed observation. Whitespace-only prompt
+equality protects that precedence; changed operators or non-Latin characters
+invalidate it, and newly ready current keys win. Saved incomplete placeholders
+remain incomplete until an explicit current key is observed.
+
+The native full-entry regression uses synthetic 609-part definitions and a
+deep readonly prompt field with an unmarked body and 27 mounted sidebar links.
+Released revision `b9f9ef1` reproduces `EDITOR_NOT_CERTIFIED`, with no collected
+questions and only the editor's two initial reads. The maintained v6.15.33
+project route produces a strictly complete 609-question JSON in 25,244 ms; the
+generic route does so in 17,590 ms. Both retain 609 raw groups and exact versioned
+definitions, make 84 requests including initial editor reads, and activate zero
+question controls. These measurements include native IndexedDB and the final
+download; fixture API latency is 5 ms and other local checks ran concurrently.
+
+A separate 609-part fallback regression forces API unavailability and exposes
+keys only when actual body nodes scroll into view. It verifies that reloads
+retain saved keys, do not repeat a growing captured prefix, finish in one
+completed item attempt and download one strictly complete JSON. The final local
+check used 25 batches and 582 body hydrations for the 582 initially unresolved
+parts, with zero question clicks. Its routing and
+loading waits are synthetic and accelerated; it is a resume regression, not a
+live-course speed measurement. Mixed supported/unsupported definitions remain
+covered by the existing raw-evidence and interrupted-key checks.
+
+These checks establish the repaired paths, not complete extraction of the
+private course, support for every assessment type, or a universal completion
+deadline. Unsupported definitions still require explicit editor observations.
+Use saved-run resume in the same Chrome profile to adopt the new command.
+
 ## v6.15.32: targeted outline navigation and smaller managed documents
 
 The operator reported a v6.15.31 crash after approximately thirteen items while

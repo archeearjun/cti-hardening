@@ -617,6 +617,7 @@ export function checkpointDiagnosticV61531(diag, fp) {
   function arrayCount(value) {
     return count(Array.isArray(value) ? value.length : value);
   }
+  const certification=diag.authoringAssessmentApiCertification;
   const api = diag.authoringAssessmentApi,
     version = String(diag.version || diag.extractorVersion || "");
   return {
@@ -630,6 +631,17 @@ export function checkpointDiagnosticV61531(diag, fp) {
     strongIdentitySeed: diag.strongIdentitySeed === true,
     routeEditorCertified: diag.routeEditorCertified === true,
     sessionEditorCertified: diag.sessionEditorCertified === true,
+    authoringAssessmentApiCertification:certification && typeof certification==='object'?{
+      status:certification.status==='CERTIFIED'?'CERTIFIED':'DECLINED',
+      reason:/^(?:EDITOR_LAYOUT_NOT_OBSERVED|COURSE_ITEM_IDENTITY_NOT_VERIFIED|EDITOR_ROUTE_NOT_VERIFIED|EXACT_ITEM_CONTROL_NOT_VERIFIED|EDITOR_BASELINE_UNAVAILABLE|EDITOR_LAYOUT_NOT_UNIQUE|EDITOR_LAYOUT_NOT_FRESH|EDITOR_CERTIFICATE_NOT_CREATED|VERIFIED_FRESH_ITEM_BOUND_EDITOR)$/.test(String(certification.reason || ''))?String(certification.reason):'UNRECOGNIZED_DIAGNOSTIC_REASON',
+      routeKind:/^(?:ITEM_SPECIFIC|GENERIC_COURSE_EDIT|OTHER)$/.test(String(certification.routeKind || ''))?String(certification.routeKind):'OTHER',
+      exactItemControl:certification.exactItemControl===true,
+      baselineRegions:count(certification.baselineRegions),searchedAncestors:count(certification.searchedAncestors,24),
+      layoutFound:certification.layoutFound===true,uniqueLayout:certification.uniqueLayout===true,freshLayout:certification.freshLayout===true,
+      reusedSidebar:certification.reusedSidebar===true,reusedContent:certification.reusedContent===true,
+      baselineOverlaps:count(certification.baselineOverlaps),
+      layoutMethod:certification.layoutMethod==='OBSERVED_OUTLINE_AND_ASSOCIATED_BODY'?'OBSERVED_OUTLINE_AND_ASSOCIATED_BODY':'MARKED_OUTLINE_AND_BODY'
+    }:null,
     authoringAssessmentApiStopReason: code(
       diag.authoringAssessmentApiStopReason,
     ),

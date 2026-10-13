@@ -762,3 +762,42 @@ test('unrepresentable historical raw fails closed without replacing the original
  assert.equal(observation.retentionBlocked,'ASSESSMENT_API_HISTORY_SERIALIZATION_FAILED');assert.equal(f.fp.payload.assessmentApiEvidence,prior);
  assert.equal(f.fp.payload.assessmentApiHistoricalEvidence,undefined);
 });
+
+test('a nested mutation surface resolves one fresh item-bound API layout without relaxing stale witnesses',async()=>{
+ for(const route of ['generic','project']){
+  const f=setup(100);delete f.content.attrs['data-testid'];
+  f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/'+(route==='generic'?'edit':'item/project/'+f.fp.id));
+  let nested=f.content;
+  for(let depth=0;depth<15;depth++){const child=new El('div');nested.append(child);nested=child;}
+  assert.equal(f.c.createAssessmentApiSessionCertificateV61525(nested,f.fp,'Assessment_fixture_123',true,new Set()),null);
+  const binding=f.c.assessmentApiCaptureSurfaceV61533(nested,f.fp,'Assessment_fixture_123',true,new Set());
+  assert.equal(binding.diagnostic.status,'CERTIFIED');assert.equal(binding.surfaceRoot,f.envelope);
+  assert.equal(binding.routeCertified,route==='project');assert.equal(Boolean(binding.sessionCertificate),route==='generic');
+  const result=await f.c.collectCourseraAssessmentApiV61524(binding.surfaceRoot,f.fp,{...f.options,
+   certifiedItem:binding.routeCertified,sessionCertificate:binding.sessionCertificate});
+  assert.equal(result.captured,true);assert.equal(result.assessment.questionCount,100);assert.equal(f.clicks(),0);
+  const stale=f.c.assessmentApiCaptureSurfaceV61533(nested,f.fp,'Assessment_fixture_123',true,new Set([f.content]));
+  assert.equal(stale.diagnostic.reason,'EDITOR_LAYOUT_NOT_FRESH');assert.equal(stale.sessionCertificate,null);assert.equal(stale.routeCertified,false);
+  assert.equal(stale.diagnostic.reusedContent,true);assert.equal(stale.diagnostic.baselineOverlaps,1);
+ }
+});
+
+test('API surface binding exposes bounded structural rejection stages without copying question content',()=>{
+ for(const defect of ['weak-control','wrong-course','other-route','missing-baseline','competing-sidebar','stale-part','too-deep']){
+  const f=setup(10);f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/edit');
+  let root=f.content,exact=true,expected='Assessment_fixture_123',baseline=new Set();
+  if(defect==='weak-control')exact=false;
+  if(defect==='wrong-course')expected='another-course';
+  if(defect==='other-route')f.c.location=new URL('https://www.coursera.org/teach/synthetic/Assessment_fixture_123/content/settings');
+  if(defect==='missing-baseline')baseline=null;
+  if(defect==='competing-sidebar')f.c.document.body.append(f.sidebar.cloneNode(true));
+  if(defect==='stale-part')baseline.add(f.content.querySelector('[data-testid="assignment-part-0"]'));
+  if(defect==='too-deep')for(let i=0;i<25;i++){const child=new El('div');root.append(child);root=child;}
+  const result=f.c.assessmentApiCaptureSurfaceV61533(root,f.fp,expected,exact,baseline);
+  const expectedReason={'weak-control':'EXACT_ITEM_CONTROL_NOT_VERIFIED','wrong-course':'COURSE_ITEM_IDENTITY_NOT_VERIFIED',
+   'other-route':'EDITOR_ROUTE_NOT_VERIFIED','missing-baseline':'EDITOR_BASELINE_UNAVAILABLE','competing-sidebar':'EDITOR_LAYOUT_NOT_UNIQUE',
+   'stale-part':'EDITOR_LAYOUT_NOT_FRESH','too-deep':'EDITOR_LAYOUT_NOT_OBSERVED'}[defect];
+  assert.equal(result.diagnostic.reason,expectedReason,defect);assert.equal(result.sessionCertificate,null);assert.equal(result.routeCertified,false);
+  assert(result.diagnostic.searchedAncestors<=24);assert(!JSON.stringify(result.diagnostic).includes('Which result'));
+ }
+});

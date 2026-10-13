@@ -42,7 +42,9 @@
     "test:browser:scale-capture": "node --enable-source-maps tools/browser-coursera-scale-check.mjs",
     "test:browser:mixed-bank": "node --enable-source-maps tools/browser-coursera-mixed-bank-check.mjs",
     "test:browser:outline-target": "node --enable-source-maps tools/browser-coursera-outline-target-check.mjs",
-    "test:browser:reading-recovery": "node --enable-source-maps tools/browser-coursera-reading-recovery-check.mjs"
+    "test:browser:reading-recovery": "node --enable-source-maps tools/browser-coursera-reading-recovery-check.mjs",
+    "test:browser:assessment-surface": "node --enable-source-maps tools/browser-coursera-api-surface-check.mjs",
+    "test:browser:body-fallback": "node --enable-source-maps tools/browser-coursera-body-fallback-check.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

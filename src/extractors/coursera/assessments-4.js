@@ -1,5 +1,5 @@
 import { assessmentDeclaredCountV662, assessmentEnvelopeRootV662, assessmentPartCountV8, assessmentPromptKey_, isAssessmentLikeFingerprintV662, mergeCourseraAssessmentEvidence, questionEvidenceReadyV6138 } from "./assessments-2.js";
-import { ctiGuardOptionEvidence_, parseAssignmentPartDomV665 } from "./assessments-3.js";
+import { ctiGuardOptionEvidence_, parseAssignmentPartDomV665, hydrateAssignmentPartV666, assessmentOutlinePromptAlignedV613 } from "./assessments-3.js";
 import { assessmentLayoutDiagnosticV61318, assessmentTypeKey, emptyAssessmentProbeV61320, exactAssessmentBadgeElements, isAssignmentTextBlockV61321, observedAssignmentLayoutV61319, optionRowForBadge, optionSemanticPartsFromRow, parseCourseraAssessmentTextFallback } from "./assessments.js";
 import { CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_PER_QUESTION_MS, MAX_CAPTURED_RESPONSE_CHARS } from "./config.js";
 import { isItemSpecificCourseRoute } from "./navigation-2.js";
@@ -34,6 +34,88 @@ export function assessmentOutlineCandidatesV613(sidebar, declared, requestedId) 
         label:String(anchor.innerText || anchor.textContent || '').replace(/\s+/g,' ').trim(), targetTestId, dragId});
     }
     return [...found.values()].sort((a,b)=>(a.ordinal || Infinity)-(b.ordinal || Infinity));
+  }
+
+export function assessmentBodyCandidatesV61533(surfaceRoot, fp, pinned) {
+    const out={complete:false,reason:'BODY_INVENTORY_UNAVAILABLE',candidates:[],declared:0};
+    if(!surfaceRoot || !fp || !isAssessmentLikeFingerprintV662(fp))return out;
+    const layout=assessmentLayoutV61313(surfaceRoot);
+    if(!layout || !layout.root || layout.root===document.body || layout.root===document.documentElement ||
+      !layout.sidebar.isConnected || !layout.content.isConnected ||
+      layout.content===document.body || layout.content===document.documentElement ||
+      layout.content.contains(layout.sidebar) || layout.sidebar.contains(layout.content) ||
+      !layout.root.contains(layout.sidebar) || !layout.root.contains(layout.content) ||
+      pinned && (pinned.sidebar!==layout.sidebar || pinned.content!==layout.content))return out;
+    const rails=[...document.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(isVisibleElement);
+    const contents=[...document.querySelectorAll('[data-testid="item-layout-content"]')].filter(isVisibleElement);
+    if(rails.length!==1 || rails[0]!==layout.sidebar ||
+      contents.length && (contents.length!==1 || contents[0]!==layout.content) ||
+      !contents.length && layout.method!=='OBSERVED_OUTLINE_AND_ASSOCIATED_BODY')return out;
+    const declared=assessmentPartCountV8(layout.root);
+    if(!Number.isInteger(declared) || declared<1 || declared>2000)return out;
+    const parts=[...layout.content.querySelectorAll('[data-testid^="assignment-part-"]')];
+    const byId=new Map(),ordinals=new Set(),assignments=new Set();
+    for(const part of parts){
+      const id=String(part.id || ''),identity=id.match(/^([A-Za-z0-9_-]+)~[A-Za-z0-9_-]+$/);
+      const index=String(part.getAttribute('data-testid') || '').match(/^assignment-part-(\d+)$/);
+      const ordinal=index?Number(index[1])+1:0;
+      if(!part.isConnected || !identity || !index || ordinal<1 || ordinal>declared ||
+        byId.has(id) || ordinals.has(ordinal) || document.getElementById(id)!==part){
+        out.reason='AMBIGUOUS_OBSERVED_BODY_INVENTORY';return out;
+      }
+      byId.set(id,{id,ordinal,label:'',href:'',anchor:null,target:part,witness:part,
+        targetTestId:part.getAttribute('data-testid'),observedBody:true,
+        sidebar:layout.sidebar,content:layout.content,layoutRoot:layout.root,inventoryDeclared:declared});
+      ordinals.add(ordinal);assignments.add(identity[1]);
+    }
+    if(parts.length!==declared || ordinals.size!==declared || assignments.size!==1)return out;
+    // Duplicate DOM IDs elsewhere cannot be accepted as another question's
+    // navigation witness, even when getElementById returns the first copy.
+    const allIds=new Set();
+    for(const node of document.querySelectorAll('[id]'))if(byId.has(node.id)){
+      if(allIds.has(node.id)){out.reason='AMBIGUOUS_OBSERVED_BODY_INVENTORY';return out;}
+      allIds.add(node.id);
+    }
+    const live=assessmentOutlineCandidatesV613(layout.sidebar,declared);
+    if(!live.length)return out;
+    for(const candidate of live){
+      const part=byId.get(candidate.id);
+      if(!part || part.ordinal!==candidate.ordinal){out.reason='AMBIGUOUS_OBSERVED_BODY_INVENTORY';return out;}
+      part.label=candidate.label;part.href=candidate.href;part.anchor=candidate.anchor;part.dragId=candidate.dragId;
+    }
+    // This is navigation inventory, not a question/answer model. Body IDs and
+    // explicit indices do not certify prompts, keys or saved definition versions.
+    out.complete=true;out.reason='COMPLETE_OBSERVED_BODY_PART_INVENTORY';out.declared=declared;
+    out.sidebar=layout.sidebar;out.content=layout.content;out.root=layout.root;
+    out.candidates=[...byId.values()].sort((a,b)=>a.ordinal-b.ordinal);return out;
+  }
+
+export async function hydrateObservedBodyQuestionV61533(candidate, fp, deadline) {
+    const out={target:null,question:null,clicked:false,scrolled:false,stopReason:'BODY_WITNESS_NOT_CURRENT'};
+    if(!candidate || candidate.observedBody!==true || !fp || !isAssessmentLikeFingerprintV662(fp))return out;
+    const current=()=>{
+      const target=document.getElementById(candidate.id),sidebar=candidate.sidebar,content=candidate.content,root=candidate.layoutRoot;
+      if(!target || !sidebar?.isConnected || !content?.isConnected || !root?.isConnected ||
+        !root.contains(sidebar) || !root.contains(content) || content.contains(sidebar) || sidebar.contains(content) ||
+        !content.contains(target) || sidebar.contains(target) || !isVisibleElement(content) || !isVisibleElement(target) ||
+        target.getAttribute('data-testid')!=='assignment-part-'+(candidate.ordinal-1) ||
+        assessmentPartCountV8(root)!==candidate.inventoryDeclared)return null;
+      const rails=[...document.querySelectorAll('[data-testid="item-layout-left-sidebar"]')].filter(isVisibleElement);
+      return rails.length===1 && rails[0]===sidebar?target:null;
+    };
+    let target=current();if(!target)return out;
+    const mounted=parseAssignmentPartDomV665(target,fp,candidate.ordinal,candidate.label);
+    const ready=mounted && assessmentOutlinePromptAlignedV613(candidate.label,mounted.prompt) && questionEvidenceReadyV6138(mounted);
+    if(!ready){
+      // Scroll only the already observed question element. This performs no
+      // control activation, synthetic fragment navigation or authoring write.
+      try{target.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});out.scrolled=true;}catch(_){return out;}
+    }
+    const hydrated=await hydrateAssignmentPartV666({...candidate,anchor:null,href:''},target,deadline);
+    target=current();if(!target || hydrated.target!==target)return out;
+    out.target=target;out.question=hydrated.question;out.parseCount=hydrated.parseCount;
+    out.waitBudget=hydrated.waitBudget;out.stopReason=questionEvidenceReadyV6138(hydrated.question)
+      ?'OBSERVED_BODY_QUESTION_READY':'OBSERVED_BODY_EVIDENCE_INCOMPLETE';return out;
   }
 
 export function assessmentQuestionCheckpointV61518(fp, assessment, observedAt) {

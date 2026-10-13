@@ -1,5 +1,5 @@
 import { createCtiProgressPanelV1 } from "./progress.js";
-import { collectCourseraAssessmentApiV61524, retainAssessmentApiRawEvidenceV61532, createAssessmentApiSessionCertificateV61525, assessmentApiSessionStillCurrentV61525, assessmentApiRouteEditorCertifiedV61526 } from "./assessment-api.js";
+import { collectCourseraAssessmentApiV61524, retainAssessmentApiRawEvidenceV61532, assessmentApiCaptureSurfaceV61533, assessmentApiSessionStillCurrentV61525 } from "./assessment-api.js";
 import { automaticLocalCaptureNeedsContinuationV61519, advanceAutomaticLocalCaptureV61517, resumeAutomaticLocalCaptureV61529 } from "./automatic-local.js";
 import { CTI_CHECKPOINT_SESSION_PREFIX } from "./config.js";
 import { createLocalCaptureSessionV61514, offerCheckpointContinuationV61514, validateSavedCaptureResumeV61515 } from "./runtime.js";
@@ -18,14 +18,14 @@ import { waitForRouteChange, isLikelyWholeOutlineSurface, findRouteScopedItemEdi
 import { scopedWaitBudgetV61321, sessionEndpointContentKey, sessionAtomIsRelationPaired, isVisibleElement, surfaceRoleBonus, isGenericSmartIngestionName, editorSurfaceSignalScore, candidateSurfaceAncestors, snapshotOpenSurfaceRoots, findOpenedEditorSurface, estimateTextCompleteness, cleanDiscussionPromptTextV6612, collectSurfaceBodyText, textWithoutExactBadges, splitCarryDescriptionAndLabel, isObservedWrittenResponseV6138, parseWrittenResponsePartV6136, feedbackCoreV6611, stateSearchBudgetV61313, stateSearchStepV61313, ownStateValueV61313, ctiPlainTextV664, reactFiberForElementV664, findNamedValueV664 } from "./text-and-dom-3.js";
 import { assessmentPromptKey_, mergeCourseraAssessmentEvidence, isAssessmentLikeFingerprintV662, assessmentPartCountV8, assessmentDeclaredCountV662, assessmentEnvelopeRootV662, assessmentQuestionNavCandidatesV662, expandAssessmentContentShellV663, assessmentQuestionDetailRootV662, inferSelectedQuestionTypeV662, questionEvidenceReadyV6138, parseSelectedAssessmentQuestionV662, assessmentCycleKeyV613, mergeQuestionIntoCycleV662 } from "./assessments-2.js";
 import { mergeAssessmentModelIntoCycleV662, safeClickAssessmentQuestionV662, cleanAssignmentOptionFieldV6610, cleanAssignmentOptionAliasesV6610, ctiSeparateJoinedOptionFeedback_, ctiOptionLabelLooksLikeFeedback_, ctiOptionFeedbackRisk_, ctiGuardOptionEvidence_, ctiGuardAssessmentOptionEvidence_, normalizeAssignmentOptionRowsV6610, assignmentEntryTypeFromDomV6611, dropFeedbackPseudoOptionsV6611, parseAssignmentPartDomV665, assignmentPartEvidenceScoreV666, assessmentOutlinePromptAlignedV613, hydrateAssignmentPartV666 } from "./assessments-3.js";
-import { assessmentOutlineCandidatesV613, assessmentQuestionCheckpointV61518, assessmentScrollRootsV613, assessmentOutlineMoreV613, assessmentCaptureCoverageV613, assessmentLayoutV61313, exactAssessmentLayoutV61313, emptyAssessmentSnapshotV61313, assessmentDeadlineV61313, assessmentSurfaceDiagnosticsV61313, assessmentStateSeedsV664, parseOptionStateV664, parseQuestionStateV664, collectReactAssessmentStateV664, assessmentControlDiagnosticsV664, assessmentAnswerEvidenceCountV667, assessmentIsFullyAnswerHydratedV667, assessmentFromCycleMapV667, collectAssessmentSelectionPolicyFromText_, collectCourseraStructuredAssessment } from "./assessments-4.js";
+import { assessmentOutlineCandidatesV613, assessmentBodyCandidatesV61533, hydrateObservedBodyQuestionV61533, assessmentQuestionCheckpointV61518, assessmentScrollRootsV613, assessmentOutlineMoreV613, assessmentCaptureCoverageV613, assessmentLayoutV61313, exactAssessmentLayoutV61313, emptyAssessmentSnapshotV61313, assessmentDeadlineV61313, assessmentSurfaceDiagnosticsV61313, assessmentStateSeedsV664, parseOptionStateV664, parseQuestionStateV664, collectReactAssessmentStateV664, assessmentControlDiagnosticsV664, assessmentAnswerEvidenceCountV667, assessmentIsFullyAnswerHydratedV667, assessmentFromCycleMapV667, collectAssessmentSelectionPolicyFromText_, collectCourseraStructuredAssessment } from "./assessments-4.js";
 import { objectTextV664, exactPointElements, cleanAttachmentDisplayName, collectCourseraAttachmentFacts, courseraControlValue, findLabeledCourseraControlValue, stripCourseraAttachmentBadgesFromLearnerText, detectCourseraIngestionFailure, typedEditorIdentityV61316, typedEditorTitleAnchorsV61316, typedEditorFieldsV61316, typedEditorSurfaceV61316, typedEditorDiagnosticsV61316, typedEditorNameFieldsV61317, typedEditorProductionSurfaceV61317, isDangerousEditorControl, isGlobalChromeElement, countNormalizedOccurrence, clickableAncestor, isStrongItemIdentityNode, interactiveAncestor, elementsAreNear, reactPropsForElement } from "./text-and-dom-4.js";
 import { nativeAssignmentSectionsFromText, trimCourseraAssignmentLearnerText, normalizeAssignmentMetadataV61325, collectCourseraNativeAssignment, retainAssessmentSurfaceEvidenceV6138, assessmentTextReceiptV6146, genericAssessmentTextHeuristicNotApplicableV6146 } from "./assessments-5.js";
 import { itemRowRootForFingerprint } from "./evidence-3.js";
 import { previewHandlerSource, reactSignalsForElement, isDragHandleLike, rowSubtreeInteractionCandidates, editorControlCandidates, snapshotVisibleMenuRoots, visibleMenuEditorAction, makeDirectReactEvent, canDirectInvokeReactControl, invokeDirectReactControl, clearBlockingToasts, dispatchReadOnlyEditorControl, dismissEditorSurfaceSafely, diagnosticQualityScore } from "./text-and-dom-5.js";
 import { MAX_WALK_NODES, MAX_AUTO_DEEP_API_PROBES, MAX_AUTO_DEEP_PAGE_FETCHES, REMOTE_ASSET_FETCH_TIMEOUT_MS, MAX_REMOTE_ASSET_BYTES, MAX_TEXT_SAMPLE, MAX_EXACT_READING_TEXT_V61318, MAX_EMBEDDED_STATE_SCRIPTS, MAX_CAPTURED_RESPONSE_CHARS, ACTIVE_CRAWL_FIXED_OVERHEAD_MS, ACTIVE_CRAWL_PER_TARGET_BUDGET_MS, ACTIVE_CRAWL_MAX_TOTAL_MS, ACTIVE_CRAWL_BASE_BUDGET_MS, CTI_PLUGIN_PRIMARY_MAX_MS, CTI_PLUGIN_RETRY_MAX_MS, CTI_ASSESSMENT_BASE_MS, CTI_ASSESSMENT_PER_QUESTION_MS, CTI_ASSESSMENT_MAX_MS, CTI_ASSESSMENT_ATTEMPT_MAX_MS, CTI_MAX_ITEM_ATTEMPTS, CTI_WHOLE_RUN_MAX_MS, CTI_LOCAL_SUPERVISOR_HEARTBEAT_MS } from "./config.js";
 import { captureContractV6150, captureContractSummaryV6150, compactDiagnosticV6150, createCheckpointManagerV6150, finalCaptureAccountingV6150, checkpointCaptureAccountingV61531 } from "./completion.js";
-javascript:(async function ctiCourseraCaptureV61532() {
+javascript:(async function ctiCourseraCaptureV61533() {
   "use strict";
 
   const CTI_RUN_LOCK_KEY = "__CTI_ITEM_FIDELITY_RUN_LOCK";
@@ -221,12 +221,12 @@ javascript:(async function ctiCourseraCaptureV61532() {
     if(ctiSupervisorTimer)clearInterval(ctiSupervisorTimer);
     reportLocalSupervisorV61522('ERROR',{message:'Reload Coursera before starting another batch in this document.'});
     console.warn("CTI: reload Coursera before starting another batch in this page.");
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61532.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61533.toString()+")();",!localCaptureSession.snapshot().checkpointFailed);
     return;
   }
   const CTI_RUN_TOKEN = "cti-" + nowForLock + "-" + Math.random().toString(36).slice(2);
   window[CTI_RUN_LOCK_KEY] = {
-    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.32"
+    running: true, token: CTI_RUN_TOKEN, startedAt: nowForLock, lastHeartbeatAt:nowForLock, version: "v6.15.33"
   };
   let ctiRunHeartbeat=null;
   function releaseCtiRunLock() {
@@ -236,7 +236,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
       if (current && current.token === CTI_RUN_TOKEN) {
         window[CTI_RUN_LOCK_KEY] = {
           running: false, token: CTI_RUN_TOKEN, startedAt: current.startedAt, lastHeartbeatAt:Date.now(),
-          finishedAt: Date.now(), version: "v6.15.32"
+          finishedAt: Date.now(), version: "v6.15.33"
         };
       }
     } catch (e) {}
@@ -467,10 +467,23 @@ javascript:(async function ctiCourseraCaptureV61532() {
     const priorQuestionIds=new Set((options.seedAssessment?.questions || []).map(q=>q.courseraQuestionId).filter(Boolean));
     const freshMountedIds=new Set((options.mountedAssessment?.questions || []).map(q=>q.courseraQuestionId).filter(id=>id && !priorQuestionIds.has(id)));
     const loadedQuestions=options.loadedAssessment?.questions || [],usedLoaded=new Set();out.loadedModelQuestions=0;
+    const savedSeedIds=new Set(),mountedById=new Map();
+    for(const q of options.mountedAssessment?.questions || [])if(q.courseraQuestionId && q.questionOrdinalObserved)mountedById.set(String(q.courseraQuestionId),q);
     for(const model of [options.seedAssessment,options.mountedAssessment])for(const q of model?.questions || []) {
       if(q.courseraQuestionId && q.questionOrdinalObserved &&
-        (questionEvidenceReadyV6138(q) || options.resumeInProgress===true && String(q.prompt || '').trim()))seeds.set(String(q.courseraQuestionId),q);
+        (questionEvidenceReadyV6138(q) || options.resumeInProgress===true && String(q.prompt || '').trim())){
+        const id=String(q.courseraQuestionId),prior=seeds.get(id);
+        // A current prompt-only placeholder cannot erase durable keyed evidence.
+        // Changed ordinals/prompts and newly ready current keys still win.
+        const keepPrior=prior && questionEvidenceReadyV6138(prior) && !questionEvidenceReadyV6138(q) &&
+          Number(prior.id)===Number(q.id) && String(prior.prompt || '').replace(/\s+/g,' ').trim()===String(q.prompt || '').replace(/\s+/g,' ').trim();
+        if(!keepPrior){seeds.set(id,q);if(model===options.seedAssessment)savedSeedIds.add(id);else savedSeedIds.delete(id);}
+      }
     }
+    const initialBody=assessmentBodyCandidatesV61533(surfaceRoot,fp);
+    const bodyPinned=initialBody.complete?{root:initialBody.root,sidebar:initialBody.sidebar,content:initialBody.content,declared:initialBody.declared}:null;
+    const bodyCandidates=initialBody.complete?initialBody.candidates.map(c=>({id:c.id,ordinal:c.ordinal,
+      targetTestId:c.targetTestId,observedBody:true,label:c.label,href:c.href})):[];
     let lastCheckpointQuestions=0,lastCheckpointAt=start,questionCheckpointFailed=false,newObservations=0,questionYieldReason='';
     let idle = 0, turn = 0, stopReason = 'NO_FURTHER_QUESTIONS';
     function chooseLoaded(candidate){
@@ -488,13 +501,22 @@ javascript:(async function ctiCourseraCaptureV61532() {
     function discover(sidebar) {
       const count = assessmentPartCountV8(sidebar);
       declared = Math.max(declared, count);
-      const live = assessmentOutlineCandidatesV613(sidebar, declared);
+      const rail = assessmentOutlineCandidatesV613(sidebar, declared);
+      const liveById=new Map(rail.map(c=>[c.id,c]));
+      if(bodyPinned && bodyPinned.sidebar===sidebar && bodyPinned.content.isConnected && bodyPinned.root.isConnected &&
+        assessmentPartCountV8(bodyPinned.root)===bodyPinned.declared){
+        for(const candidate of bodyCandidates)if(!liveById.has(candidate.id)){
+          const mounted=mountedById.get(candidate.id),label=mounted && Number(mounted.id)===candidate.ordinal?String(mounted.prompt || ''):'';
+          liveById.set(candidate.id,{...candidate,label});
+        }
+      }
+      const live=[...liveById.values()].sort((a,b)=>a.ordinal-b.ordinal);
       // Keep diagnostic identity only. Virtualized question DOM must not be
       // retained for the lifetime of a large assessment.
       for (const candidate of live) known.set(candidate.id, {id:candidate.id,ordinal:candidate.ordinal,
         href:candidate.href,label:candidate.label,targetTestId:candidate.targetTestId});
       for(const candidate of live)if(/~textBlock!~/i.test(candidate.id)||isAssignmentTextBlockV61321(candidate.target))textPartOrdinals.add(candidate.ordinal);
-      return live.map(candidate=>({id:candidate.id,ordinal:candidate.ordinal,href:candidate.href,label:candidate.label,dragId:candidate.dragId}));
+      return live.map(candidate=>({id:candidate.id,ordinal:candidate.ordinal,href:candidate.href,label:candidate.label,dragId:candidate.dragId,observedBody:candidate.observedBody===true}));
     }
     function currentQuestions() { return [...questions.values()].sort((a,b)=>Number(a.id)-Number(b.id)); }
     function complete() { return assessmentCaptureCoverageV613(currentQuestions(), Math.max(0,declared-textPartOrdinals.size),'',{declaredContentParts:declared,nonQuestionPartOrdinals:[...textPartOrdinals]}).requiredAnswerCoverageComplete; }
@@ -532,7 +554,9 @@ javascript:(async function ctiCourseraCaptureV61532() {
   // CTI_PROGRESS_END
           if(textPartOrdinals.has(candidate.ordinal))continue;
           const seed=seeds.get(candidate.id);
-          if(!questions.has(candidate.id) && seed && Number(seed.id)===candidate.ordinal && assessmentOutlinePromptAlignedV613(candidate.label,seed.prompt)) {
+          if(!questions.has(candidate.id) && seed && Number(seed.id)===candidate.ordinal &&
+            (!candidate.observedBody || String(candidate.label || '').trim().length>=18) &&
+            assessmentOutlinePromptAlignedV613(candidate.label,seed.prompt)) {
             questions.set(candidate.id,JSON.parse(JSON.stringify(seed)));reusedQuestions++;
             const loaded=chooseLoaded(candidate);if(loaded){usedLoaded.add(loaded);retainLoadedMedia(loaded);}
             if(freshMountedIds.has(candidate.id)){
@@ -548,7 +572,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
             // An earlier observation from this unfinished visit already spent
             // its loading wait. Keep missing answers explicit and move forward;
             // a later recovery attempt can inspect them again.
-            if(!questionEvidenceReadyV6138(seed) && options.resumeInProgress===true)attempts.set(candidate.id,2);
+            if(!questionEvidenceReadyV6138(seed) && options.resumeInProgress===true && savedSeedIds.has(candidate.id))attempts.set(candidate.id,2);
           }
           // Bind loaded definitions to live outline identities and ordinals.
           // Array positions alone do not prove a Coursera question's position.
@@ -567,11 +591,14 @@ javascript:(async function ctiCourseraCaptureV61532() {
           if (Number(attempts.get(candidate.id) || 0) >= 2) continue;
           // A prior activation may have virtualized this row away. Rediscover it
           // before clicking; detached cached nodes are not navigation controls.
-          const fresh = assessmentOutlineCandidatesV613(liveSidebar(),declared,candidate.id).find(c=>c.id===candidate.id);
+          const railFresh=assessmentOutlineCandidatesV613(liveSidebar(),declared,candidate.id).find(c=>c.id===candidate.id);
+          const fresh=railFresh || candidate.observedBody && bodyPinned && { ...candidate,
+            target:document.getElementById(candidate.id),witness:document.getElementById(candidate.id),
+            sidebar:bodyPinned.sidebar,content:bodyPinned.content,layoutRoot:bodyPinned.root,inventoryDeclared:bodyPinned.declared };
           if (!fresh) continue;
           attempts.set(fresh.id, Number(attempts.get(fresh.id) || 0)+1);
           out.hydrationAttempts++;
-          const hydrated = await hydrateAssignmentPartV666(fresh, fresh.target, deadline);
+          const hydrated = fresh.observedBody?await hydrateObservedBodyQuestionV61533(fresh,fp,deadline):await hydrateAssignmentPartV666(fresh, fresh.target, deadline);
           if (hydrated && hydrated.clicked) out.navigationClicks++;
           const target = hydrated && hydrated.target;
           if (!target || !document.contains(target) || target.id !== fresh.id) continue;
@@ -1125,8 +1152,8 @@ javascript:(async function ctiCourseraCaptureV61532() {
     let crawlStartedAt = Date.now();
 
     const meta = {
-      version: "v6.15.32",
-      buildId: "v6.15.32-targeted-outline-and-durable-recovery-20261013",
+      version: "v6.15.33",
+      buildId: "v6.15.33-bound-assessment-surface-and-body-resume-20261013",
       pass: retryPass ? "retry" : "primary",
       originalUrl: originalUrl,
       startingItemId: startingItemId,
@@ -1334,7 +1361,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
         recordOutlineNavigationV61532(scanTrace);
         const diag = {
           id: String(fp.id || ""),
-          version:"v6.15.32",
+          version:"v6.15.33",
           name: String(fp.name || ""),
           attempt: Number(fp.payload.captureAttempts || (retryPass ? 2 : 1)),
           startedAt:new Date(itemStartedAt).toISOString(),
@@ -1510,6 +1537,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
           handler:String(c.onClickPreview||"").slice(0,180)
         }));
         let openedSurface = null;
+        let assessmentCaptureBoundary = null;
         let assessmentCheckpointYieldReason = '';
         let routeIdHit = false;
         let anyAttempted = false;
@@ -1660,7 +1688,15 @@ javascript:(async function ctiCourseraCaptureV61532() {
   // CTI_PROGRESS_END
 
           diag.assessmentSurface=assessmentSurfaceDiagnosticsV61313(openedSurface.root,fp);
-          const partRoot=assessmentEnvelopeRootV662(openedSurface.root,fp) || openedSurface.root;
+          const apiSurface=assessmentApiCaptureSurfaceV61533(openedSurface.root,fp,courseOrBranchId,
+            strongIdentitySeed && /visible-attribute-id|visible-route-id|stable-id/i.test(identityReason),assessmentSessionBaseline);
+          const assessmentCaptureRoot=apiSurface.surfaceRoot || openedSurface.root;
+          diag.authoringAssessmentApiCertification=apiSurface.diagnostic;
+          if(apiSurface.diagnostic.status==='CERTIFIED'){
+            assessmentCaptureBoundary=assessmentCaptureRoot;
+            openedSurface={...openedSurface,root:assessmentCaptureRoot};
+          }
+          const partRoot=assessmentEnvelopeRootV662(assessmentCaptureRoot,fp) || assessmentCaptureRoot;
           diag.unmarkedChoiceProbes=[...partRoot.querySelectorAll('[data-testid^="assignment-part-"]')].slice(0,12).map((part,i)=>{
             const probe=unmarkedChoiceProbeV61320(part,fp,i+1);
             return {partId:part.id,status:probe.status,reason:probe.reason,controls:probe.controls,labels:probe.labels,
@@ -1672,20 +1708,19 @@ javascript:(async function ctiCourseraCaptureV61532() {
           // it as a second item-scoped view so text-block evidence reaches the
           // native-assignment payload instead of living only in diagnostics.
           if(partRoot!==openedSurface.root)retainAssessmentSurfaceEvidenceV6138(partRoot,fp);
-          const declaredForBudget=Math.max(assessmentDeclaredCountV662(openedSurface.root),Number(fp.payload?.structuredAssessment?.declaredQuestionCount || 0));
+          const declaredForBudget=Math.max(assessmentDeclaredCountV662(assessmentCaptureRoot),Number(fp.payload?.structuredAssessment?.declaredQuestionCount || 0));
           if(declaredForBudget>0){
             const assessmentWork=Math.min(CTI_ASSESSMENT_MAX_MS,Math.max(45000,CTI_ASSESSMENT_BASE_MS+declaredForBudget*CTI_ASSESSMENT_PER_QUESTION_MS));
             itemAttemptDeadline=Math.min(courseAttemptDeadline,Math.max(itemAttemptDeadline,itemStartedAt+Math.min(CTI_ASSESSMENT_ATTEMPT_MAX_MS,60000+assessmentWork)));
             diag.itemAttemptBudgetMs=Math.max(0,itemAttemptDeadline-itemStartedAt);
           }
           const resumeQuestions=fp.payload.assessmentCaptureInProgress?.assessment?.questions || [];
-          const apiSessionCertificate=createAssessmentApiSessionCertificateV61525(openedSurface.root,fp,courseOrBranchId,
-            strongIdentitySeed && /visible-attribute-id|visible-route-id|stable-id/i.test(identityReason),assessmentSessionBaseline);
+          const apiSessionCertificate=apiSurface.sessionCertificate;
           const questionBaseline=new Map(resumeQuestions.map(q=>[q.courseraQuestionId,q.observedAtMs]));
           const observedThisVisit=new Set();let reportedQuestions=0;
-          const routeEditorCertified=assessmentApiRouteEditorCertifiedV61526(openedSurface.root,fp,courseOrBranchId,assessmentSessionBaseline);
+          const routeEditorCertified=apiSurface.routeCertified;
           diag.routeEditorCertified=routeEditorCertified;diag.sessionEditorCertified=Boolean(apiSessionCertificate);
-          const cycle = await collectCourseraAssessmentByQuestionCycleV662(openedSurface.root, fp, {
+          const cycle = await collectCourseraAssessmentByQuestionCycleV662(assessmentCaptureRoot, fp, {
             onApiDiagnostic:(reason,diagnostics)=>{diag.authoringAssessmentApiStopReason=String(reason);diag.authoringAssessmentApi=diagnostics;},
             observedRequests:recorder.observedAssessmentGetsFor(fp),
             sessionCertificate:apiSessionCertificate,
@@ -1732,7 +1767,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
             }:null,
             deadline:Math.min(itemAttemptDeadline,assessmentDeadlineV61313(crawlStartedAt+crawlBudgetMs,targets.length-index-1,declaredForBudget)),
             certifiedItem:routeEditorCertified || strongIdentitySeed && isItemSpecificCourseRoute(location.href,fp,courseOrBranchId)});
-          if(apiSessionCertificate && !assessmentApiSessionStillCurrentV61525(openedSurface.root,fp,courseOrBranchId,apiSessionCertificate)) {
+          if(apiSessionCertificate && !assessmentApiSessionStillCurrentV61525(assessmentCaptureRoot,fp,courseOrBranchId,apiSessionCertificate)) {
             cycle.itemIdentityChanged=true;cycle.stopReason='EDITOR_IDENTITY_CHANGED_DURING_API_CAPTURE';
           }
           if(cycle.pressureYieldReason)assessmentCheckpointYieldReason=String(cycle.pressureYieldReason);
@@ -1763,7 +1798,8 @@ javascript:(async function ctiCourseraCaptureV61532() {
           }
           if (cycle.emptyEditorEvidence) fp.payload.emptyEditorEvidence=cycle.emptyEditorEvidence;
           const refreshed=findCurrentEditorSurface(fp,itemSessionBaseline,strongIdentitySeed);
-          if(refreshed && refreshed.root && refreshed.root.isConnected)openedSurface=refreshed;
+          if(refreshed && refreshed.root && refreshed.root.isConnected)openedSurface=assessmentCaptureBoundary?.isConnected &&
+            assessmentCaptureBoundary.contains(refreshed.root)?{...refreshed,root:assessmentCaptureBoundary}:refreshed;
           diag.questionCycleAttempted = Boolean(cycle && cycle.attempted);
           diag.questionCycleTraversal = cycle && cycle.outlineDomTraversal || null;
           diag.assessmentTextReceipt=retryPass ? null : assessmentTextReceiptV6146(cycle && cycle.assessment,fp);
@@ -2026,7 +2062,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
   // establishes question/choice/key text, never media, behavior or source fidelity.
 
   // CTI_PROGRESS_BEGIN
-  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.32", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
+  ctiProgress = createCtiProgressPanelV1("CTI · Coursera v6.15.33", {key:"__CTI_COURSERA_PROGRESS__",overallStartedAt:automaticLocalPlan?.startedAt});
   ctiProgressUpdateV1({phase:"Read course structure",detail:automaticLocalPlan && automaticLocalPlan.captureMode==='FRESH_FULL_COURSE'?
     "Fresh full-course run: collecting new observations; restoring only this run's progress between reloads.":
     "Finding the course and its authoring outline."});
@@ -2042,7 +2078,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
     return;
   }
 
-  console.log("%cCTI Item Fidelity Extractor v6.15.32", "font-size:18px;font-weight:bold;color:#4F46E5");
+  console.log("%cCTI Item Fidelity Extractor v6.15.33", "font-size:18px;font-weight:bold;color:#4F46E5");
   console.log("Course / branch:", id);
 
   const result = {
@@ -2050,8 +2086,8 @@ javascript:(async function ctiCourseraCaptureV61532() {
     extractedAt: new Date().toISOString(),
     page: { url: location.href, title: document.title, courseId: id },
     meta: {
-      extractor: "CTI Item Fidelity Extractor v6.15.32",
-      buildId: "v6.15.32-targeted-outline-and-durable-recovery-20261013",
+      extractor: "CTI Item Fidelity Extractor v6.15.33",
+      buildId: "v6.15.33-bound-assessment-surface-and-body-resume-20261013",
       observedApiFetchLimit: MAX_OBSERVED_API_FETCHES,
       apiStatus: {},
       observedApiResponsesFetched: 0,
@@ -2572,7 +2608,7 @@ javascript:(async function ctiCourseraCaptureV61532() {
     {checkpointOnly:automaticLocalReload,compactExport:Boolean(automaticLocalPlan)});
   reportLocalSupervisorV61522(automaticLocalReload?'YIELD':'FINISHED',{complete:accounting.complete===true});
   if(localCaptureSession && retainCheckpoint && !automaticLocalPlan){
-    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61532.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
+    offerCheckpointContinuationV61514("javascript:("+ctiCourseraCaptureV61533.toString()+")();",ctiCheckpointManager.available && !localCaptureSession.snapshot().checkpointFailed);
   }
   // CTI_PROGRESS_BEGIN
   const progressGaps = !accounting.complete || !result.fingerprints.length;

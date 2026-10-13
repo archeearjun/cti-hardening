@@ -84,6 +84,10 @@ jobs:
         run: npm run test:browser:response-sample
       - name: Exact versioned quiz definitions with no question rendering
         run: npm run test:browser:assessment-api
+      - name: Deep unmarked assessment surfaces using the full canonical entry
+        run: npm run test:browser:assessment-surface
+      - name: Complete body inventory and saved answer reuse across renderer batches
+        run: npm run test:browser:body-fallback
       - name: Large completed checkpoints, direct readings and virtual quiz capture
         run: npm run test:browser:scale-capture
       - name: Large mixed quiz API evidence with interrupted editor-key recovery

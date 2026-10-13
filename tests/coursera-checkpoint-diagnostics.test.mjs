@@ -25,8 +25,12 @@ async function withCheckpointStore(check) {
 test('question checkpoints retain safe API decisions before the item visit finishes',async()=>{
   await withCheckpointStore(async(manager,records)=>{
     const fp={id:'Synthetic_quiz',name:'Synthetic quiz',typeName:'staffGraded',payload:{captureAttempts:0}};
-    const diagnostic={id:fp.id,attempt:1,completed:false,version:'v6.15.32',strongIdentitySeed:false,
+    const diagnostic={id:fp.id,attempt:1,completed:false,version:'v6.15.33',strongIdentitySeed:false,
       routeEditorCertified:true,sessionEditorCertified:false,
+      authoringAssessmentApiCertification:{status:'CERTIFIED',reason:'VERIFIED_FRESH_ITEM_BOUND_EDITOR',
+        routeKind:'ITEM_SPECIFIC',exactItemControl:true,baselineRegions:4,searchedAncestors:17,
+        layoutFound:true,uniqueLayout:true,freshLayout:true,reusedSidebar:false,reusedContent:false,
+        baselineOverlaps:0,layoutMethod:'OBSERVED_OUTLINE_AND_ASSOCIATED_BODY',prompt:'PRIVATE_QUESTION'},
       authoringAssessmentApiStopReason:'AUTHORING_API_EVIDENCE_INCOMPLETE',
       questionCycleStopReason:'LOCAL_ASSESSMENT_CHECKPOINT_YIELD',
       authoringAssessmentApi:{requests:14,maxConcurrentRequests:2,bytes:12000,rateLimitRetries:0,
@@ -37,8 +41,12 @@ test('question checkpoints retain safe API decisions before the item visit finis
         rawBody:{writeAccessToken:'SECRET_TOKEN'}}};
     assert.equal(await manager.save(fp,diagnostic,'assessment-progress'),true);
     const saved=records[0].diagnostic;
-    assert.equal(saved.extractorVersion,'v6.15.32');assert.equal(saved.routeEditorCertified,true);
+    assert.equal(saved.extractorVersion,'v6.15.33');assert.equal(saved.routeEditorCertified,true);
     assert.equal(saved.strongIdentitySeed,false);assert.equal(saved.sessionEditorCertified,false);
+    assert.deepEqual(saved.authoringAssessmentApiCertification,{status:'CERTIFIED',reason:'VERIFIED_FRESH_ITEM_BOUND_EDITOR',
+      routeKind:'ITEM_SPECIFIC',exactItemControl:true,baselineRegions:4,searchedAncestors:17,
+      layoutFound:true,uniqueLayout:true,freshLayout:true,reusedSidebar:false,reusedContent:false,
+      baselineOverlaps:0,layoutMethod:'OBSERVED_OUTLINE_AND_ASSOCIATED_BODY'});
     assert.equal(saved.authoringAssessmentApiStopReason,'AUTHORING_API_EVIDENCE_INCOMPLETE');
     assert.equal(saved.questionCycleStopReason,'LOCAL_ASSESSMENT_CHECKPOINT_YIELD');
     assert.deepEqual(saved.authoringAssessmentApi,{requests:14,maxConcurrentRequests:2,bytes:12000,rateLimitRetries:0,
@@ -54,6 +62,9 @@ test('checkpoint diagnostics bound counts and reject freeform reasons, versions 
   await withCheckpointStore(async(manager,records)=>{
     const fp={id:'Synthetic_quiz',payload:{captureAttempts:0}};
     await manager.save(fp,{version:'PRIVATE_VERSION',strongIdentitySeed:'yes',routeEditorCertified:1,
+      authoringAssessmentApiCertification:{status:'PRIVATE_STATUS',reason:'PRIVATE_REASON',routeKind:'PRIVATE_ROUTE',
+        exactItemControl:'yes',searchedAncestors:999,baselineRegions:100000,baselineOverlaps:-5,
+        layoutMethod:'PRIVATE_METHOD',root:'PRIVATE_HTML'},
       authoringAssessmentApiStopReason:'PRIVATE_REASON',authoringAssessmentApi:{requests:Infinity,
         maxConcurrentRequests:100000,bytes:-20,rateLimitRetries:2.5,
         failures:Array.from({length:50},()=>({resource:'PRIVATE_RESOURCE',status:10000,reason:'PRIVATE_FAILURE'})),
@@ -61,6 +72,13 @@ test('checkpoint diagnostics bound counts and reject freeform reasons, versions 
     const saved=records[0].diagnostic;
     assert.equal(saved.extractorVersion,'');assert.equal(saved.strongIdentitySeed,false);assert.equal(saved.routeEditorCertified,false);
     assert.equal(saved.authoringAssessmentApiStopReason,'UNRECOGNIZED_DIAGNOSTIC_REASON');
+    assert.equal(saved.authoringAssessmentApiCertification.status,'DECLINED');
+    assert.equal(saved.authoringAssessmentApiCertification.reason,'UNRECOGNIZED_DIAGNOSTIC_REASON');
+    assert.equal(saved.authoringAssessmentApiCertification.routeKind,'OTHER');
+    assert.equal(saved.authoringAssessmentApiCertification.exactItemControl,false);
+    assert.equal(saved.authoringAssessmentApiCertification.searchedAncestors,24);
+    assert.equal(saved.authoringAssessmentApiCertification.baselineRegions,20000);
+    assert.equal(saved.authoringAssessmentApiCertification.baselineOverlaps,0);
     assert.equal(saved.authoringAssessmentApi.requests,0);assert.equal(saved.authoringAssessmentApi.maxConcurrentRequests,100);
     assert.equal(saved.authoringAssessmentApi.bytes,0);assert.equal(saved.authoringAssessmentApi.rateLimitRetries,2);
     assert.equal(saved.authoringAssessmentApi.failures.length,40);
