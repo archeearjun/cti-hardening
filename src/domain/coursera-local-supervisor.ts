@@ -22,7 +22,7 @@ export function startCourseraLocalSupervisor(
   const target=parseCourseraShellUrl(courseUrl);
   if(!/^[A-Za-z0-9_-]{8,100}$/.test(token))throw Error('Invalid supervisor identifier.');
   const now=options.now || Date.now;
-  let status:CourseraSupervisorStatus={state:'WAITING',message:'Paste the copied command in this Coursera tab’s Protocol monitor. Keep both tabs open.',
+  let status:CourseraSupervisorStatus={state:'WAITING',message:'In this Coursera tab’s Protocol monitor, select Main (the Coursera URL) and paste the copied command. Keep both tabs open.',
     recoveries:0,failuresWithoutProgress:0,completeItems:0,savedQuestions:0,phase:'Waiting for command',count:'',note:''};
   let lastHeard=0,paired=false,hidden=false,live=true,recoveryStartedAt:number|null=null;
   const questions=new Map<string,number>();
@@ -74,7 +74,7 @@ export function startCourseraLocalSupervisor(
       const reconnectTimeout=options.reconnectTimeoutMs || (hidden?180000:60000);
       if(now()-recoveryStartedAt>=reconnectTimeout){
         status.phase='Extractor did not reconnect';
-        stop('Coursera reopened, but the extractor did not reconnect. Chrome may have lost its registered command. '+status.savedQuestions+' saved question observations remain in browser checkpoints. Use Resume saved managed run to install a new command, or export saved progress.');
+        stop('Coursera reopened, but the extractor did not reconnect. Chrome may have lost its registered command. '+status.savedQuestions+' saved question observations remain in browser checkpoints. Use Resume saved managed run, select Main (the Coursera URL) in Protocol monitor and paste the new command, or export saved progress.');
       }
       return;
     }

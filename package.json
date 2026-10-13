@@ -44,7 +44,9 @@
     "test:browser:outline-target": "node --enable-source-maps tools/browser-coursera-outline-target-check.mjs",
     "test:browser:reading-recovery": "node --enable-source-maps tools/browser-coursera-reading-recovery-check.mjs",
     "test:browser:assessment-surface": "node --enable-source-maps tools/browser-coursera-api-surface-check.mjs",
-    "test:browser:body-fallback": "node --enable-source-maps tools/browser-coursera-body-fallback-check.mjs"
+    "test:browser:body-fallback": "node --enable-source-maps tools/browser-coursera-body-fallback-check.mjs",
+    "test:browser:registration": "node tools/browser-coursera-registration-check.mjs",
+    "test:browser:reconnect-ui": "node tools/browser-coursera-recovery-ui-check.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

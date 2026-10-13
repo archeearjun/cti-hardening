@@ -92,3 +92,43 @@ test('observer exceptions and mutated UI snapshots do not break acknowledgements
  f.send({event:'PROGRESS',itemId:'quiz',savedQuestions:5});
  assert.equal(f.runtime.snapshot().status.savedQuestions,5);f.runtime.stop();
 });
+
+test('lost-registration resume replaces its stopped popup and keeps confirmed progress while waiting for a new READY',t=>{
+ const f=fixture(t);f.runtime.start(f.child,courseUrl,token);
+ f.send({event:'READY'});f.send({event:'PROGRESS',completeItems:83,savedQuestionsTotal:1428});
+ f.tick(45001);f.tick(60001);
+ assert.equal(f.runtime.snapshot().status.state,'STOPPED');
+ assert.equal(f.runtime.snapshot().status.phase,'Extractor did not reconnect');
+ const replacement=f.makeChild(),nextToken='resume_runtime_token_456';
+ f.runtime.start(replacement.child,courseUrl,nextToken,{resumeExisting:true});
+ assert.equal(f.child.closeCalls,1);assert.equal(replacement.child.closed,false);
+ assert.equal(f.runtime.snapshot().status.state,'WAITING');
+ assert.equal(f.runtime.snapshot().status.completeItems,83);assert.equal(f.runtime.snapshot().status.savedQuestions,1428);
+ f.send({event:'PROGRESS',completeItems:185,savedQuestionsTotal:9999});
+ assert.equal(f.runtime.snapshot().status.state,'WAITING','Old popup receipts cannot start the replacement');
+ assert.equal(f.runtime.snapshot().status.savedQuestions,1428);
+ f.send({event:'READY',token:nextToken},replacement.child);
+ assert.equal(f.runtime.snapshot().status.state,'RUNNING');assert.equal(replacement.acks.length,1);
+ assert.equal(f.runtime.snapshot().status.completeItems,83);assert.equal(f.runtime.snapshot().status.savedQuestions,1428);
+ f.send({event:'PROGRESS',token:nextToken,completeItems:84,savedQuestionsTotal:1450},replacement.child);
+ assert.equal(f.runtime.snapshot().status.completeItems,84);assert.equal(f.runtime.snapshot().status.savedQuestions,1450);
+ f.runtime.stop();
+});
+
+test('fresh and different-course replacements never inherit a stopped run\'s saved counts',t=>{
+ for(const differentCourse of [false,true]){
+  const f=fixture(t);f.runtime.start(f.child,courseUrl,token);
+  f.send({event:'READY'});f.send({event:'PROGRESS',completeItems:83,savedQuestionsTotal:1428});f.runtime.stop();
+  const next=f.makeChild(),nextUrl=differentCourse?courseUrl.replace(courseId,'Other_managed_course_456'):courseUrl;
+  f.runtime.start(next.child,nextUrl,'new_runtime_token_456',{resumeExisting:differentCourse});
+  assert.equal(f.runtime.snapshot().status.completeItems,0);assert.equal(f.runtime.snapshot().status.savedQuestions,0);
+  f.runtime.stop();
+ }
+});
+
+test('starting another run preserves a finished popup containing its final download',t=>{
+ const f=fixture(t);f.runtime.start(f.child,courseUrl,token);f.send({event:'FINISHED',complete:true});
+ assert.equal(f.runtime.snapshot().status.state,'FINISHED');
+ const next=f.makeChild();f.runtime.start(next.child,courseUrl,'next_finished_runtime_456');
+ assert.equal(f.child.closed,false);assert.equal(f.child.closeCalls,0);f.runtime.stop();
+});

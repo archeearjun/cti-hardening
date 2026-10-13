@@ -1,5 +1,32 @@
 # Automatic Coursera capture in local Chrome
 
+## A reopened course with no extractor
+
+The 13 October stopped-run diagnostic showed a live controller connection,
+`registeredSourcePresent: false`, and a saved `RUNNING` plan at 45 batches with
+no stalled-progress count. CTI's receipt showed 83/185 items complete and 1,428
+saved question observations. This confirms that the current document had no
+extractor configuration; it does not establish why that configuration was
+absent. Waiting on that document cannot advance the extraction.
+
+Use **Resume saved managed run** in the same Chrome profile. In the new Coursera
+tab's Protocol monitor, choose **Main (the Coursera URL)** before pasting the
+copied command. **Tab ()** is a browser-only target and has no Page handler.
+CTI now prioritizes Resume for a disconnected run of the selected course,
+retains its confirmed saved counts during reconnection, and closes its stopped
+managed popup when explicitly replacing it. Finished download tabs remain open.
+The canonical checkpoint namespace, run limits and strict completion gates
+are unchanged.
+
+[Chrome's Protocol monitor](https://developer.chrome.com/docs/devtools/protocol-monitor)
+sends commands to the selected target's session. Chromium retains registration
+when the same session reconnects to a renderer, while a new child session
+starts with an empty script map. A persistent debugger client can register a
+script in each new session; an ordinary CTI webpage has no debugger connection
+with which to do this. See the [session boundary and native test](extractor-runtime-stability.md).
+Automatic recovery therefore depends on Chrome retaining its registered page
+session. A stopped reconnect requires explicit registration through Resume.
+
 ## Quiz definitions before question-editor rendering
 
 The reported Technical Drawing capture was too slow to serve as a scalable team

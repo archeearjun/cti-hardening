@@ -74,6 +74,10 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Managed local capture, automatic renderer recovery and loaded question data
         run: npm run test:browser:supervised-capture
+      - name: Native Tab and Page registration across crashes and session replacement
+        run: npm run test:browser:registration
+      - name: Lost-registration recovery controls and checkpoint-preserving resume
+        run: npm run test:browser:reconnect-ui
       - name: Hidden Coursera pause accounting across renderer batches
         run: npm run test:browser:hidden-pause
       - name: Targeted outline navigation with unrelated branches unmounted

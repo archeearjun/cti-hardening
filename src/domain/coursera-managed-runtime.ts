@@ -1,4 +1,5 @@
 import {startCourseraLocalSupervisor, type CourseraSupervisorStatus} from './coursera-local-supervisor.ts';
+import {parseCourseraShellUrl} from './coursera-background-extraction.ts';
 
 type SupervisorManager = ReturnType<typeof startCourseraLocalSupervisor>;
 
@@ -12,7 +13,7 @@ export interface CourseraManagedSnapshot {
 
 export interface CourseraManagedRuntime {
   snapshot(): CourseraManagedSnapshot;
-  start(child: Window, courseUrl: string, token: string): void;
+  start(child: Window, courseUrl: string, token: string, options?: {resumeExisting?:boolean}): void;
   setCommand(command: string): void;
   stop(): void;
   subscribe(listener: (snapshot: CourseraManagedSnapshot) => void): () => void;
@@ -40,15 +41,32 @@ export function getCourseraManagedRuntime(host: Window): CourseraManagedRuntime 
   function publish() { for (const listener of listeners) notify(listener); }
   const runtime: CourseraManagedRuntime = {
     snapshot,
-    start(nextChild, nextCourseUrl, token) {
+    start(nextChild, nextCourseUrl, token, options = {}) {
+      let savedProgress:Pick<CourseraSupervisorStatus,'completeItems'|'savedQuestions'>|null=null;
+      if(options.resumeExisting===true && status?.state==='STOPPED'){
+        try{
+          if(parseCourseraShellUrl(courseUrl).courseId===parseCourseraShellUrl(nextCourseUrl).courseId)
+            savedProgress={completeItems:status.completeItems,savedQuestions:status.savedQuestions};
+        }catch{/* Invalid or different courses cannot supply saved counts. */}
+      }
       manager?.dispose();
       manager = null;
+      // A stopped managed popup is owned by this controller. Explicitly
+      // replacing it should not leave another unused Coursera editor running.
+      // Finished tabs retain their final download for the operator.
+      if(child && child!==nextChild && status?.state==='STOPPED'){
+        try{if(!child.closed)child.close();}catch{}
+      }
       child = nextChild;
       courseUrl = nextCourseUrl;
       command = '';
       status = null;
       manager = startCourseraLocalSupervisor(host, nextChild, nextCourseUrl, token, nextStatus => {
         status = {...nextStatus};
+        if(savedProgress){
+          status.completeItems=Math.max(savedProgress.completeItems,status.completeItems);
+          status.savedQuestions=Math.max(savedProgress.savedQuestions,status.savedQuestions);
+        }
         publish();
       });
       publish();

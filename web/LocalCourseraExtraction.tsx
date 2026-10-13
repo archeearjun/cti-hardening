@@ -70,6 +70,11 @@ export default function LocalCourseraExtraction({
     }
   }, [shellUrl]);
 
+  const resumeRecommended = useMemo(()=>{
+    if(managedStatus?.state!=='STOPPED' || managedStatus.phase!=='Extractor did not reconnect' || !shellTarget)return false;
+    try{return parseCourseraShellUrl(retainedManaged.courseUrl).courseId===shellTarget.courseId;}catch{return false;}
+  },[managedStatus,shellTarget,retainedManaged.courseUrl]);
+
   const reasons = inspection?.verdict.reasons || [];
   const courseMismatch = reasons.some((reason) =>
     reason.startsWith("COURSE_ID_MISMATCH:"),
@@ -106,9 +111,9 @@ export default function LocalCourseraExtraction({
       try {
         await navigator.clipboard.writeText(command);
         setCopyStatus(current.version + (resumeExisting ?
-          " saved-run recovery command copied. Paste into Protocol monitor in the matching Coursera tab. This preserves the stopped run's checkpoint session and limits; it does not create a fresh course capture." : freshRun ?
-          " fresh full-course command copied. Close DevTools, refresh Coursera, reopen Protocol monitor, paste into its bottom command input and press Enter. Keep DevTools open for automatic capture." :
-          " automatic command copied. Paste into Protocol monitor's bottom command input, press Enter, and keep DevTools open."));
+          " saved-run recovery command copied. In the matching Coursera tab’s Protocol monitor, select Main (the Coursera URL), then paste into its command input. This preserves the stopped run's checkpoint session and limits." : freshRun ?
+          " fresh full-course command copied. Close DevTools, refresh Coursera, reopen Protocol monitor, select Main (the Coursera URL), paste into its bottom command input and press Enter. Keep DevTools open for automatic capture." :
+          " automatic command copied. In Protocol monitor, select Main (the Coursera URL), paste into its bottom command input, press Enter, and keep DevTools open."));
       } catch {
         setCopyStatus(freshRun ?
           "Select and copy the full command below. Close DevTools, refresh Coursera, reopen Protocol monitor and paste into its bottom command input." :
@@ -159,7 +164,7 @@ export default function LocalCourseraExtraction({
     // Open synchronously from the click so Chrome's popup policy can allow it.
     const token=crypto.randomUUID(),child=window.open(shellTarget.shellUrl,'cti-local-'+token);
     if(!child){setError('Chrome blocked the Coursera tab. Allow this CTI site to open it, then try again.');return;}
-    managedRuntime.start(child,shellUrl,token);
+    managedRuntime.start(child,shellUrl,token,{resumeExisting});
     if(resumeExisting)setManagedFresh(false);
     void act('Preparing managed capture',async()=>{
       try{
@@ -168,7 +173,7 @@ export default function LocalCourseraExtraction({
           !resumeExisting && !managedFresh && capture && inspection?.resumeAvailable?await readLocalCourseraCaptureFile(capture):undefined,
           {controllerOrigin:window.location.origin,freshRun:!resumeExisting && managedFresh,resumeExisting});
         managedRuntime.setCommand(command);setAutomaticCommand(command);
-        setCopyStatus('Managed command ready. Click Copy managed capture command, then paste into Protocol monitor in the Coursera tab opened by CTI. Keep this Extract page and Coursera DevTools open.');
+        setCopyStatus(current.version+' managed command ready. Click Copy managed capture command, then in the Coursera tab’s Protocol monitor select Main (the Coursera URL) and paste into its command input. Keep this Extract page and Coursera DevTools open.');
       }catch(error){managedRuntime.stop();throw error;}
     });
   }
@@ -176,7 +181,7 @@ export default function LocalCourseraExtraction({
   async function copyManagedCommand(){
     await act('Copying managed command',async()=>{
       setAutomaticCommand(managedCommand);
-      try{await navigator.clipboard.writeText(managedCommand);setCopyStatus('Managed command copied. In the Coursera tab opened by CTI, turn Protocol monitor Record off, clear its log, paste into the bottom command input and press Enter. Keep both tabs and Coursera DevTools open.');}
+      try{await navigator.clipboard.writeText(managedCommand);setCopyStatus('Managed command copied. In the Coursera tab opened by CTI, select Main (the Coursera URL) in Protocol monitor’s target dropdown. Tab () cannot run this Page command. Turn Record off, clear the log, paste into the bottom command input and press Enter. Keep both tabs and Coursera DevTools open.');}
       catch{setCopyStatus('Select and copy the complete managed command below, then paste into the managed Coursera tab’s Protocol monitor.');}
     });
   }
@@ -184,6 +189,15 @@ export default function LocalCourseraExtraction({
   function stopManagedCapture(){
     managedRuntime.stop();
   }
+
+  const openManagedButton=<button className={resumeRecommended?'secondary':undefined}
+    disabled={disabled || !!busy || !shellTarget || managedActive} onClick={()=>openManagedCapture()}>
+    Open managed Coursera tab
+  </button>;
+  const resumeManagedButton=<button className={resumeRecommended?undefined:'secondary'}
+    disabled={disabled || !!busy || !shellTarget || managedActive} onClick={()=>openManagedCapture(true)}>
+    Resume saved managed run
+  </button>;
 
   return (
     <section className="card local-extraction-card">
@@ -244,19 +258,17 @@ export default function LocalCourseraExtraction({
           It can reopen an unresponsive Coursera tab. Saved work resumes only if Chrome retains the registered command.
           CTI stops recovery if the extractor does not reconnect. Keep the connection between these tabs open.</p>
         <p className="hint">Close any earlier extraction tab first. Open the managed tab here,
-          copy its command, and paste once in its Protocol monitor with Record off and the log cleared.
+          copy its command, select <strong>Main (the Coursera URL)</strong> in Protocol monitor’s target dropdown,
+          and paste once with Record off and the log cleared. <strong>Tab ()</strong> cannot run the Page command.
           Keep this Extract page and Coursera DevTools open.</p>
         <label><input type="checkbox" checked={managedFresh} disabled={disabled || !!busy || managedActive}
           onChange={event=>setManagedFresh(event.target.checked)} /> Fresh full-course managed run</label>
         <p className="hint">Use <strong>Resume saved managed run</strong> after a lost connection.
           It preserves that run's checkpoint session and progress. A fresh run starts separate work.</p>
+        {resumeRecommended && <p className="notice">The extractor did not start in Coursera’s reopened document.
+          Resume the saved run to continue its checkpoints. CTI will close the stopped managed tab when it opens the replacement.</p>}
         <div className="action-links">
-          <button disabled={disabled || !!busy || !shellTarget || managedActive} onClick={()=>openManagedCapture()}>
-            Open managed Coursera tab
-          </button>
-          <button className="secondary" disabled={disabled || !!busy || !shellTarget || managedActive} onClick={()=>openManagedCapture(true)}>
-            Resume saved managed run
-          </button>
+          {resumeRecommended?<>{resumeManagedButton}{openManagedButton}</>:<>{openManagedButton}{resumeManagedButton}</>}
           <button className="secondary" disabled={disabled || !!busy || !managedActive || !managedCommand} onClick={()=>void copyManagedCommand()}>
             Copy managed capture command
           </button>

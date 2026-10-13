@@ -1,5 +1,41 @@
 # Coursera extractor runtime stability
 
+## Page-session registration and explicit recovery
+
+The later stopped-run screenshot showed **Extractor did not reconnect**,
+83/185 complete items, 1,428 question observations and one automatic recovery.
+Its read-only diagnostic found no `__CTI_AUTOMATIC_LOCAL_CONFIG__` in the current
+document, a live opener/controller and a stored running plan with 45 batches,
+zero stalled batches and 93 elapsed minutes. The user did not need to refresh
+for this state to occur: the supervisor itself reopens Coursera after a liveness
+timeout. The trigger for the absent registration in that private browser is
+unobserved, and the diagnostic does not establish a failed quiz parser.
+
+The native registration check attaches to a Chrome **Tab** target, then its
+auto-attached **Page** child, matching the browser-side target structure used
+by DevTools. Three genuine renderer crashes produce error code 5 and retain
+the same page-session registration across controller navigation. Deliberately
+detaching and replacing that debugger session then removes the injected marker
+on navigation while localStorage remains intact. The Tab target rejects
+`Page.addScriptToEvaluateOnNewDocument` with method-not-found; registering in
+the replacement Page child restores execution and retains stored progress.
+This injected replacement reproduces the failure class, not its live trigger.
+
+This boundary follows official implementations:
+
+- [Protocol monitor selects a session](https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/panels/protocol_monitor/ProtocolMonitor.ts#L537).
+- [Tab targets have no Page handler](https://github.com/chromium/chromium/blob/main/content/browser/devtools/web_contents_devtools_agent_host.cc#L397).
+- [Page registrations belong to a session](https://github.com/chromium/chromium/blob/main/content/browser/devtools/protocol/page_handler.cc#L768).
+- [A new session starts empty](https://github.com/chromium/chromium/blob/main/content/browser/devtools/devtools_session.cc#L124), while [same-session reattachment transfers state](https://github.com/chromium/chromium/blob/main/content/browser/devtools/devtools_session.cc#L206).
+
+The recovery UI explicitly selects the Main/Coursera target and prioritizes
+checkpoint-preserving Resume. It keeps confirmed saved counts while the new
+command waits for its verified READY handshake and closes the stopped managed
+popup during explicit replacement. Fresh or different-course runs do not
+inherit those counts, and finished tabs retain their final downloads. This
+improves supported recovery; it does not give a webpage the ability to inject
+code into a replacement debugger session by itself.
+
 ## v6.15.33: one verified assignment boundary and body-based resume
 
 The reported v6.15.32 run repeatedly revisited Final Assessment and displayed
