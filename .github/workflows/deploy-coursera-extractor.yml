@@ -12,6 +12,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy-coursera-extractor.yml"
+      - ".github/workflows/cti-checks.yml"
+      - "tools/browser-coursera-*-check.mjs"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +21,9 @@ permissions:
 
 concurrency:
   group: cti-coursera-extractor-production
-  cancel-in-progress: false
+  # A superseded commit can never reach the production mirror after its
+  # browser checks fail. Let the latest verified release replace that wait.
+  cancel-in-progress: true
 
 jobs:
   deploy:
