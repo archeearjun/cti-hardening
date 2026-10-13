@@ -127,6 +127,14 @@ included in this public document.
 
 ## Options under the restrictions
 
+The operator now permits one-time Chrome bookmark setup. A saved bookmark can
+start a program in Coursera's own page context; a CTI hyperlink cannot inject
+into that different origin. The universal **Bookmark course data check** reads
+the two existing course resources without quiz visits and retains sanitized
+original relation models. It is explicitly diagnostic and does not claim that
+the missing full-course API path is implemented. See the
+[setup and remaining prerequisite](local-coursera-extraction.md#bookmark-setup-and-the-full-course-data-prerequisite).
+
 | Option | Fits the restrictions? | What it can improve | Remaining limit |
 | --- | --- | --- | --- |
 | Native XLSX outline | Yes | Fast authoritative structural inventory | Full assessment/content export is unverified |
@@ -223,6 +231,19 @@ editor work; it is not automatically an independent crash supervisor. These
 results do not establish complete item relations or definitions for every
 content type. The real sample separately confirms the two native assessment
 resources described above.
+
+A further native Chromium check exposed an additional lifecycle boundary.
+A callback parsed in the original page and installed with the inherited blank
+tab's `setInterval` ran while that original document was active, then stopped
+after the original page navigated. A directly called retained function remained
+callable; that did not keep timer orchestration alive. An injected renderer crash
+also crashed both same-origin pages in that run. These results rule out claiming
+that simply transplanting the current reload-driven program into a blank tab
+creates a reliable supervisor. They do not rule out a data-only program that
+keeps its defining document active and performs no editor navigation.
+The [HTML script execution rules](https://html.spec.whatwg.org/multipage/webappapis.html#check-if-we-can-run-script)
+and [JavaScript URL navigation rules](https://html.spec.whatwg.org/multipage/browsing-the-web.html#the-javascript:-url-special-case)
+describe the active-document and initiating-origin boundaries.
 
 For unsupported or changed schemas, the bounded response-sample tool observes
 the page's existing fetch/XHR

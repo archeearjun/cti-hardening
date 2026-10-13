@@ -14,6 +14,7 @@ import {
 } from "../src/domain/coursera-local-extraction.ts";
 import type { ExtractorDelivery } from "../src/domain/types.ts";
 import { download } from "./workspace-ui";
+import CourseraBookmarkSetup from "./CourseraBookmarkSetup.tsx";
 
 export default function LocalCourseraExtraction({
   disabled = false,
@@ -248,8 +249,6 @@ export default function LocalCourseraExtraction({
           before copying the extractor or selecting a capture.
         </p>
       )}
-
-
       <div className="section-divider managed-local-capture">
         <h3>Managed capture in local Chrome</h3>
         <p>CTI stays open as the controller while Coursera captures the course.
@@ -282,6 +281,8 @@ export default function LocalCourseraExtraction({
           <p>{managedStatus.count || (managedStatus.completeItems+' items complete · '+managedStatus.savedQuestions+' question observations saved')} · {managedStatus.recoveries} automatic recoveries</p>
         </div>}
       </div>
+
+      <CourseraBookmarkSetup disabled={disabled || !!busy || managedActive} />
 
       <div className="section-divider">
         <h3>Check one open quiz</h3>

@@ -1,5 +1,56 @@
 # Automatic Coursera capture in local Chrome
 
+## Bookmark setup and the full-course data prerequisite
+
+The operator has confirmed that saving a Chrome bookmark once is permitted.
+This allows a user-controlled execution entry into the signed-in Coursera page;
+a button on the different-origin CTI website cannot provide that entry itself.
+It does not establish an editor-free, complete course acquisition path.
+
+**Bookmark course data check** in Extract supplies a universal, self-contained
+bookmark. Drag **CTI course data check** onto Chrome's bookmarks bar, or use
+**Copy bookmark address** and paste it into a new bookmark's URL field. Click
+the saved bookmark on a normal Coursera authoring Content page with the
+extractor stopped. No Console paste, extension, hosted script loader or paid
+browser is required for this diagnostic.
+
+The check makes at most two fixed, same-origin GETs: the current course's
+already-used `authoringCourseMaterials.v1` and `authoringCourses.v2` resources.
+It does not open quiz editors or navigate/reload the page. It stops within one
+minute, with a 20-second limit per request, 2 MiB per body and 6 MiB total. The
+course ID and slug come from the open authoring route; a copied Console variant
+can additionally require an exact expected course. A running extractor blocks
+the check. Recorded item-relation/atom resource paths are metadata only:
+historical performance entries do not prove their course binding and are never
+replayed.
+
+The resulting local diagnostic retains parsed credential-sanitized source
+models, including unknown material/content relation fields that earlier course
+exports discarded. It records the original body's hash and sanitization/limit
+flags; sanitized reserialization is not claimed to be byte-exact raw evidence.
+**Copy check summary** contains aggregate counts and codes. A check with saved
+responses attempts one automatic diagnostic JSON download; **Download course
+data check** provides a manual fallback if Chrome blocks it. The file
+can still contain private course content. Nothing is sent to CTI or another
+server, and `notForCourseAudit: true` prevents accepting it as a course capture.
+
+This check is a development prerequisite, not the requested one-click full
+extractor. The full path still needs verified current course → item → assignment
+→ ordered part relationships and supported content definitions. A real response
+from this check is needed to establish those bindings without guessing resource
+IDs or treating an older quiz inventory as fresh evidence. The maintained
+Protocol monitor extractor and its strict completion gate remain separate.
+
+Delivery tests execute the production-minified bookmark in an isolated context,
+and browser fixtures exercise the actual setup UI, bounded authenticated reads
+and one diagnostic file. This cloud environment's managed Chrome blocks
+JavaScript URLs and bookmark editing. The explicitly opted-in local debugger
+reader test therefore reports `PARTIAL` with `bookmarkExecuted: false`; it does
+not override those policies or certify native bookmark launch. The default
+hosted browser check requires browser-initiated JavaScript URL execution.
+Neither fixture establishes the operator's work-browser permissions or a
+complete authenticated Coursera capture.
+
 ## A reopened course with no extractor
 
 The 13 October stopped-run diagnostic showed a live controller connection,
