@@ -144,31 +144,65 @@ try{
   await component.getByRole('textbox',{name:'CTI course data check bookmark address'}).focus();
   assert.deepEqual(await setup.evaluate(()=>{const text=document.querySelector('.coursera-bookmark-setup textarea');return [text.selectionStart,text.selectionEnd,text.value.length];}),[0,emitted.length,emitted.length]);
 
-  let bookmarkExecuted=true,policyCanaryVerified=false;
+  let bookmarkExecuted=true,policyCanaryVerified=false,noCspCanaryResult;
+  async function boundedNativePoll(read){
+    const deadline=Date.now()+2000;
+    do{
+      if(await read())return true;
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }while(Date.now()<deadline);
+    return false;
+  }
+  async function noCspNavigationCanary(){
+    if(noCspCanaryResult)return noCspCanaryResult;
+    const canary=await context.newPage();
+    try{
+      await canary.goto(origin+'/teach/synthetic/'+courseId+'/content/edit?open=1');
+      const canarySession=await context.newCDPSession(canary);
+      try{
+        const navigation=await canarySession.send('Page.navigate',{url:'javascript:void(window.__CTI_BOOKMARK_NAVIGATION_CANARY=true)',transitionType:'auto_bookmark'});
+        const executed=await boundedNativePoll(()=>canary.evaluate(()=>window.__CTI_BOOKMARK_NAVIGATION_CANARY===true));
+        noCspCanaryResult={errorText:navigation.errorText||null,executed};
+        return noCspCanaryResult;
+      }finally{await canarySession.detach();}
+    }finally{await canary.close();}
+  }
   if(allowPolicyBlockedReaderCheck&&bookmarkSchemeBlockedByManagedPolicy&&process.env.CTI_CHROMIUM_PATH==='/usr/bin/chromium'){
-    const canary=await context.newPage();await canary.goto(origin+'/teach/synthetic/'+courseId+'/content/edit?open=1');
-    const canarySession=await context.newCDPSession(canary);
-    const canaryNavigation=await canarySession.send('Page.navigate',{url:'javascript:void(window.__CTI_BOOKMARK_NAVIGATION_CANARY=true)',transitionType:'auto_bookmark'});
-    assert.equal(canaryNavigation.errorText,'net::ERR_ABORTED');
-    assert.equal(await canary.evaluate(()=>window.__CTI_BOOKMARK_NAVIGATION_CANARY),undefined);
+    const canary=await noCspNavigationCanary();
+    assert.equal(canary.errorText,'net::ERR_ABORTED');assert.equal(canary.executed,false);
     assert.equal(requests.length,0);policyCanaryVerified=true;
-    await canarySession.detach();await canary.close();
   }
   async function invoke(page,frameId){
     const session=await context.newCDPSession(page);
     let nativeDialogObserved=false;
     const observeDialog=()=>{nativeDialogObserved=true;};page.on('dialog',observeDialog);
+    const recentErrors=[];
+    const observeConsole=message=>{
+      if(message.type()==='error')recentErrors.push(message.text().replace(/javascript:[^\s"'<>]*/gi,'javascript:[emitted bookmark]').slice(0,500));
+    };
+    page.on('console',observeConsole);
     // This submits the actual href emitted by the maintained UI to the browser's
     // navigation machinery. It does not execute source with Runtime.evaluate.
-    const navigation=await session.send('Page.navigate',{url:emitted,transitionType:'auto_bookmark',...(frameId?{frameId}:{})});
-    page.off('dialog',observeDialog);
-    const nativeStateObserved=!frameId&&await page.evaluate(()=>Boolean(window.__CTI_COURSERA_COURSE_DATA_PROBE));
+    let navigation,nativeExecutionObserved;
+    try{
+      navigation=await session.send('Page.navigate',{url:emitted,transitionType:'auto_bookmark',...(frameId?{frameId}:{})});
+      // The navigation reply precedes the renderer's javascript URL task on
+      // some builds. Keep the real guard listener and wait for browser-visible
+      // execution evidence, rather than reading state at the IPC reply boundary.
+      nativeExecutionObserved=await boundedNativePoll(async()=>nativeDialogObserved||
+        (!frameId&&await page.evaluate(()=>Boolean(window.__CTI_COURSERA_COURSE_DATA_PROBE))));
+    }finally{page.off('dialog',observeDialog);page.off('console',observeConsole);}
     // javascript: programs returning void do not replace the document. Some
     // browser builds report ERR_ABORTED even after executing the program; use
     // its real state or visible guard alert as execution evidence as well.
-    if(navigation.errorText&&!nativeStateObserved&&!nativeDialogObserved){
+    if(!nativeExecutionObserved){
       if(!policyCanaryVerified||navigation.errorText!=='net::ERR_ABORTED'){
-        await session.detach();throw new Error('Browser rejected emitted bookmark navigation: '+navigation.errorText);
+        const cspDirectives=await page.evaluate(()=>Array.isArray(window.fixtureCspViolations)?window.fixtureCspViolations.slice(-5):[]);
+        const canary=await noCspNavigationCanary();
+        console.error(JSON.stringify({nativeBookmarkFailure:{errorText:navigation.errorText||null,
+          observedProbeState:false,observedGuardDialog:nativeDialogObserved,cspDirectives,
+          recentConsoleErrors:recentErrors.slice(-4),noCspCanary:canary}}));
+        await session.detach();throw new Error('Browser rejected emitted bookmark navigation: '+(navigation.errorText||'no execution evidence within 2 seconds'));
       }
       bookmarkExecuted=false;
       let contextId;
@@ -212,6 +246,10 @@ try{
   await page.goto(origin+'/teach/synthetic/'+courseId+'/content/edit');
   const downloads=[];page.on('download',download=>downloads.push(download));
   const downloading=page.waitForEvent('download');
+  // A strict native-launch failure may occur before a download is possible.
+  // Await this same promise below on success; avoid an orphaned rejection when
+  // the browser closes while reporting the earlier launch failure.
+  void downloading.catch(()=>{});
   const beforeLoads=documentLoads.length,beforeRequests=requests.length;
   const session=await invoke(page),result=await finished(page);
   assert.equal(result.kind,'CTI_COURSERA_COURSE_DATA_CHECK_V1');
