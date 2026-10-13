@@ -72,6 +72,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Managed local capture, automatic renderer recovery and loaded question data
         run: npm run test:browser:supervised-capture
+      - name: Hidden Coursera pause accounting across renderer batches
+        run: npm run test:browser:hidden-pause
       - name: Passive quiz response sample and authenticated lightweight data-tab feasibility
         run: npm run test:browser:response-sample
       - name: Exact versioned quiz definitions with no question rendering

@@ -40,7 +40,11 @@ The original sample contained ten groups and ten definitions, with eight
 previously observed questions gaining explicit keys that were missing from
 their older DOM capture. The later live v6.15.28 quiz check verified all 100
 definitions and keys in 32.772 seconds. That confirms the direct path for this
-quiz; it does not establish whole-course acceptance. An incomplete outline, multiple variants, an unsupported
+quiz. The subsequent live v6.15.29 JSON contains 185 items, with 132 complete
+and 53 unresolved, including 25 unvisited and 28 retryable items. It reports
+31 of 34 assessments complete and 3,144 captured questions, all keyed, against
+3,741 declared. These are partial results; whole-course acceptance remains
+unverified. An incomplete outline, multiple variants, an unsupported
 question type, unavailable responses or conflicting identities keep explicit
 gaps and use the existing observed DOM fallback. The [feasibility assessment](coursera-extraction-feasibility.md)
 details the evidence and remaining boundaries. No extension, local installation
@@ -185,6 +189,45 @@ A durable run that already finished or stopped is reported as an explicit error
 when its old registration runs again. Export saved progress before starting a
 new command; a normal-looking course outline is not evidence that capture resumed.
 
+## Visibility pauses and a run-limit continuation
+
+The live v6.15.29 capture stopped at `LOCAL_CAPTURE_RUN_LIMIT` after 8.2078
+hours of wall time, with 117 batches, zero recorded stalls and zero recoveries.
+Its last document recorded an explicit hidden-tab visibility wait of 5 hours,
+2 minutes and 42 seconds. Waiting for the tab to become visible still consumed
+the automatic renderer-age and eight-hour budgets.
+
+From v6.15.30, those explicitly measured visibility waits are excluded from
+renderer elapsed time and accumulated across documents for the eight-hour
+active-work budget. The original start time and wall-time display remain;
+batch counts, checkpoint identity and the other limits are preserved. This
+does not detect every operating-system sleep interval or keep a computer awake.
+Chrome cannot extract while the machine is asleep. Keep Chrome running and
+the Coursera tab visible when the run should advance.
+
+To continue the terminal v6.15.29 partial capture:
+
+1. Stop the old managed run and refresh CTI to load the current extractor.
+2. In the same Chrome profile, leave **Fresh full-course managed run** unchecked.
+   The ordinary managed command can reuse the retained active browser
+   checkpoint session before its twelve-hour expiry; its new plan then pins
+   that session across subsequent documents. This avoids embedding the large
+   downloaded capture in the command.
+3. Click **Open managed Coursera tab**, then **Copy managed capture command**.
+   Paste the command once into that tab's Protocol monitor with Record off and
+   its log cleared. Keep CTI and the managed tab's DevTools open.
+
+This creates a new bounded run using the saved observations; completed items
+are skipped and missing evidence remains subject to the normal checks.
+**Resume saved managed run** is for continuing an eligible original plan with
+its original limits. It still rejects a terminal `LOCAL_CAPTURE_RUN_LIMIT`
+plan, so use the ordinary managed action for this result. If the earlier
+browser checkpoints are unavailable or expired, select the downloaded JSON
+in **Check the downloaded capture** first and repeat the same nonfresh
+managed action. This validated file import is a fallback; it includes the
+capture in a larger registered command. The downloaded file does not become
+complete merely because the new extractor is installed.
+
 ## Resume after a lost connection or registration
 
 From v6.15.29, first use **Show managed Coursera tab** on CTI's Extract page to
@@ -214,7 +257,7 @@ namespace, start time, batches, evidence progress and safety limits. Completed
 items remain skipped; the old command is superseded. The active checkpoint
 pointer must match the saved plan, including its original fresh owner when
 applicable. An ordinary checkpoint namespace stays pinned across its normal TTL.
-Recovery cannot reset the eight-hour, 500-batch, three-stall or thirty-recovery
+Recovery cannot reset the eight-hour active-work, 500-batch, three-stall or thirty-recovery
 limits, revive unrelated terminal states, or override a live competing capture.
 If a previously started run restores no matching item evidence, it stops before
 editor visits instead of starting fresh. Use the read-only saved-progress export
@@ -339,8 +382,10 @@ Matching observations from the same unfinished visit retain explicit missing
 keys and advance to later questions; a separate recovery attempt can inspect
 those gaps again. Rediscovering a saved prefix does not rewrite it repeatedly.
 
-Three unchanged continuation summaries, 500 batches or eight hours stop a run
-with its raw partial evidence. Normal resume selects a new checkpoint namespace
+Three unchanged continuation summaries, 500 batches or eight hours of active
+work stop a run with its raw partial evidence. From v6.15.30, only explicitly
+measured visibility waits are excluded from that time budget; unobserved sleep
+or other clock gaps remain counted. Normal resume selects a new checkpoint namespace
 after 12 hours; saved rows remain accessible through the recovery command.
 The same course must not be captured concurrently in multiple tabs. A fresh
 heartbeat blocks a second tab; a registration whose browser disappeared can
@@ -379,6 +424,7 @@ profile using a debugging port. This feature does not change that security rule.
 - [MDN window.open](https://developer.mozilla.org/en-US/docs/Web/API/Window/open): window references and opener-isolation policies.
 - [MDN postMessage](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage): verify origin, source and target origin.
 - [Chrome background timers](https://developer.chrome.com/blog/timer-throttling-in-chrome-88): hidden-page heartbeat limits.
+- [MDN Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API): document visibility is an observed browser state; it does not identify every operating-system sleep interval.
 - [Chrome Protocol monitor](https://developer.chrome.com/docs/devtools/protocol-monitor): enabling the panel and sending parameterized `cmd`/`args` JSON commands.
 - [Chrome DevTools Protocol Page domain](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-addScriptToEvaluateOnNewDocument): registration on every new frame, `runImmediately`, and the registration identifier.
 - [Chrome memory problems](https://developer.chrome.com/docs/devtools/memory-problems): heap growth, detached DOM trees and browser Task Manager.

@@ -2,6 +2,33 @@ import { questionEvidenceReadyV6138 } from './assessments-2.js';
 import { canonicalRemoteAssetKeyV614 } from './assets.js';
 
 // Pure controller decisions. The entry point owns browser storage and reloads.
+export function automaticLocalRunTimingV61530(plan,capture,now) {
+  const validWall=typeof now==='number' && Number.isFinite(now) && typeof plan.startedAt==='number' &&
+    Number.isFinite(plan.startedAt) && plan.startedAt>0 && plan.startedAt<=now;
+  const wallElapsedMs=validWall?now-plan.startedAt:0;
+  const storedPause=plan.visibilityPausedMs===undefined?0:plan.visibilityPausedMs;
+  const storedAccountedAt=plan.visibilityPauseAccountedAt===undefined?plan.startedAt:plan.visibilityPauseAccountedAt;
+  const valid=validWall && Number.isSafeInteger(storedPause) && storedPause>=0 && storedPause<=wallElapsedMs &&
+    (storedPause===0 || plan.visibilityPauseAccountedAt!==undefined) &&
+    typeof storedAccountedAt==='number' && Number.isFinite(storedAccountedAt) &&
+    storedAccountedAt>=plan.startedAt && storedAccountedAt<=now &&
+    (plan.visibilityPauseAccountedAt===undefined || storedPause<=storedAccountedAt-plan.startedAt);
+  let visibilityPausedMs=valid?storedPause:0;
+  let visibilityPauseReceiptRejected=false;
+  const observedPause=capture?.meta?.activeSpaCrawl?.visibilityPausedMs;
+  if(valid && observedPause!==undefined && observedPause!==0){
+    const documentStartedAt=typeof capture.extractedAt==='string'?Date.parse(capture.extractedAt):NaN;
+    // Receipt intervals must not overlap an already accounted document. The
+    // liveness updatedAt changes during waits and cannot serve this purpose.
+    if(Number.isSafeInteger(observedPause) && observedPause>0 && Number.isFinite(documentStartedAt) &&
+      documentStartedAt>=storedAccountedAt && documentStartedAt<=now && observedPause<=now-documentStartedAt){
+      visibilityPausedMs=Math.min(wallElapsedMs,visibilityPausedMs+observedPause);
+    }else visibilityPauseReceiptRejected=true;
+  }
+  return {valid,wallElapsedMs,visibilityPausedMs,activeElapsedMs:wallElapsedMs-visibilityPausedMs,
+    visibilityPauseAccountedAt:capture && valid?now:storedAccountedAt,visibilityPauseReceiptRejected};
+}
+
 export function resumeAutomaticLocalCaptureV61529(prior,config,checkpointSession,now) {
   if(!config || typeof config!=='object' || Array.isArray(config) || config.resumeExisting!==true ||
     config.freshRun===true || config.savedCapture!==undefined || config.localResumeCapture!==undefined)
@@ -15,8 +42,8 @@ export function resumeAutomaticLocalCaptureV61529(prior,config,checkpointSession
   if(!(prior.state==='RUNNING' && !prior.reason ||
     prior.state==='FINISHED' && prior.reason==='LOCAL_SUPERVISOR_LINK_UNAVAILABLE'))
     throw Error('Saved run has already ended for a reason that requires review before resuming.');
-  if(typeof now!=='number' || !Number.isFinite(now) || typeof prior.startedAt!=='number' ||
-    !Number.isFinite(prior.startedAt) || prior.startedAt<=0 || prior.startedAt>now || now-prior.startedAt>=8*60*60*1000 ||
+  const timing=automaticLocalRunTimingV61530(prior,null,now);
+  if(!timing.valid || timing.activeElapsedMs>=8*60*60*1000 ||
     !Number.isInteger(prior.batches) || prior.batches<0 || prior.batches>=500 ||
     !Number.isInteger(prior.stalled) || prior.stalled<0 || prior.stalled>=3 ||
     prior.supervisorRecoveries!==undefined && (!Number.isInteger(prior.supervisorRecoveries) ||
@@ -34,6 +61,8 @@ export function resumeAutomaticLocalCaptureV61529(prior,config,checkpointSession
     throw Error('Saved checkpoint namespace does not match the original fresh run.');
   return Object.assign({},prior,{state:'RUNNING',token:config.token,reason:'',updatedAt:now,
     checkpointRunId:namespace,checkpointOwnerToken:owner,resumedFromToken:prior.token,resumedAt:now,
+    visibilityPausedMs:timing.visibilityPausedMs,wallElapsedMs:timing.wallElapsedMs,activeElapsedMs:timing.activeElapsedMs,
+    visibilityPauseAccountedAt:timing.visibilityPauseAccountedAt,
     message:'Resuming the saved run with its original browser checkpoints and limits.'});
 }
 
@@ -93,8 +122,11 @@ export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvai
   const accounting=capture.meta && capture.meta.captureAccounting || {};
   const fingerprints=Array.isArray(capture.fingerprints)?capture.fingerprints:[];
   const progress=automaticLocalEvidenceProgressV61526(plan,capture);
+  const timing=automaticLocalRunTimingV61530(plan,capture,now);
   const next=Object.assign({},plan,{batches:Number(plan.batches || 0)+1,lastProgress:progress.signature,evidenceProgress:progress.record,
-    stalled:progress.advanced?0:Number(plan.stalled || 0)+1,updatedAt:now});
+    stalled:progress.advanced?0:Number(plan.stalled || 0)+1,updatedAt:now,
+    visibilityPausedMs:timing.visibilityPausedMs,wallElapsedMs:timing.wallElapsedMs,activeElapsedMs:timing.activeElapsedMs,
+    visibilityPauseAccountedAt:timing.visibilityPauseAccountedAt,visibilityPauseReceiptRejected:timing.visibilityPauseReceiptRejected});
   let reason='';
   if(capture.meta?.activeSpaCrawl?.authoringApiAccessStopped)reason='AUTHORING_API_ACCESS_REQUIRED';
   else if(capture.meta?.activeSpaCrawl?.authoringApiRateLimited)reason='AUTHORING_API_RATE_LIMITED';
@@ -102,7 +134,7 @@ export function advanceAutomaticLocalCaptureV61517(plan, capture, checkpointAvai
   else if(!retainCheckpoint && !automaticLocalCaptureNeedsContinuationV61519(capture))reason='INVENTORY_FINISHED';
   else if(!checkpointAvailable || checkpointFailed)reason='LOCAL_CHECKPOINT_UNAVAILABLE';
   else if(next.stalled>=3)reason='LOCAL_CAPTURE_NO_PROGRESS';
-  else if(next.batches>=500 || now-Number(plan.startedAt)>=8*60*60*1000)reason='LOCAL_CAPTURE_RUN_LIMIT';
+  else if(next.batches>=500 || !timing.valid || timing.activeElapsedMs>=8*60*60*1000)reason='LOCAL_CAPTURE_RUN_LIMIT';
   next.state=reason?'FINISHED':'RUNNING';
   next.reason=reason;
   next.complete=accounting.complete===true;

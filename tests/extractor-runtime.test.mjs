@@ -63,6 +63,66 @@ test('A large restored course baseline can progress until bounded heap growth',(
   assert.equal(resumed.snapshot().heapGrowthLimitBytes,CTI_LOCAL_HEAP_GROWTH_BYTES);
 });
 
+test('Observed hidden pauses preserve the original clock while item limits count active time',()=>{
+  const f=localSessionFixture();f.session.startItem();
+  const originalStart=f.context.window.__CTI_LOCAL_CAPTURE_RENDERER_SESSION__.startedAt;
+  f.advance(60000);
+  const hiddenMs=5*60*60*1000;f.advance(hiddenMs);
+  assert.equal(f.session.recordVisibilityPause(hiddenMs),hiddenMs);
+  assert.equal(f.context.window.__CTI_LOCAL_CAPTURE_RENDERER_SESSION__.startedAt,originalStart);
+  assert.equal(f.session.beforeItem(),'');
+  const snapshot=f.session.snapshot();
+  assert.equal(snapshot.wallElapsedMs,hiddenMs+60000);assert.equal(snapshot.visibilityPausedMs,hiddenMs);
+  assert.equal(snapshot.elapsedMs,60000);assert.equal(snapshot.activeElapsedMs,60000);
+  f.advance(CTI_LOCAL_BATCH_MAX_MS-60000-1);assert.equal(f.session.beforeItem(),'');
+  f.advance(1);assert.equal(f.session.beforeItem(),'LOCAL_RENDERER_TIME_LIMIT');
+});
+
+test('Question limits count active time and pause receipts survive repeated session creation',()=>{
+  const f=localSessionFixture();f.session.startItem();f.advance(30000);
+  f.advance(180000);assert.equal(f.session.recordVisibilityPause(180000),180000);
+  const repeated=f.context.createLocalCaptureSessionV61514();
+  assert.equal(repeated.snapshot().visibilityPausedMs,180000);assert.equal(repeated.snapshot().activeElapsedMs,30000);
+  f.advance(200000);assert.equal(repeated.recordVisibilityPause(200000),200000);
+  assert.equal(f.session.snapshot().visibilityPausedMs,380000);assert.equal(repeated.afterQuestionCheckpoint(1,false),'');
+  f.advance(CTI_LOCAL_ASSESSMENT_MAX_MS-30000-1);assert.equal(repeated.afterQuestionCheckpoint(0,false),'');
+  f.advance(1);assert.equal(f.session.afterQuestionCheckpoint(0,false),'LOCAL_RENDERER_QUESTION_TIME_LIMIT');
+});
+
+test('Malformed, overlapping and impossible pause receipts cannot erase active time',()=>{
+  const f=localSessionFixture();assert.equal(f.session.recordVisibilityPause(1000),0);
+  f.session.startItem();f.advance(10000);
+  for(const invalid of [undefined,null,'1000',0,-1,NaN,Infinity,1000.5,Number.MAX_SAFE_INTEGER+1,10001]){
+    assert.equal(f.session.recordVisibilityPause(invalid),0);
+  }
+  assert.equal(f.session.snapshot().activeElapsedMs,10000);assert.equal(f.session.snapshot().visibilityPausedMs,0);
+  assert.equal(f.session.recordVisibilityPause(5000),5000);
+  const repeated=f.context.createLocalCaptureSessionV61514();assert.equal(repeated.recordVisibilityPause(5000),0,'An already credited pause cannot be claimed again');
+  f.advance(1000);assert.equal(repeated.recordVisibilityPause(5000),0,'An overlapping interval is not another observed pause');
+  assert.equal(repeated.snapshot().activeElapsedMs,6000);assert.equal(repeated.snapshot().visibilityPausedMs,5000);
+  f.advance(CTI_LOCAL_BATCH_MAX_MS-6000);assert.equal(repeated.beforeItem(),'LOCAL_RENDERER_TIME_LIMIT');
+});
+
+test('Observed pauses cannot reset heap, visit, question-count or checkpoint boundaries',()=>{
+  for(const boundary of ['heap','visits','questions','checkpoint']){
+    const f=localSessionFixture();f.session.startItem();f.advance(1000);
+    assert.equal(f.session.recordVisibilityPause(1000),1000);
+    if(boundary==='heap'){
+      f.context.window.performance.memory.usedJSHeapSize=CTI_LOCAL_HEAP_YIELD_BYTES;
+      assert.equal(f.session.beforeItem(),'LOCAL_RENDERER_HEAP_LIMIT');
+    }else if(boundary==='visits'){
+      for(let n=1;n<CTI_LOCAL_BATCH_MAX_VISITS;n++)f.session.startItem();
+      assert.equal(f.session.beforeItem(),'LOCAL_RENDERER_VISIT_LIMIT');
+    }else if(boundary==='questions'){
+      assert.equal(f.session.afterQuestionCheckpoint(CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,false),'LOCAL_RENDERER_QUESTION_LIMIT');
+    }else{
+      f.session.checkpointWritten(false);assert.equal(f.session.beforeItem(),'LOCAL_CHECKPOINT_UNAVAILABLE');
+    }
+    const reason=f.session.snapshot().yieldReason;f.advance(1000);f.session.recordVisibilityPause(1000);
+    assert.equal(f.context.createLocalCaptureSessionV61514().snapshot().yieldReason,reason);
+  }
+});
+
 function recorderFor(response,limit=1024,overrides={}){
   const nativeFetch=typeof response==='function'?response:async()=>response;
   const context={window:{fetch:nativeFetch},location:{origin:'https://example.test'},

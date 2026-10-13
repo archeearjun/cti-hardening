@@ -1,5 +1,42 @@
 # Coursera extractor runtime stability
 
+## v6.15.30: exclude observed visibility pauses from active budgets
+
+The supplied live v6.15.29 JSON contains 185 course items: 132 complete and
+53 unresolved, including 25 unvisited items and 28 retryable items. It reports
+31 of 34 assessments complete, with 3,144 captured questions against 3,741
+declared; every captured question has an observed key. This is substantial
+partial evidence, not complete course acceptance. The run used 117 batches,
+with zero recorded stalls and zero recoveries, and stopped at
+`LOCAL_CAPTURE_RUN_LIMIT` after 8.2078 hours of wall time. The last document
+alone recorded an explicit hidden-tab visibility wait of 5 hours, 2 minutes
+and 42 seconds.
+
+The extractor already paused while waiting for the Coursera document to become
+visible. In the automatic path, that measured wait still consumed the renderer
+age budget and the eight-hour run budget. v6.15.30 excludes only these explicitly
+observed visibility-wait intervals from renderer elapsed time and accumulates
+them across documents for the eight-hour active-work budget. The original
+`startedAt`, wall-time reporting, batch counts, checkpoint identity and other
+limits remain intact. Returning from a long measured pause no longer spends
+the renderer's work allowance merely because the tab was hidden.
+
+This is not general operating-system sleep detection. A gap in the clock alone
+does not establish a visibility pause, and unobserved sleep is not subtracted.
+The browser cannot execute extraction while the computer is asleep. This change
+does not keep the machine awake or guarantee background execution; keep Chrome
+running and the Coursera tab visible when capture should advance.
+
+The terminal v6.15.29 run remains terminal. To continue its partial observations,
+select its JSON in CTI's **Check the downloaded capture**, leave **Fresh
+full-course managed run** unchecked, and choose **Open managed Coursera tab**.
+Register the newly prepared managed command once. This starts a new bounded
+run that imports the saved observations and skips items already complete.
+**Resume saved managed run** preserves the original plan and limits, so it still
+rejects the old `LOCAL_CAPTURE_RUN_LIMIT` plan. The old file and checkpoint
+observations remain evidence of the earlier run; v6.15.30 does not retroactively
+certify its missing items.
+
 ## v6.15.29: explicitly resume the saved run after a lost registration
 
 The live v6.15.28 quiz check verified 100 definitions and 100 explicit keys in

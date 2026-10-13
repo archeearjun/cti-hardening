@@ -36,6 +36,7 @@
     "test:browser:assessment-progress": "node tools/browser-assessment-progress-check.mjs",
     "test:browser:assessment-slices": "node tools/browser-coursera-assessment-slices-check.mjs",
     "test:browser:supervised-capture": "node --enable-source-maps tools/browser-coursera-supervisor-check.mjs",
+    "test:browser:hidden-pause": "node --enable-source-maps tools/browser-coursera-hidden-pause-check.mjs",
     "test:browser:response-sample": "node --enable-source-maps tools/browser-coursera-response-sample-check.mjs",
     "test:browser:assessment-api": "node --enable-source-maps tools/browser-coursera-assessment-api-check.mjs"
   },

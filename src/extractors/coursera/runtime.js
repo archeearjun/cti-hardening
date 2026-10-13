@@ -24,6 +24,9 @@ export function createLocalCaptureSessionV61514(options = {}) {
   const key="__CTI_LOCAL_CAPTURE_RENDERER_SESSION__";
   const state=window[key] || (window[key]={visits:0,startedAt:0,yieldReason:"",checkpointFailed:false});
   if(!state.questionLimit)state.questionLimit=Math.max(5,Math.min(CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS,Number(options.questionLimit || CTI_LOCAL_ASSESSMENT_MAX_QUESTIONS)));
+  if(!Number.isSafeInteger(state.visibilityPausedMs) || state.visibilityPausedMs<0)state.visibilityPausedMs=0;
+  function wallElapsedMs() {return state.startedAt?Math.max(0,Date.now()-state.startedAt):0;}
+  function activeElapsedMs(wall = wallElapsedMs()) {return Math.max(0,wall-state.visibilityPausedMs);}
   function heapBytes() {
     const bytes=Number(window.performance && window.performance.memory && window.performance.memory.usedJSHeapSize);
     return Number.isFinite(bytes) && bytes>0?bytes:0;
@@ -33,25 +36,33 @@ export function createLocalCaptureSessionV61514(options = {}) {
       if(state.yieldReason)return state.yieldReason;
       if(state.checkpointFailed)state.yieldReason="LOCAL_CHECKPOINT_UNAVAILABLE";
       else if(state.visits>=CTI_LOCAL_BATCH_MAX_VISITS)state.yieldReason="LOCAL_RENDERER_VISIT_LIMIT";
-      else if(state.startedAt && Date.now()-state.startedAt>=CTI_LOCAL_BATCH_MAX_MS)state.yieldReason="LOCAL_RENDERER_TIME_LIMIT";
+      else if(state.startedAt && activeElapsedMs()>=CTI_LOCAL_BATCH_MAX_MS)state.yieldReason="LOCAL_RENDERER_TIME_LIMIT";
       else if(state.visits>0 && heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_LIMIT";
       else if(state.visits>0 && state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason="LOCAL_RENDERER_HEAP_GROWTH_LIMIT";
       return state.yieldReason;
     },
     startItem() { if(!state.startedAt){state.startedAt=Date.now();state.baselineHeapBytes=heapBytes();}state.visits++; },
+    recordVisibilityPause(milliseconds) {
+      if(!state.startedAt || !Number.isSafeInteger(milliseconds) || milliseconds<=0)return 0;
+      const endedAt=Date.now(),startedAt=endedAt-milliseconds;
+      if(startedAt<state.startedAt || startedAt<Number(state.visibilityPauseEndedAt || 0) ||
+        milliseconds>Math.max(0,endedAt-state.startedAt-state.visibilityPausedMs))return 0;
+      state.visibilityPausedMs+=milliseconds;state.visibilityPauseEndedAt=endedAt;return milliseconds;
+    },
     afterQuestionCheckpoint(newQuestions, complete) {
       state.questionObservations=Number(state.questionObservations || 0)+Math.max(0,Number(newQuestions || 0));
       if(complete)return '';
       if(state.checkpointFailed)state.yieldReason='LOCAL_CHECKPOINT_UNAVAILABLE';
       else if(state.questionObservations>=state.questionLimit)state.yieldReason='LOCAL_RENDERER_QUESTION_LIMIT';
-      else if(state.startedAt && Date.now()-state.startedAt>=CTI_LOCAL_ASSESSMENT_MAX_MS)state.yieldReason='LOCAL_RENDERER_QUESTION_TIME_LIMIT';
+      else if(state.startedAt && activeElapsedMs()>=CTI_LOCAL_ASSESSMENT_MAX_MS)state.yieldReason='LOCAL_RENDERER_QUESTION_TIME_LIMIT';
       else if(heapBytes()>=CTI_LOCAL_HEAP_YIELD_BYTES)state.yieldReason='LOCAL_RENDERER_HEAP_LIMIT';
       else if(state.baselineHeapBytes>0 && heapBytes()-state.baselineHeapBytes>=CTI_LOCAL_HEAP_GROWTH_BYTES)state.yieldReason='LOCAL_RENDERER_HEAP_GROWTH_LIMIT';
       return state.yieldReason || '';
     },
     checkpointWritten(saved) { if(saved!==true)state.checkpointFailed=true; },
     snapshot() {
-      return {visits:state.visits,elapsedMs:state.startedAt?Date.now()-state.startedAt:0,
+      const wall=wallElapsedMs(),active=activeElapsedMs(wall);
+      return {visits:state.visits,elapsedMs:active,activeElapsedMs:active,wallElapsedMs:wall,visibilityPausedMs:Math.min(wall,state.visibilityPausedMs),
         questionObservations:Number(state.questionObservations || 0),maxQuestionObservations:state.questionLimit,
         maxVisits:CTI_LOCAL_BATCH_MAX_VISITS,maxMs:CTI_LOCAL_BATCH_MAX_MS,
         observedHeapBytes:heapBytes(),heapYieldBytes:CTI_LOCAL_HEAP_YIELD_BYTES,
