@@ -1,3 +1,5 @@
+import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-file.ts";
+
 export function download(
   name: string,
   value: string | Uint8Array,
@@ -11,10 +13,17 @@ export function download(
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export const json = (value: unknown) => JSON.stringify(value, null, 2);
-export async function inputFile(file: File | null) {
-  return file
-    ? { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) }
-    : undefined;
+export async function inputFile(
+  file: File | null,
+  options: { courseraCapture?: boolean } = {},
+) {
+  if (!file) return undefined;
+  return {
+    name: file.name,
+    ...(options.courseraCapture
+      ? await readCourseraCaptureFileBytes(file)
+      : { bytes: new Uint8Array(await file.arrayBuffer()) }),
+  };
 }
 export function Evidence({ value }: { value: unknown }) {
   return <pre className="evidence-json">{json(value)}</pre>;

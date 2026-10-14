@@ -4,7 +4,7 @@
  */
 export function createDirectDataReaderV1(options = {}) {
   const origin = 'https://www.coursera.org';
-  const defaults = {concurrentRequests:2, bodyBytes:2*1024*1024, totalBytes:64*1024*1024,
+  const defaults = {concurrentRequests:4, bodyBytes:2*1024*1024, totalBytes:64*1024*1024,
     requests:20000, requestMs:30000, durationMs:60*60*1000};
   const limits = {};
   for (const [name, maximum] of Object.entries(defaults)) {

@@ -5,7 +5,8 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { createEngine } from "../src/engine/index.js";
 import { createBrowserServices } from "../src/adapters/browser-services.ts";
-import { reviewCapture } from "../src/domain/capture-review.ts";
+import { reviewCapture, readCaptureReviewFile } from "../src/domain/capture-review.ts";
+import { gzipSync } from "node:zlib";
 import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 
 const require = createRequire(import.meta.url),
@@ -68,6 +69,27 @@ const fixture = () => ({
       payload: { textSample: "" },
     },
   ],
+});
+
+test("capture inspector opens gzip Coursera evidence without changing review decisions", async () => {
+  const original = fixture();
+  const file = new File([gzipSync(Buffer.from(JSON.stringify(original)))], "capture.json.gz");
+  const parsed = await readCaptureReviewFile(file);
+  assert.deepEqual(parsed, original);
+  const raw = reviewCapture(original, file.name, options);
+  const packed = reviewCapture(parsed, file.name, options);
+  assert.deepEqual(packed.findings, raw.findings);
+  assert.deepEqual(packed.counts, raw.counts);
+  assert.deepEqual(packed.traversal, raw.traversal);
+});
+
+test("capture inspector keeps the Brightspace 40 MiB limit while supporting larger Coursera files", async () => {
+  const filler = "x".repeat(40 * 1024 * 1024);
+  const coursera = new File(["{\"schemaVersion\":35,\"fingerprints\":[],\"padding\":\"", filler, "\"}"], "coursera.json");
+  assert(coursera.size > 40 * 1024 * 1024);
+  assert.equal((await readCaptureReviewFile(coursera)).fingerprints.length, 0);
+  const brightspace = new File(["{\"extractor\":\"CTI Brightspace\",\"padding\":\"", filler, "\"}"], "brightspace.json");
+  await assert.rejects(readCaptureReviewFile(brightspace), /Brightspace.*40 MiB/);
 });
 
 test("archived Apps Script reference remains immutable", () => {

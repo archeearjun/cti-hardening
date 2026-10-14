@@ -8,6 +8,7 @@ import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
+  CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
   CTI_DIRECT_DATA_MAX_PARTS_V1,
 } from "../src/extractors/coursera/direct-data-config.js";
 
@@ -332,6 +333,7 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_VERSION_V1,
     CTI_DIRECT_DATA_BUILD_V1,
     CTI_DIRECT_DATA_EXPORT_BYTES_V1,
+    CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
     CTI_DIRECT_DATA_MAX_PARTS_V1,
     location,
     document,
@@ -785,4 +787,42 @@ test("an oversized unpersisted item exports only a fresh lightweight inventory s
   assert.equal(output.fingerprints[0].payload.reading, undefined);
   assert.equal(output.fingerprints[0].captureContract.complete, false);
   assert.equal(output.meta.captureAccounting.complete, false);
+});
+
+test("another bookmark click cannot replace a terminal run while its export is reading saved rows", async () => {
+  const app = harness({
+    readingPayload: (fp) => {
+      fp.payload.oversize = "x".repeat(600 * 1024);
+    },
+  });
+  app.context.CTI_DIRECT_DATA_EXPORT_BYTES_V1 = 512 * 1024;
+  app.execute();
+  await app.idle();
+  assert.equal(app.state().state, "INCOMPLETE");
+  const original = app.state(),
+    readers = app.readers().length,
+    held = deferred(),
+    initialReads = app.metrics.itemReads.length;
+  app.control.holdItemReads = held;
+  original.export();
+  await until(
+    () => app.metrics.itemReads.length > initialReads,
+    "Terminal export did not begin",
+  );
+  assert.equal(original.exporting, true);
+  app.execute();
+  await turn();
+  assert.equal(
+    app.state(),
+    original,
+    "One snapshot owns the global until its export finishes",
+  );
+  assert.equal(
+    app.readers().length,
+    readers,
+    "No new capture may write to the exporting run",
+  );
+  held.resolve();
+  await app.idle();
+  assert.equal(original.exporting, false);
 });

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { saveOriginalContent } from "../src/domain/report-content-store";
 import type { WorkspaceStore } from "../src/domain/workspace-store";
 import type { EvidenceObject } from "../src/domain/workspace-types";
+import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-file.ts";
 
 export default function OriginalContentImport({
   report,
@@ -25,12 +26,13 @@ export default function OriginalContentImport({
         reports, import the same Coursera or Brightspace JSON used for this
         report. CTI verifies the file’s SHA-256; a different extraction belongs
         in a new comparison. Original scores and findings stay unchanged.
+        Compressed Coursera .json.gz downloads open directly.
       </p>
       <label>
         Original extraction JSON
         <input
           type="file"
-          accept=".json,application/json"
+          accept=".json,.json.gz,application/json,application/gzip"
           disabled={busy || !auditId || !store || store.role === "viewer"}
           onChange={async (e) => {
             const file = e.target.files?.[0];
@@ -40,11 +42,7 @@ export default function OriginalContentImport({
             setMessage("");
             setError("");
             try {
-              if (file.size > 40 * 1024 * 1024)
-                throw Error(
-                  "Extraction exceeds the 40 MiB content-import limit.",
-                );
-              const bytes = new Uint8Array(await file.arrayBuffer());
+              const { bytes } = await readCourseraCaptureFileBytes(file);
               const platform = await saveOriginalContent(
                 bytes,
                 report,

@@ -33,7 +33,11 @@ export interface CourseData {
 export interface ComparisonInput {
   course: WorkspaceRecord;
   excel: { name: string; bytes: Uint8Array };
-  json?: { name: string; bytes: Uint8Array };
+  json?: {
+    name: string;
+    bytes: Uint8Array;
+    transport?: import("./coursera-capture-file.ts").CourseraCaptureTransport;
+  };
   brightspace?: { name: string; bytes: Uint8Array };
   recovery?: { name: string; bytes: Uint8Array };
   mode: "raw" | "ops" | "published" | "auto";
@@ -45,6 +49,9 @@ export interface ComparisonInput {
     | "LEGACY_OR_OUTDATED";
 }
 export interface ComparisonOutput {
+  captureTransport?: {
+    json: import("./coursera-capture-file.ts").CourseraCaptureTransport;
+  };
   contentEvidence?: import("./content-evidence.ts").ContentSnapshot;
   ownerContext?: EvidenceObject;
   ingestionCapabilityStatus: string;

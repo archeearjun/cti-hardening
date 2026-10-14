@@ -525,7 +525,7 @@ export default function LocalCourseraExtraction({
           <strong>
             {capture
               ? capture.name
-              : "Choose the Coursera JSON downloaded by the extractor"}
+              : "Choose the Coursera JSON or .json.gz downloaded by the extractor"}
           </strong>
           <span id={captureInputId + "-help"}>
             {capture
@@ -539,7 +539,7 @@ export default function LocalCourseraExtraction({
           id={captureInputId}
           className="visually-hidden-file"
           type="file"
-          accept=".json,application/json"
+          accept=".json,.json.gz,application/json,application/gzip"
           disabled={disabled || !!busy}
           aria-describedby={captureInputId + "-help"}
           onChange={(event) => {

@@ -6,7 +6,10 @@ import {
   parseCourseraShellUrl,
   type CourseraCaptureVerdict,
 } from "./coursera-background-extraction.ts";
+import { readCourseraCaptureFileJson } from "./coursera-capture-file.ts";
 
+// Legacy Protocol commands embed a resume JSON literal. File inspection uses
+// the separate bounded JSON/gzip transport reader below.
 export const MAX_LOCAL_COURSERA_CAPTURE_BYTES = 40 * 1024 * 1024;
 
 export interface LocalCourseraCaptureInspection {
@@ -273,18 +276,7 @@ export function createSavedCourseraCheckpointExportCommand(
 export async function readLocalCourseraCaptureFile(
   file: File,
 ): Promise<unknown> {
-  if (file.size < 1) throw new Error("The selected capture file is empty.");
-  if (file.size > MAX_LOCAL_COURSERA_CAPTURE_BYTES)
-    throw new Error(
-      "The selected Coursera capture exceeds the 40 MiB local inspection limit.",
-    );
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await file.text());
-  } catch {
-    throw new Error("The selected Coursera capture is not valid JSON.");
-  }
-  return parsed;
+  return readCourseraCaptureFileJson(file);
 }
 
 export async function inspectLocalCourseraCaptureFile(

@@ -465,15 +465,60 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
     }
     return result;
   };
-  store.getActiveRun = async () => {
+  function recoverableExportRun(row) {
+    const capture = row.captureMeta?.directDataCapture,
+      budget = row.budget;
+    if (
+      !capture ||
+      capture.mode !== "BOUND_AUTHORING_DRAFT_API" ||
+      capture.version !== 1 ||
+      capture.runId !== row.runId ||
+      capture.materials?.elements?.[0]?.id !== courseId ||
+      !budget ||
+      !budget.limits ||
+      [
+        ["requests", "requests"],
+        ["bytes", "totalBytes"],
+        ["elapsedMs", "durationMs"],
+      ].some(
+        ([used, limit]) =>
+          !Number.isFinite(budget[used]) ||
+          budget[used] <= 0 ||
+          !Number.isFinite(budget.limits[limit]) ||
+          budget.limits[limit] <= budget[used],
+      )
+    )
+      return false;
+    if (capture.stopReason === "DIRECT_CAPTURE_EXPORT_BYTE_LIMIT") return true;
+    // The first released bookmark saved its terminal state before the exporter
+    // assigned stopReason. This exact unfinished legacy shape is recoverable;
+    // completed captures and consumed request/byte/time budgets are not.
+    return Boolean(
+      row.buildId === "v1.0.0-bound-authoring-drafts-20261014" &&
+        !capture.stopReason &&
+        capture.sourceStable === false &&
+        !capture.finalMaterials &&
+        capture.acquisitionComplete !== true &&
+        capture.wholeCourseVerified !== true &&
+        Number.isInteger(row.counts?.processed) &&
+        row.counts.processed > 0 &&
+        Number.isInteger(row.counts?.total) &&
+        row.counts.processed < row.counts.total,
+    );
+  }
+  store.getActiveRun = async (options = {}) => {
     const cutoff = Date.now() - ttlMs;
     return transact("runs", "readonly", (transaction, set, guard) => {
       const index = transaction
         .objectStore("runs")
         .index("courseStateUpdatedAt");
-      let pending = 2,
+      const activeStates =
+        options.recoverExportLimit === true
+          ? ["RUNNING", "PAUSED", "INCOMPLETE"]
+          : ["RUNNING", "PAUSED"];
+      let pending = activeStates.length,
         newest = null;
-      for (const activeState of ["RUNNING", "PAUSED"]) {
+      for (const activeState of activeStates) {
         const request = index.openCursor(
           IDBKeyRange.bound(
             [courseId, activeState, cutoff],
@@ -487,7 +532,9 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
               row = cursor?.value;
             if (
               cursor &&
-              (!sameRun(row, row.runId) || row.state !== activeState)
+              (!sameRun(row, row.runId) ||
+                row.state !== activeState ||
+                (activeState === "INCOMPLETE" && !recoverableExportRun(row)))
             ) {
               cursor.continue();
               return;

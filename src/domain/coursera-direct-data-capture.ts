@@ -1,8 +1,8 @@
 import { courseraDirectDataSource } from "../generated/extractor-sources.js";
 
-export const COURSERA_DIRECT_DATA_CAPTURE_VERSION = "1.0.0";
+export const COURSERA_DIRECT_DATA_CAPTURE_VERSION = "1.1.0";
 export const COURSERA_DIRECT_DATA_CAPTURE_BUILD =
-  "v1.0.0-bound-authoring-drafts-20261014";
+  "v1.1.0-compressed-resumable-drafts-20261014";
 // Chromium Bookmark Manager truncates pasted addresses beyond 500 KiB. The
 // percent-encoded address is ASCII, so its UTF-16 length equals its byte size.
 export const COURSERA_DIRECT_DATA_BOOKMARK_MAX_BYTES = 500 * 1024;

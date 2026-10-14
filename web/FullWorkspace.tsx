@@ -571,7 +571,7 @@ export default function FullWorkspace({
       const input = {
         course,
         excel: (await inputFile(excel))!,
-        json: await inputFile(capture),
+        json: await inputFile(capture, { courseraCapture: true }),
         brightspace: await inputFile(source),
         recovery: await inputFile(recovery),
         mode,
@@ -1486,7 +1486,7 @@ export default function FullWorkspace({
                 />
                 <FileField
                   label="Coursera full capture JSON"
-                  accept=".json"
+                  accept=".json,.json.gz,application/json,application/gzip"
                   file={capture}
                   onChange={setCapture}
                 />
@@ -1494,7 +1494,7 @@ export default function FullWorkspace({
               <p className="hint">
                 Use files from the selected course and the same capture stage.
                 Without a Coursera JSON capture, content evidence will be
-                limited.
+                limited. Compressed .json.gz captures open directly in CTI.
               </p>
               {capture && (
                 <p className="hint" data-testid="selected-coursera-capture">

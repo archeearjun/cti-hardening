@@ -58,7 +58,7 @@ export default function CourseraDirectCaptureSetup({
       <p>
         CTI reads the course outline and supported content directly in your
         signed-in Coursera tab. It saves each item and question group locally,
-        then prepares one final JSON. You can keep DevTools closed. No
+        then prepares one compressed JSON file. You can keep DevTools closed. No
         extension, installation, or paid browser service is required.
       </p>
       <p className="hint">
@@ -84,8 +84,9 @@ export default function CourseraDirectCaptureSetup({
           </span>
         </li>
         <li>
-          <strong>Return the final JSON to CTI.</strong>
+          <strong>Return the final capture to CTI.</strong>
           <span>
+            Select the .json.gz file directly in CTI; no unzipping is needed.
             The progress card offers Download saved capture if Chrome blocks the
             download. Check the file below before using it in Compare. If
             capture is interrupted, reopen the same course’s Content page and
@@ -96,7 +97,9 @@ export default function CourseraDirectCaptureSetup({
       </ol>
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
-        resuming.
+        resuming. If you saved an earlier bookmark, replace its URL with this
+        version once. It can recover the earlier capture that reached the
+        export-size limit and rechecks its saved sources before continuing.
       </p>
       <div className="action-links">
         {!disabled && delivery.address && (

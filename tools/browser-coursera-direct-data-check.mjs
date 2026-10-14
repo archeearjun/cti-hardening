@@ -4,6 +4,7 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
+import {gunzipSync} from 'node:zlib';
 import {chromium} from 'playwright';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
 
@@ -24,12 +25,12 @@ execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',pa
 const groupResource='authoringAssignmentQuestionGroups.v1',definitionResource='authoringAssignmentMachineEvaluableQuestions.v1';
 const resources=new Set(['authoringCourseMaterials.v1','authoringCourses.v2','authoringAtoms.v2','authoringItemContentRelations.v1',groupResource,definitionResource]);
 const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-token'];
-const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map();
+const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),fileSizes=new WeakMap();
 const requests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 function key(prefix,index){return prefix+String(index).padStart(22-prefix.length,'0');}
 function cml(text,dtd='assess/1'){return {typeName:'cml',definition:{dtdId:dtd,value:'<co-content><p>'+text+'</p></co-content>'}};}
 function makeCourse(id,mode,large=false){
-  const items=[],partsCount=large?609:9,contentCount=large?165:mode==='export-limited'?8:3,emptyCount=large?20:1;
+  const items=[],partsCount=large?609:9,contentCount=large?165:mode==='large-export'?8:3,emptyCount=large?20:1;
   const config={id,mode,large,atomGets:new Map(),groupGets:new Map(),materialGets:0,partsCount,contentCount,emptyCount};configs.set(id,config);
   const courseIndex=configs.size;
   for(let index=0;index<contentCount;index++){
@@ -57,7 +58,7 @@ function makeCourse(id,mode,large=false){
       draftContent={typeName:'staffGradedDraft',definition:{name:'Draft '+itemId,parts,configuration:{shuffleQuestions:false},
         introduction:cml('Synthetic introduction'),passingFraction:0.8,reviewCriteria:[],assignmentLevelRubrics:[]}};
     }else if(type==='supplement')draftContent={typeName:'supplementDraft',definition:{name:'Draft '+itemId,
-      content:cml(config.mode==='export-limited'?'Bound large reading '+itemId+' '+'x'.repeat(1400000):
+      content:cml(config.mode==='large-export'?'Bound large reading '+itemId+' '+'x'.repeat(1400000):
         'Bound reading body '+itemId+' café 日本語','supplement/1'),assetId:key('r'+courseIndex+'_',index)+'@2'}};
     else draftContent={typeName:'widgetDraft',definition:{widgetId:'fixture-widget',opaque:{externalBody:'not-fetched'}}};
     const atom={id:atomId,contentId,status:{typeName:'draftAtomStatus',definition:{}},storedAtomVersion:1,
@@ -76,13 +77,14 @@ function makeCourse(id,mode,large=false){
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 const interrupted=makeCourse('Direct_resume_fixture_123','resume');
+const oldCutoff=makeCourse('Direct_old_cutoff_fixture_123','resume');
 const budgetResume=makeCourse('Direct_budget_resume_123','budget-resume');
 const changed=makeCourse('Direct_changed_fixture_123','changed');
 const changedMaterial=makeCourse('Direct_material_change_123','material-changed');
 const changedGroup=makeCourse('Direct_group_change_123','group-changed');
 const authentication=makeCourse('Direct_auth_fixture_123','authentication');
 const limited=makeCourse('Direct_limit_fixture_123','limited');
-const exportLimited=makeCourse('Direct_export_limit_123','export-limited');
+const largeExport=makeCourse('Direct_large_export_123','large-export');
 const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem')),cert:fs.readFileSync(path.join(scratch,'cert.pem'))},(request,response)=>{
   const url=new URL(request.url,origin);
   if(url.pathname==='/favicon.ico'){response.statusCode=204;response.end();return;}
@@ -197,14 +199,19 @@ try{
   }
   async function readFile(download){
     const bytes=fs.readFileSync(await download.path());
-    assert(bytes.byteLength<=32*1024*1024,'The actual final JSON must stay within the 32 MiB export limit');
-    return JSON.parse(bytes.toString('utf8'));
+    const compressed=download.suggestedFilename().endsWith('.json.gz');
+    assert(bytes.byteLength<=(compressed?32:128)*1024*1024,'The final file must fit its compressed or plain byte limit');
+    const jsonBytes=compressed?gunzipSync(bytes,{maxOutputLength:128*1024*1024}):bytes;
+    assert(jsonBytes.byteLength<=128*1024*1024,'Expanded JSON must stay within the 128 MiB processing limit');
+    const capture=JSON.parse(jsonBytes.toString('utf8'));
+    fileSizes.set(capture,{compressed,fileBytes:bytes.byteLength,jsonBytes:jsonBytes.byteLength});
+    return capture;
   }
   function assertTransport(config,start){
     const received=requests.slice(start).filter(request=>request.courseId===config.id);
     assert(received.length>0);assert(received.every(request=>request.method==='GET'&&request.authenticated&&resources.has(request.resource)));
     assert(received.every(request=>!request.query.some(([key])=>key==='ids')),'No collection enumeration or guessed batch request');
-    assert(maximum.get(config.id)<=2,'All roots, items, groups and definitions share one two-read pool');
+    assert(maximum.get(config.id)<=4,'All roots, items, groups and definitions share one four-read pool');
     for(const request of received){
       if([groupResource,definitionResource,'authoringAtoms.v2','authoringItemContentRelations.v1'].includes(request.resource))assert.equal(request.all,'ALL');
       if(request.resource===definitionResource){assert(definitions.has(request.reference));assert(request.path.endsWith('@'+request.reference.split('@')[1]));assert(!/%40/i.test(request.path));}
@@ -231,6 +238,7 @@ try{
   const main=await runFileCase(baseline);
   assert.equal(main.capture.page.courseId,baseline.id);assert.equal(main.capture.fingerprints.length,185);
   assert.equal(main.state.state,'INCOMPLETE');
+  assert.equal(main.capture.meta.directDataCapture.stats.maxConcurrentRequests,4,'The assessment workers fill the bounded four-read pool');
   const largeAssessment=main.capture.fingerprints.find(fp=>fp.id==='item_0000');
   const questions=largeAssessment.payload.structuredAssessment.questions;
   assert.equal(questions.length,609);assert.equal(largeAssessment.captureContract.complete,true);
@@ -259,6 +267,17 @@ try{
   const verdict=evaluateCourseraCapture(success.capture,complete.id);assert.equal(verdict.complete,true,JSON.stringify(verdict.reasons));
   await success.context.close();
 
+  const scaled=await runFileCase(largeExport),scaledSize=fileSizes.get(scaled.capture);
+  assert.equal(scaled.state.state,'COMPLETE');assert.equal(scaledSize.compressed,true,'Chrome should download one gzip file');
+  assert(scaledSize.jsonBytes>32*1024*1024,'The complete retained raw capture must exceed the old plain-JSON cutoff');
+  assert(scaledSize.fileBytes<=32*1024*1024,'Lossless compression keeps the one-file download within the transfer limit');
+  assert.equal(scaled.capture.fingerprints.length,9);assert(scaled.capture.fingerprints.every(fp=>fp.captureContract.complete===true));
+  const scaledVerdict=evaluateCourseraCapture(scaled.capture,largeExport.id);
+  assert.equal(scaledVerdict.complete,true,JSON.stringify(scaledVerdict.reasons));
+  assert(scaled.capture.fingerprints.at(-2).payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value.includes('x'.repeat(1000000)),
+    'The large raw body is preserved after compression and expansion');
+  await scaled.context.close();
+
   const resumed=await open(interrupted),partialDownloads=[];resumed.page.on('download',download=>partialDownloads.push(download));
   const resumeStart=requests.length;await launch(resumed.page,resumed.context);
   assert(await poll(()=>requests.slice(resumeStart).filter(request=>request.resource===definitionResource).length>=4,15000));
@@ -269,7 +288,8 @@ try{
     const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['definitions','groups','runs'],'readonly'),out={};
       for(const name of ['definitions','groups','runs']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result;};}
       transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});database.close();
-    return {definitions:rows.definitions.map(row=>row.definitionId),groups:rows.groups.length,runs:rows.runs.map(row=>({runId:row.runId,state:row.state}))};
+    return {definitions:rows.definitions.map(row=>row.definitionId),groups:rows.groups.length,
+      groupIds:rows.groups.map(row=>row.groupId),runs:rows.runs.map(row=>({runId:row.runId,state:row.state}))};
   });
   assert(saved.definitions.length>0);assert(saved.groups>0);assert(saved.runs.some(run=>run.runId===paused.runId));
   await resumed.page.reload();const afterResumeStart=requests.length;
@@ -281,7 +301,49 @@ try{
     'The exported API budget includes requests from before the pause');
   assert(!requests.slice(afterResumeStart).some(request=>request.resource===definitionResource&&saved.definitions.includes(request.reference)),
     'Committed exact versioned definitions should resume from real IndexedDB rather than repeat reads');
+  for(const id of saved.groupIds)assert.equal(requests.slice(afterResumeStart).filter(request=>request.resource===groupResource&&request.reference===id).length,1,
+    'An unchanged committed group resumes with one fresh consistency read');
   assertTransport(interrupted,resumeStart);await assertNoEditor(resumed.page,resumed.destinations);await resumed.context.close();
+
+  const recovering=await open(oldCutoff),recoveryDownloads=[];recovering.page.on('download',download=>recoveryDownloads.push(download));
+  const recoveryStart=requests.length;await launch(recovering.page,recovering.context);
+  assert(await poll(()=>requests.slice(recoveryStart).filter(request=>request.resource===definitionResource).length>=4,15000));
+  await recovering.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
+  const recoveryPaused=await terminal(recovering.page);assert.equal(recoveryPaused.state,'PAUSED');assert.equal(recoveryDownloads.length,0);
+  const legacy=await recovering.page.evaluate(async()=>{
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const saved=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','groups','definitions'],'readwrite'),out={};
+      const runs=transaction.objectStore('runs'),request=runs.getAll();request.onsuccess=()=>{
+        const row=request.result.at(-1);row.state='INCOMPLETE';row.reason='DIRECT_CAPTURE_EXPORT_BYTE_LIMIT';
+        row.buildId='v1.0.0-bound-authoring-drafts-20261014';row.budget.limits.concurrentRequests=2;
+        row.captureMeta.buildId=row.buildId;row.captureMeta.directDataCapture.stopReason=row.reason;
+        row.captureMeta.directDataCapture.acquisitionComplete=false;row.captureMeta.directDataCapture.wholeCourseVerified=false;
+        row.captureMeta.directDataCapture.limits.concurrentRequests=2;
+        row.captureMeta.directDataCapture.limits.exportBytes=32*1024*1024;runs.put(row);
+        out.runId=row.runId;out.requests=row.budget.requests;
+      };
+      const definitionRequest=transaction.objectStore('definitions').getAll();definitionRequest.onsuccess=()=>{out.definitions=definitionRequest.result.map(row=>row.definitionId);};
+      const groupRows=transaction.objectStore('groups'),groupRequest=groupRows.getAll();groupRequest.onsuccess=()=>{
+        out.groupIds=groupRequest.result.map(row=>row.groupId);
+        for(const row of groupRequest.result){delete row.value.modelHash;groupRows.put(row);}
+      };
+      transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);
+    });database.close();return saved;
+  });
+  assert(legacy.definitions.length>0);assert(legacy.groupIds.length>0);
+  await recovering.page.reload();const recoveryFreshStart=requests.length;
+  const recoveryDownloading=recovering.page.waitForEvent('download',{timeout:180000});void recoveryDownloading.catch(()=>{});
+  await launch(recovering.page,recovering.context);const recoveryFinal=await terminal(recovering.page),recoveryCapture=await readFile(await recoveryDownloading);
+  assert.equal(recoveryFinal.runId,recoveryPaused.runId,'The former export cutoff resumes the existing run');
+  assert.equal(recoveryFinal.state,'COMPLETE');assert.equal(recoveryDownloads.length,1);
+  assert.equal(recoveryCapture.meta.directDataCapture.limits.concurrentRequests,4,'The old two-slot limit upgrades without resetting cumulative budgets');
+  assert(recoveryCapture.meta.directDataCapture.stats.requests>=legacy.requests,'The old run keeps its spent request budget');
+  assert(!requests.slice(recoveryFreshStart).some(request=>request.resource===definitionResource&&legacy.definitions.includes(request.reference)),
+    'Old versioned definitions survive an export-cutoff upgrade');
+  for(const id of legacy.groupIds)assert.equal(requests.slice(recoveryFreshStart).filter(request=>request.resource===groupResource&&request.reference===id).length,1,
+    'Old group checkpoints without new cache metadata still receive a fresh source read');
+  assert.equal(evaluateCourseraCapture(recoveryCapture,oldCutoff.id).complete,true);
+  assertTransport(oldCutoff,recoveryStart);await assertNoEditor(recovering.page,recovering.destinations);await recovering.context.close();
 
   const budgetTarget=await open(budgetResume),budgetDownloads=[];budgetTarget.page.on('download',download=>budgetDownloads.push(download));
   const budgetStart=requests.length;await launch(budgetTarget.page,budgetTarget.context);
@@ -299,24 +361,20 @@ try{
   assert.equal(evaluateCourseraCapture(budgetCapture,budgetResume.id).complete,false);
   assertTransport(budgetResume,budgetStart);await assertNoEditor(budgetTarget.page,budgetTarget.destinations);await budgetTarget.context.close();
 
-  for(const config of [changed,changedMaterial,changedGroup,authentication,limited,exportLimited]){
+  for(const config of [changed,changedMaterial,changedGroup,authentication,limited]){
     const target=await runFileCase(config);assert.equal(evaluateCourseraCapture(target.capture,config.id).complete,false);
     assert(target.capture.fingerprints.some(fp=>fp.captureContract?.complete!==true),'Failures remain explicit item gaps');
     if(config.mode==='limited')assert(requests.slice(target.start).filter(request=>request.courseId===config.id).length<=4);
     if(config.mode==='authentication')assert.equal(target.state.state,'PAUSED');
-    if(config.mode==='export-limited'){
-      assert.equal(target.state.state,'INCOMPLETE');
-      assert.match(target.capture.meta.directDataCapture.stopReason,/EXPORT_BYTE_LIMIT/);
-      assert(target.capture.fingerprints.some(fp=>fp.captureContract?.status==='UNVISITED_DIRECT_ITEM'));
-    }
     await target.context.close();
   }
   assert.deepEqual(errors,[]);
   if(!nativeExecuted)console.warn('::warning::Managed Chromium blocks native bookmark URLs. Only the explicit debugger reader path was verified here; no browser policy changed.');
   console.log(JSON.stringify({status:nativeExecuted?'PASS':'PARTIAL',nativeBookmarkExecuted:nativeExecuted,readerVerified:true,
     inventory:185,contentItems:165,orderedMcqQuestions:609,checkboxKeys:true,unknownWidgetPreventsCompletion:true,
-    realIndexedDbInterruptedResume:true,stableVersionedDefinitionsNotReread:true,maximumRequestsInFlight:2,
-    cumulativeResumeBudget:true,actualFinalJsonWithin32MiB:true,
+    realIndexedDbInterruptedResume:true,oldExportCutoffRunRecovered:true,stableVersionedDefinitionsNotReread:true,
+    unchangedGroupsNeedOneFreshResumeRead:true,maximumRequestsInFlight:4,
+    cumulativeResumeBudget:true,completeCaptureBeyondOld32MiBCutoff:true,losslessGzipWithin32MiB:true,expandedJsonWithin128MiB:true,
     finalDownloadsPerCompletedRun:1,noEditorNavigation:true,authenticationAndLimitsAndSourceChangesRemainGaps:true,
     scope:'Actual generated entry with synthetic authoring draft APIs; no private-course completeness or throughput claim.'}));
 }catch(error){

@@ -5,6 +5,7 @@ import {
 } from "./content-evidence.ts";
 import { digest, newRecord, type WorkspaceStore } from "./workspace-store.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
+import { MAX_COURSERA_CAPTURE_JSON_BYTES } from "./coursera-capture-file.ts";
 
 /** Original audits are immutable. Content recovered from the exact input bytes
  * is a separate, versioned, report-bound supplement, never a rewritten audit. */
@@ -14,8 +15,8 @@ export async function saveOriginalContent(
   auditId: string,
   store: WorkspaceStore,
 ) {
-  if (bytes.length > 40 * 1024 * 1024)
-    throw Error("Extraction exceeds the 40 MiB content-import limit.");
+  if (bytes.length > MAX_COURSERA_CAPTURE_JSON_BYTES)
+    throw Error("Extraction exceeds the 128 MiB content-import limit.");
   const hash = await digest(bytes),
     platform =
       hash === report.hashes?.json
@@ -26,6 +27,10 @@ export async function saveOriginalContent(
   if (!platform)
     throw Error(
       "This file does not match either original extraction hash. Use the original file or create a new comparison.",
+    );
+  if (platform === "brightspace" && bytes.length > 40 * 1024 * 1024)
+    throw Error(
+      "Brightspace extraction exceeds the 40 MiB content-import limit.",
     );
   const saved = await store.get(auditId);
   if (

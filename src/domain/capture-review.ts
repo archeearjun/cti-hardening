@@ -2,6 +2,7 @@ import { createEngine } from "../engine/index.js";
 import build from "../release.json" with { type: "json" };
 import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
+import { readCourseraCaptureFileBytes } from "./coursera-capture-file.ts";
 import type {
   ExtractorDelivery,
   Finding,
@@ -39,6 +40,23 @@ const engine = createEngine(
   createBrowserServices(),
 ) as unknown as CaptureEngine;
 export const MAX_CAPTURE_BYTES = 40 * 1024 * 1024;
+export async function readCaptureReviewFile(file: File): Promise<unknown> {
+  const { bytes } = await readCourseraCaptureFileBytes(file);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw Error("The selected capture is not valid UTF-8 JSON.");
+  }
+  const capture = object(parsed);
+  const meta = { ...object(capture.extractionMeta), ...object(capture.meta) };
+  if (
+    /brightspace/i.test(text(capture.extractor || meta.extractor)) &&
+    bytes.length > MAX_CAPTURE_BYTES
+  )
+    throw Error("Brightspace capture JSON exceeds the 40 MiB inspection limit.");
+  return parsed;
+}
 function object(value: unknown): RecordValue {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as RecordValue)

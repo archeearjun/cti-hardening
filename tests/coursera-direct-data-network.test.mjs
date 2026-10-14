@@ -46,18 +46,33 @@ test('known single GETs retain the exact scoped wire format and original byte re
   assert.equal(reader.snapshot().requests,6);assert.equal(reader.snapshot().active,0);
 });
 
-test('one shared queue limits mixed resource reads to at most two in flight',async()=>{
+test('one shared queue fills four slots while bounding mixed resource reads',async()=>{
   let active=0,maxActive=0;const updates=[];
   const reader=createDirectDataReaderV1({sanitize,onStats:stats=>updates.push(stats),fetchImpl:async url=>{
     active++;maxActive=Math.max(maxActive,active);await pause(5);active--;return reply(url);
   }});
   const results=await Promise.all(Array.from({length:24},(_,i)=>i%3===0?reader.readAtom('atom'+i):
     i%3===1?reader.readGroup('atom~group'+i):reader.readDefinition('atom~definition'+i+'@1')));
-  assert(results.every(result=>result.ok));assert.equal(maxActive,2);
-  assert.equal(reader.snapshot().maxConcurrentRequests,2);assert.equal(reader.snapshot().completed,24);
-  assert(updates.some(stats=>stats.queued>0));assert(updates.every(stats=>stats.active<=2));
+  assert(results.every(result=>result.ok));assert.equal(maxActive,4);
+  assert.equal(reader.snapshot().maxConcurrentRequests,4);assert.equal(reader.snapshot().completed,24);
+  assert(updates.some(stats=>stats.queued>0));assert(updates.every(stats=>stats.active<=4));
   updates.at(-1).byResource['authoringAtoms.v2']=999;
   assert.equal(reader.snapshot().byResource['authoringAtoms.v2'],8);
+});
+
+test('a lower concurrency override still governs every resource in the shared pool',async()=>{
+  for(const concurrentRequests of [1,2]) {
+    let active=0,maxActive=0;
+    const reader=createDirectDataReaderV1({sanitize,limits:{concurrentRequests},fetchImpl:async url=>{
+      active++;maxActive=Math.max(maxActive,active);await pause(5);active--;return reply(url);
+    }});
+    const results=await Promise.all(Array.from({length:12},(_,i)=>i%3===0?reader.readAtom('atom'+i):
+      i%3===1?reader.readGroup('atom~group'+i):reader.readDefinition('atom~definition'+i+'@1')));
+    assert(results.every(result=>result.ok));assert.equal(maxActive,concurrentRequests);
+    assert.equal(reader.snapshot().maxConcurrentRequests,concurrentRequests);
+    assert.equal(reader.snapshot().completed,12);assert.equal(reader.snapshot().active,0);
+    assert.equal(reader.snapshot().queued,0);
+  }
 });
 
 test('invalid resources, raw URL descriptors, unsafe IDs and absent sanitization cause zero requests',async()=>{
@@ -78,7 +93,7 @@ test('invalid resources, raw URL descriptors, unsafe IDs and absent sanitization
 test('limits cannot exceed the stated transport bounds',()=>{
   const reader=createDirectDataReaderV1({sanitize,limits:{concurrentRequests:50,requests:1e9,bodyBytes:1e9,
     totalBytes:1e9,requestMs:1e9,durationMs:1e9}});
-  assert.deepEqual(reader.snapshot().limits,{concurrentRequests:2,bodyBytes:2*1024*1024,totalBytes:64*1024*1024,
+  assert.deepEqual(reader.snapshot().limits,{concurrentRequests:4,bodyBytes:2*1024*1024,totalBytes:64*1024*1024,
     requests:20000,requestMs:30000,durationMs:60*60*1000});
 });
 
@@ -173,7 +188,7 @@ test('abort and deadline release all waiting reads even when fetch ignores Abort
     if(manual)setTimeout(()=>reader.abort('OPERATOR_STOPPED'),5);
     const results=await Promise.all(pending);
     assert(results.every(result=>result.reason===(manual?'OPERATOR_STOPPED':'API_REQUEST_TIMEOUT')));
-    assert.equal(signals.length,2);assert(signals.every(signal=>signal.aborted));
+    assert.equal(signals.length,4);assert(signals.every(signal=>signal.aborted));
     assert.equal(reader.snapshot().active,0);assert.equal(reader.snapshot().queued,0);
     assert(Date.now()-began<1000);assert.equal((await reader.readAtom('after')).ok,false);
   }

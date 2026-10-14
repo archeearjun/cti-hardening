@@ -103,12 +103,18 @@ Direct capture retains authoring drafts and published snapshots separately.
 Draft parts supply ordered group identities; exact versioned definitions supply
 supported MCQ/checkbox keys. Fresh atom and group reads and a final material
 read check source stability. Unknown models, variants, media bodies and external
-widgets remain explicit gaps. Two shared request slots, request/time/byte bounds,
+widgets remain explicit gaps. Four shared request slots, request/time/byte bounds,
 and incremental IndexedDB transactions replace repeated editor traversal.
 The dedicated `cti-coursera-direct-data-v1` database isolates runs and courses
 from legacy checkpoints. Resuming revalidates current sources before reusing
-matching versioned definitions. Export serializes one item at a time and produces
-one final local JSON; the importer independently validates its source receipts
+matching versioned definitions. Unchanged saved groups need one current read,
+while changed groups receive two current reads. Export serializes one item at a
+time with a 128 MiB expanded bound, then streams lossless gzip to one final
+local .json.gz file with a 32 MiB compressed bound. CTI expands the file within
+the same bounds before validation and records its compressed transport hash
+separately from the original JSON hash. Interrupted v1.0.0 export-limit runs
+can resume without clearing their cumulative budgets or definition caches.
+The importer independently validates its source receipts
 and ordered inventory. Native fixture checks verify delivery separately from
 browser policy restrictions; fixtures do not certify every live private course.
 The direct bundle preserves the text of reachable native declarations using

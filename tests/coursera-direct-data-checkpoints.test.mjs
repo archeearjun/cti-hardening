@@ -786,6 +786,251 @@ test("many newer terminal runs cannot hide an older active capture", async () =>
   });
 });
 
+function interruptedExportRun(run, captureChanges = {}, runChanges = {}) {
+  return {
+    ...run,
+    state: "INCOMPLETE",
+    buildId: "v1.0.0-bound-authoring-drafts-20261014",
+    counts: { processed: 129, complete: 45, questions: 3306, total: 185 },
+    budget: {
+      requests: 10562,
+      bytes: 20000000,
+      elapsedMs: 32 * 60 * 1000,
+      limits: {
+        requests: 20000,
+        totalBytes: 64 * 1024 * 1024,
+        durationMs: 60 * 60 * 1000,
+      },
+    },
+    captureMeta: {
+      directDataCapture: {
+        mode: "BOUND_AUTHORING_DRAFT_API",
+        version: 1,
+        runId: run.runId,
+        sourceStable: false,
+        materials: { elements: [{ id: run.courseId }] },
+        ...captureChanges,
+      },
+    },
+    ...runChanges,
+  };
+}
+
+test("export recovery is opt-in, course-bound, and preserves the original saved evidence and budget", async () => {
+  await withDatabase(async (fake) => {
+    const store = await storeFor(),
+      foreignStore = await storeFor(OTHER),
+      paused = await store.openRun(undefined, { state: "PAUSED" }),
+      stopped = await store.openRun(),
+      foreign = await foreignStore.openRun();
+    await store.putItem(
+      stopped.runId,
+      "saved-item",
+      source("saved-item"),
+      "COMPLETE",
+    );
+    await store.putGroup(stopped.runId, "saved-item", "group", {
+      raw: "saved-group",
+    });
+    await store.putDefinition(stopped.runId, "definition@1", {
+      raw: "saved-definition",
+    });
+    const stoppedMetadata = interruptedExportRun(stopped, {
+      stopReason: "DIRECT_CAPTURE_EXPORT_BYTE_LIMIT",
+    });
+    await store.saveRun(stoppedMetadata);
+    await foreignStore.saveRun(
+      interruptedExportRun(foreign, {
+        stopReason: "DIRECT_CAPTURE_EXPORT_BYTE_LIMIT",
+      }),
+    );
+    ageRow(
+      fake.rows("runs").find((row) => row.runId === paused.runId),
+      60000,
+    );
+    ageRow(
+      fake.rows("runs").find((row) => row.runId === stopped.runId),
+      1000,
+    );
+    assert.equal((await store.getActiveRun()).runId, paused.runId);
+    assert.equal(
+      (await store.getActiveRun({ recoverExportLimit: false })).runId,
+      paused.runId,
+    );
+    const beforeWrites = fake.metrics.writes.length,
+      recovered = await store.getActiveRun({ recoverExportLimit: true });
+    assert.equal(recovered.runId, stopped.runId);
+    assert.equal(
+      recovered.state,
+      "INCOMPLETE",
+      "selection never labels resumed work verified",
+    );
+    assert.deepEqual(recovered.budget, stoppedMetadata.budget);
+    assert.deepEqual(recovered.counts, stoppedMetadata.counts);
+    assert.equal(
+      fake.metrics.writes.length,
+      beforeWrites,
+      "recovery selection is read-only",
+    );
+    assert.deepEqual(
+      (await store.getItem(stopped.runId, "saved-item")).fingerprint,
+      source("saved-item"),
+    );
+    assert.deepEqual(
+      (await store.getGroup(stopped.runId, "saved-item", "group")).value,
+      { raw: "saved-group" },
+    );
+    assert.deepEqual(
+      (await store.getDefinition(stopped.runId, "definition@1")).value,
+      { raw: "saved-definition" },
+    );
+    ageRow(
+      fake.rows("runs").find((row) => row.runId === stopped.runId),
+      WEEK + 60000,
+    );
+    assert.equal(
+      (await store.getActiveRun({ recoverExportLimit: true })).runId,
+      paused.runId,
+    );
+    store.close();
+    foreignStore.close();
+  });
+});
+
+test("the released legacy export interruption is recoverable without its missing terminal reason", async () => {
+  await withDatabase(async (fake) => {
+    const store = await storeFor(),
+      stopped = await store.openRun();
+    await store.saveRun(interruptedExportRun(stopped));
+    assert.equal(await store.getActiveRun(), null);
+    assert.equal(
+      (await store.getActiveRun({ recoverExportLimit: true })).runId,
+      stopped.runId,
+    );
+    const variations = [
+      [{ sourceStable: true }, {}],
+      [{ finalMaterials: { elements: [{ id: COURSE }] } }, {}],
+      [{ acquisitionComplete: true }, {}],
+      [{ wholeCourseVerified: true }, {}],
+      [{ stopReason: "DIRECT_CAPTURE_FAILED" }, {}],
+      [{ mode: "UNRECOGNIZED_CAPTURE" }, {}],
+      [{ version: 2 }, {}],
+      [{ runId: "99999999-9999-4999-8999-999999999999" }, {}],
+      [{ materials: { elements: [{ id: OTHER }] } }, {}],
+      [{}, { buildId: "unrecognized-build" }],
+      [{}, { counts: { processed: 185, total: 185 } }],
+      [{}, { counts: { processed: 0, total: 185 } }],
+      [{}, { counts: { processed: 129.5, total: 185 } }],
+      [{}, { counts: { processed: 129, total: Infinity } }],
+    ];
+    for (const [captureChanges, runChanges] of variations) {
+      await store.saveRun(
+        interruptedExportRun(stopped, captureChanges, runChanges),
+      );
+      assert.equal(
+        await store.getActiveRun({ recoverExportLimit: true }),
+        null,
+        "unrelated terminal shape must not resume: " +
+          JSON.stringify([captureChanges, runChanges]),
+      );
+    }
+    assert.equal(
+      fake.rows("runs").length,
+      1,
+      "checks never create a replacement run",
+    );
+    store.close();
+  });
+});
+
+test("export recovery excludes exhausted or invalid cumulative budgets and generic terminal states", async () => {
+  await withDatabase(async () => {
+    const store = await storeFor(),
+      stopped = await store.openRun(),
+      metadata = interruptedExportRun(stopped, {
+        stopReason: "DIRECT_CAPTURE_EXPORT_BYTE_LIMIT",
+      });
+    for (const [used, limit] of [
+      ["requests", "requests"],
+      ["bytes", "totalBytes"],
+      ["elapsedMs", "durationMs"],
+    ]) {
+      for (const value of [
+        0,
+        -1,
+        Infinity,
+        NaN,
+        undefined,
+        metadata.budget.limits[limit],
+      ]) {
+        await store.saveRun({
+          ...metadata,
+          budget: { ...metadata.budget, [used]: value },
+        });
+        assert.equal(
+          await store.getActiveRun({ recoverExportLimit: true }),
+          null,
+          used + "=" + value,
+        );
+      }
+      await store.saveRun({
+        ...metadata,
+        budget: {
+          ...metadata.budget,
+          limits: { ...metadata.budget.limits, [limit]: undefined },
+        },
+      });
+      assert.equal(
+        await store.getActiveRun({ recoverExportLimit: true }),
+        null,
+        "missing " + limit,
+      );
+    }
+    for (const terminalState of ["COMPLETE", "FAILED", "CANCELLED"]) {
+      await store.saveRun({ ...metadata, state: terminalState });
+      assert.equal(
+        await store.getActiveRun({ recoverExportLimit: true }),
+        null,
+        terminalState,
+      );
+    }
+    await store.saveRun(metadata);
+    assert.equal(
+      (await store.getActiveRun({ recoverExportLimit: true })).runId,
+      stopped.runId,
+    );
+    store.close();
+  });
+});
+
+test("newer unrelated incomplete runs cannot hide an older eligible export recovery", async () => {
+  await withDatabase(async (fake) => {
+    const store = await storeFor(),
+      stopped = await store.openRun();
+    await store.saveRun(
+      interruptedExportRun(stopped, {
+        stopReason: "DIRECT_CAPTURE_EXPORT_BYTE_LIMIT",
+      }),
+    );
+    for (let index = 0; index < 75; index++) {
+      const unrelated = await store.openRun();
+      await store.saveRun(
+        interruptedExportRun(unrelated, {
+          stopReason: "COURSE_API_TIME_LIMIT",
+        }),
+      );
+    }
+    for (const row of fake.rows("runs"))
+      ageRow(row, row.runId === stopped.runId ? 60000 : 1000);
+    assert.equal(
+      (await store.getActiveRun({ recoverExportLimit: true })).runId,
+      stopped.runId,
+    );
+    assert.equal(await store.getActiveRun(), null);
+    store.close();
+  });
+});
+
 test("expired-run pruning is bounded instead of deleting every old capture in one call", async () => {
   await withDatabase(async (fake) => {
     const store = await storeFor(),

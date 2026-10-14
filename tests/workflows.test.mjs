@@ -15,6 +15,8 @@ import { newRecord } from "../src/domain/workspace-store.ts";
 import { importLegacyWorkspace } from "../src/domain/legacy-import.ts";
 import { prepareWorkspaceBackup } from "../src/domain/workspace-validation.ts";
 import { comparisonFixture, encode, masterRows } from "./workflow-fixtures.mjs";
+import { gzipSync } from "node:zlib";
+import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-file.ts";
 const require = createRequire(import.meta.url),
   c = require("../tools/check.cjs");
 const workflows = createWorkflows(workerXml),
@@ -44,6 +46,24 @@ test("full source/XLSX/JSON comparison and complete canonical owner report", () 
   assert.match(result.report, /Discussion/);
   assert.equal(result.hashes.excel.length, 64);
   assert.equal(result.result.snapshotContext.mode, "RAW_INGESTION");
+});
+test("compressed Coursera transport keeps original JSON provenance and a separate compressed file hash", async () => {
+  const input = comparisonFixture();
+  const plainOutput = workflows.compare(input);
+  const packed = gzipSync(input.json.bytes);
+  const file = new File([packed], "course.json.gz");
+  const decoded = await readCourseraCaptureFileBytes(file);
+  input.json = { name: file.name, ...decoded };
+  const output = workflows.compare(input);
+  assert.equal(output.hashes.json, plainOutput.hashes.json);
+  assert.equal(output.captureTransport.json.sha256, decoded.transport.sha256);
+  assert.equal(output.captureTransport.json.name, "course.json.gz");
+  assert.equal(
+    output.captureTransport.json.expandedBytes,
+    input.json.bytes.length,
+  );
+  assert.deepEqual(output.result.itemResults, plainOutput.result.itemResults);
+  assert.deepEqual(output.contentEvidence, plainOutput.contentEvidence);
 });
 test("XLSX remains structural authority; JSON mismatch is not silently accepted", () => {
   const input = comparisonFixture();

@@ -2,6 +2,7 @@ import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
+  CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
   CTI_DIRECT_DATA_MAX_PARTS_V1,
 } from "./direct-data-config.js";
 import { createDirectDataReaderV1 } from "./direct-data-network.js";
@@ -13,10 +14,13 @@ import {
   bindDirectAuthoringDraftV1,
   directDraftAssessmentInventoryV1,
   directDraftReadingSourceV1,
+  directDraftDiscussionSourceV1,
 } from "./direct-data-models.js";
 import {
   applyDirectContractV1,
   directReadingPayloadV1,
+  directDiscussionPayloadV1,
+  directReceiptSourceValidV1,
   directAssessmentContractV1,
   directEmptyStructureContractV1,
   directUnsupportedContractV1,
@@ -44,13 +48,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return;
     }
     const prior = window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;
-    if (prior?.courseId === match[2] && prior?.running) {
+    if (prior?.courseId === match[2] && (prior?.running || prior?.exporting)) {
       prior.focus?.();
       return;
     }
     if (
       prior?.courseId === match[2] &&
       prior?.state === "PAUSED" &&
+      prior?.buildId === CTI_DIRECT_DATA_BUILD_V1 &&
       !prior.terminal &&
       typeof prior.resume === "function"
     ) {
@@ -121,6 +126,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       buildId: CTI_DIRECT_DATA_BUILD_V1,
       result: null,
       downloadAttempts: 0,
+      exporting: false,
+      exportError: "",
     };
     window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__ = state;
     let reader = null,
@@ -344,7 +351,31 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const evidence = fp.payload.assessmentApiEvidence;
       async function readCandidate(candidate) {
         if (reader.snapshot().stopped) return;
-        const groupRead = await reader.readGroup(candidate.id);
+        const currentGroupRead = await reader.readGroup(candidate.id);
+        if (!currentGroupRead.ok) {
+          failures.push({ id: candidate.id, reason: currentGroupRead.reason });
+          return;
+        }
+        // An interrupted run already retained the mutable group observation.
+        // One current GET can certify it unchanged; changed groups use two
+        // current observations and their current exact versioned definition.
+        const cachedGroup = meta.directDataCapture.resumed
+          ? await store.getGroup(state.runId, fp.id, candidate.id)
+          : null;
+        const reusableGroup = Boolean(
+          cachedGroup?.value?.data?.elements?.length === 1 &&
+            cachedGroup.value.data.elements[0]?.id === candidate.id &&
+            directReceiptSourceValidV1(
+              cachedGroup.value.receipt,
+              "authoringAssignmentQuestionGroups.v1",
+              candidate.id,
+            ) &&
+            (await hash(cachedGroup.value.data.elements[0])) ===
+              (await hash(currentGroupRead.data.elements[0])),
+        );
+        const groupRead = reusableGroup
+          ? { ...cachedGroup.value, ok: true }
+          : currentGroupRead;
         if (!groupRead.ok) {
           failures.push({ id: candidate.id, reason: groupRead.reason });
           return;
@@ -353,8 +384,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         groups.push(group);
         evidence.receipts.push(receipt(groupRead, candidate.id));
         await store.putGroup(state.runId, fp.id, candidate.id, {
-          data: groupRead.data,
-          receipt: receipt(groupRead, candidate.id),
+          data: currentGroupRead.data,
+          receipt: receipt(currentGroupRead, candidate.id),
         });
         if (
           !Array.isArray(group.questions) ||
@@ -424,7 +455,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                   ? parseCourseraCheckboxDefinitionDirectV1(raw, candidate)
                   : null;
         }
-        const refreshedGroupRead = await reader.readGroup(candidate.id);
+        const refreshedGroupRead = reusableGroup
+          ? currentGroupRead
+          : await reader.readGroup(candidate.id);
         const refreshedGroup = refreshedGroupRead.ok
           ? refreshedGroupRead.data.elements[0]
           : null;
@@ -465,11 +498,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             " questions read",
         );
       }
-      // Two workers share the same transport pool used for all other reads.
+      // A bounded worker count shares the transport pool used for every read.
       // No thousands-of-promises queue or per-question browser rendering.
       let next = 0;
       const work = await Promise.allSettled(
-        [0, 1].map(async () => {
+        Array.from(
+          { length: Math.min(4, reader.snapshot().limits.concurrentRequests) },
+          (_, index) => index,
+        ).map(async () => {
           try {
             while (next < parts.candidates.length && !reader.snapshot().stopped)
               await readCandidate(parts.candidates[next++]);
@@ -582,6 +618,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           updatedAt: bound.updatedAt,
         };
         fp.sourceIdentity.draftName = bound.draft.name || "";
+        fp.sourceIdentity.materialName = fp.name;
+        if (typeof bound.draft.name === "string" && bound.draft.name.trim())
+          fp.name = bound.draft.name;
         fp.sourceIdentity.publishedName = bound.published?.name || "";
         fp.payload.timeEstimateMinutes = Number.isFinite(
           bound.draftTimeCommitment,
@@ -614,6 +653,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         if (bound.draft.content.typeName === "staffGradedDraft")
           await captureAssessment(fp, bound);
+        else if (bound.draft.content.typeName === "discussionPromptDraft")
+          await directDiscussionPayloadV1(
+            fp,
+            bound,
+            directDraftDiscussionSourceV1(bound),
+          );
         else if (bound.draft.content.typeName === "supplementDraft")
           fp.payload.directDraftCml = directDraftReadingSourceV1(bound).rawCML;
         else
@@ -653,6 +698,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             fp,
             bound,
             directDraftReadingSourceV1(bound),
+          );
+        else if (bound.draft.content.typeName === "discussionPromptDraft")
+          await directDiscussionPayloadV1(
+            fp,
+            bound,
+            directDraftDiscussionSourceV1(bound),
           );
         else if (bound.draft.content.typeName === "staffGradedDraft")
           directAssessmentContractV1(
@@ -757,12 +808,19 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             : "ACQUISITION_PAUSED");
       captureMeta.directDataCapture.stats =
         captureMeta.directDataCapture.stats || budgetSnapshot();
+      const compressed = typeof CompressionStream === "function";
+      captureMeta.directDataCapture.exportTransport = {
+        format: compressed ? "GZIP_JSON" : "JSON",
+        uncompressedLimitBytes: CTI_DIRECT_DATA_EXPORT_BYTES_V1,
+        compressedLimitBytes: CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
+      };
       captureMeta.exportFileName =
         "CTI__COURSERA__COURSE_" +
         courseId +
         "__" +
         new Date().toISOString().replace(/[:.]/g, "-") +
-        "__direct-v1__ITEM_FINGERPRINT.json";
+        "__direct-v1__ITEM_FINGERPRINT.json" +
+        (compressed ? ".gz" : "");
       const prefix =
         JSON.stringify({
           schemaVersion: 35,
@@ -797,10 +855,34 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     async function download() {
       if (exporting || state.running) return;
       exporting = true;
+      state.exporting = true;
+      state.exportError = "";
       render();
       try {
-        const blob = await prepareResult(),
-          url = URL.createObjectURL(blob),
+        let blob = await prepareResult();
+        await saveRun(state.state, true);
+        if (meta.directDataCapture.exportTransport.format === "GZIP_JSON") {
+          const stream = blob
+              .stream()
+              .pipeThrough(new CompressionStream("gzip")),
+            compressedReader = stream.getReader(),
+            pieces = [];
+          let bytes = 0;
+          try {
+            for (;;) {
+              const chunk = await compressedReader.read();
+              if (chunk.done) break;
+              bytes += chunk.value.byteLength;
+              if (bytes > CTI_DIRECT_DATA_COMPRESSED_BYTES_V1)
+                throw Error("DIRECT_CAPTURE_COMPRESSED_BYTE_LIMIT");
+              pieces.push(new Blob([chunk.value]));
+            }
+          } finally {
+            await compressedReader.cancel().catch(() => {});
+          }
+          blob = new Blob(pieces, { type: "application/gzip" });
+        }
+        const url = URL.createObjectURL(blob),
           anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = meta.exportFileName;
@@ -811,9 +893,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         anchor.remove();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (error) {
-        render(error?.message || "Saved capture could not be downloaded.");
+        state.exportError =
+          error?.message || "Saved capture could not be downloaded.";
+        render(state.exportError);
       } finally {
         exporting = false;
+        state.exporting = false;
         render();
       }
     }
@@ -859,9 +944,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const policy = policyReader.snapshot().limits;
         policyReader.abort("POLICY_ONLY");
         budgetLimits = { ...policy };
-        const active = await store.getActiveRun(),
-          candidate =
-            active?.buildId === CTI_DIRECT_DATA_BUILD_V1 ? active : null;
+        const active = await store.getActiveRun({ recoverExportLimit: true }),
+          candidate = [
+            CTI_DIRECT_DATA_BUILD_V1,
+            "v1.0.0-bound-authoring-drafts-20261014",
+          ].includes(active?.buildId)
+            ? active
+            : null;
         if (candidate) {
           state.runId = candidate.runId;
           materialHash = candidate.materialHash || "";
@@ -884,7 +973,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             elapsedMs: saved.elapsedMs,
           };
           for (const key of Object.keys(policy))
-            budgetLimits[key] = Math.min(policy[key], saved.limits[key]);
+            budgetLimits[key] =
+              key === "concurrentRequests" &&
+              candidate.buildId !== CTI_DIRECT_DATA_BUILD_V1
+                ? policy[key]
+                : Math.min(policy[key], saved.limits[key]);
           // An interrupted run can be exported locally even if its hard
           // network budget has already been consumed. Never silently reset it.
           if (
@@ -966,6 +1059,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             sourceState: "AUTHORING_DRAFT",
             sourceStable: false,
             resumed: resuming,
+            recoveredFromBuild:
+              resuming && candidate.buildId !== CTI_DIRECT_DATA_BUILD_V1
+                ? candidate.buildId
+                : "",
             initialMaterialHash: materialHash,
             materialVersion: inventory.materialVersion,
             courseBranchVersion: inventory.courseBranchVersion,
@@ -1055,6 +1152,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         fatalReason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
           ? error.message
           : "DIRECT_CAPTURE_FAILED";
+        if (meta) meta.directDataCapture.stopReason = fatalReason;
         state.terminal = terminalBudgetReason(fatalReason);
         state.state = state.terminal ? "INCOMPLETE" : "PAUSED";
         state.phase = state.terminal

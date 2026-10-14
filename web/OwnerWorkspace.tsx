@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
 import LocalCourseraExtraction from "./LocalCourseraExtraction";
+import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
 import type {
   ExtractorDelivery,
   ReviewOptions,
@@ -242,13 +243,17 @@ export default function App() {
                 <span className="step">01</span>
                 <h2 id="capture-title">Inspect a capture</h2>
               </div>
-              <p>Choose a complete CTI capture JSON. Up to 40 MiB per file.</p>
+              <p>
+                Choose a complete CTI capture. Coursera accepts JSON up to
+                128 MiB or .json.gz up to 32 MiB. Brightspace JSON remains
+                limited to 40 MiB.
+              </p>
               <label className="file-picker" htmlFor="capture-file">
                 <span className="file-icon" aria-hidden="true">
                   ↥
                 </span>
                 <strong>
-                  {file ? file.name : "Choose Coursera or Brightspace JSON"}
+                  {file ? file.name : "Choose Coursera JSON/.json.gz or Brightspace JSON"}
                 </strong>
                 <span>
                   {file
@@ -259,7 +264,7 @@ export default function App() {
               <input
                 id="capture-file"
                 type="file"
-                accept=".json,application/json"
+                accept={COURSERA_CAPTURE_FILE_ACCEPT}
                 disabled={busy}
                 onChange={(e) => {
                   setFile(e.target.files?.[0] ?? null);

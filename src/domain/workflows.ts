@@ -257,6 +257,9 @@ export function createWorkflows(xmlService: unknown) {
         brightspace: hash(input.brightspace?.bytes),
         recovery: hash(input.recovery?.bytes),
       },
+      ...(input.json?.transport
+        ? { captureTransport: { json: structuredClone(input.json.transport) } }
+        : {}),
       generation: input.generation,
       ingestionCapabilityStatus: input.ingestionCapabilityStatus || "UNKNOWN",
       packageId: input.course.id,
