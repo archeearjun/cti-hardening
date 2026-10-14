@@ -14,16 +14,24 @@ the saved bookmark on a normal Coursera authoring Content page with the
 extractor stopped. No Console paste, extension, hosted script loader or paid
 browser is required for this diagnostic.
 
-Version 2 makes at most six same-origin GETs. It first reads the current course's
+Version 3 makes at most six same-origin GETs. It first reads the current course's
 already-used `authoringCourseMaterials.v1` and `authoringCourses.v2` resources.
 After validating the exact material root and complete ordered hierarchy, it
 selects at most one assessment and one reading and samples
 `authoringItemContentRelations.v1/<atomId>` and `authoringAtoms.v2/<atomId>`.
 These resource families and the plain material `atomId` route binding were
-observed in earlier captures. Their historical query projections were discarded;
-the new bare GETs are prospective schema samples, not exact wire replays. The
+observed in earlier captures. Version 2's bare GETs returned only IDs, so version
+3 uses the documented `X-Coursera-Naptime-Fields: ALL` header and
+`includes=_links` on the four bound item reads. The header selects every model
+field; the include asks for declared field-to-resource metadata and does not
+automatically read related bodies. These are prospective tests of the deployed
+authoring server, not exact historical wire replays. The
 versioned staff assignment reference is retained separately and is never
-substituted for the atom route key. Invalid, ambiguous or paginated roots admit
+substituted for the atom route key. Safe named projection queries and the
+projection mode are retained with each response instead of losing them again.
+Identifier-only bodies are reported explicitly; extra metadata or model fields
+establish schema discovery, never complete questions or content. Invalid,
+ambiguous or paginated roots admit
 no item-resource samples. Missing atom/content bindings are explicitly declined.
 It does not open quiz editors or navigate/reload the page. It stops within one
 minute, with at most two concurrent reads, a 20-second limit per request,
@@ -50,12 +58,28 @@ in 682 ms with two requests. Its 165 content items correspond to 185 old
 structural leaves: 18 empty tracks and two empty modules account for the
 difference. All 26 retained older assessment owners matched their same item's
 current material atom ID. This corroborates the binding but does not make the
-older ordered question inventory current. The version 2 samples preserve the
+older ordered question inventory current. The version 3 samples preserve the
 missing current response models needed to establish ordered parts and content
 definitions. Returned schemas and completeness are not inferred from a
 successful HTTP status or matching request key. Replace the earlier saved check
 bookmark to use the new version. The maintained
 Protocol monitor extractor and its strict completion gate remain separate.
+
+The actual version 2 check completed six GETs in **1.619 seconds**, with no HTTP
+errors, but each of the four item responses contained only one `id` field in
+70 bytes. That is an identifier-only projection, not captured questions or
+reading content. Version 3 requests the broader projection documented in
+Coursera's public Naptime implementation:
+
+- [ALL header selection and precedence](https://github.com/coursera/naptime/blob/33c50c5df657f41661b95eb9e1743af9f3f5473f/naptime/src/main/scala/org/coursera/naptime/models.scala#L298).
+- [Official ALL-header test](https://github.com/coursera/naptime/blob/33c50c5df657f41661b95eb9e1743af9f3f5473f/naptime/src/test/scala/org/coursera/naptime/ResourceFieldsTest.scala#L61).
+- [Declared relationship metadata with `_links`](https://github.com/coursera/naptime/blob/33c50c5df657f41661b95eb9e1743af9f3f5473f/naptime/src/main/scala/org/coursera/naptime/actions/RestActionCategoryEngine2.scala#L334).
+
+The public contract establishes the selector, not the private authoring server's
+current support. `fields=*`, `fields=all` and `fields=$all` do not select every
+field in that parser. The ALL header overrides query field exclusions, so the
+existing credential sanitizer and actual streamed byte limits remain mandatory.
+No related-resource traversal or retry is started for an identifier-only reply.
 
 Delivery tests execute the production-minified bookmark in an isolated context,
 and browser fixtures exercise the actual setup UI, bounded authenticated reads

@@ -16,7 +16,7 @@ import {chromium} from 'playwright';
 // synthetic APIs establish browser mechanics, not Coursera's
 // private full-course schema, throughput, completeness, or crash isolation.
 const origin='https://www.coursera.org';
-const courseId='Bookmark_fixture_123',secondId='Other_bookmark_fixture_456';
+const courseId='Bookmark_fixture_123',secondId='Other_bookmark_fixture_456',ignoredHeaderId='Ignored_header_fixture_789';
 const fixturePath='/__cti_coursera_bookmark__.html';
 const allowPolicyBlockedReaderCheck=process.env.CTI_ALLOW_BOOKMARK_POLICY_BLOCKED==='1';
 const managedPolicyPath='/etc/chromium/policies/managed/urls.json';
@@ -75,6 +75,7 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     response.on('finish',settle);response.on('close',settle);
     requests.push({path:url.pathname,search:url.search,method:request.method,
       authenticated:request.headers.cookie?.includes('fixtureSession='+credentialMarkers[0])===true,
+      accept:request.headers.accept,projectionHeader:request.headers['x-coursera-naptime-fields'],
       courseId:boundCourse,resource,completedRootResponses:completedRoots.get(boundCourse)||0});
     response.setHeader('Content-Type','application/json; charset=utf-8');
     if(!match){response.statusCode=404;response.end('{}');return;}
@@ -97,9 +98,16 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     else if(resource==='authoringCourses.v2')body=models(id).course;
     else{
       if(!binding){response.statusCode=404;response.end('{"error":"unknown fixture atom"}');return;}
-      body={elements:[{id:reference,courseId:binding.courseId,unknownSchemaRelation:relation,
-        ...(resource==='authoringAtoms.v2'?{content:{typeName:binding.sourceContentType,definition:{opaqueRelation:relation}}}:{}),
-        nested:{writeAccessToken:credentialMarkers[1]}}]};
+      const projected=request.headers['x-coursera-naptime-fields']==='ALL'&&
+        url.searchParams.get('includes')==='_links'&&binding.courseId!==ignoredHeaderId;
+      // Naptime's default representation is deliberately only the identifier.
+      // Unknown fields become visible only for the documented projection,
+      // except for a separate fixture course whose endpoint ignores it.
+      body=projected?{elements:[{id:reference,courseId:binding.courseId,unknownSchemaRelation:relation,
+          ...(resource==='authoringAtoms.v2'?{content:{typeName:binding.sourceContentType,definition:{opaqueRelation:relation}}}:{}),
+          nested:{writeAccessToken:credentialMarkers[1]}}],
+        links:{elements:{fixtureMetadata:{format:'opaque-projected-link-metadata',fields:['id','unknownSchemaRelation']}}}}
+        :{elements:[{id:reference}],links:{elements:{}}};
     }
     // A small fixture delay makes overlap observable, so the browser check can
     // enforce the maintained two-read ceiling rather than infer it from code.
@@ -292,11 +300,20 @@ try{
   assert.equal(result.stopReason,'COURSE_DATA_CHECK_FINISHED');assert.equal(result.requests,6);
   assert.equal(result.capturedResponses,6);assert.equal(result.inventoryLeafCount,2);
   assert.equal(result.relationRequests,4);assert.equal(result.originalResponseBytesRetained,false);
+  assert.equal(result.relationSchemaResponseCount,4);assert.equal(result.identifierOnlyRelationResponses,0);
+  assert.equal(result.relationProjectionStatus,'SCHEMA_FIELDS_RETURNED');
   assert.equal(result.bodyFormat,'PARSED_SANITIZED_JSON_MODEL');
   assert.equal(documentLoads.length,beforeLoads,'The probe opens no quiz and reloads no document');
   const capturedRequests=requests.slice(beforeRequests);
   assert.equal(capturedRequests.length,6);assert(capturedRequests.every(request=>request.method==='GET'&&request.authenticated));
   assert.deepEqual(new Set(capturedRequests.slice(0,2).map(request=>request.resource)),new Set(['authoringCourseMaterials.v1','authoringCourses.v2']));
+  assert(capturedRequests.slice(0,2).every(request=>request.projectionHeader===undefined));
+  assert.equal(capturedRequests.find(request=>request.resource==='authoringCourseMaterials.v1').search,
+    '?fields=material,conflictMetadata,authoringAtomRelations.v1(embeddedContentSourceCourseId)&includes=embeddedContentMapping');
+  assert.equal(capturedRequests.find(request=>request.resource==='authoringCourses.v2').search,'');
+  assert(capturedRequests.every(request=>request.accept==='application/json, text/plain, */*'));
+  assert(capturedRequests.slice(2).every(request=>request.projectionHeader==='ALL'&&request.search==='?includes=_links'),
+    'Only the four explicitly bound sample GETs use the documented ALL projection and _links include');
   assert(capturedRequests.slice(2).every(request=>request.completedRootResponses===2),'Root responses settle before relation samples start');
   assert.equal(maxInFlight.get(courseId),2,'Exactly two reads overlap and the next pair waits for them');
   assert(capturedRequests.every(request=>request.courseId===courseId));
@@ -315,7 +332,12 @@ try{
     assert.equal(binding.courseBranchVersion,23);assert.equal(binding.assessmentRootCertified,false);
     assert.equal(record.requestScope,'EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE');
     assert.equal(record.declaredIdentityFields.identitySemantics,'REQUEST_BOUND_TO_DECLARED_ATOM_RESPONSE_MODEL_NOT_CERTIFIED');
+    assert.equal(record.requestProjection,'NAPTIME_ALL_FIELDS_HEADER');
+    assert.deepEqual(record.requestQuery,{includes:'_links'});
+    assert.equal(record.projection.status,'SCHEMA_FIELDS_RETURNED');
+    assert.equal(record.projection.contentCertified,false);assert.equal(record.projection.wholeCourseVerified,false);
     assert.deepEqual(record.data.elements[0].unknownSchemaRelation,relation);
+    assert.deepEqual(record.data.links.elements.fixtureMetadata,{format:'opaque-projected-link-metadata',fields:['id','unknownSchemaRelation']});
   }
   assert.equal(result.records.filter(record=>record.sourceBinding).length,4);
   assert.equal(await page.evaluate(()=>document.cookie.includes('fixtureSession')),false,'The session credential is HttpOnly');
@@ -345,6 +367,35 @@ try{
   assert.equal(secondResult.courseId,secondId);assert.equal(requests.length-secondStart,6);
   assert(requests.slice(secondStart).every(request=>request.courseId===secondId));
   assert.equal(maxInFlight.get(secondId),2);await secondSession.detach();
+
+  // A successful HTTP response can still contain only an identifier. Preserve
+  // those raw observations, label the missing schema, and stop without guessed
+  // fields, new endpoints, retries, quiz traversal, or additional downloads.
+  const ignored=await context.newPage();await ignored.goto(origin+'/teach/synthetic/'+ignoredHeaderId+'/content/edit');
+  const ignoredDownloads=[];ignored.on('download',download=>ignoredDownloads.push(download));
+  const ignoredDownloading=ignored.waitForEvent('download');void ignoredDownloading.catch(()=>{});
+  const ignoredStart=requests.length,ignoredSession=await invoke(ignored),ignoredResult=await finished(ignored);
+  assert.equal(ignoredResult.courseId,ignoredHeaderId);assert.equal(ignoredResult.requests,6);
+  assert.equal(ignoredResult.relationRequests,4);assert.equal(ignoredResult.relationSchemaResponseCount,0);
+  assert.equal(ignoredResult.identifierOnlyRelationResponses,4);
+  assert.equal(ignoredResult.relationProjectionStatus,'IDENTIFIER_ONLY_RESPONSES');
+  assert.equal(ignoredResult.notForCourseAudit,true);assert.equal(ignoredResult.wholeCourseVerified,false);
+  const ignoredRelations=ignoredResult.records.filter(record=>record.sourceBinding);
+  assert.equal(ignoredRelations.length,4);
+  for(const record of ignoredRelations){
+    assert.equal(record.requestProjection,'NAPTIME_ALL_FIELDS_HEADER');
+    assert.deepEqual(record.requestQuery,{includes:'_links'});
+    assert.equal(record.projection.status,'IDENTIFIER_ONLY');
+    assert.equal(record.projection.schemaFieldCount,0);assert.equal(record.projection.expectedIdObserved,true);
+    assert.equal(record.projection.contentCertified,false);assert.equal(record.projection.wholeCourseVerified,false);
+    assert.deepEqual(record.data,{elements:[{id:record.sourceBinding.atomId}],links:{elements:{}}});
+    assert.equal(record.sourceBinding.courseId,ignoredHeaderId);assert.equal(record.sourceBinding.assessmentRootCertified,false);
+  }
+  await ignoredDownloading;await ignored.waitForTimeout(100);
+  assert.equal(ignoredDownloads.length,1);assert.equal(requests.length-ignoredStart,6);
+  assert(requests.slice(ignoredStart).every(request=>request.courseId===ignoredHeaderId));
+  assert(requests.slice(ignoredStart+2).every(request=>request.projectionHeader==='ALL'&&request.search==='?includes=_links'));
+  assert.equal(maxInFlight.get(ignoredHeaderId),2);await ignoredSession.detach();await ignored.close();
 
   for(const [id,code] of [['Forbidden_fixture_123','HTTP_403'],['Invalid_fixture_123','INVALID_JSON'],['Oversize_fixture_123','BODY_BYTE_LIMIT']]){
     const rejected=await context.newPage();await rejected.goto(origin+'/teach/synthetic/'+id+'/content/edit');
@@ -389,6 +440,7 @@ try{
     bookmarkExecuted,readerVerified:true,policyCanaryVerified,
     setupClipboardAndFallback:true,ctiClickReadsNothing:true,strictNonceCsp:true,authenticatedHttpOnlyGets:6,
     rootsBeforeBoundSamples:true,maximumOverlappingRequests:2,explicitAtomSourceBindings:true,
+    documentedAllFieldsProjection:true,ignoredProjectionRemainsDiagnostic:true,noIdentifierOnlyRetries:true,
     unknownSchemaRetained:true,credentialFieldsExcluded:true,localDiagnosticDownloads:1,
     universalCourseBinding:true,foreignAndSubframeAndActiveExtractorGuards:true,
     forbiddenAndInvalidAndStreamedOversizeFailClosed:true,

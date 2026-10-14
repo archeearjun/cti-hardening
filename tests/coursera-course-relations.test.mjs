@@ -143,7 +143,12 @@ test("sample plan emits only four fixed-family single GET paths and can prefer t
   assert(
     first.every(
       (request) =>
-        request.requestPath.endsWith("/" + request.sourceBinding.atomId) &&
+        new URL(
+          request.requestPath,
+          "https://www.coursera.org",
+        ).pathname.endsWith("/" + request.sourceBinding.atomId) &&
+        new URL(request.requestPath, "https://www.coursera.org").search ===
+          "?includes=_links" &&
         !request.requestPath.includes("atom~") &&
         request.sourceBinding.requestScope ===
           "EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE" &&

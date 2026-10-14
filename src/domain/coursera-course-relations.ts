@@ -227,7 +227,11 @@ export function planCourseraCourseRelationSample(
       requests.push({
         resource,
         requestPath:
-          "/api/" + resource + "/" + encodeURIComponent(selected.atomId),
+          "/api/" +
+          resource +
+          "/" +
+          encodeURIComponent(selected.atomId) +
+          "?includes=_links",
         sourceBinding: {
           courseId: relations.courseId,
           itemId: selected.itemId,

@@ -303,7 +303,7 @@ test("declared course atoms admit only one assessment and reading sample after r
   const f = setup(),
     atoms = boundMaterial(f),
     result = await run(f);
-  assert.equal(result.probeVersion, 2);
+  assert.equal(result.probeVersion, 3);
   assert.equal(result.requests, 6);
   assert.equal(result.relationRequests, 4);
   assert.equal(result.capturedResponses, 6);
@@ -323,10 +323,19 @@ test("declared course atoms admit only one assessment and reading sample after r
   );
   assert(
     reads.every(
-      (url) => !url.search && url.origin === "https://www.coursera.org",
+      (url) =>
+        url.search === "?includes=_links" &&
+        url.origin === "https://www.coursera.org",
     ),
   );
   assert(!reads.some((url) => url.pathname.includes("CCCCCCCC")));
+  assert(
+    f.calls
+      .slice(2)
+      .every(
+        (call) => call.options.headers["X-Coursera-Naptime-Fields"] === "ALL",
+      ),
+  );
   const records = result.records.filter((record) => record.sourceBinding);
   assert.equal(records.length, 4);
   assert(
@@ -344,6 +353,20 @@ test("declared course atoms admit only one assessment and reading sample after r
     ),
   );
   assert(records.every((record) => record.sourceBinding.courseId === courseId));
+  assert(
+    records.every(
+      (record) => record.requestProjection === "NAPTIME_ALL_FIELDS_HEADER",
+    ),
+  );
+  assert(records.every((record) => record.requestQuery.includes === "_links"));
+  assert(
+    records.every(
+      (record) => record.projection.status === "SCHEMA_FIELDS_RETURNED",
+    ),
+  );
+  assert.equal(result.relationProjectionStatus, "SCHEMA_FIELDS_RETURNED");
+  assert.equal(result.relationSchemaResponseCount, 4);
+  assert.equal(result.identifierOnlyRelationResponses, 0);
   assert.deepEqual(
     records[0].data.elements[0].opaqueCurrentModel.orderedPartIds,
     ["second", "first"],
@@ -354,6 +377,49 @@ test("declared course atoms admit only one assessment and reading sample after r
   await button(f, "Copy check summary").onclick();
   assert(!f.context.copied.includes(atoms[0]));
   assert(!f.context.copied.includes("bound-item-"));
+});
+
+test("an ignored ALL projection is explicitly identifier-only and does not start retries or editor traversal", async () => {
+  const f = setup();
+  boundMaterial(f);
+  const sourceFetch = f.window.fetch;
+  f.window.fetch = async (input, options) => {
+    if (/authoring(?:ItemContentRelations\.v1|Atoms\.v2)/.test(String(input))) {
+      f.calls.push({ url: String(input), options });
+      return f.respond(
+        {
+          elements: [{ id: new URL(input).pathname.split("/").at(-1) }],
+          paging: {},
+          linked: {},
+          links: { elements: {} },
+        },
+        input,
+      );
+    }
+    return sourceFetch(input, options);
+  };
+  const result = await run(f);
+  assert.equal(result.requests, 6);
+  assert.equal(result.relationSchemaResponseCount, 0);
+  assert.equal(result.identifierOnlyRelationResponses, 4);
+  assert.equal(result.relationProjectionStatus, "IDENTIFIER_ONLY_RESPONSES");
+  assert(
+    result.records
+      .filter((record) => record.sourceBinding)
+      .every(
+        (record) =>
+          record.projection.status === "IDENTIFIER_ONLY" &&
+          record.projection.contentCertified === false,
+      ),
+  );
+  assert.equal(result.wholeCourseVerified, false);
+  assert.equal(result.automaticDownloadAttempts, 1);
+  assert.equal(f.downloads.length, 1);
+  assert(
+    f.elements.some((element) =>
+      /Item resources returned only IDs/.test(element.textContent || ""),
+    ),
+  );
 });
 
 test("ambiguous or different course roots retain diagnostics but admit no item resource reads", async () => {

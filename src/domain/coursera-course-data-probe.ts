@@ -3,8 +3,9 @@ import {
   parseCourseraCourseMaterialsRelations,
   planCourseraCourseRelationSample,
 } from "./coursera-course-relations.ts";
+import { classifyCourseraResourceProjection } from "./coursera-resource-projection.ts";
 
-export const COURSERA_COURSE_DATA_PROBE_VERSION = 2;
+export const COURSERA_COURSE_DATA_PROBE_VERSION = 3;
 
 /** A diagnostic prerequisite for an editor-free reader, not a course capture.
  * The universal bookmark derives its course from the already-open authoring tab.
@@ -32,6 +33,8 @@ export function createCourseraCourseDataProbeScript(
     parseCourseraCourseMaterialsRelations.toString() +
     "),(" +
     planCourseraCourseRelationSample.toString() +
+    "),(" +
+    classifyCourseraResourceProjection.toString() +
     "));"
   );
 }
@@ -203,6 +206,7 @@ async function runCourseraCourseDataProbe(
   sanitize: typeof sanitizeCourseraCourseDataModel,
   parseMaterials: typeof parseCourseraCourseMaterialsRelations,
   planSample: typeof planCourseraCourseRelationSample,
+  classifyProjection: typeof classifyCourseraResourceProjection,
 ) {
   const host = window as Window & {
     __CTI_COURSERA_COURSE_DATA_PROBE?: any;
@@ -390,6 +394,15 @@ async function runCourseraCourseDataProbe(
     const material = records.find(
       (record) => record.resource === "authoringCourseMaterials.v1",
     );
+    const relationRecords = records.filter((record) => record.sourceBinding);
+    const identifierOnlyRelationResponses = relationRecords.filter((record) =>
+      ["IDENTIFIER_ONLY", "IDENTIFIER_ONLY_WITH_RELATION_METADATA"].includes(
+        record.projection?.status,
+      ),
+    ).length;
+    const relationSchemaResponseCount = relationRecords.filter(
+      (record) => record.projection?.status === "SCHEMA_FIELDS_RETURNED",
+    ).length;
     const summary = {
       kind: "CTI_COURSERA_COURSE_DATA_CHECK_V1",
       notForCourseAudit: true,
@@ -410,6 +423,20 @@ async function runCourseraCourseDataProbe(
       relationRequests,
       relationSamplePlannedRequests: relationSamplePlan.length,
       relationSampleReason,
+      relationProjectionRequest:
+        relationRequests > 0
+          ? "NAPTIME_ALL_FIELDS_HEADER_WITH_LINK_METADATA"
+          : "NOT_REQUESTED",
+      identifierOnlyRelationResponses,
+      relationSchemaResponseCount,
+      relationProjectionStatus:
+        relationSchemaResponseCount > 0
+          ? "SCHEMA_FIELDS_RETURNED"
+          : identifierOnlyRelationResponses > 0
+            ? "IDENTIFIER_ONLY_RESPONSES"
+            : relationRequests > 0
+              ? "RELATION_SCHEMA_NOT_RETURNED"
+              : "NOT_SAMPLED",
       credentialFieldsRemoved: records.reduce(
         (count, record) => count + record.credentialFieldsRemoved,
         0,
@@ -444,7 +471,13 @@ async function runCourseraCourseDataProbe(
     downloadButton.disabled = records.length === 0;
     stopButton.textContent = "Close check";
     status.textContent = material
-      ? "Course data check saved. Your diagnostic download was requested. Use Download course data check if it did not appear. No quizzes were opened; this is not a full course capture."
+      ? (identifierOnlyRelationResponses > 0 &&
+        relationSchemaResponseCount === 0
+          ? "Item resources returned only IDs. Content fields were not established. "
+          : relationSchemaResponseCount > 0
+            ? "Item resources returned schema fields; content completeness still needs verification. "
+            : "Course data saved; item content fields were not established. ") +
+        "Your diagnostic download was requested. Use Download course data check if it did not appear."
       : "Check stopped: " +
         code +
         ". Copy the summary; no full-course rerun is needed.";
@@ -533,7 +566,10 @@ async function runCourseraCourseDataProbe(
       const response = await window.fetch(requested.href, {
         method: "GET",
         credentials: "include",
-        headers: { Accept: "application/json, text/plain, */*" },
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          ...(sourceBinding ? { "X-Coursera-Naptime-Fields": "ALL" } : {}),
+        },
         signal: controller.signal,
         redirect: "error",
       });
@@ -623,10 +659,26 @@ async function runCourseraCourseDataProbe(
       records.push({
         resource,
         requestPath: requested.pathname,
+        requestQuery: Object.fromEntries(
+          [...requested.searchParams].filter(
+            ([key]) => key === "fields" || key === "includes",
+          ),
+        ),
+        requestProjection: sourceBinding
+          ? "NAPTIME_ALL_FIELDS_HEADER"
+          : "COURSE_RESOURCE_DEFAULT_OR_NAMED_FIELDS",
         requestScope: sourceBinding
           ? "EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE"
           : "EXACT_COURSE_RESOURCE_GET",
         ...(sourceBinding ? { sourceBinding } : {}),
+        ...(sourceBinding
+          ? {
+              projection: classifyProjection(
+                cleaned.data,
+                sourceBinding.atomId,
+              ),
+            }
+          : {}),
         status: response.status,
         observedAt: new Date().toISOString(),
         responseBytes: requestBytes,
@@ -734,8 +786,9 @@ async function runCourseraCourseDataProbe(
               : "MATERIAL_RELATION_SCHEMA_NOT_SUPPORTED";
         }
         // At most two reads settle before admitting the next pair. The known
-        // resource family and exact atom reference are established; response
-        // schemas and ordered question inventories remain to be verified.
+        // resource family and exact atom reference are established. The ALL
+        // selector and _links metadata come from Naptime's public contract;
+        // live schema support and ordered questions remain to be verified.
         for (
           let index = 0;
           index < relationSamplePlan.length && current();

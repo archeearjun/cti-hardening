@@ -131,7 +131,7 @@ The operator now permits one-time Chrome bookmark setup. A saved bookmark can
 start a program in Coursera's own page context; a CTI hyperlink cannot inject
 into that different origin. The universal **Bookmark course data check** reads
 the two existing course resources without quiz visits and retains sanitized
-original relation models. Version 2 follows with at most four bounded item
+original relation models. Version 3 follows with at most four bounded item
 resource samples for one assessment and one reading using the exact atom IDs
 declared by that validated material root. It is explicitly diagnostic and does not claim that
 the missing full-course API path is implemented. See the
@@ -150,6 +150,16 @@ plain atom ID. Their bodies and query projections were not retained. The root
 material supplies no question-group inventory, question ordering or content
 bodies for those references. A fast course inventory therefore establishes a
 promising data path, not yet a fast complete-course capture.
+
+The second actual check completed all six GETs in **1.619 seconds**, with no HTTP
+failures. However, the four atom/relation responses were **70-byte ID-only
+projections**. They provide neither question lists nor reading bodies. The
+updated reader requests the official Naptime `X-Coursera-Naptime-Fields: ALL`
+header with `includes=_links`; the latter supplies declared relationship
+metadata rather than automatically reading related content. Its
+[documented selector and remaining live prerequisite](local-coursera-extraction.md#bookmark-setup-and-the-full-course-data-prerequisite)
+are distinct from verified private authoring support. Returned fields may be
+metadata only; their presence is never treated as complete content acquisition.
 
 | Option | Fits the restrictions? | What it can improve | Remaining limit |
 | --- | --- | --- | --- |

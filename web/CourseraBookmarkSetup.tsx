@@ -35,7 +35,8 @@ export default function CourseraBookmarkSetup({
         reads the current course structure, then samples the underlying data for
         one assessment and one reading. It opens no quizzes and makes at most
         six requests. The diagnostic JSON helps establish the faster data path;
-        it is not a complete course capture.
+        it is not a complete course capture. This version requests the content
+        fields and reports explicitly if Coursera returns only IDs.
       </p>
       <ol className="local-extraction-steps">
         <li>

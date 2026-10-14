@@ -66,7 +66,8 @@ test("production-minified bookmark is independent of its Vite module closure", a
   const quizAtom = "q".repeat(22),
     readingAtom = "r".repeat(22);
   let inFlight = 0,
-    maximumInFlight = 0;
+    maximumInFlight = 0,
+    honorAllProjection = true;
   class FixtureUrl extends URL {
     static createObjectURL(blob) {
       blobs.push(blob);
@@ -112,6 +113,7 @@ test("production-minified bookmark is independent of its Vite module closure", a
       url: String(input),
       method: options.method,
       credentials: options.credentials,
+      headers: Object.fromEntries(new Headers(options.headers)),
     });
     try {
       await new Promise((resolve) => setTimeout(resolve, 3));
@@ -183,20 +185,35 @@ test("production-minified bookmark is independent of its Vite module closure", a
             }
           : resource === "authoringCourses.v2"
             ? { elements: [{ id: courseId }], paging: {}, linked: {} }
-            : {
-                elements: [
-                  {
-                    id: key,
-                    opaqueFutureRelation: {
-                      observedAtom: key,
-                      sourceResource: resource,
+            : honorAllProjection &&
+                new Headers(options.headers).get(
+                  "X-Coursera-Naptime-Fields",
+                ) === "ALL"
+              ? {
+                  elements: [
+                    {
+                      id: key,
+                      opaqueFutureRelation: {
+                        observedAtom: key,
+                        sourceResource: resource,
+                      },
+                      session_token: "PRIVATE_RELATION_TOKEN",
                     },
-                    session_token: "PRIVATE_RELATION_TOKEN",
+                  ],
+                  paging: {},
+                  linked: {},
+                  links: {
+                    elements: {
+                      opaqueFutureRelation: "syntheticFutureRelations.v1",
+                    },
                   },
-                ],
-                paging: {},
-                linked: {},
-              };
+                }
+              : {
+                  elements: [{ id: key }],
+                  paging: {},
+                  linked: { "syntheticFutureRelations.v1": [] },
+                  links: { elements: {} },
+                };
       const response = new Response(JSON.stringify(model), {
         headers: { "content-type": "application/json" },
       });
@@ -246,6 +263,22 @@ test("production-minified bookmark is independent of its Vite module closure", a
     assert.deepEqual(alerts, []);
     assert.equal(calls.length, 6);
     assert.equal(maximumInFlight, 2);
+    for (const call of calls) {
+      const isAtom =
+        /\/api\/(?:authoringAtoms\.v2|authoringItemContentRelations\.v1)\//.test(
+          call.url,
+        );
+      assert.equal(
+        call.headers["x-coursera-naptime-fields"],
+        isAtom ? "ALL" : undefined,
+      );
+      assert.deepEqual(
+        Object.keys(call.headers).sort(),
+        isAtom ? ["accept", "x-coursera-naptime-fields"] : ["accept"],
+      );
+      if (isAtom)
+        assert.equal(new URL(call.url).searchParams.get("includes"), "_links");
+    }
     assert(
       calls.every(
         (call) => call.method === "GET" && call.credentials === "include",
@@ -256,6 +289,9 @@ test("production-minified bookmark is independent of its Vite module closure", a
     assert.equal(result.capturedResponses, 6);
     assert.equal(result.requests, 6);
     assert.equal(result.relationRequests, 4);
+    assert.equal(result.relationProjectionStatus, "SCHEMA_FIELDS_RETURNED");
+    assert.equal(result.relationSchemaResponseCount, 4);
+    assert.equal(result.identifierOnlyRelationResponses, 0);
     assert.equal(result.structuralLeafCount, 3);
     assert.equal(result.inventoryLeafCount, 2);
     assert.equal(result.emptyStructuralLeafCount, 1);
@@ -287,6 +323,12 @@ test("production-minified bookmark is independent of its Vite module closure", a
       );
       assert.equal(record.sourceBinding.assessmentRootCertified, false);
       assert(record.requestPath.endsWith("/" + record.sourceBinding.atomId));
+      assert.equal(record.requestProjection, "NAPTIME_ALL_FIELDS_HEADER");
+      assert.equal(record.requestQuery.includes, "_links");
+      assert.equal(record.projection.status, "SCHEMA_FIELDS_RETURNED");
+      assert(record.projection.schemaFieldCount > 0);
+      assert.equal(record.projection.expectedIdObserved, true);
+      assert.equal(record.projection.hasRelationMetadata, true);
       assert.equal(
         record.data.elements[0].opaqueFutureRelation.observedAtom,
         record.sourceBinding.atomId,
@@ -299,6 +341,46 @@ test("production-minified bookmark is independent of its Vite module closure", a
     assert(!JSON.stringify(result).includes("PRIVATE_DELIVERY_TOKEN"));
     assert(!JSON.stringify(result).includes("PRIVATE_URL_TOKEN"));
     assert(!JSON.stringify(result).includes("PRIVATE_RELATION_TOKEN"));
+
+    // A live authoring resource may ignore the framework's projection header.
+    // The emitted program must report that outcome and never upgrade id-only
+    // records into a body/schema/completeness success.
+    honorAllProjection = false;
+    const beforeCalls = calls.length,
+      beforeDownloads = downloads.length;
+    vm.runInContext(program, runtime);
+    const ignoredDeadline = Date.now() + 5000;
+    while (
+      window.__CTI_COURSERA_COURSE_DATA_PROBE?.running &&
+      Date.now() < ignoredDeadline
+    )
+      await new Promise((resolve) => setImmediate(resolve));
+    const ignored = window.__CTI_COURSERA_COURSE_DATA_PROBE;
+    try {
+      assert.equal(ignored.running, false);
+      assert.equal(calls.length - beforeCalls, 6);
+      assert.equal(downloads.length - beforeDownloads, 1);
+      assert.equal(maximumInFlight, 2);
+      const ignoredResult = JSON.parse(JSON.stringify(ignored.result));
+      assert.equal(
+        ignoredResult.relationProjectionStatus,
+        "IDENTIFIER_ONLY_RESPONSES",
+      );
+      assert.equal(ignoredResult.identifierOnlyRelationResponses, 4);
+      assert.equal(ignoredResult.relationSchemaResponseCount, 0);
+      assert.equal(ignoredResult.wholeCourseVerified, false);
+      for (const record of ignoredResult.records.filter(
+        (record) => record.sourceBinding,
+      )) {
+        assert.equal(record.requestProjection, "NAPTIME_ALL_FIELDS_HEADER");
+        assert.equal(record.projection.status, "IDENTIFIER_ONLY");
+        assert.equal(record.projection.schemaFieldCount, 0);
+        assert.equal(record.projection.expectedIdObserved, true);
+        assert.equal(record.projection.hasRelationMetadata, false);
+      }
+    } finally {
+      if (ignored?.running) ignored.stop("TEST_CLEANUP");
+    }
   } finally {
     if (state?.running) state.stop("TEST_CLEANUP");
   }
