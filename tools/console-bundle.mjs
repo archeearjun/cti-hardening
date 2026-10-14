@@ -8,7 +8,7 @@ import ts from "typescript";
  * mutable shared state. State and effects stay in the per-run entry IIFE.
  * Keeping function text intact preserves diagnostic/check script boundaries.
  */
-export function bundleConsole(entryPath) {
+export function bundleConsole(entryPath, options = {}) {
   const root = path.dirname(entryPath),
     seen = new Set(),
     definitions = new Map();
@@ -106,9 +106,67 @@ export function bundleConsole(entryPath) {
   const marker = /(["'])use strict\1;/;
   if (!marker.test(entry))
     throw Error("Console entry needs an explicit strict-mode IIFE.");
-  const source = [...definitions.values()]
-    .map((d) => "  " + d.text)
-    .join("\n\n");
+  let selected = [...definitions.values()];
+  if (options.onlyReachable === true) {
+    // Preserve declaration text while following actual lexical symbols. A
+    // property name or shadowed local identifier cannot pull in an unrelated
+    // helper, and referenced imports retain their original declarations.
+    const program = ts.createProgram([...seen, entryPath], {
+      allowJs: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+    });
+    const checker = program.getTypeChecker(),
+      reachable = new Set(),
+      queue = [],
+      declarationNames = new Map();
+    for (const [name, binding] of definitions) {
+      const fileAst = program.getSourceFile(binding.file);
+      for (const statement of fileAst.statements) {
+        if (
+          ts.isFunctionDeclaration(statement) &&
+          statement.name?.text === name
+        )
+          declarationNames.set(statement, name);
+        if (ts.isVariableStatement(statement))
+          for (const declaration of statement.declarationList.declarations)
+            if (
+              ts.isIdentifier(declaration.name) &&
+              declaration.name.text === name
+            )
+              declarationNames.set(declaration, name);
+      }
+    }
+    function references(node) {
+      if (ts.isIdentifier(node)) {
+        let symbol =
+          ts.isShorthandPropertyAssignment(node.parent) &&
+          node.parent.name === node
+            ? checker.getShorthandAssignmentValueSymbol(node.parent)
+            : checker.getSymbolAtLocation(node);
+        if (symbol?.flags & ts.SymbolFlags.Alias)
+          symbol = checker.getAliasedSymbol(symbol);
+        for (const declaration of symbol?.declarations || []) {
+          const name = declarationNames.get(declaration);
+          if (!name || reachable.has(name)) continue;
+          reachable.add(name);
+          queue.push(declaration);
+        }
+      }
+      ts.forEachChild(node, references);
+    }
+    const entryAst = program.getSourceFile(entryPath);
+    for (const statement of entryAst.statements)
+      if (!ts.isImportDeclaration(statement)) references(statement);
+    while (queue.length) references(queue.shift());
+    selected = [...definitions]
+      .filter(([name]) => reachable.has(name))
+      .map(([, definition]) => definition);
+  }
+  const source = selected.map((d) => "  " + d.text).join("\n\n");
   return entry
     .replace(marker, (match) => match + "\n\n" + source + "\n")
     .trimStart();

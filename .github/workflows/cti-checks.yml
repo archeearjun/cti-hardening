@@ -80,6 +80,8 @@ jobs:
         run: npm run test:browser:reconnect-ui
       - name: Bookmark delivery and bounded course-schema reads without editor navigation
         run: npm run test:browser:bookmark
+      - name: Full course bookmark, large assessments, durable resume and strict source gaps
+        run: npm run test:browser:direct-data
       - name: Hidden Coursera pause accounting across renderer batches
         run: npm run test:browser:hidden-pause
       - name: Targeted outline navigation with unrelated branches unmounted

@@ -26,6 +26,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Focused item/plugin checks | `src/domain/item-check.ts`, `plugin-check.ts` | `npm run test:navigation` |
 | One-click item refresh and local Chrome extension | `src/browser-extension/`, `src/domain/browser-item-refresh.ts`, `extension-item-script.ts`, `web/CourseraItemRefresh.tsx` | `tests/browser-item-refresh.test.mjs`; `npm run test:browser:owner`; `npm run test:browser:extension`; [installation and boundaries](browser-item-refresh.md) |
 | Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |
+| Full course bookmark and direct authoring drafts | `src/extractors/coursera/direct-data-*`, `src/domain/coursera-direct-data-capture.ts`, `web/CourseraDirectCaptureSetup.tsx` | `tests/coursera-direct-data-*.test.mjs`; `npm run test:browser:direct-data` |
 | Brightspace capture | `src/extractors/brightspace/` | `npm run test:extractors` |
 | Source topic matching and source assessment definitions | `src/engine/source/brightspace-matching.js`, `brightspace-assessment.js` | `npm run test:engine` |
 | Syllabus placeholders and observed live-source wording | `src/engine/readiness/template-placeholders.js`, `src/engine/source/live-text-review.js` | `tests/syllabus-readiness.test.mjs`; `npm run test:browser:owner` |
@@ -88,6 +89,37 @@ already authenticated Chrome tab. The generated program keeps its item
 checkpoints in that browser and downloads the raw JSON locally. CTI independently
 evaluates the returned capture with the same strict completion contract before
 it can be labelled COMPLETE.
+
+The primary workflow saves the universal **CTI course capture** bookmark once.
+`direct-data-entry.js` reads the complete material tree and exact item/atom
+relations from the open Content page, without opening editors or navigating.
+It requests known authoring resources with `X-Coursera-Naptime-Fields: ALL`
+and `includes=_links`; the header overrides query projections, so every retained
+model passes the shared credential sanitizer. The projection behavior is from
+Coursera's [Naptime source](https://github.com/coursera/naptime/blob/33c50c5df657f41661b95eb9e1743af9f3f5473f/naptime/src/main/scala/org/coursera/naptime/models.scala)
+and was confirmed by an authenticated course-data sample.
+
+Direct capture retains authoring drafts and published snapshots separately.
+Draft parts supply ordered group identities; exact versioned definitions supply
+supported MCQ/checkbox keys. Fresh atom and group reads and a final material
+read check source stability. Unknown models, variants, media bodies and external
+widgets remain explicit gaps. Two shared request slots, request/time/byte bounds,
+and incremental IndexedDB transactions replace repeated editor traversal.
+The dedicated `cti-coursera-direct-data-v1` database isolates runs and courses
+from legacy checkpoints. Resuming revalidates current sources before reusing
+matching versioned definitions. Export serializes one item at a time and produces
+one final local JSON; the importer independently validates its source receipts
+and ordered inventory. Native fixture checks verify delivery separately from
+browser policy restrictions; fixtures do not certify every live private course.
+The direct bundle preserves the text of reachable native declarations using
+TypeScript's lexical symbol bindings. It excludes unrelated editor helpers,
+while the legacy bundle retains its original linking behavior. Delivery must
+fit the stricter [500 KiB Bookmark Manager input limit](https://github.com/chromium/chromium/blob/main/chrome/browser/resources/bookmarks/constants.ts#L109),
+so neither the saved URL nor the full copy fallback is silently truncated.
+
+The older managed Protocol monitor and diagnostic tools remain available inside
+closed disclosures. They are separate workflows and do not resume a direct
+capture file.
 
 The automatic background path remains a separate service-bound Worker because
 Browser Run and durable Workflows are Worker capabilities. It is intended only

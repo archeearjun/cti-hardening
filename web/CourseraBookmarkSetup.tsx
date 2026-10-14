@@ -31,12 +31,12 @@ export default function CourseraBookmarkSetup({
         Bookmark course data check · v{COURSERA_COURSE_DATA_PROBE_VERSION}
       </h3>
       <p>
-        Full-course bookmark extraction is not available yet. This short check
-        reads the current course structure, then samples the underlying data for
-        one assessment and one reading. It opens no quizzes and makes at most
-        six requests. The diagnostic JSON helps establish the faster data path;
-        it is not a complete course capture. This version requests the content
-        fields and reports explicitly if Coursera returns only IDs.
+        This diagnostic reads the current course structure, then samples the
+        underlying data for one assessment and one reading. It opens no quizzes
+        and makes at most six requests. The diagnostic JSON helps establish the
+        faster data path; it is not a complete course capture. This version
+        requests the content fields and reports explicitly if Coursera returns
+        only IDs.
       </p>
       <ol className="local-extraction-steps">
         <li>

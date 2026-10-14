@@ -2,6 +2,7 @@ import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
 import { validateSavedCaptureResumeV61515 } from "../extractors/coursera/runtime.js";
 import {
   evaluateCourseraCapture,
+  hasCourseraDirectDataCaptureMarker,
   parseCourseraShellUrl,
   type CourseraCaptureVerdict,
 } from "./coursera-background-extraction.ts";
@@ -14,6 +15,7 @@ export interface LocalCourseraCaptureInspection {
   extractor: string;
   buildId: string;
   capturedAt: string;
+  captureMode: "AUTHORING_EDITOR" | "BOUND_AUTHORING_DRAFT_API";
   verdict: CourseraCaptureVerdict;
   currentSchema: boolean;
   currentVersion: boolean;
@@ -98,13 +100,17 @@ export function inspectLocalCourseraCapture(
   const capturedAt = String(
     capture.capturedAt || capture.extractedAt || meta.capturedAt || "",
   );
-  const currentVersion = (extractor + " " + buildId).includes(current.version);
+  const directDraftApi = hasCourseraDirectDataCaptureMarker(capture);
+  const currentVersion =
+    !directDraftApi && (extractor + " " + buildId).includes(current.version);
   let resumeAvailable = false;
-  try {
-    validateSavedCaptureResumeV61515(capture, expectedCourseId);
-    resumeAvailable = !verdict.complete;
-  } catch {
-    /* Older evidence remains inspectable without a resume claim. */
+  if (!directDraftApi) {
+    try {
+      validateSavedCaptureResumeV61515(capture, expectedCourseId);
+      resumeAvailable = !verdict.complete;
+    } catch {
+      /* Older evidence remains inspectable without a resume claim. */
+    }
   }
   let authoringShellUrl = "";
   try {
@@ -120,11 +126,16 @@ export function inspectLocalCourseraCapture(
     extractor: extractor || "Not recorded",
     buildId,
     capturedAt,
+    captureMode: directDraftApi
+      ? "BOUND_AUTHORING_DRAFT_API"
+      : "AUTHORING_EDITOR",
     verdict,
     currentSchema: schemaVersion === current.schema,
     currentVersion,
     resumeAvailable,
-    pausedBatch: meta.localCaptureBatch?.requiresReload === true &&
+    pausedBatch:
+      !directDraftApi &&
+      meta.localCaptureBatch?.requiresReload === true &&
       meta.automaticLocalCapture?.state !== "FINISHED",
     batchVisits: Number(meta.localCaptureBatch?.visits || 0),
     authoringShellUrl,
@@ -136,65 +147,127 @@ export function createAutomaticLocalCourseraCommand(
   currentScript: string,
   token = crypto.randomUUID(),
   savedCapture?: unknown,
-  options: { freshRun?: boolean; controllerOrigin?: string; resumeExisting?: boolean } = {},
+  options: {
+    freshRun?: boolean;
+    controllerOrigin?: string;
+    resumeExisting?: boolean;
+  } = {},
 ): string {
   const target = parseCourseraShellUrl(shellUrl);
-  if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
-    throw new Error("The current Coursera extractor is unavailable. Reload CTI.");
+  if (
+    !currentScript.startsWith("javascript:(async function ctiCourseraCapture")
+  )
+    throw new Error(
+      "The current Coursera extractor is unavailable. Reload CTI.",
+    );
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(token))
     throw new Error("Invalid local capture identifier.");
   if (options.freshRun && savedCapture !== undefined)
-    throw new Error("A fresh full-course capture cannot import a saved capture.");
-  if (options.resumeExisting !== undefined && typeof options.resumeExisting !== "boolean")
+    throw new Error(
+      "A fresh full-course capture cannot import a saved capture.",
+    );
+  if (
+    options.resumeExisting !== undefined &&
+    typeof options.resumeExisting !== "boolean"
+  )
     throw new Error("Invalid browser checkpoint resume option.");
   if (options.resumeExisting && options.freshRun)
-    throw new Error("A browser checkpoint resume cannot start a fresh full-course capture.");
+    throw new Error(
+      "A browser checkpoint resume cannot start a fresh full-course capture.",
+    );
   if (options.resumeExisting && savedCapture !== undefined)
-    throw new Error("A browser checkpoint resume cannot import a saved capture.");
+    throw new Error(
+      "A browser checkpoint resume cannot import a saved capture.",
+    );
   let controllerOrigin = "";
-  if(options.controllerOrigin){
-    const controller=new URL(options.controllerOrigin);
-    if(controller.origin!==options.controllerOrigin || controller.username || controller.password ||
-      !(controller.protocol==='https:' || controller.protocol==='http:' && ['localhost','127.0.0.1'].includes(controller.hostname)))
-      throw new Error('Invalid local CTI controller origin.');
-    controllerOrigin=controller.origin;
+  if (options.controllerOrigin) {
+    const controller = new URL(options.controllerOrigin);
+    if (
+      controller.origin !== options.controllerOrigin ||
+      controller.username ||
+      controller.password ||
+      !(
+        controller.protocol === "https:" ||
+        (controller.protocol === "http:" &&
+          ["localhost", "127.0.0.1"].includes(controller.hostname))
+      )
+    )
+      throw new Error("Invalid local CTI controller origin.");
+    controllerOrigin = controller.origin;
   }
   const config = JSON.stringify({
-    token, courseId: target.courseId, shellUrl: target.shellUrl,
+    token,
+    courseId: target.courseId,
+    shellUrl: target.shellUrl,
     ...(options.freshRun ? { freshRun: true } : {}),
     ...(options.resumeExisting ? { resumeExisting: true } : {}),
     ...(controllerOrigin ? { controllerOrigin } : {}),
   });
   // Chrome owns this registration outside the page's JavaScript context. The
   // extractor checks the durable run state before every subsequent invocation.
-  const source = "(()=>{\nif(window!==window.top || location.origin!==" +
+  const source =
+    "(()=>{\nif(window!==window.top || location.origin!==" +
     JSON.stringify("https://www.coursera.org") +
     " || !location.pathname.startsWith(" +
-    JSON.stringify(new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content")) +
-    ")){" + (controllerOrigin ?
-      "if(window===window.top && window.opener)try{window.opener.postMessage({kind:'CTI_LOCAL_CAPTURE_OUTSIDE_COURSE_V1',token:"+
-      JSON.stringify(token)+",courseId:"+JSON.stringify(target.courseId)+"},"+JSON.stringify(controllerOrigin)+");}catch{}" : "") +
-    "return;}\nwindow.__CTI_AUTOMATIC_LOCAL_CONFIG__=" + config + ";\n" +
-    (savedCapture === undefined ? "" :
-      "try{if(!JSON.parse(localStorage.getItem(" +
-      JSON.stringify("__CTI_AUTOMATIC_LOCAL_V61517_" + token) +
-      ")||'null')?.seeded)window.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
-      savedCourseraResumeLiteral(savedCapture, shellUrl) + ");}catch{}\n") +
-    currentScript.slice("javascript:".length) + "\n})();";
-  return JSON.stringify({cmd: "Page.addScriptToEvaluateOnNewDocument", args: {
-    source, runImmediately: true,
-  }});
+    JSON.stringify(
+      new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content"),
+    ) +
+    ")){" +
+    (controllerOrigin
+      ? "if(window===window.top && window.opener)try{window.opener.postMessage({kind:'CTI_LOCAL_CAPTURE_OUTSIDE_COURSE_V1',token:" +
+        JSON.stringify(token) +
+        ",courseId:" +
+        JSON.stringify(target.courseId) +
+        "}," +
+        JSON.stringify(controllerOrigin) +
+        ");}catch{}"
+      : "") +
+    "return;}\nwindow.__CTI_AUTOMATIC_LOCAL_CONFIG__=" +
+    config +
+    ";\n" +
+    (savedCapture === undefined
+      ? ""
+      : "try{if(!JSON.parse(localStorage.getItem(" +
+        JSON.stringify("__CTI_AUTOMATIC_LOCAL_V61517_" + token) +
+        ")||'null')?.seeded)window.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
+        savedCourseraResumeLiteral(savedCapture, shellUrl) +
+        ");}catch{}\n") +
+    currentScript.slice("javascript:".length) +
+    "\n})();";
+  return JSON.stringify({
+    cmd: "Page.addScriptToEvaluateOnNewDocument",
+    args: {
+      source,
+      runImmediately: true,
+    },
+  });
 }
 
-export function createSavedCourseraCheckpointExportCommand(shellUrl: string, currentScript: string): string {
+export function createSavedCourseraCheckpointExportCommand(
+  shellUrl: string,
+  currentScript: string,
+): string {
   const target = parseCourseraShellUrl(shellUrl);
-  if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
-    throw new Error("The current Coursera extractor is unavailable. Reload CTI.");
-  const source = "(()=>{if(window!==window.top || location.origin!==\"https://www.coursera.org\" || !location.pathname.startsWith(" +
-    JSON.stringify(new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content")) +
-    "))return;window.__CTI_LOCAL_CHECKPOINT_EXPORT__=" + JSON.stringify(target) + ";return " +
-    currentScript.slice("javascript:".length) + "\n})();";
-  return JSON.stringify({cmd: "Runtime.evaluate", args: {expression: source, awaitPromise: true, returnByValue: true}});
+  if (
+    !currentScript.startsWith("javascript:(async function ctiCourseraCapture")
+  )
+    throw new Error(
+      "The current Coursera extractor is unavailable. Reload CTI.",
+    );
+  const source =
+    '(()=>{if(window!==window.top || location.origin!=="https://www.coursera.org" || !location.pathname.startsWith(' +
+    JSON.stringify(
+      new URL(target.shellUrl).pathname.replace(/\/content.*$/, "/content"),
+    ) +
+    "))return;window.__CTI_LOCAL_CHECKPOINT_EXPORT__=" +
+    JSON.stringify(target) +
+    ";return " +
+    currentScript.slice("javascript:".length) +
+    "\n})();";
+  return JSON.stringify({
+    cmd: "Runtime.evaluate",
+    args: { expression: source, awaitPromise: true, returnByValue: true },
+  });
 }
 
 export async function readLocalCourseraCaptureFile(
@@ -230,16 +303,29 @@ export function createSavedCourseraResumeScript(
   currentScript: string,
 ): string {
   const literal = savedCourseraResumeLiteral(value, shellUrl);
-  if (!currentScript.startsWith("javascript:(async function ctiCourseraCapture"))
-    throw new Error("The current Coursera extractor is unavailable. Reload CTI and try again.");
-  return "javascript:(()=>{\nwindow.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
-    literal + ");\n" + currentScript.slice("javascript:".length) + "\n})();";
+  if (
+    !currentScript.startsWith("javascript:(async function ctiCourseraCapture")
+  )
+    throw new Error(
+      "The current Coursera extractor is unavailable. Reload CTI and try again.",
+    );
+  return (
+    "javascript:(()=>{\nwindow.__CTI_LOCAL_CAPTURE_RESUME__=JSON.parse(" +
+    literal +
+    ");\n" +
+    currentScript.slice("javascript:".length) +
+    "\n})();"
+  );
 }
 
 function savedCourseraResumeLiteral(value: unknown, shellUrl: string): string {
   const courseId = parseCourseraShellUrl(shellUrl).courseId;
   const capture = record(value);
-  inspectLocalCourseraCapture(capture, shellUrl);
+  const inspection = inspectLocalCourseraCapture(capture, shellUrl);
+  if (inspection.captureMode === "BOUND_AUTHORING_DRAFT_API")
+    throw new Error(
+      "A direct draft-API capture cannot resume through the authoring-editor Protocol command. Use the CTI bookmark for this capture mode.",
+    );
   validateSavedCaptureResumeV61515(capture, courseId);
   // Retain observations, not exported accounting claims. The extractor checks
   // these against the live inventory and recalculates every completion verdict.

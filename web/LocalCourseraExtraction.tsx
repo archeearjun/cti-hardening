@@ -15,6 +15,7 @@ import {
 import type { ExtractorDelivery } from "../src/domain/types.ts";
 import { download } from "./workspace-ui";
 import CourseraBookmarkSetup from "./CourseraBookmarkSetup.tsx";
+import CourseraDirectCaptureSetup from "./CourseraDirectCaptureSetup.tsx";
 
 export default function LocalCourseraExtraction({
   disabled = false,
@@ -45,6 +46,7 @@ export default function LocalCourseraExtraction({
   const [automaticCommand, setAutomaticCommand] = useState("");
   const [managedCommand,setManagedCommand]=useState(retainedManaged.command);
   const [managedFresh,setManagedFresh]=useState(false);
+  const [legacyExpanded,setLegacyExpanded]=useState(Boolean(retainedActive));
   const [responseSampleSource,setResponseSampleSource]=useState('');
   const [managedStatus,setManagedStatus]=useState<CourseraSupervisorStatus|null>(retainedManaged.status);
   const managedTab=useRef<Window|null>(retainedManaged.child);
@@ -76,6 +78,8 @@ export default function LocalCourseraExtraction({
     try{return parseCourseraShellUrl(retainedManaged.courseUrl).courseId===shellTarget.courseId;}catch{return false;}
   },[managedStatus,shellTarget,retainedManaged.courseUrl]);
 
+  const directCapture = inspection?.captureMode === "BOUND_AUTHORING_DRAFT_API";
+  const legacyResumeAvailable = !directCapture && inspection?.resumeAvailable;
   const reasons = inspection?.verdict.reasons || [];
   const courseMismatch = reasons.some((reason) =>
     reason.startsWith("COURSE_ID_MISMATCH:"),
@@ -207,13 +211,15 @@ export default function LocalCourseraExtraction({
           <p className="eyebrow">ZERO-COST CAPTURE</p>
           <h2>Extract Coursera in your own Chrome</h2>
           <p>
-            CTI runs the current extractor inside the Coursera tab where you are
-            already signed in. Chrome's built-in debugger continues across
-            automatic reloads. One final JSON downloads when capture finishes.
+            Save CTI’s bookmark once, then run it from any signed-in Coursera
+            authoring Content page. It reads course data directly and prepares
+            one final JSON.
           </p>
         </div>
-        <span className="badge">No paid browser service</span>
+        <span className="badge">No extension · no fees</span>
       </div>
+
+      <CourseraDirectCaptureSetup disabled={disabled || !!busy || managedActive} />
 
       <label>
         Coursera authoring-shell URL
@@ -239,16 +245,21 @@ export default function LocalCourseraExtraction({
         />
       </label>
       <p className="hint">
-        Use the exact shell you intend to capture. CTI checks the downloaded
-        JSON against this course ID before moving it into Compare.
+        The bookmark gets the course identity from Coursera. This optional URL
+        checks the downloaded JSON against the intended course before Compare.
+        If left empty, CTI uses the course identity recorded in your file.
       </p>
       {!shellTarget && shellUrl.trim() && (
         <p className="hint" role="alert">
           Enter a valid Coursera authoring URL containing
           <code> /teach/&lt;course&gt;/&lt;course-id&gt;/content </code>
-          before copying the extractor or selecting a capture.
+          to bind the downloaded file check, or leave this field empty.
         </p>
       )}
+      <details className="section-divider legacy-local-extraction"
+        open={managedActive || legacyExpanded}
+        onToggle={event=>setLegacyExpanded(event.currentTarget.open)}>
+        <summary>Legacy editor capture and diagnostics</summary>
       <div className="section-divider managed-local-capture">
         <h3>Managed capture in local Chrome</h3>
         <p>CTI stays open as the controller while Coursera captures the course.
@@ -281,8 +292,6 @@ export default function LocalCourseraExtraction({
           <p>{managedStatus.count || (managedStatus.completeItems+' items complete · '+managedStatus.savedQuestions+' question observations saved')} · {managedStatus.recoveries} automatic recoveries</p>
         </div>}
       </div>
-
-      <CourseraBookmarkSetup disabled={disabled || !!busy || managedActive} />
 
       <div className="section-divider">
         <h3>Check one open quiz</h3>
@@ -500,6 +509,13 @@ export default function LocalCourseraExtraction({
         </details>
       )}
 
+      </details>
+
+      <details className="section-divider">
+        <summary>Diagnostic bookmark course data check</summary>
+        <CourseraBookmarkSetup disabled={disabled || !!busy || managedActive} />
+      </details>
+
       <div className="section-divider">
         <h3>Check the downloaded capture</h3>
         <label className="file-picker" htmlFor={captureInputId}>
@@ -609,21 +625,27 @@ export default function LocalCourseraExtraction({
               Course <code>{inspection.courseId}</code> · schema{" "}
               {inspection.schemaVersion} · {inspection.extractor}
             </p>
-            {inspection.resumeAvailable && (
+            {directCapture && <p>
+              Authoring draft capture. Returned published versions remain separate;
+              evidence gaps determine whether this file passes the capture gate.
+              Click the same saved bookmark on this course’s Content page after an
+              interruption. CTI checks current sources before reusing matching saved reads.
+            </p>}
+            {legacyResumeAvailable && (
               <p>
                 Use Copy automatic resume command above in Protocol monitor.
                 CTI restores saved observations and continues missing evidence
                 across automatic reloads. External content can still require review.
               </p>
             )}
-            {!inspection.currentSchema && (
+            {!directCapture && !inspection.currentSchema && (
               <p className="hint">
                 This is an older compatible schema. Existing evidence remains
                 usable, but only the current extractor can satisfy the newest
                 capture contract.
               </p>
             )}
-            {!inspection.currentVersion && (
+            {!directCapture && !inspection.currentVersion && (
               <p className="hint" role="alert">
                 This capture was not produced by the current Coursera extractor
                 release. Keep the evidence, but rerun the current extractor when
@@ -645,7 +667,7 @@ export default function LocalCourseraExtraction({
           </div>
 
           <div className="action-links">
-            {inspection.resumeAvailable && capture && (
+            {legacyResumeAvailable && capture && (
               <button
                 className="secondary"
                 disabled={disabled || !!busy || courseMismatch || !shellTarget}

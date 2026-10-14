@@ -26,6 +26,25 @@ for (const platform of ["coursera", "brightspace"]) {
     source,
   );
 }
+const directDataSource = bundleConsole(
+  fileURLToPath(
+    new URL("../src/extractors/coursera/direct-data-entry.js", import.meta.url),
+  ),
+  { onlyReachable: true },
+);
+new vm.Script(directDataSource, { filename: "coursera-direct-data.js" });
+const directBookmarkBytes = Buffer.byteLength(
+  "javascript:" + encodeURIComponent("void " + directDataSource),
+);
+if (directBookmarkBytes >= 500 * 1024)
+  throw Error(
+    "The full course bookmark exceeds Chrome Bookmark Manager's input limit.",
+  );
+sources.courseraDirectDataSource = directDataSource;
+fs.writeFileSync(
+  new URL("../src/generated/coursera-direct-data.js", import.meta.url),
+  directDataSource,
+);
 fs.mkdirSync(new URL("../src/generated/", import.meta.url), {
   recursive: true,
 });
@@ -43,10 +62,14 @@ const target = new URL(
 );
 if (!fs.existsSync(target) || fs.readFileSync(target, "utf8") !== output)
   fs.writeFileSync(target, output);
-console.log("Validated and prepared the two standalone extractor scripts.");
+console.log(
+  `Validated the standalone scripts and full course bookmark (${directBookmarkBytes} encoded bytes).`,
+);
 const { buildBrowserExtension } = await import("./build-browser-extension.mjs");
 await buildBrowserExtension(sources.courseraSource);
 console.log("Prepared the packaged CTI browser extension and install ZIP.");
 const { buildActivityDesigner } = await import("./build-activity-designer.mjs");
 buildActivityDesigner(sources.courseraSource);
-console.log("Prepared the isolated activity designer and read-only capture scripts.");
+console.log(
+  "Prepared the isolated activity designer and read-only capture scripts.",
+);

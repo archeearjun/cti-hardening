@@ -356,6 +356,7 @@ try{
   await app.getByRole('button',{name:'Review a capture',exact:true}).click();
   await app.getByRole('button',{name:'Coursera extractor',exact:false}).click();
   const quickLocal=app.locator('.script-panel .local-extraction-card');
+  await quickLocal.locator('.legacy-local-extraction > summary').click();
   await quickLocal.getByLabel('Coursera authoring-shell URL',{exact:true}).fill('https://www.coursera.org/teach/synthetic/Native_local_fixture_123/content/edit');
   await quickLocal.getByText('Diagnostic one-quiz response sample',{exact:true}).click();
   await quickLocal.getByRole('button',{name:'Copy one-quiz data check',exact:true}).click();

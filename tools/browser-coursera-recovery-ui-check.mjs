@@ -63,6 +63,7 @@ try{
   const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
   await page.goto(hostOrigin+fixturePath);
   const managed=page.locator('.managed-local-capture');
+  await page.locator('.legacy-local-extraction > summary').click();
   await page.getByRole('heading',{name:'Managed capture in local Chrome',exact:true}).waitFor();
   await managed.getByRole('checkbox',{name:'Fresh full-course managed run'}).check();
 

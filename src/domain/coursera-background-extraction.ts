@@ -1,3 +1,8 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { parseCourseraCourseMaterialsRelations } from "./coursera-course-relations.ts";
+import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
+
 export interface CourseraShellTarget {
   inputUrl: string;
   shellUrl: string;
@@ -54,6 +59,34 @@ const record = (value: unknown): Record<string, any> | null =>
 const number = (value: unknown, fallback = 0) =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
 const array = (value: unknown): any[] => (Array.isArray(value) ? value : []);
+
+/** Direct provenance remains direct when a malformed file loses its mode. */
+export function hasCourseraDirectDataCaptureMarker(value: unknown): boolean {
+  const capture = record(value),
+    meta = record(capture?.meta);
+  const directMode = record(meta?.directDataCapture);
+  return Boolean(
+    (directMode && Object.hasOwn(directMode, "mode")) ||
+      array(capture?.fingerprints).some((fp) => {
+        const item = record(fp),
+          payload = record(item?.payload);
+        const outer = record(item?.captureContract),
+          inner = record(payload?.captureContract);
+        return (
+          [outer, inner].some(
+            (contract) =>
+              typeof contract?.status === "string" &&
+              contract.status.startsWith("COMPLETE_BOUND_DRAFT"),
+          ) ||
+          (!!payload && Object.hasOwn(payload, "directDataSources")) ||
+          record(payload?.directDataEvidence)?.method ===
+            "BOUND_AUTHORING_DRAFT_API" ||
+          record(payload?.assessmentApiEvidence)?.method ===
+            "BOUND_AUTHORING_DRAFT_API"
+        );
+      }),
+  );
+}
 
 export function parseCourseraShellUrl(value: string): CourseraShellTarget {
   let url: URL;
@@ -254,6 +287,557 @@ function pluginReasons(fingerprints: any[]): string[] {
   return reasons;
 }
 
+const directHash = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+
+function directModelHash(value: unknown): string | null {
+  try {
+    return bytesToHex(
+      sha256(new TextEncoder().encode(directCanonicalSourceTextV1(value))),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function directReceiptValid(
+  value: unknown,
+  resource: string,
+  id: string,
+): boolean {
+  const receipt = record(value);
+  return (
+    !!receipt &&
+    receipt.resource === resource &&
+    receipt.id === id &&
+    receipt.status === 200 &&
+    directHash(receipt.sha256) &&
+    directHash(receipt.originalResponseSha256) &&
+    receipt.sha256 === receipt.originalResponseSha256 &&
+    (receipt.requestPath ===
+      "/api/" + resource + "/" + encodeURIComponent(id).replace(/%40/gi, "@") ||
+      (resource === "authoringCourseMaterials.v1" &&
+        receipt.requestPath ===
+          "/api/" + resource + "/" + encodeURIComponent(id) + "/")) &&
+    receipt.bodyFormat === "PARSED_SANITIZED_JSON_MODEL"
+  );
+}
+
+function directSingleSource(
+  value: unknown,
+  id: string,
+): Record<string, any> | null {
+  const envelope = record(value);
+  if (
+    !envelope ||
+    !Array.isArray(envelope.elements) ||
+    envelope.elements.length !== 1 ||
+    (envelope.paging !== undefined &&
+      (!record(envelope.paging) || Object.keys(envelope.paging).length))
+  )
+    return null;
+  const root = record(envelope.elements[0]);
+  return root?.id === id ? root : null;
+}
+
+function directTextOnlyCmlSource(value: string): boolean {
+  // A retained URL does not prove the body of a media resource or attachment.
+  // Check the actual source independently of the exported asset counters.
+  return (
+    !/<!DOCTYPE|<!ENTITY|<\s*(?:[A-Za-z_][\w.-]*:)?(?:asset|img|image|iframe|frame|object|embed|script|style|link|source|video|audio)\b/i.test(
+      value,
+    ) &&
+    !/<\s*(?:[A-Za-z_][\w.-]*:)?a\b[^>]*(?:\bdownload\s*(?:=|\s|>)|\bhref\s*=\s*["'][^"']*\.(?:pdf|docx?|pptx?|xlsx?|zip|csv|png|jpe?g|gif|webp)(?:[?#][^"']*)?["'])/i.test(
+      value,
+    )
+  );
+}
+
+function directAssessmentSourcesValid(
+  item: Record<string, any>,
+  payload: Record<string, any>,
+  evidence: Record<string, any>,
+  definition: Record<string, any> | null,
+  atomId: string,
+  courseId: string,
+): boolean {
+  const parts = definition?.parts,
+    raw = record(payload.assessmentApiEvidence),
+    assessment = record(payload.structuredAssessment);
+  const coverage = record(assessment?.captureCompleteness),
+    questions = assessment?.questions;
+  if (
+    !Array.isArray(parts) ||
+    parts.length < 1 ||
+    parts.length > 20000 ||
+    raw?.method !== "BOUND_AUTHORING_DRAFT_API" ||
+    raw.courseId !== courseId ||
+    raw.itemId !== item.id ||
+    raw.assignmentId !== atomId ||
+    !Array.isArray(raw.groups) ||
+    raw.groups.length !== parts.length ||
+    !Array.isArray(raw.groupStability) ||
+    raw.groupStability.length !== parts.length ||
+    !Array.isArray(raw.questionDefinitions) ||
+    raw.questionDefinitions.length !== parts.length ||
+    !Array.isArray(raw.inventory) ||
+    raw.inventory.length !== parts.length ||
+    !Array.isArray(raw.receipts) ||
+    !Array.isArray(questions) ||
+    questions.length !== parts.length ||
+    assessment?.declaredQuestionCount !== parts.length ||
+    assessment.questionCount !== parts.length ||
+    coverage?.declared !== parts.length ||
+    coverage.captured !== parts.length ||
+    coverage.questionCoverageComplete !== true ||
+    coverage.requiredAnswerCoverageComplete !== true ||
+    !Array.isArray(coverage.missingQuestionOrdinals) ||
+    coverage.missingQuestionOrdinals.length !== 0 ||
+    !Array.isArray(coverage.missingRequiredAnswerOrdinals) ||
+    coverage.missingRequiredAnswerOrdinals.length !== 0 ||
+    evidence.declaredContentParts !== parts.length ||
+    !Array.isArray(evidence.orderedGroupIds) ||
+    evidence.orderedGroupIds.length !== parts.length
+  )
+    return false;
+  const groups = new Map<string, any>(),
+    definitions = new Map<string, any>(),
+    stableGroups = new Map<string, any>(),
+    seen = new Set<string>();
+  const sourceReceipts = new Set<string>();
+  for (const value of raw.receipts) {
+    const receipt = record(value),
+      resource = receipt?.resource,
+      id = receipt?.id;
+    if (
+      (resource === "authoringAssignmentQuestionGroups.v1" ||
+        resource === "authoringAssignmentMachineEvaluableQuestions.v1") &&
+      typeof id === "string" &&
+      directReceiptValid(receipt, resource, id)
+    )
+      sourceReceipts.add(resource + "/" + id);
+  }
+  for (const group of raw.groups) {
+    if (!record(group) || typeof group.id !== "string" || groups.has(group.id))
+      return false;
+    groups.set(group.id, group);
+  }
+  for (const source of raw.questionDefinitions) {
+    if (
+      !record(source) ||
+      typeof source.id !== "string" ||
+      definitions.has(source.id)
+    )
+      return false;
+    definitions.set(source.id, source);
+  }
+  for (const stability of raw.groupStability) {
+    if (
+      !record(stability) ||
+      typeof stability.id !== "string" ||
+      stableGroups.has(stability.id)
+    )
+      return false;
+    stableGroups.set(stability.id, stability);
+  }
+  const cml = (value: unknown, requireText = true) => {
+    const source = record(value),
+      body = record(source?.definition);
+    if (
+      source?.typeName !== "cml" ||
+      typeof body?.value !== "string" ||
+      (requireText && !body.value.trim())
+    )
+      return false;
+    return directTextOnlyCmlSource(body.value);
+  };
+  for (let index = 0; index < parts.length; index++) {
+    const part = record(parts[index]),
+      localId = record(part?.definition)?.id;
+    if (
+      part?.typeName !== "storedQuestionGroupPart" ||
+      !/^[A-Za-z0-9_-]{22}$/.test(String(localId || ""))
+    )
+      return false;
+    const groupId = atomId + "~" + localId,
+      group = groups.get(groupId),
+      candidate = record(raw.inventory[index]);
+    const question = record(questions[index]);
+    const stability = stableGroups.get(groupId),
+      freshGroup = record(stability?.group),
+      groupHash = directModelHash(group);
+    if (
+      seen.has(groupId) ||
+      candidate?.id !== groupId ||
+      candidate.ordinal !== index + 1 ||
+      evidence.orderedGroupIds[index] !== groupId ||
+      !Array.isArray(group?.questions) ||
+      group.questions.length !== 1 ||
+      stability?.stable !== true ||
+      freshGroup?.id !== groupId ||
+      !directHash(groupHash) ||
+      groupHash !== directModelHash(freshGroup) ||
+      !directReceiptValid(
+        stability?.receipt,
+        "authoringAssignmentQuestionGroups.v1",
+        groupId,
+      )
+    )
+      return false;
+    const sourceId = group.questions[0],
+      source = definitions.get(sourceId),
+      wrapper = record(source?.definition);
+    const native = record(wrapper?.definition),
+      kind = wrapper?.typeName;
+    const correct =
+      kind === "mcq"
+        ? [native?.correctOption]
+        : kind === "checkbox"
+          ? native?.correctOptions
+          : null;
+    if (
+      typeof sourceId !== "string" ||
+      !new RegExp("^" + atomId + "~[A-Za-z0-9_-]+@\\d+$").test(sourceId) ||
+      source?.id !== sourceId ||
+      !sourceReceipts.has("authoringAssignmentQuestionGroups.v1/" + groupId) ||
+      !sourceReceipts.has(
+        "authoringAssignmentMachineEvaluableQuestions.v1/" + sourceId,
+      ) ||
+      !cml(native?.prompt) ||
+      !Array.isArray(native?.options) ||
+      native.options.length < 2 ||
+      native.options.length > 100 ||
+      !Array.isArray(correct) ||
+      !correct.length ||
+      new Set(correct).size !== correct.length ||
+      correct.some((id) => typeof id !== "string" || !id) ||
+      question?.id !== String(index + 1) ||
+      question.courseraQuestionId !== groupId ||
+      question.sourceDefinitionId !== sourceId ||
+      question.questionOrdinalObserved !== true ||
+      question.rawType !== kind ||
+      question.observationMethod !==
+        "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION" ||
+      question.type !==
+        (kind === "mcq" ? "single-select" : "multiple-select") ||
+      question.answerTextReliable !== true ||
+      question.optionTextReliable !== true ||
+      typeof question.prompt !== "string" ||
+      !question.prompt.trim() ||
+      !Array.isArray(question.options) ||
+      question.options.length !== native.options.length ||
+      !Array.isArray(question.correctAnswers)
+    )
+      return false;
+    const sourceIds = new Set<string>();
+    for (let position = 0; position < native.options.length; position++) {
+      const sourceOption = record(native.options[position]),
+        option = record(question.options[position]);
+      if (
+        typeof sourceOption?.id !== "string" ||
+        !sourceOption.id ||
+        sourceIds.has(sourceOption.id) ||
+        !cml(sourceOption.display) ||
+        (sourceOption.feedback != null && !cml(sourceOption.feedback, false)) ||
+        !option ||
+        option.id !== sourceOption.id ||
+        option.sourceOptionId !== sourceOption.id ||
+        option.correct !== correct.includes(sourceOption.id) ||
+        typeof option.text !== "string" ||
+        !option.text.trim()
+      )
+        return false;
+      sourceIds.add(sourceOption.id);
+    }
+    if (correct.some((id) => !sourceIds.has(id))) return false;
+    const key = record(question.answerKeyEvidence),
+      answers = question.options
+        .filter((option: any) => option.correct)
+        .map((option: any) => option.text);
+    if (
+      JSON.stringify(question.correctAnswers) !== JSON.stringify(answers) ||
+      (kind === "mcq" &&
+        (key?.method !== "EXACT_CORRECT_OPTION_ID" ||
+          key.correctOption !== correct[0])) ||
+      (kind === "checkbox" &&
+        (key?.method !== "EXACT_CORRECT_OPTION_ID_SET" ||
+          !Array.isArray(key.correctOptions) ||
+          key.correctOptions.length !== correct.length ||
+          key.correctOptions.some((id: any) => !correct.includes(id))))
+    )
+      return false;
+    seen.add(groupId);
+  }
+  return true;
+}
+
+function directDraftCaptureReasons(capture: Record<string, any>): string[] {
+  const meta = record(capture.meta) || {},
+    mode = record(meta.directDataCapture) || {};
+  const courseId = String(record(capture.page)?.courseId || ""),
+    reasons: string[] = [];
+  if (mode.mode !== "BOUND_AUTHORING_DRAFT_API")
+    reasons.push("DIRECT_DRAFT_CAPTURE_MODE_INVALID");
+  if (mode.acquisitionComplete !== true)
+    reasons.push("DIRECT_DRAFT_ACQUISITION_NOT_COMPLETE");
+  if (mode.wholeCourseVerified !== true)
+    reasons.push("DIRECT_DRAFT_WHOLE_COURSE_NOT_VERIFIED");
+  if (
+    mode.version !== 1 ||
+    mode.sourceStable !== true ||
+    !directHash(mode.initialMaterialHash) ||
+    mode.initialMaterialHash !== mode.finalMaterialHash ||
+    !Number.isSafeInteger(mode.materialVersion) ||
+    mode.materialVersion < 0 ||
+    !Number.isSafeInteger(mode.courseBranchVersion) ||
+    mode.courseBranchVersion < 0
+  )
+    reasons.push("DIRECT_DRAFT_SOURCE_STABILITY_NOT_PROVEN");
+  const sourceItems = new Map<string, any>(),
+    rawLeaves = new Map<string, any>();
+  try {
+    const initial = parseCourseraCourseMaterialsRelations(
+      mode.materials,
+      courseId,
+    );
+    const final = parseCourseraCourseMaterialsRelations(
+      mode.finalMaterials,
+      courseId,
+    );
+    const fingerprints = array(capture.fingerprints);
+    if (
+      mode.initialMaterialHash !==
+        directModelHash(mode.materials.elements[0]) ||
+      mode.finalMaterialHash !==
+        directModelHash(mode.finalMaterials.elements[0]) ||
+      initial.materialVersion !== mode.materialVersion ||
+      initial.courseBranchVersion !== mode.courseBranchVersion ||
+      final.materialVersion !== initial.materialVersion ||
+      final.courseBranchVersion !== initial.courseBranchVersion ||
+      JSON.stringify(initial.inventory) !== JSON.stringify(final.inventory) ||
+      initial.inventoryCount !== fingerprints.length ||
+      meta.baseFingerprintCount !== initial.inventoryCount ||
+      !directReceiptValid(
+        mode.materialsReceipt,
+        "authoringCourseMaterials.v1",
+        courseId,
+      ) ||
+      !directReceiptValid(
+        mode.finalMaterialsReceipt,
+        "authoringCourseMaterials.v1",
+        courseId,
+      ) ||
+      initial.inventory.some((leaf, index) => {
+        const item = record(fingerprints[index]);
+        return (
+          item?.id !== leaf.itemId ||
+          (leaf.contentBearing
+            ? item.atomId !== leaf.atomId ||
+              item.contentId !== leaf.sourceContentId ||
+              !leaf.atomReferenceBound
+            : !!item.atomId || !!item.contentId)
+        );
+      })
+    )
+      throw new Error("DIRECT_MATERIAL_INVENTORY_MISMATCH");
+    for (const leaf of initial.inventory) sourceItems.set(leaf.itemId, leaf);
+    const walk = (nodes: any[]): void => {
+      for (const node of nodes) {
+        if (array(node.elements).length) walk(node.elements);
+        else rawLeaves.set(node.id, node);
+      }
+    };
+    walk(mode.materials.elements[0].material.elements);
+  } catch {
+    reasons.push("DIRECT_DRAFT_MATERIAL_INVENTORY_INVALID");
+  }
+  let slug = "";
+  try {
+    const target = parseCourseraShellUrl(
+      String(record(capture.page)?.url || ""),
+    );
+    if (target.courseId === courseId) slug = target.slug;
+  } catch {
+    /* Source binding below rejects a missing authoring target. */
+  }
+  for (const fp of array(capture.fingerprints)) {
+    const item = record(fp);
+    if (!item) continue;
+    const id = String(item.id || "unknown"),
+      payload = record(item.payload) || {};
+    const contract = record(item.captureContract || payload.captureContract);
+    // Incomplete records retain useful original source models without claiming
+    // that an unsupported content model is fully captured.
+    if (contract?.complete !== true) continue;
+    const evidence = record(payload.directDataEvidence),
+      sources = record(payload.directDataSources);
+    const receipts = record(sources?.receipts),
+      stability = record(receipts?.stability);
+    const commonValid =
+      !!slug &&
+      evidence?.method === "BOUND_AUTHORING_DRAFT_API" &&
+      evidence.courseId === courseId &&
+      evidence.itemId === item.id &&
+      evidence.sourceState === "AUTHORING_DRAFT" &&
+      evidence.stableSource === true &&
+      evidence.publishedBodyVerified !== true &&
+      stability?.stable === true;
+    if (!commonValid) {
+      reasons.push(`DIRECT_DRAFT_SOURCE_BINDING_INVALID:${id}`);
+      continue;
+    }
+    if (contract.status === "COMPLETE_EMPTY_STRUCTURE") {
+      const material = record(sources?.materials),
+        leaf = record(material?.leaf);
+      const ancestors = array(material?.ancestorIds);
+      const moduleShape =
+        ancestors.length === 0 &&
+        leaf &&
+        typeof leaf.description === "string" &&
+        Array.isArray(leaf.learningObjectives) &&
+        Object.hasOwn(leaf, "timeCommitment");
+      const lessonShape =
+        ancestors.length === 1 &&
+        typeof leaf?.trackId === "string" &&
+        !!leaf.trackId;
+      const original = rawLeaves.get(item.id),
+        source = sourceItems.get(item.id);
+      if (
+        evidence.structural !== true ||
+        evidence.noContent !== true ||
+        evidence.childCount !== 0 ||
+        material?.rootCourseId !== courseId ||
+        source?.contentBearing !== false ||
+        JSON.stringify(ancestors) !== JSON.stringify(source?.ancestorIds) ||
+        JSON.stringify(leaf) !== JSON.stringify(original) ||
+        !leaf ||
+        leaf.id !== item.id ||
+        Object.hasOwn(leaf, "content") ||
+        !Array.isArray(leaf.elements) ||
+        leaf.elements.length !== 0 ||
+        !ancestors.every(
+          (ancestor) => typeof ancestor === "string" && ancestor,
+        ) ||
+        !(moduleShape || lessonShape) ||
+        !directReceiptValid(
+          receipts?.materials,
+          "authoringCourseMaterials.v1",
+          courseId,
+        )
+      )
+        reasons.push(`DIRECT_EMPTY_STRUCTURE_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    const atomId = String(item.atomId || ""),
+      contentId = String(item.contentId || "");
+    const atom = directSingleSource(sources?.atom, atomId),
+      relation = directSingleSource(sources?.relation, atomId);
+    const refreshedAtom = directSingleSource(stability?.atom, atomId);
+    const branch = record(
+      record(relation?.branchRelationMap)?.[courseId + "~" + item.id],
+    );
+    const atomValid =
+      /^[A-Za-z0-9_-]{22}$/.test(atomId) &&
+      contentId === "atom~" + atomId &&
+      atom?.contentId === contentId &&
+      relation?.atomId === atomId &&
+      branch?.courseId === courseId &&
+      branch.itemId === item.id &&
+      branch.courseSlug === slug &&
+      record(atom?.status)?.typeName === "draftAtomStatus" &&
+      !!record(record(atom?.draft)?.content) &&
+      evidence.atomId === atomId &&
+      evidence.contentId === contentId &&
+      directReceiptValid(receipts?.atom, "authoringAtoms.v2", atomId) &&
+      directReceiptValid(
+        receipts?.relation,
+        "authoringItemContentRelations.v1",
+        atomId,
+      ) &&
+      directHash(stability?.draftHash) &&
+      Number.isSafeInteger(atom?.storedAtomVersion) &&
+      atom.storedAtomVersion >= 0 &&
+      stability.draftHash === directModelHash(atom.draft) &&
+      evidence.draftHash === stability.draftHash &&
+      refreshedAtom?.contentId === contentId &&
+      record(refreshedAtom?.status)?.typeName === "draftAtomStatus" &&
+      stability.draftHash === directModelHash(refreshedAtom?.draft) &&
+      directReceiptValid(stability?.receipt, "authoringAtoms.v2", atomId) &&
+      stability?.storedAtomVersion === atom?.storedAtomVersion &&
+      evidence.storedAtomVersion === atom.storedAtomVersion &&
+      refreshedAtom?.storedAtomVersion === atom.storedAtomVersion &&
+      typeof record(atom?.metadata)?.updatedAt === "number" &&
+      Number.isFinite(record(atom?.metadata)?.updatedAt) &&
+      stability?.updatedAt === record(atom?.metadata)?.updatedAt &&
+      evidence.updatedAt === stability.updatedAt &&
+      record(refreshedAtom?.metadata)?.updatedAt === stability.updatedAt;
+    if (!atomValid) {
+      reasons.push(`DIRECT_DRAFT_SOURCE_BINDING_INVALID:${id}`);
+      continue;
+    }
+    const content = record(record(atom?.draft)?.content),
+      definition = record(content?.definition);
+    if (contract.status === "COMPLETE_BOUND_DRAFT_READING") {
+      const cml = record(definition?.content),
+        cmlDefinition = record(cml?.definition);
+      if (
+        sourceItems.get(item.id)?.sourceContentType !== "supplement" ||
+        content?.typeName !== "supplementDraft" ||
+        cml?.typeName !== "cml" ||
+        cmlDefinition?.dtdId !== "supplement/1" ||
+        typeof cmlDefinition?.value !== "string" ||
+        !directTextOnlyCmlSource(cmlDefinition.value) ||
+        JSON.stringify(payload.directDraftCml) !== JSON.stringify(cml) ||
+        evidence.dtdId !== cmlDefinition.dtdId ||
+        evidence.assetId !== definition?.assetId ||
+        !/^[A-Za-z0-9_-]{22}@\d+$/.test(String(definition?.assetId || "")) ||
+        evidence.rawCmlLength !== cmlDefinition.value.length ||
+        !directHash(evidence.rawCmlSha256) ||
+        evidence.rawCmlSha256 !==
+          bytesToHex(sha256(new TextEncoder().encode(cmlDefinition.value))) ||
+        typeof payload.textSample !== "string" ||
+        evidence.plainTextLength !== payload.textSample.length ||
+        payload.textLength !== payload.textSample.length ||
+        payload.textScopeKind !== "bound-authoring-draft-cml" ||
+        !directHash(payload.textSha256) ||
+        payload.textSha256 !==
+          bytesToHex(sha256(new TextEncoder().encode(payload.textSample))) ||
+        evidence.assetReferenceCount !== 0 ||
+        evidence.assetsBodyVerified !== true ||
+        !Array.isArray(evidence.unresolvedAssetReferences) ||
+        evidence.unresolvedAssetReferences.length > 0 ||
+        payload.textCaptureTruncated !== false ||
+        payload.textCaptureEvidence != null ||
+        payload.emptyReadingEvidence != null
+      )
+        reasons.push(`DIRECT_DRAFT_READING_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    if (contract.status === "COMPLETE_BOUND_DRAFT_ASSESSMENT") {
+      if (
+        sourceItems.get(item.id)?.sourceContentType !== "staffGraded" ||
+        content?.typeName !== "staffGradedDraft" ||
+        !directAssessmentSourcesValid(
+          item,
+          payload,
+          evidence,
+          definition,
+          atomId,
+          courseId,
+        )
+      )
+        reasons.push(`DIRECT_DRAFT_ASSESSMENT_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    // A direct capture cannot use the legacy status to substitute a target URL,
+    // an unsupported draft model, or a published snapshot for draft content.
+    reasons.push(
+      `DIRECT_DRAFT_CONTENT_CONTRACT_UNSUPPORTED:${id}:${String(contract.status || "")}`,
+    );
+  }
+  return reasons;
+}
+
 export function evaluateCourseraCapture(
   value: unknown,
   expectedCourseId = "",
@@ -399,6 +983,12 @@ export function evaluateCourseraCapture(
   reasons.push(...itemContractReasons(fingerprints));
   reasons.push(...assessmentReasons(fingerprints, actualCourseId));
   reasons.push(...pluginReasons(fingerprints));
+  if (hasCourseraDirectDataCaptureMarker(capture)) {
+    const directReasons = directDraftCaptureReasons(capture);
+    reasons.push(...directReasons);
+    if (directReasons.includes("DIRECT_DRAFT_MATERIAL_INVENTORY_INVALID"))
+      noSilentMisses = false;
+  }
 
   const uniqueReasons = [...new Set(reasons)];
   return {
