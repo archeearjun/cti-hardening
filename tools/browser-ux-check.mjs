@@ -192,6 +192,77 @@ const localCapture = {
     },
   ],
 };
+// The copied troubleshooting summary must contain counters and codes rather
+// than the private native models, source locations, or retained original bytes.
+const reviewPrivateSentinels = [
+  "RAW_QUESTION_SENTINEL", "RAW_ANSWER_SENTINEL", "RAW_CREDENTIAL_SENTINEL",
+  "RAW_BINARY_SENTINEL", "RAW_FILENAME_SENTINEL", "RAW_COURSE_TITLE_SENTINEL",
+];
+const reviewCapture = {
+  schemaVersion: 35,
+  extractedAt: "2026-10-14T12:00:00Z",
+  page: {
+    courseId: "Course_id_123", title: reviewPrivateSentinels[5],
+    url: "https://www.coursera.org/teach/synthetic/Course_id_123/content/edit",
+  },
+  meta: {
+    extractor: "CTI Direct Course Capture v1.2.0",
+    buildId: "v1.2.0-bound-reading-media-20261014",
+    directDataCapture: {
+      mode: "BOUND_AUTHORING_DRAFT_API", version: 1,
+      acquisitionComplete: true, wholeCourseVerified: false, sourceStable: true,
+      stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
+      limits: { requests: 20000, totalBytes: 64 * 1024 * 1024, writeAccessToken: reviewPrivateSentinels[2] },
+      stats: {
+        requests: 100, bytes: 2000, elapsedMs: 420000,
+        currentAttempt: { requests: 20, bytes: 500, elapsedMs: 60000, byResource: { "assets.v1": 4 }, privateToken: reviewPrivateSentinels[2] },
+        inheritedBudget: { requests: 80, bytes: 1500, elapsedMs: 360000 },
+        cumulativeBudget: { requests: 100, bytes: 2000, elapsedMs: 420000 },
+        media: {
+          requests: 7, bytes: 64 * 1024 * 1024, bodyBudgetExhausted: true, stopReason: "DIRECT_MEDIA_BYTE_LIMIT",
+          currentAttempt: { requests: 2, bytes: 1024, stopReason: "DIRECT_MEDIA_BYTE_LIMIT", bodyBudgetExhausted: true,
+            limits: { bodyBytes: 16 * 1024 * 1024, totalBytes: 64 * 1024 * 1024 },
+            byResource: { ["https://private.example/" + reviewPrivateSentinels[2]]: 99 } },
+          limits: { bodyBytes: 16 * 1024 * 1024, totalBytes: 64 * 1024 * 1024 },
+          url: "https://private.example/file.png?token=" + reviewPrivateSentinels[2],
+        },
+      },
+    },
+  },
+  fingerprints: [
+    {
+      id: "reading-review", type: "Reading", name: reviewPrivateSentinels[4],
+      captureContract: { status: "UNRESOLVED_DIRECT_READING", complete: false, accounted: true,
+        reasons: ["DIRECT_MEDIA_BYTE_LIMIT"] },
+      payload: {
+        textSample: reviewPrivateSentinels[0],
+        directDataSources: { atom: { elements: [{ id: "a".repeat(22), draft: { name: reviewPrivateSentinels[4] } }] } },
+        directDataEvidence: { assetReferenceCount: 1, unresolvedAssetReferences: [{ id: "b".repeat(22), url: "https://private.example/" + reviewPrivateSentinels[2] }] },
+        directAssetEvidence: {
+          method: "BOUND_CML_ASSET_METADATA_AND_BODY", missingPointers: [],
+          failures: [{ id: "b".repeat(22), reason: "DIRECT_MEDIA_BYTE_LIMIT" }],
+          assets: [{
+            assetId: "b".repeat(22), reason: "DIRECT_MEDIA_BYTE_LIMIT",
+            metadata: { elements: [{ id: "b".repeat(22), name: reviewPrivateSentinels[4],
+              url: { url: "https://private.example/file.png?token=" + reviewPrivateSentinels[2] } }] },
+            metadataReceipt: { status: 200, requestPath: "/api/assets.v1", requestQuery: [["token", reviewPrivateSentinels[2]]] },
+            stability: { stable: true },
+            body: { base64: Buffer.from(reviewPrivateSentinels[3]).toString("base64"), size: reviewPrivateSentinels[3].length,
+              mime: "image/png", sha256: "f".repeat(64), canonicalUrl: "https://private.example/file.png", receipt: { status: 200 } },
+          }],
+        },
+      },
+    },
+    {
+      id: "assessment-review", type: "Assignment", name: reviewPrivateSentinels[4],
+      captureContract: { status: "UNRESOLVED_DIRECT_ASSESSMENT", complete: false, accounted: true,
+        reasons: ["DIRECT_QUESTION_UNSUPPORTED"] },
+      payload: { directDataSources: { atom: { elements: [{ id: "c".repeat(22) }] } },
+        structuredAssessment: { questions: [{ prompt: reviewPrivateSentinels[0], answerKey: reviewPrivateSentinels[1] }] },
+        nativeCredentials: { token: reviewPrivateSentinels[2] } },
+    },
+  ],
+};
 const capturePath = process.env.CTI_UX_SCREENSHOTS || "/tmp/cti-ux-screenshots";
 fs.mkdirSync(capturePath, { recursive: true });
 const shot = async (name) => {
@@ -598,6 +669,73 @@ try {
       value: window.fixtureNativeClipboardWrite,
     }),
   );
+  const reviewFileName = "RAW_FILENAME_SENTINEL-review.json";
+  await page.evaluate((fileName) => {
+    window.fixtureReviewFileReads = 0;
+    window.fixtureReviewFileMethods = [];
+    for (const name of ["stream", "text", "arrayBuffer"]) {
+      const original = File.prototype[name];
+      if (typeof original !== "function") continue;
+      window.fixtureReviewFileMethods.push({ name, descriptor: Object.getOwnPropertyDescriptor(File.prototype, name) });
+      Object.defineProperty(File.prototype, name, {
+        configurable: true, writable: true,
+        value: function (...args) {
+          if (this.name === fileName) window.fixtureReviewFileReads++;
+          return Reflect.apply(original, this, args);
+        },
+      });
+    }
+  }, reviewFileName);
+  await page.locator("#local-coursera-capture").setInputFiles({
+    name: reviewFileName, mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(reviewCapture)),
+  });
+  const reviewSummaryButton = page.getByRole("button", { name: "Copy capture review summary", exact: true });
+  await reviewSummaryButton.waitFor();
+  await page.waitForFunction(() => window.fixtureReviewFileReads > 0);
+  const initialReviewReads = await page.evaluate(() => window.fixtureReviewFileReads);
+  await reviewSummaryButton.click();
+  await page.getByText("Capture review summary copied.", { exact: false }).waitFor();
+  const copiedReview = await page.evaluate(() => navigator.clipboard.readText());
+  const reviewSummary = JSON.parse(copiedReview);
+  assert.equal(reviewSummary.kind, "CTI_COURSERA_CAPTURE_REVIEW_SUMMARY_V1");
+  assert.equal(reviewSummary.notForCourseAudit, true);
+  assert.equal(reviewSummary.scope, "LOCAL_CAPTURE_METADATA_ONLY");
+  assert.equal(reviewSummary.capture.version, "1.2.0");
+  assert.equal(reviewSummary.capture.wholeCourseVerified, false);
+  assert.equal(reviewSummary.api.currentAttempt.requests, 20);
+  assert.equal(reviewSummary.api.inheritedBudget.requests, 80);
+  assert.equal(reviewSummary.api.cumulativeBudget.requests, 100);
+  assert.equal(reviewSummary.media.currentAttempt.stopReason, "DIRECT_MEDIA_BYTE_LIMIT");
+  assert.equal(reviewSummary.media.currentAttempt.bodyBudgetExhausted, true);
+  assert.equal(reviewSummary.media.limits.totalBytes, 64 * 1024 * 1024);
+  assert.equal(reviewSummary.media.assetFailureCodes.DIRECT_MEDIA_BYTE_LIMIT, 1);
+  assert.equal(reviewSummary.failuresByType.Reading.reasons.DIRECT_MEDIA_BYTE_LIMIT, 1);
+  for (const sentinel of reviewPrivateSentinels) assert(!copiedReview.includes(sentinel), "Copied review must omit " + sentinel);
+  assert(!copiedReview.includes(Buffer.from(reviewPrivateSentinels[3]).toString("base64")), "Copied review cannot contain the retained original body");
+  assert(!/https?:\/\/|canonicalUrl|requestQuery|accessToken|writeAccessToken|\"base64\"/.test(copiedReview),
+    "Only allowlisted counters and codes belong in the review summary");
+  assert.equal(await page.evaluate(() => window.fixtureReviewFileReads), initialReviewReads,
+    "Copy uses the already inspected diagnostic summary without reading the raw capture again");
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, "writeText", {
+    configurable: true, value: async () => { throw Error("Synthetic review clipboard denial"); },
+  }));
+  await reviewSummaryButton.click();
+  const reviewFallback = page.getByLabel("Coursera capture review summary", { exact: true });
+  await reviewFallback.waitFor();
+  assert.equal(await reviewFallback.inputValue(), copiedReview,
+    "Denied clipboard access reveals only the same sanitized diagnostic summary");
+  await reviewFallback.focus();
+  assert.equal(await reviewFallback.evaluate(element => element.selectionEnd - element.selectionStart), copiedReview.length);
+  assert.equal(await page.evaluate(() => window.fixtureReviewFileReads), initialReviewReads,
+    "The review copy fallback also uses the precomputed summary");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: window.fixtureNativeClipboardWrite });
+    for (const { name, descriptor } of window.fixtureReviewFileMethods) {
+      if (descriptor) Object.defineProperty(File.prototype, name, descriptor);
+      else delete File.prototype[name];
+    }
+  });
   await page.locator("#local-coursera-capture").setInputFiles({
     name: "local-schema-35.json",
     mimeType: "application/json",
@@ -606,6 +744,10 @@ try {
   await page
     .getByText("COMPLETE — strict capture gate passed", { exact: true })
     .waitFor();
+  assert.equal(await page.getByLabel("Coursera capture review summary", { exact: true }).count(), 0,
+    "Selecting a different capture clears the old review-copy fallback and its counters");
+  assert.equal(await page.locator(".direct-capture-summary").count(), 0,
+    "A newly selected legacy capture cannot display the previous direct run's media counters");
   await page
     .getByRole("button", { name: "Use this capture in Compare" })
     .click();
@@ -1290,6 +1432,7 @@ try {
           "source explorer with lazy evidence",
           "historical source guidance, direct Brightspace download/inspection, staged-file feedback and course isolation",
           "zero-cost local Coursera extractor download and strict capture verification",
+          "capture review copies allowlisted diagnostic counters, omits private native content, and offers the same summary after clipboard denial without rereading the file",
           "all comparison inputs reset across courses",
           "report focus and evidence-status filtering",
           "source-only actions participate in filters and downloads remain complete",

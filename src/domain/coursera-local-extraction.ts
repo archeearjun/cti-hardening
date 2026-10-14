@@ -44,6 +44,7 @@ export interface LocalCourseraCaptureInspection {
   batchVisits: number;
   authoringShellUrl: string;
   directSummary: DirectCourseraCaptureSummary | null;
+  reviewSummary: ReturnType<typeof buildLocalCourseraCaptureReviewSummary>;
 }
 
 const record = (value: unknown): Record<string, any> => {
@@ -51,6 +52,315 @@ const record = (value: unknown): Record<string, any> => {
     throw new Error("Select a full CTI Coursera capture JSON.");
   return value as Record<string, any>;
 };
+
+/** A shareable diagnostic, never a capture: copy only explicit identifiers,
+ * codes, counters and flags. Native models, receipts, URLs and content stay in
+ * the selected local file. This also avoids retaining a large capture in UI state. */
+export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
+  const capture = record(value),
+    meta = capture.meta || capture.extractionMeta || {},
+    direct = meta.directDataCapture || {},
+    stats = direct.stats || {},
+    media = stats.media || {};
+  const number = (v: unknown): number | null =>
+    Number.isSafeInteger(v) && Number(v) >= 0 ? Number(v) : null;
+  const flag = (v: unknown): boolean | null =>
+    typeof v === "boolean" ? v : null;
+  const identifier = (v: unknown): string | null =>
+    typeof v === "string" &&
+    /^[A-Za-z0-9_-]{1,128}(?:~[A-Za-z0-9_-]{1,128})?(?:@\d{1,16})?$/.test(v)
+      ? v
+      : null;
+  const code = (v: unknown): string =>
+    typeof v === "string" && /^[A-Z][A-Z0-9_]{0,95}$/.test(v)
+      ? v
+      : "UNRECOGNIZED_CODE";
+  const reason = (v: unknown): string | null =>
+    v === "" ? "" : typeof v === "string" ? code(v) : null;
+  const resources = new Set([
+    "authoringCourseMaterials.v1",
+    "authoringCourses.v2",
+    "authoringAtoms.v2",
+    "authoringItemContentRelations.v1",
+    "authoringAssignmentQuestionGroups.v1",
+    "authoringAssignmentMachineEvaluableQuestions.v1",
+    "assets.v1",
+  ]);
+  const limits = (source: any) =>
+    Object.fromEntries(
+      [
+        "maxConcurrent",
+        "concurrentRequests",
+        "bodyBytes",
+        "totalBytes",
+        "requests",
+        "requestMs",
+        "durationMs",
+        "exportBytes",
+        "compressedBytes",
+        "partsPerAssessment",
+        "mediaBytes",
+        "mediaBodyBytes",
+      ].map((key) => [key, number(source?.[key])]),
+    );
+  const snapshot = (source: any) =>
+    source && typeof source === "object"
+      ? {
+          ...Object.fromEntries(
+            [
+              "requests",
+              "bytes",
+              "elapsedMs",
+              "completed",
+              "failed",
+              "active",
+              "queued",
+              "maxConcurrentRequests",
+              "retries",
+              "rateLimitRetries",
+              "statsHookFailures",
+            ].map((key) => [key, number(source[key])]),
+          ),
+          stopped: flag(source.stopped),
+          stopReason: reason(source.stopReason),
+          bodyBudgetExhausted: flag(source.bodyBudgetExhausted),
+          limits: limits(source.limits),
+          byResource: Object.fromEntries(
+            Object.entries(source.byResource || {}).filter(
+              ([key, count]) => resources.has(key) && number(count) !== null,
+            ),
+          ),
+        }
+      : null;
+  const budget = (source: any) => ({
+    requests: number(source?.requests),
+    bytes: number(source?.bytes),
+    elapsedMs: number(source?.elapsedMs),
+  });
+  const mediaInherited = Object.fromEntries(
+    ["requests", "bytes"].map((key) => {
+      const total = number(media[key]),
+        current = number(media.currentAttempt?.[key]);
+      return [
+        key,
+        total !== null && current !== null && total >= current
+          ? total - current
+          : null,
+      ];
+    }),
+  );
+  const fingerprints: Record<string, any>[] = Array.isArray(
+    capture.fingerprints,
+  )
+    ? capture.fingerprints
+    : [];
+  if (fingerprints.length > 20000)
+    throw Error("Capture review exceeds the inventory limit.");
+  const byType = new Map<
+    string,
+    {
+      items: number;
+      statuses: Map<string, number>;
+      reasons: Map<string, number>;
+    }
+  >();
+  const assetFailureCodes = new Map<string, number>(),
+    declaredFailureCodes = new Map<string, number>();
+  const increment = (counts: Map<string, number>, value: unknown) => {
+    const name = code(value),
+      key = counts.has(name) || counts.size < 200 ? name : "ADDITIONAL_CODES";
+    counts.set(key, (counts.get(key) || 0) + 1);
+  };
+  const grouped = (counts: Map<string, number>) =>
+    Object.fromEntries([...counts].sort(([a], [b]) => a.localeCompare(b)));
+  const mediaItems: {
+    itemId: string | null;
+    referenceCount: number | null;
+    missingPointerCount: number;
+    failures: Record<string, number>;
+    assets: {
+      assetId: string | null;
+      reason: string | null;
+      metadataStatus: number | null;
+      bodyStatus: number | null;
+      metadataStable: boolean | null;
+      metadataSize: number | null;
+      size: number | null;
+      mime: string | null;
+      hashPresent: boolean;
+      retainedBodyPresent: boolean;
+    }[];
+  }[] = [];
+  let mediaItemCount = 0,
+    assetCount = 0,
+    reportedAssets = 0,
+    bodyCount = 0,
+    bodyBytes = 0;
+  for (const item of fingerprints) {
+    const payload = item?.payload || {},
+      contract = item?.captureContract || payload.captureContract || {};
+    const type = [
+      "Assignment",
+      "Assessment",
+      "Quiz",
+      "Reading",
+      "Plugin",
+      "Widget",
+      "Discussion",
+      "Unknown",
+    ].includes(item?.type)
+      ? item.type
+      : "Other";
+    const counts = byType.get(type) || {
+      items: 0,
+      statuses: new Map(),
+      reasons: new Map(),
+    };
+    counts.items++;
+    increment(counts.statuses, contract.status || "STATUS_UNAVAILABLE");
+    for (const itemReason of new Set(
+      Array.isArray(contract.reasons) ? contract.reasons : [],
+    ))
+      increment(counts.reasons, itemReason);
+    byType.set(type, counts);
+    const evidence = payload.directAssetEvidence;
+    if (!evidence || typeof evidence !== "object") continue;
+    mediaItemCount++;
+    const itemFailures = new Map<string, number>();
+    for (const failure of Array.isArray(evidence.failures)
+      ? evidence.failures
+      : []) {
+      increment(declaredFailureCodes, failure?.reason);
+      increment(itemFailures, failure?.reason);
+    }
+    const assets = [];
+    for (const asset of Array.isArray(evidence.assets) ? evidence.assets : []) {
+      assetCount++;
+      if (asset?.reason) increment(assetFailureCodes, asset.reason);
+      const body = asset?.body,
+        size = number(body?.size);
+      if (body && size !== null) {
+        bodyCount++;
+        bodyBytes += size;
+      }
+      if (mediaItems.length >= 500 || reportedAssets >= 2000) continue;
+      reportedAssets++;
+      assets.push({
+        assetId: identifier(asset?.assetId),
+        reason: reason(asset?.reason),
+        metadataStatus: number(asset?.metadataReceipt?.status),
+        bodyStatus: number(body?.receipt?.status),
+        metadataStable: flag(asset?.stability?.stable),
+        metadataSize: number(asset?.metadata?.elements?.[0]?.size),
+        size,
+        mime:
+          typeof body?.mime === "string" &&
+          /^(?:image|application|video|audio|text)\/[a-z0-9][a-z0-9.+-]{0,100}$/.test(
+            body.mime,
+          )
+            ? body.mime
+            : null,
+        hashPresent:
+          typeof body?.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(body.sha256),
+        retainedBodyPresent: !!asset?.retainedEvidence?.body,
+      });
+    }
+    if (mediaItems.length < 500)
+      mediaItems.push({
+        itemId: identifier(item?.id),
+        referenceCount: number(payload.directDataEvidence?.assetReferenceCount),
+        missingPointerCount: Array.isArray(evidence.missingPointers)
+          ? evidence.missingPointers.length
+          : 0,
+        failures: grouped(itemFailures),
+        assets,
+      });
+  }
+  const sourceVersion =
+    typeof meta.extractor === "string"
+      ? /\bv(\d+\.\d+\.\d+)\b/.exec(meta.extractor)?.[1]
+      : undefined;
+  return {
+    kind: "CTI_COURSERA_CAPTURE_REVIEW_SUMMARY_V1",
+    notForCourseAudit: true,
+    scope: "LOCAL_CAPTURE_METADATA_ONLY",
+    schemaVersion: number(capture.schemaVersion),
+    courseId: identifier(capture.page?.courseId || direct.courseId),
+    capture: {
+      version: sourceVersion || null,
+      buildId:
+        typeof meta.buildId === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(meta.buildId)
+          ? meta.buildId
+          : null,
+      acquisitionComplete: flag(direct.acquisitionComplete),
+      wholeCourseVerified: flag(direct.wholeCourseVerified),
+      sourceStable: flag(direct.sourceStable),
+      stopReason: reason(direct.stopReason),
+      limits: limits(direct.limits),
+      mediaContinuation:
+        direct.mediaEnrichment?.scope === "REFERENCED_READING_MEDIA_ONLY",
+      retainedAssessmentObservations: flag(
+        direct.mediaEnrichment?.retainedAssessmentObservations,
+      ),
+      exportTransport: {
+        format: ["JSON", "GZIP_JSON"].includes(direct.exportTransport?.format)
+          ? direct.exportTransport.format
+          : null,
+        uncompressedLimitBytes: number(
+          direct.exportTransport?.uncompressedLimitBytes,
+        ),
+        compressedLimitBytes: number(
+          direct.exportTransport?.compressedLimitBytes,
+        ),
+      },
+    },
+    coverage: hasCourseraDirectDataCaptureMarker(capture)
+      ? directCapturePresentation(capture).coverage
+      : null,
+    api: {
+      currentAttempt: snapshot(stats.currentAttempt),
+      inheritedBudget: budget(stats.inheritedBudget),
+      cumulativeBudget: budget(stats.cumulativeBudget || stats),
+      recordedSnapshot: snapshot(stats),
+      cumulativeBudgetSource: stats.cumulativeBudget
+        ? "RECORDED_CUMULATIVE_BUDGET"
+        : "RECORDED_TOP_LEVEL_STATS",
+    },
+    media: {
+      currentAttempt: snapshot(media.currentAttempt),
+      inheritedBudget: mediaInherited,
+      cumulativeBudget: budget(media.cumulativeBudget || media),
+      recordedSnapshot: snapshot(media),
+      limits: limits(media.limits || media.currentAttempt?.limits),
+      stopReason: reason(media.stopReason),
+      bodyBudgetExhausted: flag(media.bodyBudgetExhausted),
+      itemCount: mediaItemCount,
+      assetCount,
+      bodyCount,
+      bodyBytes,
+      reportedAssets,
+      detailTruncated:
+        mediaItemCount > mediaItems.length || assetCount > reportedAssets,
+      assetFailureCodes: grouped(assetFailureCodes),
+      declaredFailureCodes: grouped(declaredFailureCodes),
+      items: mediaItems,
+    },
+    failuresByType: Object.fromEntries(
+      [...byType]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([type, counts]) => [
+          type,
+          {
+            items: counts.items,
+            statuses: grouped(counts.statuses),
+            reasons: grouped(counts.reasons),
+          },
+        ]),
+    ),
+  };
+}
 
 function directCapturePresentation(
   capture: Record<string, any>,
@@ -365,6 +675,7 @@ export function inspectLocalCourseraCapture(
     batchVisits: Number(meta.localCaptureBatch?.visits || 0),
     authoringShellUrl,
     directSummary: directDraftApi ? directCapturePresentation(capture) : null,
+    reviewSummary: buildLocalCourseraCaptureReviewSummary(capture),
   };
 }
 

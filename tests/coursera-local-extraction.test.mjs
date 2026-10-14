@@ -6,6 +6,7 @@ import {
   createAutomaticLocalCourseraCommand,
   createSavedCourseraResumeScript,
   inspectLocalCourseraCapture,
+  buildLocalCourseraCaptureReviewSummary,
 } from "../src/domain/coursera-local-extraction.ts";
 
 const courseId = "iu5pMbTVEfG-2xL_w9lGpQ";
@@ -61,6 +62,241 @@ test("local schema 35 capture can pass the same strict completion gate", () => {
   assert.equal(result.verdict.complete, true);
   assert.deepEqual(result.verdict.reasons, []);
   assert.equal(result.directSummary, null);
+});
+
+function reviewCapture() {
+  const capture = completeCapture();
+  capture.meta.extractor = "CTI Direct Course Capture v1.2.0";
+  capture.meta.buildId = "v1.2.0-bound-reading-media-20261014";
+  capture.meta.directDataCapture = {
+    mode: "BOUND_AUTHORING_DRAFT_API",
+    acquisitionComplete: true,
+    wholeCourseVerified: false,
+    sourceStable: true,
+    stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
+    limits: {
+      exportBytes: 128 * 1024 * 1024,
+      mediaBytes: 64 * 1024 * 1024,
+      mediaBodyBytes: 16 * 1024 * 1024,
+    },
+    stats: {
+      requests: 17332,
+      bytes: 700,
+      elapsedMs: 110000,
+      currentAttempt: {
+        requests: 332,
+        bytes: 300,
+        elapsedMs: 104000,
+        failed: 35,
+        byResource: { "assets.v1": 35, "authoringAtoms.v2": 297 },
+      },
+      inheritedBudget: { requests: 17000, bytes: 400, elapsedMs: 6000 },
+      cumulativeBudget: { requests: 17332, bytes: 700, elapsedMs: 110000 },
+      stopReason: "COURSE_API_REQUEST_TIMEOUT",
+      stopped: true,
+      media: {
+        requests: 18,
+        bytes: 64 * 1024 * 1024 + 1,
+        stopReason: "DIRECT_MEDIA_REQUEST_TIMEOUT",
+        bodyBudgetExhausted: true,
+        limits: { totalBytes: 64 * 1024 * 1024, requestMs: 30000 },
+        currentAttempt: {
+          requests: 17,
+          bytes: 64 * 1024 * 1024,
+          elapsedMs: 100000,
+          stopReason: "DIRECT_MEDIA_REQUEST_TIMEOUT",
+          bodyBudgetExhausted: true,
+        },
+      },
+    },
+  };
+  capture.fingerprints[0].captureContract = {
+    complete: false,
+    status: "UNRESOLVED_DIRECT_READING",
+    reasons: ["DIRECT_MEDIA_BYTE_LIMIT", "DIRECT_MEDIA_BYTE_LIMIT"],
+  };
+  capture.fingerprints[0].payload = {
+    directDataSources: { atom: {} },
+    directDataEvidence: { assetReferenceCount: 2 },
+    directAssetEvidence: {
+      missingPointers: [{}],
+      failures: [{ reason: "DIRECT_MEDIA_BYTE_LIMIT" }],
+      assets: [
+        {
+          assetId: "ABCDEFGHIJKLMNOPQRSTUV",
+          reason: "DIRECT_MEDIA_BYTE_LIMIT",
+          metadataReceipt: { status: 200 },
+          stability: { stable: false },
+          body: {
+            size: 12345,
+            mime: "application/pdf",
+            sha256: "a".repeat(64),
+            receipt: { status: 200 },
+          },
+        },
+        {
+          assetId: "ZYXWVUTSRQPONMLKJIHGFE",
+          reason: "DIRECT_ASSET_BODY_ABORTED",
+          retainedEvidence: { body: { size: 100 } },
+        },
+      ],
+    },
+  };
+  return capture;
+}
+
+test("capture review copies exact recorded attempt budgets, bounds and grouped media failures without changing evidence", () => {
+  const capture = reviewCapture(),
+    before = JSON.stringify(capture);
+  const summary = buildLocalCourseraCaptureReviewSummary(capture);
+  assert.equal(summary.kind, "CTI_COURSERA_CAPTURE_REVIEW_SUMMARY_V1");
+  assert.equal(summary.notForCourseAudit, true);
+  assert.equal(summary.capture.version, "1.2.0");
+  assert.equal(summary.capture.acquisitionComplete, true);
+  assert.equal(summary.capture.wholeCourseVerified, false);
+  assert.equal(summary.api.currentAttempt.requests, 332);
+  assert.deepEqual(summary.api.inheritedBudget, {
+    requests: 17000,
+    bytes: 400,
+    elapsedMs: 6000,
+  });
+  assert.deepEqual(summary.api.cumulativeBudget, {
+    requests: 17332,
+    bytes: 700,
+    elapsedMs: 110000,
+  });
+  assert.equal(
+    summary.api.recordedSnapshot.stopReason,
+    "COURSE_API_REQUEST_TIMEOUT",
+  );
+  assert.equal(summary.media.currentAttempt.requests, 17);
+  assert.deepEqual(summary.media.inheritedBudget, { requests: 1, bytes: 1 });
+  assert.equal(summary.media.cumulativeBudget.bytes, 64 * 1024 * 1024 + 1);
+  assert.equal(summary.media.limits.totalBytes, 64 * 1024 * 1024);
+  assert.equal(summary.media.stopReason, "DIRECT_MEDIA_REQUEST_TIMEOUT");
+  assert.equal(summary.media.bodyBudgetExhausted, true);
+  assert.deepEqual(summary.media.assetFailureCodes, {
+    DIRECT_ASSET_BODY_ABORTED: 1,
+    DIRECT_MEDIA_BYTE_LIMIT: 1,
+  });
+  assert.deepEqual(summary.media.declaredFailureCodes, {
+    DIRECT_MEDIA_BYTE_LIMIT: 1,
+  });
+  assert.deepEqual(summary.failuresByType.Reading.reasons, {
+    DIRECT_MEDIA_BYTE_LIMIT: 1,
+  });
+  assert.equal(summary.media.items[0].assets[0].size, 12345);
+  assert.equal(summary.media.items[0].assets[0].mime, "application/pdf");
+  assert.equal(summary.media.items[0].assets[0].hashPresent, true);
+  assert.equal(summary.media.items[0].assets[1].retainedBodyPresent, true);
+  assert.equal(summary.media.bodyBytes, 12345);
+  assert.equal(JSON.stringify(capture), before);
+  assert.deepEqual(
+    inspectLocalCourseraCapture(capture, shell).reviewSummary,
+    summary,
+  );
+  assert.throws(
+    () => inspectLocalCourseraCapture(summary),
+    /focused diagnostic/,
+  );
+});
+
+test("capture review excludes native content, credentials, URLs, filenames, arbitrary strings and complete receipts", () => {
+  const capture = reviewCapture(),
+    forbidden = "PRIVATE_COURSE_CONTENT_SENTINEL";
+  capture.page.url = "https://private.invalid/" + forbidden;
+  capture.meta.cookies = forbidden;
+  capture.fingerprints[0].name = forbidden;
+  const payload = capture.fingerprints[0].payload;
+  payload.structuredAssessment = {
+    questions: [{ prompt: forbidden, correctAnswers: [forbidden] }],
+  };
+  payload.directDataSources.atom = {
+    cookies: forbidden,
+    draft: { secret: forbidden },
+  };
+  const asset = payload.directAssetEvidence.assets[0];
+  asset.body.base64 = forbidden;
+  asset.body.canonicalUrl = "https://private.invalid/" + forbidden;
+  asset.body.receipt.authorization = forbidden;
+  asset.metadata = {
+    name: forbidden,
+    url: "https://private.invalid/" + forbidden,
+  };
+  asset.metadataReceipt.requestQuery = { token: forbidden };
+  capture.meta.directDataCapture.stats.currentAttempt.token = forbidden;
+  capture.meta.directDataCapture.stats.currentAttempt.byResource[
+    "https://private.invalid/" + forbidden
+  ] = 1;
+  capture.fingerprints.push({
+    id: "https://private.invalid/" + forbidden,
+    type: forbidden,
+    payload: {
+      directAssetEvidence: {
+        assets: [
+          {
+            assetId: forbidden + "?token=x",
+            reason: forbidden + "?token=x",
+            body: { mime: forbidden + "?token=x", size: forbidden },
+          },
+        ],
+      },
+    },
+    captureContract: {
+      status: "https://private.invalid/" + forbidden,
+      reasons: ["https://private.invalid/" + forbidden],
+    },
+  });
+  const summary = buildLocalCourseraCaptureReviewSummary(capture),
+    text = JSON.stringify(summary);
+  assert.equal(text.includes(forbidden), false);
+  for (const key of [
+    "base64",
+    "correctAnswers",
+    "canonicalUrl",
+    "requestQuery",
+    "authorization",
+    "cookies",
+    "prompt",
+    "token",
+  ])
+    assert.equal(text.includes('"' + key + '"'), false, key);
+  assert.equal(
+    summary.coverage.questions,
+    1,
+    "Only the question count is retained",
+  );
+  assert.equal(summary.media.items[1].itemId, null);
+  assert.equal(summary.media.items[1].assets[0].assetId, null);
+  assert.equal(summary.media.items[1].assets[0].mime, null);
+  assert.equal(summary.media.items[1].assets[0].size, null);
+  assert.deepEqual(summary.failuresByType.Other.statuses, {
+    UNRECOGNIZED_CODE: 1,
+  });
+});
+
+test("capture review does not infer missing recorded counters and bounds media detail without losing totals", () => {
+  const capture = reviewCapture();
+  capture.meta.directDataCapture.stats = {};
+  const item = capture.fingerprints[0];
+  capture.fingerprints = Array.from({ length: 600 }, (_, index) => ({
+    ...item,
+    id: "reading-" + index,
+  }));
+  const summary = buildLocalCourseraCaptureReviewSummary(capture);
+  assert.equal(summary.api.currentAttempt, null);
+  assert.deepEqual(summary.api.cumulativeBudget, {
+    requests: null,
+    bytes: null,
+    elapsedMs: null,
+  });
+  assert.equal(summary.media.bodyBudgetExhausted, null);
+  assert.equal(summary.media.itemCount, 600);
+  assert.equal(summary.media.items.length, 500);
+  assert.equal(summary.media.assetCount, 1200);
+  assert.equal(summary.media.bodyCount, 600);
+  assert.equal(summary.media.detailTruncated, true);
+  assert.equal(summary.media.assetFailureCodes.DIRECT_MEDIA_BYTE_LIMIT, 600);
 });
 
 test("direct draft-API provenance does not imply current editor version or Protocol resumability", () => {

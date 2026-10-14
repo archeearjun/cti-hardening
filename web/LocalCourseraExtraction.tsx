@@ -48,6 +48,7 @@ export default function LocalCourseraExtraction({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [resumeSource, setResumeSource] = useState("");
+  const [reviewSummarySource, setReviewSummarySource] = useState("");
   const [automaticCommand, setAutomaticCommand] = useState("");
   const [managedCommand,setManagedCommand]=useState(retainedManaged.command);
   const [managedFresh,setManagedFresh]=useState(false);
@@ -241,6 +242,7 @@ export default function LocalCourseraExtraction({
             setInspection(null);
             setCapture(null);
             setResumeSource("");
+            setReviewSummarySource("");
             setAutomaticCommand("");
             setCopyStatus("");
           }}
@@ -552,6 +554,7 @@ export default function LocalCourseraExtraction({
             setCapture(file);
             setInspection(null);
             setResumeSource("");
+            setReviewSummarySource("");
             setCopyStatus("");
             setError("");
             setNotice("");
@@ -756,6 +759,23 @@ export default function LocalCourseraExtraction({
           </div>
 
           <div className="action-links">
+            <button
+              className="secondary"
+              disabled={disabled || !!busy}
+              onClick={() => void act("Copying capture review summary", async () => {
+                const summary = JSON.stringify(inspection.reviewSummary, null, 2);
+                try {
+                  await navigator.clipboard.writeText(summary);
+                  setReviewSummarySource("");
+                  setNotice("Capture review summary copied. It contains counts, source-check flags and failure codes, with no questions, answers, files, source URLs or credentials.");
+                } catch {
+                  setReviewSummarySource(summary);
+                  setNotice("Clipboard access is unavailable. Select and copy the capture review summary below. This diagnostic contains no course content.");
+                }
+              })}
+            >
+              Copy capture review summary
+            </button>
             {legacyResumeAvailable && capture && (
               <button
                 className="secondary"
@@ -811,6 +831,18 @@ export default function LocalCourseraExtraction({
                 aria-label="Saved Coursera resume script"
                 readOnly
                 value={resumeSource}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </label>
+          )}
+          {reviewSummarySource && (
+            <label>
+              Capture review summary — click inside, select all, and copy
+              <textarea
+                className="extractor-source"
+                aria-label="Coursera capture review summary"
+                readOnly
+                value={reviewSummarySource}
                 onFocus={(event) => event.currentTarget.select()}
               />
             </label>
