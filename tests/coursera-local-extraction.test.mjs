@@ -299,6 +299,44 @@ test("capture review does not infer missing recorded counters and bounds media d
   assert.equal(summary.media.assetFailureCodes.DIRECT_MEDIA_BYTE_LIMIT, 600);
 });
 
+test("ZIP review distinguishes declared body records from original bytes resolved from the selected artifact", () => {
+  const capture = reviewCapture(),
+    asset = capture.fingerprints[0].payload.directAssetEvidence.assets[0],
+    body = asset.body;
+  capture.meta.directDataCapture.exportTransport = {
+    format: "ZIP_GZIP_JSON_V1",
+    originalFilesLimitBytes: 512 * 1024 * 1024,
+    archiveLimitBytes: 640 * 1024 * 1024,
+    uniqueOriginalFiles: 1,
+    uniqueOriginalBytes: body.size,
+  };
+  body.archivePath = "files/" + body.sha256;
+  let summary = buildLocalCourseraCaptureReviewSummary(capture);
+  assert.equal(summary.capture.exportTransport.format, "ZIP_GZIP_JSON_V1");
+  assert.equal(
+    summary.media.bodyCount,
+    1,
+    "Historical declared body counts remain compatible.",
+  );
+  assert.equal(summary.media.bodyBytesPresentCount, 0);
+  assert.equal(summary.media.items[0].assets[0].bodyBytesPresent, false);
+  Object.defineProperty(body, "bytes", {
+    value: new Uint8Array(body.size),
+    enumerable: false,
+    configurable: true,
+  });
+  summary = buildLocalCourseraCaptureReviewSummary(capture);
+  assert.equal(summary.media.bodyBytesPresentCount, 1);
+  assert.equal(summary.media.items[0].assets[0].bodyBytesPresent, true);
+  assert.equal(summary.media.retainedBodyBytesPresentCount, 0);
+  const metadataOnly = JSON.parse(JSON.stringify(capture));
+  assert.equal(
+    buildLocalCourseraCaptureReviewSummary(metadataOnly).media
+      .bodyBytesPresentCount,
+    0,
+  );
+});
+
 test("direct draft-API provenance does not imply current editor version or Protocol resumability", () => {
   const capture = completeCapture();
   capture.page.url = shell;

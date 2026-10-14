@@ -6,7 +6,9 @@ const decoder = new TextDecoder();
 function bytes(value: Bytes): Uint8Array {
   return typeof value === "string"
     ? encoder.encode(value)
-    : Uint8Array.from(value);
+    : value instanceof Uint8Array
+      ? value
+      : Uint8Array.from(value);
 }
 function unsupported(name: string): object {
   return new Proxy(

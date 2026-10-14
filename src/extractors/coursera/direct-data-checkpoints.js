@@ -1,7 +1,9 @@
+import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
+
 export async function createDirectDataCheckpointStoreV1(courseId) {
   const databaseName = "cti-coursera-direct-data-v1";
   const ttlMs = 7 * 24 * 60 * 60 * 1000;
-  const names = ["runs", "items", "groups", "definitions"];
+  const names = ["runs", "items", "groups", "definitions", "bodies"];
   let database = null;
   let closed = false;
   const store = { available: false, error: "" };
@@ -264,13 +266,13 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
               set(false);
               return;
             }
-            let pending = 3;
+            let pending = 4;
             function scanned() {
               pending--;
               if (pending) return;
-              let countsPending = 3,
+              let countsPending = 4,
                 total = 0;
-              for (const name of ["items", "groups", "definitions"]) {
+              for (const name of ["items", "groups", "definitions", "bodies"]) {
                 const count = transaction
                   .objectStore(name)
                   .index("runKey")
@@ -285,7 +287,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
                   });
               }
             }
-            for (const name of ["items", "groups", "definitions"]) {
+            for (const name of ["items", "groups", "definitions", "bodies"]) {
               const rows = transaction.objectStore(name),
                 cursorRequest = rows
                   .index("runKey")
@@ -344,7 +346,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         reject(error);
       }
       try {
-        request = indexedDB.open(databaseName, 1);
+        request = indexedDB.open(databaseName, 2);
         request.onblocked = () => {
           blocked = true;
         };
@@ -516,7 +518,8 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
     }
     return Boolean(
       (row.buildId === "v1.1.0-compressed-resumable-drafts-20261014" ||
-        row.buildId === "v1.2.0-bound-reading-media-20261014") &&
+        row.buildId === "v1.2.0-bound-reading-media-20261014" ||
+        row.buildId === "v1.3.0-deduplicated-original-archive-20261014") &&
         capture &&
         capture.mode === "BOUND_AUTHORING_DRAFT_API" &&
         capture.version === 1 &&
@@ -679,6 +682,113 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
       row.definitionId === definitionId
       ? row
       : null;
+  };
+  function bodyHash(value) {
+    if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
+      throw Error("Invalid direct-data body SHA-256 identifier.");
+    return value;
+  }
+  function validBodyBlob(blob) {
+    return typeof Blob === "function" && blob instanceof Blob &&
+      Number.isSafeInteger(blob.size) && blob.size > 0 && blob.size <= 16 * 1024 * 1024;
+  }
+  function bodyDescriptor(row) {
+    return {schemaVersion:row.schemaVersion,courseId:row.courseId,runId:row.runId,
+      sha256:row.sha256,size:row.size,mime:row.mime,archivePath:row.archivePath,
+      createdAt:row.createdAt,updatedAt:row.updatedAt,metadata:row.metadata};
+  }
+  function bodyBound(row, id, hash) {
+    return !!row && row.schemaVersion===2 && row.courseId===courseId && row.runId===id &&
+      Array.isArray(row.key) && row.key.length===3 && row.key[0]===courseId && row.key[1]===id && row.key[2]===hash &&
+      row.sha256===hash && row.archivePath==="files/"+hash && validBodyBlob(row.blob) && row.blob.size===row.size &&
+      typeof row.mime==="string" && row.mime.length<=127 && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(row.mime) &&
+      Number.isFinite(row.createdAt) && Number.isFinite(row.updatedAt);
+  }
+  async function verifiedBody(blob, hash) {
+    if (!validBodyBlob(blob)) throw Error("Invalid or oversized direct-data original body Blob.");
+    if (!globalThis.crypto?.subtle) throw Error("Direct-data body checksum verification is unavailable.");
+    const bytes=await blob.arrayBuffer();
+    if (bytes.byteLength!==blob.size) throw Error("Direct-data original body size changed.");
+    const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));
+    const actual=[...digest].map(value=>value.toString(16).padStart(2,"0")).join("");
+    if (actual!==hash) throw Error("Direct-data original body does not match its SHA-256 identifier.");
+  }
+  function bodyMetadata(value, id, hash, blob) {
+    const supplied=metadata(value);
+    if (supplied.runId!==undefined && runId(supplied.runId)!==id ||
+        supplied.sha256!==undefined && supplied.sha256!==hash ||
+        supplied.size!==undefined && supplied.size!==blob.size ||
+        supplied.archivePath!==undefined && supplied.archivePath!=="files/"+hash)
+      throw Error("Direct-data original body metadata does not match its owned key.");
+    const serialized=directCanonicalSourceTextV1(supplied);
+    if (serialized.length>16*1024) throw Error("Direct-data original body metadata exceeds its limit.");
+    const mime=String(supplied.mime || blob.type || "application/octet-stream").toLowerCase();
+    if (mime.length>127 || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(mime))
+      throw Error("Invalid direct-data original body MIME type.");
+    return {value:JSON.parse(serialized),mime};
+  }
+  store.getBody = async (id, hash) => {
+    ensureAvailable();id=runId(id);hash=bodyHash(hash);
+    const row=await transact(["runs","bodies"],"readonly",(transaction,set,guard)=>{
+      const request=transaction.objectStore("runs").get([courseId,id]);
+      request.onsuccess=()=>guard(()=>{
+        if (!sameRun(request.result,id) || request.result.updatedAt<Date.now()-ttlMs) {set(null);return;}
+        const body=transaction.objectStore("bodies").get([courseId,id,hash]);
+        body.onsuccess=()=>guard(()=>{
+          if (!body.result) {set(null);return;}
+          if (!bodyBound(body.result,id,hash)) throw Error("Direct-data original body identity is invalid.");
+          set(body.result);
+        });
+      });
+    });
+    if (row) await verifiedBody(row.blob,hash);
+    return row;
+  };
+  store.putBody = async (id, hash, blob, value) => {
+    ensureAvailable();id=runId(id);hash=bodyHash(hash);
+    if (!validBodyBlob(blob)) throw Error("Invalid or oversized direct-data original body Blob.");
+    const supplied=bodyMetadata(value,id,hash,blob), owner=await read("runs",[courseId,id]);
+    if (!sameRun(owner,id) || owner.updatedAt<Date.now()-ttlMs)
+      throw Error("Direct-data checkpoint run was not found or has expired for this course.");
+    await verifiedBody(blob,hash);
+    // Existing originals are also checksum checked before deduplication. A
+    // damaged row is never silently replaced by a later observation.
+    await store.getBody(id,hash);
+    return transact(["runs","bodies"],"readwrite",(transaction,set,guard)=>{
+      const runs=transaction.objectStore("runs"),bodies=transaction.objectStore("bodies"),request=runs.get([courseId,id]);
+      request.onsuccess=()=>guard(()=>{
+        const run=request.result;
+        if (!sameRun(run,id) || run.updatedAt<Date.now()-ttlMs)
+          throw Error("Direct-data checkpoint run was not found or has expired for this course.");
+        const existing=bodies.get([courseId,id,hash]);
+        existing.onsuccess=()=>guard(()=>{
+          const old=existing.result,now=Date.now();
+          if (old && !bodyBound(old,id,hash)) throw Error("Direct-data original body identity is invalid.");
+          const row=old || {schemaVersion:2,key:[courseId,id,hash],runKey:[courseId,id],courseId,runId:id,
+            sha256:hash,size:blob.size,mime:supplied.mime,archivePath:"files/"+hash,blob,
+            metadata:supplied.value,createdAt:now,updatedAt:now};
+          if (!old) bodies.put(row);
+          runs.put({...run,updatedAt:now});set(bodyDescriptor(row));
+        });
+      });
+    });
+  };
+  store.listBodyDescriptors = async (id) => {
+    ensureAvailable();id=runId(id);
+    return transact(["runs","bodies"],"readonly",(transaction,set,guard)=>{
+      const request=transaction.objectStore("runs").get([courseId,id]);
+      request.onsuccess=()=>guard(()=>{
+        if (!sameRun(request.result,id) || request.result.updatedAt<Date.now()-ttlMs) {set([]);return;}
+        const descriptors=[],cursorRequest=transaction.objectStore("bodies").index("runKey").openCursor(IDBKeyRange.only([courseId,id]));
+        cursorRequest.onsuccess=()=>guard(()=>{
+          const cursor=cursorRequest.result;
+          if (!cursor) {descriptors.sort((a,b)=>a.sha256.localeCompare(b.sha256));set(descriptors);return;}
+          const row=cursor.value;
+          if (!bodyBound(row,id,row.sha256)) throw Error("Direct-data original body identity is invalid.");
+          descriptors.push(bodyDescriptor(row));cursor.continue();
+        });
+      });
+    });
   };
   store.close = () => {
     closed = true;

@@ -35,6 +35,26 @@ export function runWorkflow(
       event.data.kind === "error"
         ? finish(new Error(event.data.message))
         : finish(undefined, event.data.result);
-    worker.postMessage(job);
+    // Comparison inputFile() buffers belong to this one dispatched job. Move
+    // capture metadata and originals into the worker instead of cloning a large
+    // archive. The selected File and saved history remain owned by the UI.
+    const transfers: ArrayBuffer[] = [];
+    if (job.kind === "compare") {
+      const seen = new Set<ArrayBuffer>();
+      for (const value of [
+        job.input.json?.bytes,
+        ...(job.input.json?.archiveFiles || []).map((file) => file.bytes),
+      ]) {
+        if (value?.buffer instanceof ArrayBuffer && !seen.has(value.buffer)) {
+          seen.add(value.buffer);
+          transfers.push(value.buffer);
+        }
+      }
+    }
+    try {
+      worker.postMessage(job, transfers);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }

@@ -37,6 +37,7 @@ export interface ComparisonInput {
     name: string;
     bytes: Uint8Array;
     transport?: import("./coursera-capture-file.ts").CourseraCaptureTransport;
+    archiveFiles?: import("./coursera-capture-file.ts").CourseraArchiveFile[];
   };
   brightspace?: { name: string; bytes: Uint8Array };
   recovery?: { name: string; bytes: Uint8Array };
@@ -49,6 +50,7 @@ export interface ComparisonInput {
     | "LEGACY_OR_OUTDATED";
 }
 export interface ComparisonOutput {
+  archiveProof?: import("./coursera-archive-proof.ts").CourseraArchiveProof;
   captureTransport?: {
     json: import("./coursera-capture-file.ts").CourseraCaptureTransport;
   };

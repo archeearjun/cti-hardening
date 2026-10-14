@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DOMParser as XmlParser } from "@xmldom/xmldom";
 import { webcrypto, createHash } from "node:crypto";
+import JSZip from "jszip";
 import {
   directReadingPayloadV1,
   directAssessmentContractV1,
@@ -337,6 +338,161 @@ test("bound native image IDs become complete only with scoped fresh metadata and
   assert.equal(f.fp.payload.directDraftCml.definition.value, f.source.cml);
 });
 
+function archivedNativeAsset(asset, bytes) {
+  delete asset.body.base64;
+  asset.body.archivePath = "files/" + asset.body.sha256;
+  asset.body.receipt.bodyFormat = "ORIGINAL_BINARY_BYTES_ARCHIVE";
+  Object.defineProperty(asset.body, "bytes", {
+    value: new Uint8Array(bytes),
+    enumerable: false,
+    configurable: true,
+  });
+  return asset;
+}
+
+async function capturedNativePptx(id = "p".repeat(22)) {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>',
+  );
+  zip.file(
+    "ppt/presentation.xml",
+    '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>',
+  );
+  zip.file(
+    "ppt/slides/slide1.xml",
+    '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Original source slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+  );
+  const bytes = await zip.generateAsync({
+      type: "uint8array",
+      compression: "STORE",
+    }),
+    asset = capturedNativePng(id),
+    sha256 = createHash("sha256").update(bytes).digest("hex"),
+    canonicalUrl =
+      "https://d3c33hcgiwev3.cloudfront.net/synthetic/native-slides.pptx",
+    mime =
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  for (const envelope of [asset.metadata, asset.stability.metadata]) {
+    envelope.elements[0].name = "Native source slides.PPTX";
+    envelope.elements[0].typeName = "generic";
+    envelope.elements[0].url.url = canonicalUrl;
+  }
+  Object.assign(asset.body, { size: bytes.length, sha256, mime, canonicalUrl });
+  Object.assign(asset.body.receipt, {
+    bytes: bytes.length,
+    sha256,
+    mime,
+    canonicalUrl,
+  });
+  return archivedNativeAsset(asset, bytes);
+}
+
+test("bound archive originals verify actual PNG and PPTX bytes while keeping native filenames separate from CML labels", async () => {
+  const png = capturedNativePng(),
+    cases = [
+      {
+        asset: archivedNativeAsset(png, Buffer.from(png.body.base64, "base64")),
+        tag: "img",
+        label: "Screenshot author label",
+        name: "image.png",
+      },
+      {
+        asset: await capturedNativePptx(),
+        tag: "asset",
+        label: "Module 1 handout",
+        name: "Native source slides.PPTX",
+      },
+    ];
+  for (const { asset, tag, label, name } of cases) {
+    const f = fixture(
+      "supplement",
+      cml(
+        "Read <" +
+          tag +
+          ' assetId="' +
+          asset.assetId +
+          '" filename="' +
+          label +
+          '"/>',
+      ),
+    );
+    f.fp.payload.directAssetEvidence = {
+      method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+      assets: [asset],
+      missingPointers: [],
+      failures: [],
+    };
+    const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, true, name);
+    assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, true);
+    assert.equal(f.fp.payload.assetDetails[0].sha256, asset.body.sha256);
+    assert.equal(
+      f.fp.payload.assetDetails[0].name,
+      name,
+      "Compare must receive the native extension, not the CML display label",
+    );
+    assert.equal(f.fp.payload.assetDetails[0].referenceName, label);
+    assert.equal(asset.body.base64, undefined);
+    assert.equal(
+      asset.body.receipt.bodyFormat,
+      "ORIGINAL_BINARY_BYTES_ARCHIVE",
+    );
+    assert.equal(JSON.parse(JSON.stringify(asset)).body.bytes, undefined);
+  }
+});
+
+test("archive references without originals, smuggled paths and byte mutations cannot verify native readings", async () => {
+  for (const mode of [
+    "noBytes",
+    "pathTraversal",
+    "encodedPath",
+    "wrongHashPath",
+    "size",
+    "mixedTransport",
+    "wrongReceiptFormat",
+    "corruptAfterHash",
+  ]) {
+    const original = capturedNativePng(),
+      asset = archivedNativeAsset(
+        original,
+        Buffer.from(original.body.base64, "base64"),
+      ),
+      f = fixture("supplement", cml('<img assetId="' + asset.assetId + '"/>'));
+    if (mode === "noBytes") delete asset.body.bytes;
+    if (mode === "pathTraversal")
+      asset.body.archivePath = "files/../" + asset.body.sha256;
+    if (mode === "encodedPath")
+      asset.body.archivePath = "files/%2f" + asset.body.sha256;
+    if (mode === "wrongHashPath")
+      asset.body.archivePath = "files/" + "f".repeat(64);
+    if (mode === "size") asset.body.size++;
+    if (mode === "mixedTransport")
+      asset.body.base64 = Buffer.from(asset.body.bytes).toString("base64");
+    if (mode === "wrongReceiptFormat")
+      asset.body.receipt.bodyFormat = "ORIGINAL_BINARY_BYTES_BASE64";
+    if (mode === "corruptAfterHash")
+      asset.body.bytes[asset.body.bytes.length - 1] ^= 1;
+    f.fp.payload.directAssetEvidence = {
+      method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+      assets: [asset],
+      missingPointers: [],
+      failures: [],
+    };
+    const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, false, mode);
+    assert.equal(
+      f.fp.payload.directDataEvidence.assetsBodyVerified,
+      false,
+      mode,
+    );
+    assert.equal(f.fp.payload.assetDetails[0].bodyVerified, false, mode);
+    if (mode === "corruptAfterHash")
+      assert(result.reasons.includes("DIRECT_ASSET_BODY_HASH_INVALID"));
+  }
+});
+
 test("unrelated binary evidence cannot be attached to a text-only draft to claim complete media capture", async () => {
   const f = fixture();
   f.fp.payload.directAssetEvidence = {
@@ -345,7 +501,10 @@ test("unrelated binary evidence cannot be attached to a text-only draft to claim
     missingPointers: [],
     failures: [],
   };
-  assert.equal((await directReadingPayloadV1(f.fp, f.bound, f.source)).complete, false);
+  assert.equal(
+    (await directReadingPayloadV1(f.fp, f.bound, f.source)).complete,
+    false,
+  );
 });
 
 test("forged binary flags, hashes, foreign IDs, metadata mutations and MIME mismatches never verify a reading", async () => {

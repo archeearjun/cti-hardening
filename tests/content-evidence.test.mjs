@@ -9,7 +9,10 @@ import {
 } from "../src/domain/content-evidence.ts";
 import { itemContentView } from "../src/domain/owner-content.ts";
 import { buildOwnerTasks } from "../src/domain/owner-actions.ts";
-import { loadAssignmentEvidence, assignmentHandoff } from "../src/domain/assignment-plan.ts";
+import {
+  loadAssignmentEvidence,
+  assignmentHandoff,
+} from "../src/domain/assignment-plan.ts";
 import { fetchSourceQuestions } from "../server/source-questions.ts";
 import { validateSourceQuestionCapture } from "../src/domain/external-source-questions.ts";
 import { comparisonFixture, encode } from "./workflow-fixtures.mjs";
@@ -21,6 +24,10 @@ import {
 } from "../src/domain/report-content-store.ts";
 import { digest, recordSummary } from "../src/domain/workspace-store.ts";
 import { validateRecord } from "../src/domain/workspace-validation.ts";
+import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-file.ts";
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
+import JSZip from "jszip";
 const question = {
   id: "q",
   prompt: "What is 1 < 2 and 3 > 2?",
@@ -39,6 +46,136 @@ const payload = {
     captureCompleteness: { declared: 1, questionCoverageComplete: true },
   },
 };
+
+test("original archive supplements verify bodies and archive identity while saving compact proofs only", async () => {
+  const input = comparisonFixture();
+  const original = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const sha256 = createHash("sha256").update(original).digest("hex"),
+    path = "files/" + sha256;
+  const capture = JSON.parse(new TextDecoder().decode(input.json.bytes));
+  capture.meta.directDataCapture = {
+    exportTransport: { format: "ZIP_GZIP_JSON_V1" },
+  };
+  capture.fingerprints[0].payload.directAssetEvidence = {
+    assets: [
+      {
+        assetId: "ABCDEFGHIJKLMNOPQRSTUV",
+        body: {
+          archivePath: path,
+          sha256,
+          size: original.length,
+          mime: "image/png",
+        },
+      },
+    ],
+  };
+  const zip = new JSZip();
+  zip.file("capture.json.gz", gzipSync(encode(capture)), {
+    createFolders: false,
+  });
+  zip.file(path, original, { createFolders: false });
+  const selected = new File(
+    [await zip.generateAsync({ type: "uint8array", compression: "STORE" })],
+    "original.cti.zip",
+  );
+  const decoded = await readCourseraCaptureFileBytes(selected);
+  input.json = { name: selected.name, ...decoded };
+  const report = createWorkflows(workerXml).compare(input);
+  delete report.contentEvidence;
+  const audit = {
+    ...input.course,
+    id: "archive-audit",
+    kind: "audit",
+    packageId: input.course.id,
+    data: report,
+    version: 1,
+  };
+  const before = structuredClone(audit),
+    records = new Map([[audit.id, structuredClone(audit)]]);
+  let writes = 0;
+  const store = {
+    role: "editor",
+    email: "test",
+    list: async () => [...records.values()].map(recordSummary),
+    get: async (id) => structuredClone(records.get(id)),
+    save: async (row) => {
+      writes++;
+      validateRecord(row);
+      const next = { ...row, version: row.version + 1 };
+      records.set(row.id, next);
+      return next;
+    },
+  };
+  const options = {
+    archiveFiles: decoded.archiveFiles,
+    transport: decoded.transport,
+  };
+  const corrupted = {
+    ...decoded.archiveFiles[0],
+    bytes: Uint8Array.from(original),
+  };
+  corrupted.bytes[corrupted.bytes.length - 1] ^= 1;
+  await assert.rejects(
+    saveOriginalContent(decoded.bytes, report, audit.id, store, {
+      ...options,
+      archiveFiles: [corrupted],
+    }),
+    /failed checksum/,
+  );
+  await assert.rejects(
+    saveOriginalContent(decoded.bytes, report, audit.id, store),
+    /referenced original file is absent/,
+  );
+  await assert.rejects(
+    saveOriginalContent(decoded.bytes, report, audit.id, store, {
+      ...options,
+      transport: { ...decoded.transport, sha256: "b".repeat(64) },
+    }),
+    /original ZIP hash/,
+  );
+  await assert.rejects(
+    saveOriginalContent(decoded.bytes, report, audit.id, store, {
+      archiveFiles: decoded.archiveFiles,
+    }),
+    /verified ZIP identity/,
+  );
+  assert.equal(writes, 0, "Failed identities must not create a supplement");
+  assert.equal(
+    await saveOriginalContent(decoded.bytes, report, audit.id, store, options),
+    "coursera",
+  );
+  const supplement = [...records.values()].find(
+    (row) => row.kind === "operations",
+  );
+  assert.equal(supplement.data.archiveProof.metadataSha256, report.hashes.json);
+  assert.equal(
+    supplement.data.archiveProof.archiveSha256,
+    decoded.transport.sha256,
+  );
+  assert.equal(supplement.data.archiveProof.archiveIdentityMatchedReport, true);
+  assert.equal(supplement.data.archiveProof.originalBytesStored, false);
+  assert.deepEqual(supplement.data.archiveProof.files, [
+    { path, sha256, size: original.length },
+  ]);
+  assert.equal(
+    JSON.stringify(supplement).includes(original.toString("base64")),
+    false,
+  );
+  assert.equal(JSON.stringify(supplement).includes('"archiveFiles"'), false);
+  assert.equal(
+    (await loadReportContent(report, audit.id, input.course.id, store)).coursera
+      .length,
+    2,
+  );
+  assert.deepEqual(
+    records.get(audit.id),
+    before,
+    "The original audit remains immutable",
+  );
+});
 test("question records stay complete only with matching declared coverage; missing, partial and malformed remain distinct", () => {
   const c = capturedContent(payload, { basis: "test" });
   assert.equal(c.questionCoverage, "COMPLETE");
@@ -139,9 +276,20 @@ test("content supplements use exact original hashes and preserve immutable audit
   assert.equal(supplement.data.sourceHash, await digest(input.json.bytes));
   assert.equal(recordSummary(supplement).data.contentEvidence, undefined);
   const assignmentEvidence = await loadAssignmentEvidence(audit.id, store);
-  assert.equal(assignmentEvidence.data.contentEvidence.coursera[0].content.timeEstimate.minutes, 12);
-  assert.match(assignmentHandoff(input.course, assignmentEvidence, await store.list()), /baseline 12 min.*latest available 12 min/);
-  assert.deepEqual(records.get(audit.id), before, "handoff projection must not rewrite the original audit");
+  assert.equal(
+    assignmentEvidence.data.contentEvidence.coursera[0].content.timeEstimate
+      .minutes,
+    12,
+  );
+  assert.match(
+    assignmentHandoff(input.course, assignmentEvidence, await store.list()),
+    /baseline 12 min.*latest available 12 min/,
+  );
+  assert.deepEqual(
+    records.get(audit.id),
+    before,
+    "handoff projection must not rewrite the original audit",
+  );
   await assert.rejects(
     loadReportContent(
       { ...report, hashes: { json: "0".repeat(64) } },

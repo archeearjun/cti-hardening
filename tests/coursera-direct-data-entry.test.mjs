@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
-import { webcrypto } from "node:crypto";
+import { webcrypto, createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
+import JSZip from "jszip";
+import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
+import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
 import ts from "typescript";
 import {
   directDataCoverageSummaryV1,
@@ -13,6 +17,8 @@ import {
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
   CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
+  CTI_DIRECT_DATA_MEDIA_BYTES_V1,
+  CTI_DIRECT_DATA_ARCHIVE_BYTES_V1,
   CTI_DIRECT_DATA_MAX_PARTS_V1,
 } from "../src/extractors/coursera/direct-data-config.js";
 
@@ -49,6 +55,17 @@ const COURSE = "Synthetic_course",
   OTHER_COURSE = "Another_course",
   SLUG = "synthetic-course";
 const clone = (value) => structuredClone(value);
+const bytesForMediaLabel = (label) => Buffer.from({
+  "old-body": "ORIGINAL", "new-body": "UPDATED!", "new-body-with-failed-metadata": "FAILED!!",
+}[label]);
+const mediaSha = (label) => createHash("sha256").update(bytesForMediaLabel(label)).digest("hex");
+async function exportedCapture(download) {
+  assert(download.name.endsWith(".zip"));
+  const zip = await JSZip.loadAsync(await download.blob.arrayBuffer(), { checkCRC32: true });
+  const json = gunzipSync(await zip.file("capture.json.gz").async("nodebuffer"));
+  const capture = JSON.parse(json.toString("utf8"));
+  return { capture, zip };
+}
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 async function until(predicate, message) {
   const deadline = Date.now() + 3000;
@@ -73,6 +90,7 @@ function harness(options = {}) {
     activeItemReads = 0;
   const nodes = [],
     items = new Map(),
+    bodies = new Map(),
     runs = new Map(),
     urls = new Map(),
     factories = [],
@@ -86,6 +104,7 @@ function harness(options = {}) {
     listItemCalls: 0,
     saves: [],
     writes: [],
+    bodyWrites: [],
   };
   const control = {
     beforeRead: options.beforeRead,
@@ -96,8 +115,8 @@ function harness(options = {}) {
   const ids = options.ids || ["ReadingA", "ReadingB"];
   const fingerprint = (id) => ({
     id,
-    type: "reading",
-    typeName: "supplement",
+    type: options.assignmentIds?.includes(id) ? "assignment" : "reading",
+    typeName: options.assignmentIds?.includes(id) ? "staffGraded" : "supplement",
     name: id,
     atomId: "Atom_" + id,
     payload: {},
@@ -167,7 +186,9 @@ function harness(options = {}) {
     available: true,
     async getActiveRun() {
       const active = [...runs.values()].filter((row) =>
-        ["RUNNING", "PAUSED"].includes(row.state),
+        ["RUNNING", "PAUSED"].includes(row.state) || row.state === "INCOMPLETE" &&
+          row.captureMeta?.directDataCapture?.acquisitionComplete === true &&
+          row.captureMeta.directDataCapture.stopReason === "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
       );
       return clone(active.at(-1) || null);
     },
@@ -223,6 +244,20 @@ function harness(options = {}) {
       return null;
     },
     async putDefinition() {},
+    async putBody(runId, sha256, blob, metadata) {
+      assert.equal(createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex"), sha256);
+      const key = runId + "/" + sha256;
+      if (!bodies.has(key)) {
+        bodies.set(key, { runId, sha256, size: blob.size, mime: metadata.mime, blob, archivePath: "files/" + sha256 });
+        metrics.bodyWrites.push({ runId, sha256, size: blob.size });
+      }
+      return { ...bodies.get(key), blob: undefined };
+    },
+    async getBody(runId, sha256) {
+      const body = bodies.get(runId + "/" + sha256);
+      if (body) assert.equal(createHash("sha256").update(Buffer.from(await body.blob.arrayBuffer())).digest("hex"), sha256);
+      return body ? { ...body } : null;
+    },
   };
   function createReader(readerOptions) {
     const limits = {
@@ -343,6 +378,8 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_BUILD_V1,
     CTI_DIRECT_DATA_EXPORT_BYTES_V1,
     CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
+    CTI_DIRECT_DATA_MEDIA_BYTES_V1,
+    CTI_DIRECT_DATA_ARCHIVE_BYTES_V1,
     CTI_DIRECT_DATA_MAX_PARTS_V1,
     directDataCoverageSummaryV1,
     directDataAttemptMetricsV1,
@@ -353,6 +390,10 @@ function harness(options = {}) {
     TextDecoder,
     Uint8Array,
     Blob,
+    CompressionStream,
+    createDirectDataArchiveV1,
+    decodeDirectAssetBodyV1,
+    directAssetMetadataBindingV1,
     URL: {
       createObjectURL(blob) {
         const url = "blob:synthetic-" + (urls.size + 1);
@@ -425,7 +466,11 @@ function harness(options = {}) {
   const state = () => context.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;
   const button = (label) =>
     nodes.find(
-      (node) => node.tagName === "BUTTON" && node.textContent === label,
+      (node) => {
+        if (node.tagName !== "BUTTON" || node.textContent !== label) return false;
+        for (let ancestor = node; ancestor; ancestor = ancestor.parent) if (ancestor.removed) return false;
+        return true;
+      },
     );
   const idle = async () =>
     until(
@@ -445,6 +490,7 @@ function harness(options = {}) {
     location,
     nodes,
     items,
+    bodies,
     runs,
     store,
     calls,
@@ -467,7 +513,7 @@ test("the actual entry captures drafts without navigation and exports its saved 
   assert.equal(app.state().state, "COMPLETE");
   assert.equal(app.location.pathname, initialPath);
   assert.equal(app.downloads.length, 1);
-  const output = JSON.parse(await app.downloads[0].blob.text());
+  const output = (await exportedCapture(app.downloads[0])).capture;
   assert.equal(output.directDataCapture, undefined);
   assert.equal(output.meta.directDataCapture.wholeCourseVerified, true);
   assert.deepEqual(
@@ -542,7 +588,7 @@ test("paused runs keep request, byte and time budgets across Resume", async () =
     app.readers()[1].options.durationMs,
     60_000 - savedBudget.elapsedMs,
   );
-  const output = JSON.parse(await app.downloads.at(-1).blob.text());
+  const output = (await exportedCapture(app.downloads.at(-1))).capture;
   assert.equal(
     output.meta.directDataCapture.stats.requests,
     first.requests + app.readers()[1].metrics.requests,
@@ -597,6 +643,7 @@ function readingMediaOptions({
   failFinalAtom = false,
   failMetadata = false,
   failMetadataAfterBody = false,
+  reuseRetainedOnFirst = false,
 } = {}) {
   const assetId = "a".repeat(22),
     sourceAssetId = "r".repeat(22) + "@1",
@@ -608,13 +655,14 @@ function readingMediaOptions({
     currentCml = cml;
   const record = (label) => ({
     assetId,
-    metadata: { elements: [{ id: assetId, label }] },
+    metadata: { elements: [{ id: assetId, label, name: "source-" + label + ".bin", typeName: "file", url: {url: "https://fixture.cloudfront.net/" + label + ".bin"} }] },
     metadataReceipt: { retainedMarker: label },
     body: {
-      base64: "T1JJR0lOQUw=",
+      base64: bytesForMediaLabel(label).toString("base64"),
       size: 8,
-      sha256: label,
-      receipt: { observedAt: "original-" + label },
+      mime: "application/octet-stream",
+      sha256: mediaSha(label),
+      receipt: { observedAt: "original-" + label, bodyFormat: "ORIGINAL_BINARY_BYTES_BASE64" },
     },
     stability: {
       stable: true,
@@ -683,7 +731,7 @@ function readingMediaOptions({
             };
           if (
             retained?.body &&
-            (attempt >= 2 || configuration.limits.totalBytes === 0)
+            (reuseRetainedOnFirst || attempt >= 2 || configuration.limits.totalBytes === 0)
           ) {
             return clone(retained);
           }
@@ -702,6 +750,8 @@ function readingMediaOptions({
     options,
     mediaCalls,
     settings,
+    assetRecord: record,
+    cml,
     changeCml: () =>
       (currentCml = cml.replace("<asset", "<text>changed</text><asset")),
   };
@@ -716,7 +766,7 @@ test("a failed final atom check retains fresh media bytes for the same bound rea
     first = app.items.get(runId + "/ReadingA").fingerprint;
   assert.equal(
     first.payload.directAssetEvidence.assets[0].body.sha256,
-    "old-body",
+    mediaSha("old-body"),
   );
   assert.equal(first.payload.directDataSources.receipts.stability.stable, true);
   app.state().resume();
@@ -725,7 +775,7 @@ test("a failed final atom check retains fresh media bytes for the same bound rea
   const interrupted = app.items.get(runId + "/ReadingA").fingerprint;
   assert.equal(
     interrupted.payload.directAssetEvidence.assets[0].body.sha256,
-    "new-body",
+    mediaSha("new-body"),
     "new raw bytes survive a failed final source read",
   );
   assert.equal(
@@ -739,14 +789,14 @@ test("a failed final atom check retains fresh media bytes for the same bound rea
     "NETWORK_FAILED",
   );
   assert.equal(app.runs.get(runId).budget.media.bytes, 16);
-  assert.equal(fixture.mediaCalls[1].retained.body.sha256, "old-body");
+  assert.equal(fixture.mediaCalls[1].retained.body.sha256, mediaSha("old-body"));
   app.state().resume();
   await app.idle();
   assert.equal(app.state().state, "COMPLETE");
   assert.equal(app.state().runId, runId);
   assert.equal(
     fixture.mediaCalls.find((call) => call.attempt === 2).retained.body.sha256,
-    "new-body",
+    mediaSha("new-body"),
     "a later fresh source check can reuse the interrupted native media proof",
   );
   assert.equal(app.runs.get(runId).budget.media.bytes, 24);
@@ -768,7 +818,7 @@ test("a failed media metadata revalidation retains historical bytes separately a
     undefined,
     "failed current evidence cannot look verified",
   );
-  assert.equal(asset.retainedEvidence.body.sha256, "old-body");
+  assert.equal(asset.retainedEvidence.body.sha256, mediaSha("old-body"));
   assert.equal(failed.captureContract.complete, false);
   assert.equal(failed.payload.directAssetEvidence.failures.length, 1);
   // The controlled store exposes normal PAUSED work; real checkpoint selection
@@ -793,7 +843,7 @@ test("a failed media metadata revalidation retains historical bytes separately a
   );
   assert.equal(
     fixture.mediaCalls.find((call) => call.attempt === 2).retained.body.sha256,
-    "old-body",
+    mediaSha("old-body"),
   );
   assert.equal(app.runs.get(runId).budget.media.bytes, 16);
 });
@@ -804,16 +854,16 @@ test("exhausted binary budgets still allow the media helper to validate matching
   app.execute();
   await app.idle();
   const runId = app.state().runId;
-  app.runs.get(runId).budget.media.bytes = 64 * 1024 * 1024;
+  app.runs.get(runId).budget.media.bytes = CTI_DIRECT_DATA_MEDIA_BYTES_V1;
   app.state().resume();
   await app.idle();
   assert.equal(fixture.settings[1].totalBytes, 0);
   assert.equal(
     fixture.mediaCalls.find((call) => call.attempt === 1).retained.body.sha256,
-    "old-body",
+    mediaSha("old-body"),
     "entry delegates strict metadata-only reuse instead of rejecting saved bytes",
   );
-  assert.equal(app.runs.get(runId).budget.media.bytes, 64 * 1024 * 1024);
+  assert.equal(app.runs.get(runId).budget.media.bytes, CTI_DIRECT_DATA_MEDIA_BYTES_V1);
 });
 
 test("a failed second media metadata read preserves both the current raw attempt and older complete proof", async () => {
@@ -827,16 +877,16 @@ test("a failed second media metadata read preserves both the current raw attempt
   const failed = app.items.get(runId + "/ReadingA").fingerprint,
     asset = failed.payload.directAssetEvidence.assets[0];
   assert.equal(asset.reason, "DIRECT_ASSET_STABILITY_FAILED");
-  assert.equal(asset.body.sha256, "new-body-with-failed-metadata");
+  assert.equal(asset.body.sha256, mediaSha("new-body-with-failed-metadata"));
   assert.equal(asset.stability.stable, false);
-  assert.equal(asset.retainedEvidence.body.sha256, "old-body");
+  assert.equal(asset.retainedEvidence.body.sha256, mediaSha("old-body"));
   assert.equal(failed.captureContract.complete, false);
   app.runs.get(runId).state = "PAUSED";
   app.state().resume();
   await app.idle();
   assert.equal(
     fixture.mediaCalls.find((call) => call.attempt === 2).retained.body.sha256,
-    "old-body",
+    mediaSha("old-body"),
     "only the older complete asset proof is proposed for metadata-only reuse",
   );
 });
@@ -854,6 +904,100 @@ test("changed CML cannot reuse an earlier reading's media proof", async () => {
     undefined,
     "the exact bound CML must match before passing any historical bytes",
   );
+});
+
+test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates retained originals once without rereading questions", async () => {
+  const fixture = readingMediaOptions({ reuseRetainedOnFirst: true }),
+    app = harness({ ...fixture.options, ids: ["ReadingA", "AssessmentZ"], assignmentIds: ["AssessmentZ"] });
+  app.execute();
+  await app.idle();
+  const runId = app.state().runId, saved = app.runs.get(runId);
+  assert.equal(app.downloads.length, 1, "The pre-upgrade fixture must itself export: " + app.state().exportError);
+  const reading = app.items.get(runId + "/ReadingA");
+  reading.fingerprint.captureContract.complete = false;
+  reading.fingerprint.captureContract.contentPartsCaptured = false;
+  reading.fingerprint.captureContract.reasons = ["DIRECT_MEDIA_BYTE_LIMIT"];
+  reading.fingerprint.payload.directAssetEvidence.assets = [fixture.assetRecord("old-body")];
+  reading.fingerprint.payload.directAssetEvidence.failures = [{ id: "a".repeat(22), reason: "DIRECT_MEDIA_BYTE_LIMIT" }];
+  reading.fingerprint.payload.assetDetails = [{ assetId: "a".repeat(22), name: "Old CML attachment label", bodyVerified: true }];
+  const nativeAssessment = {
+    ...app.items.get(runId + "/AssessmentZ").fingerprint,
+    type: "assignment", typeName: "staffGraded",
+    captureContract: { complete: true, method: "DIRECT_ASSESSMENT", contentPartsCaptured: true, reasons: [] },
+    payload: {
+      directDataSources: { atom: { elements: [{ id: "Atom_AssessmentZ", draft: { content: { typeName: "staffGradedDraft", definition: { parts: ["exact-old-part"] } } } }] } },
+      assessmentApiEvidence: { groups: [{ id: "old-group", questions: ["old-question@1"] }], questionDefinitions: [{ id: "old-question@1", native: "original definition" }] },
+      structuredAssessment: { questions: [{ id: "old-question@1", prompt: "Original captured question", answerKey: "original captured key" }] },
+    },
+  };
+  app.items.set(runId + "/AssessmentZ", { runId, itemId: "AssessmentZ", fingerprint: clone(nativeAssessment), state: { processed: true } });
+  saved.state = "INCOMPLETE";
+  saved.reason = "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS";
+  saved.buildId = "v1.2.0-bound-reading-media-20261014";
+  saved.captureMeta.buildId = saved.buildId;
+  Object.assign(saved.captureMeta.directDataCapture, {
+    acquisitionComplete: true, sourceStable: true, wholeCourseVerified: false,
+    stopReason: saved.reason,
+  });
+  saved.budget.media = { bytes: 64 * 1024 * 1024, requests: 88 };
+  app.bodies.clear();app.metrics.bodyWrites.length = 0;
+  const initialCalls = app.calls.length, initialBudget = clone(saved.budget);
+  app.execute();
+  await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert.equal(app.state().state, "COMPLETE");
+  assert.equal(fixture.settings.at(-1).totalBytes, CTI_DIRECT_DATA_MEDIA_BYTES_V1 - 64 * 1024 * 1024,
+    "The old charged bytes remain spent while the new archive policy permits the additional 448 MiB");
+  assert.equal(app.runs.get(runId).budget.media.bytes, 64 * 1024 * 1024);
+  assert(app.runs.get(runId).budget.requests >= initialBudget.requests);
+  assert(!app.calls.slice(initialCalls).some(call => ["group", "definition"].includes(call.resource)),
+    "Media continuation must not rerun any saved question definition or group");
+  assert(!app.calls.slice(initialCalls).some(call => call.resource === "atom" && call.id === "Atom_AssessmentZ"));
+  assert.deepEqual(app.items.get(runId + "/AssessmentZ").fingerprint.payload, nativeAssessment.payload,
+    "Original question models, keys and source snapshot are preserved unchanged");
+  assert.equal(app.metrics.bodyWrites.length, 1, "The old inline original migrates once to SHA-deduplicated Blob storage");
+  assert.equal(app.metrics.bodyWrites[0].sha256, mediaSha("old-body"));
+  assert.equal(app.bodies.size, 1);
+  const { capture, zip } = await exportedCapture(app.downloads.at(-1));
+  assert.equal(capture.meta.directDataCapture.exportTransport.format, "ZIP_GZIP_JSON_V1");
+  assert.equal(capture.meta.directDataCapture.runId, runId);
+  assert(!JSON.stringify(capture).includes('"base64"'));
+  const bodyPath = "files/" + mediaSha("old-body");
+  assert.deepEqual(Object.keys(zip.files).sort(), ["capture.json.gz", bodyPath].sort());
+  assert.deepEqual(await zip.file(bodyPath).async("nodebuffer"), bytesForMediaLabel("old-body"));
+  const migratedDetail = capture.fingerprints.find(fp => fp.id === "ReadingA").payload.assetDetails[0];
+  assert.equal(migratedDetail.name, "source-old-body.bin", "Migration uses the bound native filename for the retained original");
+  assert.equal(migratedDetail.referenceName, "Old CML attachment label", "The older CML display label remains separately recorded");
+  assert.equal(app.downloads.length, 2, "Each acquisition attempt emits one ZIP file");
+});
+
+test("readable legacy originals still export in one ZIP when quota prevents body checkpoint migration", async () => {
+  const fixture = readingMediaOptions(), app = harness(fixture.options);
+  app.execute();await app.idle();
+  const runId = app.state().runId, saved = app.runs.get(runId), row = app.items.get(runId + "/ReadingA");
+  row.fingerprint.payload.directAssetEvidence.assets = [fixture.assetRecord("old-body")];
+  saved.buildId = "v1.2.0-bound-reading-media-20261014";
+  saved.captureMeta.buildId = saved.buildId;
+  app.bodies.clear();
+  const original = clone(row.fingerprint), writesBefore = app.metrics.bodyWrites.length;
+  let failedWrites = 0;
+  app.store.putBody = async () => { failedWrites++; throw Error("QuotaExceededError"); };
+  app.state().resume();await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert.equal(app.state().state, "PAUSED");
+  assert(failedWrites > 0, "The interrupted migration actually encounters the body-store quota boundary");
+  assert.equal(app.metrics.bodyWrites.length, writesBefore);
+  assert.equal(app.bodies.size, 0);
+  assert.deepEqual(app.items.get(runId + "/ReadingA").fingerprint, original,
+    "The readable legacy checkpoint remains intact when migration cannot commit");
+  const {capture,zip} = await exportedCapture(app.downloads.at(-1));
+  const sourceBody = capture.fingerprints[0].payload.directAssetEvidence.assets[0].body;
+  assert.equal(sourceBody.archivePath, "files/" + mediaSha("old-body"));
+  assert.equal(sourceBody.base64, undefined);
+  assert.deepEqual(await zip.file(sourceBody.archivePath).async("nodebuffer"), bytesForMediaLabel("old-body"));
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified, false);
+  assert.equal(app.downloads.length, 2, "Quota recovery offers one new ZIP rather than split files");
+  assert.deepEqual(app.alerts, []);
 });
 
 test("an already exhausted saved run restores its partial inventory without starting network reads", async () => {
@@ -880,7 +1024,7 @@ test("an already exhausted saved run restores its partial inventory without star
   assert.equal(app.state().terminal, true);
   assert.equal(app.state().state, "INCOMPLETE");
   assert.equal(app.state().counts.processed, 1);
-  const output = JSON.parse(await app.downloads.at(-1).blob.text());
+  const output = (await exportedCapture(app.downloads.at(-1))).capture;
   assert.equal(output.meta.directDataCapture.runId, runId);
   assert.equal(output.meta.directDataCapture.wholeCourseVerified, false);
   assert.equal(
@@ -951,7 +1095,7 @@ test("asynchronous export blocks Resume and captures one stable run snapshot", a
   held.resolve();
   await app.idle();
   assert.equal(app.state().runId, runId);
-  const output = JSON.parse(await app.downloads.at(-1).blob.text());
+  const output = (await exportedCapture(app.downloads.at(-1))).capture;
   assert.equal(output.meta.directDataCapture.runId, runId);
   assert.deepEqual(
     output.fingerprints.map((fp) => fp.id),
@@ -1020,7 +1164,7 @@ test("interrupted resume revalidation preserves the saved item body as unverifie
     retained.fingerprint.payload.directResumeRevalidation.reason,
     "NETWORK_FAILED",
   );
-  const output = JSON.parse(await app.downloads.at(-1).blob.text());
+  const output = (await exportedCapture(app.downloads.at(-1))).capture;
   const first = output.fingerprints.find((fp) => fp.id === "ReadingA");
   assert.equal(first.payload.reading, "Synthetic reading");
   assert.equal(first.captureContract.complete, false);
@@ -1048,7 +1192,7 @@ test("an oversized unpersisted item exports only a fresh lightweight inventory s
   );
   assert.equal(app.downloads.length, 1);
   assert(app.downloads[0].blob.size < exportLimit);
-  const output = JSON.parse(await app.downloads[0].blob.text());
+  const output = (await exportedCapture(app.downloads[0])).capture;
   assert.equal(output.meta.directDataCapture.wholeCourseVerified, false);
   assert.equal(output.meta.directDataCapture.acquisitionComplete, false);
   assert.equal(

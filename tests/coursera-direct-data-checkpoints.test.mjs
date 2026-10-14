@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createDirectDataCheckpointStoreV1 } from "../src/extractors/coursera/direct-data-checkpoints.js";
 
 const DATABASE = "cti-coursera-direct-data-v1",
@@ -291,7 +292,7 @@ function fakeIndexedDB() {
     return tx;
   }
   const db = {
-    version: 1,
+    version: 0,
     objectStoreNames: names(stores),
     close() {},
     transaction,
@@ -317,17 +318,27 @@ function fakeIndexedDB() {
           req.onerror?.({ target: req });
           return;
         }
-        if (!stores.size) {
+        if (version<db.version) {
+          req.error=Error("VersionError");req.onerror?.({target:req});return;
+        }
+        if (version>db.version) {
+          const oldVersion=db.version;
           req.transaction = {
             abort() {
               req.error = Error("AbortError");
             },
+            objectStore(storeName) {
+              const spec=stores.get(storeName);
+              if (!spec) throw Error("NotFoundError: "+storeName);
+              return {indexNames:names(spec.indexes),createIndex(index,path){spec.indexes.set(index,path);}};
+            },
           };
           req.onupgradeneeded?.({
-            oldVersion: 0,
+            oldVersion,
             newVersion: version,
             target: req,
           });
+          if (!req.error) db.version=version;
         }
         if (req.error) req.onerror?.({ target: req });
         else req.onsuccess?.({ target: req });
@@ -338,6 +349,7 @@ function fakeIndexedDB() {
   return {
     indexedDB,
     stores,
+    database:db,
     metrics,
     control,
     rows: (name) => [...(stores.get(name)?.rows.values() || [])],
@@ -437,6 +449,135 @@ function ageRow(row, milliseconds) {
     typeof row.createdAt === "string" ? new Date(stamp).toISOString() : stamp;
 }
 
+function originalBody(label="synthetic original",mime="image/png") {
+  const bytes=Buffer.from(label),blob=new Blob([bytes],{type:mime});
+  return {blob,sha256:createHash("sha256").update(bytes).digest("hex")};
+}
+
+test("database v2 adds an isolated body store while preserving v1 source rows and indexes",async()=>{
+  await withDatabase(async fake=>{
+    const oldRun="11111111-1111-4111-8111-111111111111",stamp=Date.now();
+    for(const name of ["runs","items","groups","definitions"]) {
+      const indexes=name==="runs"?new Map([["courseUpdatedAt",["courseId","updatedAt"]],["courseStateUpdatedAt",["courseId","state","updatedAt"]]]):
+        new Map([["runKey","runKey"],...(name==="groups"?[["itemKey",["courseId","runId","itemId"]]]:[])]);
+      fake.stores.set(name,{keyPath:"key",indexes,rows:new Map()});
+    }
+    const run={schemaVersion:1,key:[COURSE,oldRun],courseId:COURSE,runId:oldRun,createdAt:stamp,updatedAt:stamp,state:"PAUSED",unknownFuture:{raw:[0,false,null]}},
+      item={schemaVersion:1,key:[COURSE,oldRun,"old-item"],runKey:[COURSE,oldRun],courseId:COURSE,runId:oldRun,itemId:"old-item",fingerprint:source("old-item"),createdAt:stamp,updatedAt:stamp};
+    fake.stores.get("runs").rows.set(JSON.stringify(run.key),structuredClone(run));
+    fake.stores.get("items").rows.set(JSON.stringify(item.key),structuredClone(item));
+    fake.database.version=1;
+    const store=await storeFor();
+    assert.equal(fake.database.version,2);assert(fake.stores.has("bodies"));
+    assert.deepEqual(await store.getActiveRun(),run);assert.deepEqual(await store.getItem(oldRun,"old-item"),item);
+    assert.deepEqual(fake.rows("runs"),[run]);assert.deepEqual(fake.rows("items"),[item]);
+    const body=originalBody();await store.putBody(oldRun,body.sha256,body.blob);
+    assert.equal((await store.getBody(oldRun,body.sha256)).schemaVersion,2);
+    assert.equal(fake.rows("items")[0].schemaVersion,1);store.close();
+  });
+});
+
+test("original body storage verifies bytes and deduplicates exact hashes without overwriting source metadata",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),run=await store.openRun(),body=originalBody();
+    const descriptor=await store.putBody(run.runId,body.sha256,body.blob,{mime:"image/png",unknownFuture:{source:"first",enabled:false}});
+    assert.equal(descriptor.archivePath,"files/"+body.sha256);assert.equal(descriptor.size,body.blob.size);
+    assert.equal(descriptor.blob,undefined);assert.equal(descriptor.courseId,COURSE);assert.equal(descriptor.runId,run.runId);
+    const existing=structuredClone(fake.rows("bodies")[0]),firstWrites=fake.metrics.writes.filter(row=>row.store==="bodies").length;
+    const duplicate=await store.putBody(run.runId,body.sha256,new Blob([await body.blob.arrayBuffer()],{type:"application/octet-stream"}),
+      {mime:"application/octet-stream",unknownFuture:{source:"second"}});
+    assert.deepEqual(duplicate.metadata,{mime:"image/png",unknownFuture:{enabled:false,source:"first"}});
+    assert.equal(duplicate.mime,"image/png");assert.equal(duplicate.createdAt,existing.createdAt);
+    assert.deepEqual(fake.rows("bodies"),[existing]);assert.equal(fake.metrics.writes.filter(row=>row.store==="bodies").length,firstWrites);
+    const stored=await store.getBody(run.runId,body.sha256);
+    assert(stored.blob instanceof Blob);assert.deepEqual(Buffer.from(await stored.blob.arrayBuffer()),Buffer.from(await body.blob.arrayBuffer()));
+    stored.metadata.unknownFuture.source="caller changed";
+    assert.equal((await store.getBody(run.runId,body.sha256)).metadata.unknownFuture.source,"first");
+    store.close();
+  });
+});
+
+test("body descriptors scan cursors without collecting Blob values or whole-store arrays",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),run=await store.openRun();
+    for(let index=0;index<20;index++) {
+      const body=originalBody("body"+index);await store.putBody(run.runId,body.sha256,body.blob);
+    }
+    const readStart=fake.metrics.reads.length,descriptors=await store.listBodyDescriptors(run.runId),reads=fake.metrics.reads.slice(readStart);
+    assert.equal(descriptors.length,20);assert(descriptors.every(row=>!Object.hasOwn(row,"blob")));
+    assert(descriptors.every(row=>row.archivePath==="files/"+row.sha256));
+    assert(reads.some(row=>row.store==="bodies" && row.kind==="openCursor"));
+    assert(!reads.some(row=>row.store==="bodies" && /getAll/i.test(row.kind)));
+    assert.equal(JSON.stringify(descriptors).includes("base64"),false);store.close();
+  });
+});
+
+test("body keys, ownership, metadata and actual checksums fail closed without replacing retained originals",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),other=await storeFor(OTHER),run=await store.openRun(),foreign=await other.openRun(),body=originalBody(),wrong=originalBody("different");
+    await store.putBody(run.runId,body.sha256,body.blob,{mime:"image/png"});
+    const before=structuredClone(fake.rows("bodies"));
+    await assert.rejects(store.putBody(run.runId,body.sha256,wrong.blob),/SHA-256/);
+    for(const metadata of [{courseId:OTHER},{runId:foreign.runId},{sha256:wrong.sha256},{size:999},{archivePath:"files/foreign"},
+      {mime:"text/html\r\nBad"},{oversized:"x".repeat(17000)}])
+      await assert.rejects(store.putBody(run.runId,body.sha256,body.blob,metadata),/course|run|key|MIME|limit/i);
+    for(const hash of ["short",body.sha256.toUpperCase(),"../"+body.sha256]) {
+      await assert.rejects(store.putBody(run.runId,hash,body.blob),/SHA-256/);
+      await assert.rejects(store.getBody(run.runId,hash),/SHA-256/);
+    }
+    for(const blob of [null,{size:body.blob.size,arrayBuffer:()=>body.blob.arrayBuffer()},new Blob([]),new Blob([new Uint8Array(16*1024*1024+1)])])
+      await assert.rejects(store.putBody(run.runId,body.sha256,blob),/Blob/);
+    await assert.rejects(other.putBody(run.runId,body.sha256,body.blob),/course|run/i);
+    assert.equal(await other.getBody(run.runId,body.sha256),null);assert.deepEqual(await other.listBodyDescriptors(run.runId),[]);
+    assert.equal(await store.getBody(foreign.runId,body.sha256),null);assert.deepEqual(fake.rows("bodies"),before);
+    store.close();other.close();
+  });
+});
+
+test("corrupted stored body bytes cannot be reused, replaced or exported under an old hash",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),run=await store.openRun(),body=originalBody("first");
+    await store.putBody(run.runId,body.sha256,body.blob);
+    const row=fake.rows("bodies")[0];row.blob=new Blob(["other"],{type:"image/png"});
+    await assert.rejects(store.getBody(run.runId,body.sha256),/SHA-256/);
+    await assert.rejects(store.putBody(run.runId,body.sha256,body.blob),/SHA-256/);
+    assert.equal(Buffer.from(await fake.rows("bodies")[0].blob.arrayBuffer()).toString(),"other");store.close();
+  });
+});
+
+test("body writes acknowledge durable commit and preserve prior originals on quota or commit failures",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),run=await store.openRun(),first=originalBody("first"),second=originalBody("second"),third=originalBody("third");
+    await store.putBody(run.runId,first.sha256,first.blob);
+    fake.control.holdWrites=true;let settled=false;
+    const writing=store.putBody(run.runId,second.sha256,second.blob).then(value=>{settled=true;return value;});
+    for(let attempt=0;attempt<100 && !fake.control.held.length;attempt++) await new Promise(resolve=>setImmediate(resolve));
+    assert(fake.control.held.length);assert.equal(settled,false);assert.equal(fake.rows("bodies").length,1);
+    fake.flushWrites();await writing;assert.equal(fake.rows("bodies").length,2);
+    fake.control.failNextPutFor="bodies";
+    await assert.rejects(store.putBody(run.runId,third.sha256,third.blob),/QuotaExceeded/);
+    assert.equal(fake.rows("bodies").length,2);assert((await store.getBody(run.runId,first.sha256)).blob instanceof Blob);
+    fake.control.abortNextCommitFor="bodies";
+    await assert.rejects(store.putBody(run.runId,third.sha256,third.blob),/commit failure|failed|aborted/i);
+    assert.equal(fake.rows("bodies").length,2);store.close();
+  });
+});
+
+test("body expiry and pruning stay bound to the owning course and retain live unrelated originals",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),other=await storeFor(OTHER),expired=await store.openRun(),foreign=await other.openRun(),body=originalBody();
+    await store.putBody(expired.runId,body.sha256,body.blob);await other.putBody(foreign.runId,body.sha256,body.blob);
+    ageRow(fake.rows("runs").find(row=>row.runId===expired.runId),WEEK+1000);
+    assert.equal(await store.getBody(expired.runId,body.sha256),null);assert.deepEqual(await store.listBodyDescriptors(expired.runId),[]);
+    await assert.rejects(store.putBody(expired.runId,body.sha256,body.blob),/expired|not found/i);
+    await store.openRun();
+    assert.equal(fake.rows("bodies").some(row=>row.runId===expired.runId),false);
+    assert.equal(fake.rows("runs").some(row=>row.runId===expired.runId),false);
+    assert((await other.getBody(foreign.runId,body.sha256)).blob instanceof Blob);
+    assert.equal((await other.listBodyDescriptors(foreign.runId)).length,1);store.close();other.close();
+  });
+});
+
 async function assertNoForeignData(read) {
   try {
     const value = await read();
@@ -471,8 +612,9 @@ test("direct-data storage creates owned UUID runs without legacy database or loc
     assert(run.createdAt);
     assert(run.updatedAt);
     assert.deepEqual((await store.getActiveRun()).runId, run.runId);
-    assert.deepEqual(fake.metrics.opens, [{ name: DATABASE, version: 1 }]);
+    assert.deepEqual(fake.metrics.opens, [{ name: DATABASE, version: 2 }]);
     assert.deepEqual([...fake.stores.keys()].sort(), [
+      "bodies",
       "definitions",
       "groups",
       "items",
@@ -1133,6 +1275,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
     for (const buildId of [
       "v1.1.0-compressed-resumable-drafts-20261014",
       "v1.2.0-bound-reading-media-20261014",
+      "v1.3.0-deduplicated-original-archive-20261014",
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));
       assert.equal(
@@ -1324,13 +1467,15 @@ test("pruning caps raw-row deletion and retains run metadata until all owned evi
       await store.putDefinition(expired.runId, "definition-" + index, {
         synthetic: index,
       });
+    const archived=originalBody("expired archive original");
+    await store.putBody(expired.runId,archived.sha256,archived.blob);
     for (const name of ["runs", "definitions"])
       for (const row of fake.rows(name)) ageRow(row, WEEK + 10000);
     const fresh = await store.openRun();
     assert.equal(
       fake.rows("definitions").filter((row) => row.runId === expired.runId)
-        .length,
-      8,
+        .length + fake.rows("bodies").filter(row=>row.runId===expired.runId).length,
+      9,
       "one invocation deletes at most 512 raw rows",
     );
     assert.equal(
@@ -1347,6 +1492,7 @@ test("pruning caps raw-row deletion and retains run metadata until all owned evi
       fake.rows("runs").some((row) => row.runId === expired.runId),
       false,
     );
+    assert.equal(fake.rows("bodies").some(row=>row.runId===expired.runId),false);
     store.close();
   });
 });
@@ -1448,6 +1594,9 @@ test("unavailable storage reports an actionable error and every persistence oper
       () => store.listGroups(run, "item"),
       () => store.putDefinition(run, "definition", {}),
       () => store.getDefinition(run, "definition"),
+      () => store.putBody(run,"a".repeat(64),new Blob(["body"])),
+      () => store.getBody(run,"a".repeat(64)),
+      () => store.listBodyDescriptors(run),
     ]) {
       await assert.rejects(operation(), /storage disabled|unavailable/i);
     }

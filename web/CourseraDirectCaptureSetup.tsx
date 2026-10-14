@@ -40,7 +40,7 @@ export default function CourseraDirectCaptureSetup({
     try {
       await navigator.clipboard.writeText(delivery.address);
       setNotice(
-        "Bookmark address copied. Create a Chrome bookmark named CTI course capture and paste the whole address into its URL field. Save it once, then click it on Coursera’s Content page.",
+        "Bookmark address copied. Create or edit the Chrome bookmark named CTI course capture and paste the whole address into its URL field. Save it once, then click it on Coursera’s Content page.",
       );
     } catch {
       setNotice(
@@ -58,7 +58,8 @@ export default function CourseraDirectCaptureSetup({
       <p>
         CTI reads the course outline and supported content directly in your
         signed-in Coursera tab. It saves each item and question group locally,
-        then prepares one compressed JSON file. You can keep DevTools closed. No
+        then prepares one .cti.zip file containing the course data and downloaded
+        original files. You can keep DevTools closed. No
         extension, installation, or paid browser service is required.
       </p>
       <p className="hint">
@@ -70,11 +71,12 @@ export default function CourseraDirectCaptureSetup({
       </p>
       <ol className="local-extraction-steps">
         <li>
-          <strong>Save CTI course capture once.</strong>
+          <strong>Save or update CTI course capture once.</strong>
           <span>
             Show Chrome’s bookmarks bar with Command+Shift+B on Mac or
             Ctrl+Shift+B on Windows. Drag the link below onto it, or copy its
-            address into a new bookmark’s URL field.
+            address into a new bookmark’s URL field. For an earlier bookmark,
+            replace its URL with this version once.
           </span>
         </li>
         <li>
@@ -88,22 +90,23 @@ export default function CourseraDirectCaptureSetup({
         <li>
           <strong>Return the final capture to CTI.</strong>
           <span>
-            Select the .json.gz file directly in CTI; no unzipping is needed.
+            Select the .cti.zip file directly in CTI; no unzipping is needed.
+            Earlier JSON and .json.gz captures still open directly.
             The progress card offers Download saved capture if Chrome blocks the
             download. Check the file below before using it in Compare. If
             capture is interrupted, reopen the same course’s Content page and
             click the same bookmark. CTI checks current sources before reusing
-            matching saved reads. The same bookmark can also resume a finished
-            capture to add newly supported images and attachments.
+            matching saved reads. A finished capture with missing media can
+            continue its file downloads without collecting its saved questions
+            again.
           </span>
         </li>
       </ol>
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
-        resuming. If you saved an earlier bookmark, replace its URL with this
-        version once. It can recover the earlier capture that reached the
-        export-size limit or finished with missing media, and rechecks its saved
-        sources before continuing.
+        resuming. This version can continue a saved v1.2 capture that reached its
+        media limit or finished with missing media. It rechecks the current course
+        sources and preserves earlier assessment observations and their dates.
       </p>
       <div className="action-links">
         {!disabled && delivery.address && (

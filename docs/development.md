@@ -86,8 +86,8 @@ including during `npm run dev`.
 
 The normal zero-cost path executes the current extractor in the operator's
 already authenticated Chrome tab. The generated program keeps its item
-checkpoints in that browser and downloads the raw JSON locally. CTI independently
-evaluates the returned capture with the same strict completion contract before
+checkpoints in that browser and downloads one capture archive locally. CTI
+independently evaluates the returned capture with the same strict completion contract before
 it can be labelled COMPLETE.
 
 The primary workflow saves the universal **CTI course capture** bookmark once.
@@ -106,7 +106,10 @@ read check source stability. Bound source IDs permit retaining original referenc
 image and attachment bodies in the same capture. Exact `assets.v1` metadata is
 checked again after downloading supported original bytes; the importer checks
 their IDs, receipts, MIME, signature, length and SHA-256 independently. Media
-uses two download slots, a 16 MiB per-file bound and 64 MiB cumulative bound.
+uses two download slots, a 16 MiB per-file bound and a 512 MiB cumulative
+download bound. Failed or repeated body reads remain charged to the saved
+run's wire budget. The archive separately permits up to 512 MiB of unique
+original files; duplicate SHA-256 bodies occupy one entry.
 Completed captures with gaps can continue media acquisition while preserving
 assessment observations and their original timestamps; this scoped continuation
 does not reread question definitions or present them as newly observed.
@@ -116,11 +119,22 @@ and incremental IndexedDB transactions replace repeated editor traversal.
 The dedicated `cti-coursera-direct-data-v1` database isolates runs and courses
 from legacy checkpoints. Resuming revalidates current sources before reusing
 matching versioned definitions. Unchanged saved groups need one current read,
-while changed groups receive two current reads. Export serializes one item at a
-time with a 128 MiB expanded bound, then streams lossless gzip to one final
-local .json.gz file with a 128 MiB compressed bound. CTI expands the file within
-the same bounds before validation and records its compressed transport hash
-separately from the original JSON hash. Interrupted v1.0.0 export-limit runs
+while changed groups receive two current reads. Version 1.3 exports one
+`.cti.zip` containing a losslessly compressed `capture.json.gz` manifest and
+original binary bodies under `files/<sha256>`. The manifest retains source
+models, file references and receipts without embedding binary bodies as base64.
+It is serialized one item at a time, with a 128 MiB expanded manifest bound and
+a 128 MiB compressed manifest bound. The final archive has a 640 MiB artifact
+bound. ZIP assembly streams checksums and retains original Blobs without
+joining all files into another course-sized byte array.
+
+The importer accepts `.cti.zip`, JSON and `.json.gz` directly. It validates ZIP
+paths, entry ownership, lengths, checksums and body SHA-256 values before
+attaching the original bytes to the manifest's exact references. It expands
+the manifest within the existing 128 MiB bound and records archive/gzip transport
+identity separately from the original JSON hash. Existing comparisons and
+original-content supplements keep their manifest hash as report identity.
+Interrupted v1.0.0 export-limit runs
 can resume without clearing their cumulative budgets or definition caches.
 Progress and imported summaries separate current-attempt time and requests from
 cumulative budgets, and distinguish assessment, reading and structural coverage.
@@ -142,7 +156,7 @@ Browser Run and durable Workflows are Worker capabilities. It is intended only
 for deployments that provision sufficient remote-browser quota; it is not a
 requirement for the Pages application or shared workspace.
 
-The primary local workflow uses Chrome's built-in Protocol monitor to register
+The legacy local workflow uses Chrome's built-in Protocol monitor to register
 `Page.addScriptToEvaluateOnNewDocument`. The canonical entry owns durable run
 metadata, IndexedDB checkpoints and automatic reloads. Intermediate documents
 skip JSON serialization/download; the final capture uses item-by-item Blob

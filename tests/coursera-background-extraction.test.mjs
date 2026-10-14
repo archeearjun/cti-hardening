@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
+import { attachCourseraArchiveFileBytes } from "../src/domain/coursera-capture-file.ts";
 import {
   evaluateCourseraCapture,
   parseCourseraShellUrl,
@@ -664,6 +665,56 @@ test("direct importer independently verifies retained media bytes and exact boun
       mode + ": " + result.reasons.join(", "),
     );
   }
+});
+
+test("archive manifests require original byte hydration through worker transport and cannot verify after JSON-only persistence", () => {
+  const capture = directNativeImageCapture(),
+    body = capture.fingerprints[0].payload.directAssetEvidence.assets[0].body,
+    bytes = new Uint8Array(Buffer.from(body.base64, "base64")),
+    original = {
+      path: "files/" + body.sha256,
+      sha256: body.sha256,
+      size: body.size,
+      bytes,
+    };
+  body.archivePath = original.path;
+  body.receipt.bodyFormat = "ORIGINAL_BINARY_BYTES_ARCHIVE";
+  delete body.base64;
+  assert.equal(
+    evaluateCourseraCapture(capture, directCourseId).complete,
+    false,
+    "File descriptors and hashes alone cannot verify binary content.",
+  );
+  attachCourseraArchiveFileBytes(capture, [original]);
+  assert.equal(evaluateCourseraCapture(capture, directCourseId).complete, true);
+  assert.equal(
+    Object.getOwnPropertyDescriptor(body, "bytes").enumerable,
+    false,
+  );
+  const cloned = structuredClone({ capture, archiveFiles: [original] });
+  assert.equal(
+    evaluateCourseraCapture(cloned.capture, directCourseId).complete,
+    false,
+    "A worker must explicitly resolve the transmitted file inventory.",
+  );
+  attachCourseraArchiveFileBytes(cloned.capture, cloned.archiveFiles);
+  assert.equal(
+    evaluateCourseraCapture(cloned.capture, directCourseId).complete,
+    true,
+  );
+  const metadataOnly = JSON.parse(JSON.stringify(capture));
+  assert.equal(
+    evaluateCourseraCapture(metadataOnly, directCourseId).complete,
+    false,
+    "JSON-only history does not claim to retain or reverify original binary files.",
+  );
+  assert.throws(
+    () =>
+      attachCourseraArchiveFileBytes(metadataOnly, [
+        { ...original, bytes: new Uint8Array(bytes.length) },
+      ]),
+    /checksum/,
+  );
 });
 
 test("empty structural completion requires a bound material receipt and an explicitly empty known structure", () => {

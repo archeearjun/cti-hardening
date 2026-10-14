@@ -265,7 +265,10 @@ export function directMediaEvidenceStructureV1(media, references) {
       body.canonicalUrl !== initial.canonicalUrl ||
       canonicalDirectAssetUrlV1(body.canonicalUrl) !== initial.canonicalUrl ||
       receipt?.status !== 200 ||
-      receipt.bodyFormat !== "ORIGINAL_BINARY_BYTES_BASE64" ||
+      (body.archivePath !== undefined
+        ? receipt.bodyFormat !== "ORIGINAL_BINARY_BYTES_ARCHIVE" ||
+          body.archivePath !== "files/" + body.sha256
+        : receipt.bodyFormat !== "ORIGINAL_BINARY_BYTES_BASE64") ||
       receipt.bytes !== body.size ||
       receipt.mime !== body.mime ||
       receipt.canonicalUrl !== initial.canonicalUrl ||

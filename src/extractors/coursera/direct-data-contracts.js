@@ -307,7 +307,8 @@ export async function directReadingPayloadV1(fp, bound, source) {
     return {
       url: binding?.canonicalUrl || reference.url,
       assetId: reference.id,
-      name: reference.name || binding?.name || "",
+      name: binding?.name || reference.name || "",
+      referenceName: reference.name || "",
       tag: reference.tag,
       evidenceSource: mediaVerified
         ? "bound-native-cml-asset-body"

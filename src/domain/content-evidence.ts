@@ -1,6 +1,10 @@
 import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
 import { supportedMathText } from "./supported-math-text.ts";
-import { capturedTime, validateTimeEstimate, type TimeEstimate } from "./owner-time.ts";
+import {
+  capturedTime,
+  validateTimeEstimate,
+  type TimeEstimate,
+} from "./owner-time.ts";
 import { choiceLabel, ctiAnswerText } from "./cti-answer-check.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import {
@@ -449,8 +453,14 @@ function parse(bytes?: Uint8Array): Obj {
 export function buildContentSnapshot(
   courseraBytes?: Uint8Array,
   brightspaceBytes?: Uint8Array,
+  parsedCourseraCapture?: unknown,
 ): ContentSnapshot {
-  const raw = parse(courseraBytes),
+  // The comparison's trusted byte adapter can reuse its parsed model, including
+  // separately verified archive originals, without decoding the large JSON again.
+  const raw =
+      parsedCourseraCapture === undefined
+        ? parse(courseraBytes)
+        : contentObject(parsedCourseraCapture),
     bs = parse(brightspaceBytes);
   const fingerprints = array(raw.fingerprints),
     topics = qaBrightspaceFlattenTopics_(array(bs.contentTree));

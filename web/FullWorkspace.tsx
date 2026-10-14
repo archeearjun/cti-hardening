@@ -48,6 +48,7 @@ import type {
   WorkflowJob,
 } from "../src/domain/workspace-types";
 import type { PackageScan } from "../src/domain/package-types";
+import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
 
 const steps = [
   ["sourceRescanned", "Original IMSCC rescanned"],
@@ -1486,21 +1487,22 @@ export default function FullWorkspace({
                 />
                 <FileField
                   label="Coursera full capture JSON"
-                  accept=".json,.json.gz,application/json,application/gzip"
+                  accept={COURSERA_CAPTURE_FILE_ACCEPT}
                   file={capture}
                   onChange={setCapture}
                 />
               </div>
               <p className="hint">
                 Use files from the selected course and the same capture stage.
-                Without a Coursera JSON capture, content evidence will be
-                limited. Compressed .json.gz captures open directly in CTI.
+                Without a Coursera capture, content evidence will be limited.
+                Select .cti.zip, JSON or .json.gz directly; CTI reads the archive
+                and its original files without manual unzipping.
               </p>
               {capture && (
                 <p className="hint" data-testid="selected-coursera-capture">
                   Selected Coursera capture: <strong>{capture.name}</strong>.
                   The saved report is anchored to the extractor build embedded
-                  in this exact JSON; the current available extractor is shown
+                  in this exact capture; the current available extractor is shown
                   separately and never rewrites historical evidence.
                 </p>
               )}

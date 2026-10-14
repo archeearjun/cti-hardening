@@ -189,13 +189,43 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
       mime: string | null;
       hashPresent: boolean;
       retainedBodyPresent: boolean;
+      bodyBytesPresent: boolean;
+      retainedBodyBytesPresent: boolean;
     }[];
   }[] = [];
   let mediaItemCount = 0,
     assetCount = 0,
     reportedAssets = 0,
     bodyCount = 0,
-    bodyBytes = 0;
+    bodyBytes = 0,
+    bodyBytesPresentCount = 0,
+    retainedBodyBytesPresentCount = 0;
+  const originalBytesPresent = (body: any): boolean => {
+    const size = number(body?.size);
+    if (size === null || size < 1 || size > 16 * 1024 * 1024) return false;
+    if (
+      typeof body.base64 === "string" &&
+      body.base64.length > 0 &&
+      body.base64.length % 4 === 0
+    ) {
+      const padding = body.base64.endsWith("==")
+        ? 2
+        : body.base64.endsWith("=")
+          ? 1
+          : 0;
+      return (body.base64.length / 4) * 3 - padding === size;
+    }
+    const bytes = Object.getOwnPropertyDescriptor(body, "bytes");
+    return Boolean(
+      typeof body.archivePath === "string" &&
+        body.archivePath === "files/" + body.sha256 &&
+        bytes &&
+        "value" in bytes &&
+        bytes.enumerable === false &&
+        bytes.value instanceof Uint8Array &&
+        bytes.value.byteLength === size,
+    );
+  };
   for (const item of fingerprints) {
     const payload = item?.payload || {},
       contract = item?.captureContract || payload.captureContract || {};
@@ -243,6 +273,12 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
         bodyCount++;
         bodyBytes += size;
       }
+      const bodyBytesPresent = originalBytesPresent(body),
+        retainedBodyBytesPresent = originalBytesPresent(
+          asset?.retainedEvidence?.body,
+        );
+      if (bodyBytesPresent) bodyBytesPresentCount++;
+      if (retainedBodyBytesPresent) retainedBodyBytesPresentCount++;
       if (mediaItems.length >= 500 || reportedAssets >= 2000) continue;
       reportedAssets++;
       assets.push({
@@ -264,6 +300,8 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
           typeof body?.sha256 === "string" &&
           /^[a-f0-9]{64}$/.test(body.sha256),
         retainedBodyPresent: !!asset?.retainedEvidence?.body,
+        bodyBytesPresent,
+        retainedBodyBytesPresent,
       });
     }
     if (mediaItems.length < 500)
@@ -305,7 +343,9 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
         direct.mediaEnrichment?.retainedAssessmentObservations,
       ),
       exportTransport: {
-        format: ["JSON", "GZIP_JSON"].includes(direct.exportTransport?.format)
+        format: ["JSON", "GZIP_JSON", "ZIP_GZIP_JSON_V1"].includes(
+          direct.exportTransport?.format,
+        )
           ? direct.exportTransport.format
           : null,
         uncompressedLimitBytes: number(
@@ -313,6 +353,16 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
         ),
         compressedLimitBytes: number(
           direct.exportTransport?.compressedLimitBytes,
+        ),
+        originalFilesLimitBytes: number(
+          direct.exportTransport?.originalFilesLimitBytes,
+        ),
+        archiveLimitBytes: number(direct.exportTransport?.archiveLimitBytes),
+        uniqueOriginalFiles: number(
+          direct.exportTransport?.uniqueOriginalFiles,
+        ),
+        uniqueOriginalBytes: number(
+          direct.exportTransport?.uniqueOriginalBytes,
         ),
       },
     },
@@ -340,6 +390,8 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
       assetCount,
       bodyCount,
       bodyBytes,
+      bodyBytesPresentCount,
+      retainedBodyBytesPresentCount,
       reportedAssets,
       detailTruncated:
         mediaItemCount > mediaItems.length || assetCount > reportedAssets,

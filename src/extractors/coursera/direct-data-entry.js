@@ -3,9 +3,13 @@ import {
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
   CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
+  CTI_DIRECT_DATA_MEDIA_BYTES_V1,
+  CTI_DIRECT_DATA_ARCHIVE_BYTES_V1,
   CTI_DIRECT_DATA_MAX_PARTS_V1,
 } from "./direct-data-config.js";
-import { createDirectDataMediaReaderV1 } from "./direct-data-media.js";
+import { createDirectDataMediaReaderV1, decodeDirectAssetBodyV1,
+  directAssetMetadataBindingV1 } from "./direct-data-media.js";
+import { createDirectDataArchiveV1 } from "./direct-data-archive.js";
 import {
   directDataCoverageSummaryV1,
   directDataAttemptMetricsV1,
@@ -366,6 +370,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       for (const fp of items) {
         const row = await store.getItem(state.runId, fp.id);
         if (!row?.fingerprint || row.fingerprint.id !== fp.id) continue;
+        // Upgrade legacy embedded originals one item at a time. Existing
+        // capture timestamps, source receipts and verdicts remain unchanged.
+        const migrated = await archiveItemBodies(row.fingerprint);
+        if (migrated) await store.putItem(state.runId, fp.id, row.fingerprint, row.state);
         const size = encoder.encode(JSON.stringify(row.fingerprint)).byteLength;
         summarizeItem(row.fingerprint, row.state?.processed === true, size);
       }
@@ -373,7 +381,65 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         "Saved progress loaded. Current drafts and question references are checked before reuse.",
       );
     }
+    function itemBodies(fp) {
+      const bodies = [];
+      for (const asset of fp.payload?.directAssetEvidence?.assets || []) {
+        if (asset.body) bodies.push(asset.body);
+        if (asset.retainedEvidence?.body) bodies.push(asset.retainedEvidence.body);
+      }
+      return bodies;
+    }
+    async function hydrateItemBodies(fp) {
+      for (const body of itemBodies(fp)) {
+        if (!body.archivePath || body.bytes instanceof Uint8Array) continue;
+        if (body.archivePath !== "files/" + body.sha256)
+          throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
+        const stored = await store.getBody(state.runId, body.sha256);
+        if (!stored?.blob || stored.size !== body.size)
+          throw Error("DIRECT_ARCHIVE_BODY_UNAVAILABLE");
+        const bytes = new Uint8Array(await stored.blob.arrayBuffer());
+        Object.defineProperty(body, "bytes", {value: bytes, configurable: true});
+      }
+    }
+    async function archiveItemBodies(fp, temporaryBodies = null) {
+      let changed = false;
+      for (const body of itemBodies(fp)) {
+        if (body.archivePath && typeof body.base64 !== "string" &&
+            !(body.bytes instanceof Uint8Array)) continue;
+        const bytes = decodeDirectAssetBodyV1(body);
+        if (!bytes) throw Error("DIRECT_ARCHIVE_BODY_INVALID");
+        const blob = new Blob([bytes], {type: body.mime});
+        if (temporaryBodies) {
+          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+          if ([...digest].map(byte => byte.toString(16).padStart(2, "0")).join("") !== body.sha256)
+            throw Error("DIRECT_ARCHIVE_BODY_HASH_INVALID");
+          temporaryBodies.set("files/" + body.sha256, blob);
+        } else await store.putBody(state.runId, body.sha256, blob, {mime: body.mime});
+        body.archivePath = "files/" + body.sha256;
+        if (body.receipt?.bodyFormat === "ORIGINAL_BINARY_BYTES_BASE64") {
+          body.receipt = {...body.receipt,
+            originalBodyFormat: body.receipt.bodyFormat,
+            bodyFormat: "ORIGINAL_BINARY_BYTES_ARCHIVE"};
+        }
+        delete body.base64;
+        // The byte view is for the current item's verification only; it is
+        // never serialized or cloned into the metadata checkpoint.
+        if (Object.prototype.hasOwnProperty.call(body, "bytes")) delete body.bytes;
+        changed = true;
+      }
+      for (const detail of fp.payload?.assetDetails || []) {
+        const asset = fp.payload.directAssetEvidence?.assets?.find(value => value.assetId === detail.assetId),
+          binding = asset && directAssetMetadataBindingV1(asset.metadata, detail.assetId);
+        if (detail.bodyVerified === true && binding?.name && detail.name !== binding.name) {
+          detail.referenceName = detail.referenceName || detail.name || "";
+          detail.name = binding.name;
+          changed = true;
+        }
+      }
+      return changed;
+    }
     async function persist(fp, processed) {
+      await archiveItemBodies(fp);
       const json = JSON.stringify(fp),
         size = encoder.encode(json).byteLength;
       const total =
@@ -686,26 +752,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       if (!ids.length) return;
       if (!mediaReader)
         mediaReader = createDirectDataMediaReaderV1({
+          archiveMode: true,
           apiReader: reader,
           assertCurrent: assertContext,
           limits: {
-            totalBytes: Math.max(
-              0,
-              Math.min(
-                64 * 1024 * 1024 - mediaBase.bytes,
-                Math.floor(
-                  ((CTI_DIRECT_DATA_EXPORT_BYTES_V1 -
-                    metadataReserveBytes -
-                    [...retainedSizes.values()].reduce(
-                      (sum, value) => sum + value,
-                      0,
-                    ) -
-                    2 * 1024 * 1024) *
-                    3) /
-                    4,
-                ),
-              ),
-            ),
+            totalBytes: Math.max(0, CTI_DIRECT_DATA_MEDIA_BYTES_V1 - mediaBase.bytes),
             durationMs: Math.max(
               1,
               remainingLimits().durationMs -
@@ -724,7 +775,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const retainedAsset = retained?.assets.find(
             (asset) => asset.assetId === id,
           ),
-          asset = await mediaReader.capture(id, retainedAsset);
+          retainedBytes = assets.reduce((sum, asset) => sum + (asset.body?.size || 0), 0),
+          // Bound the originals held for one reading independently of the
+          // course archive. Remaining source references remain explicit gaps.
+          asset = retainedBytes >= 64 * 1024 * 1024
+            ? {assetId: id, reason: "DIRECT_READING_MEDIA_BYTE_LIMIT"}
+            : await mediaReader.capture(id, retainedAsset, {bodyBytes: 64 * 1024 * 1024 - retainedBytes});
         // Failed current metadata never certifies a historical body. Keep
         // the original proof separately so a later bound read can retry its
         // metadata without losing or downloading the same bytes again.
@@ -762,6 +818,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         previousRow.fingerprint.atomId === fp.atomId
           ? previousRow.fingerprint
           : null;
+      if (previous) await hydrateItemBodies(previous);
       state.phase = "Reading item data";
       render(fp.name);
       const [atomRead, relationRead] = await Promise.all([
@@ -954,7 +1011,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         captureMeta = meta;
       const output = [],
         summaries = [],
-        unvisited = [];
+        unvisited = [],
+        bodyPaths = new Map(),
+        temporaryBodies = new Map();
       let itemBytes = 0;
       // One item is loaded/serialized at a time into bounded Blob parts. There
       // is no stringify+parse clone of the full retained question bank.
@@ -965,6 +1024,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             payload: {},
             captureContract: undefined,
           };
+        // A quota/write failure must not prevent exporting older embedded
+        // originals that are still readable. Migrate those only in this
+        // download snapshot, without requiring another storage transaction.
+        await archiveItemBodies(fp, temporaryBodies);
         if (!row?.state?.processed) {
           unvisited.push(fp.id);
           if (!fp.captureContract)
@@ -973,6 +1036,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ]);
         }
         summaries.push({ id: fp.id, type: fp.type, ...fp.captureContract });
+        for (const body of itemBodies(fp)) {
+          if (body.archivePath !== "files/" + body.sha256 ||
+              !Number.isSafeInteger(body.size) || body.size < 1 ||
+              body.size > 16 * 1024 * 1024)
+            throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
+          const previousSize = bodyPaths.get(body.archivePath);
+          if (previousSize !== undefined && previousSize !== body.size)
+            throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
+          bodyPaths.set(body.archivePath, body.size);
+        }
         // Each item becomes an immutable byte-backed Blob before the next
         // IDB read. Never retain the full file as UTF-16 JSON strings.
         const part = new Blob([JSON.stringify(fp)], {
@@ -1004,19 +1077,23 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             : "ACQUISITION_PAUSED");
       captureMeta.directDataCapture.stats =
         captureMeta.directDataCapture.stats || budgetSnapshot();
-      const compressed = typeof CompressionStream === "function";
+      if (typeof CompressionStream !== "function")
+        throw Error("DIRECT_ARCHIVE_COMPRESSION_UNAVAILABLE");
       captureMeta.directDataCapture.exportTransport = {
-        format: compressed ? "GZIP_JSON" : "JSON",
+        format: "ZIP_GZIP_JSON_V1",
         uncompressedLimitBytes: CTI_DIRECT_DATA_EXPORT_BYTES_V1,
         compressedLimitBytes: CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
+        originalFilesLimitBytes: CTI_DIRECT_DATA_MEDIA_BYTES_V1,
+        archiveLimitBytes: CTI_DIRECT_DATA_ARCHIVE_BYTES_V1,
+        uniqueOriginalFiles: bodyPaths.size,
+        uniqueOriginalBytes: [...bodyPaths.values()].reduce((sum, size) => sum + size, 0),
       };
       captureMeta.exportFileName =
         "CTI__COURSERA__COURSE_" +
         courseId +
         "__" +
         new Date().toISOString().replace(/[:.]/g, "-") +
-        "__direct-v1__ITEM_FINGERPRINT.json" +
-        (compressed ? ".gz" : "");
+        "__direct-v1__ITEM_FINGERPRINT.cti.zip";
       const prefix =
         JSON.stringify({
           schemaVersion: 35,
@@ -1046,7 +1123,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         meta: captureMeta,
         inventoryCount: captureItems.length,
       };
-      return blob;
+      return {blob, bodyPaths, temporaryBodies};
     }
     async function download() {
       if (exporting || state.running) return;
@@ -1055,9 +1132,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       state.exportError = "";
       render();
       try {
-        let blob = await prepareResult();
-        await saveRun(state.state, true);
-        if (meta.directDataCapture.exportTransport.format === "GZIP_JSON") {
+        const prepared = await prepareResult();
+        let blob = prepared.blob;
+        await saveRun(state.state, true).catch(() => {
+          state.exportError = "Capture prepared from readable checkpoints; saving the export status failed.";
+        });
+        if (meta.directDataCapture.exportTransport.format === "ZIP_GZIP_JSON_V1") {
           const stream = blob
               .stream()
               .pipeThrough(new CompressionStream("gzip")),
@@ -1078,6 +1158,20 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           }
           blob = new Blob(pieces, { type: "application/gzip" });
         }
+        const entries = [{path: "capture.json.gz", blob}];
+        for (const [path, size] of prepared.bodyPaths) {
+          const temporary = prepared.temporaryBodies.get(path);
+          if (temporary) {
+            if (temporary.size !== size) throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
+            entries.push({path, blob: temporary});
+            continue;
+          }
+          const original = await store.getBody(state.runId, path.slice(6));
+          if (!original?.blob || original.size !== size)
+            throw Error("DIRECT_ARCHIVE_BODY_UNAVAILABLE");
+          entries.push({path, blob: original.blob});
+        }
+        blob = await createDirectDataArchiveV1(entries);
         const url = URL.createObjectURL(blob),
           anchor = document.createElement("a");
         anchor.href = url;
@@ -1151,6 +1245,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             CTI_DIRECT_DATA_BUILD_V1,
             "v1.0.0-bound-authoring-drafts-20261014",
             "v1.1.0-compressed-resumable-drafts-20261014",
+            "v1.2.0-bound-reading-media-20261014",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1327,7 +1422,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           ...budgetLimits,
           exportBytes: CTI_DIRECT_DATA_EXPORT_BYTES_V1,
           partsPerAssessment: CTI_DIRECT_DATA_MAX_PARTS_V1,
-          mediaBytes: 64 * 1024 * 1024,
+          mediaBytes: CTI_DIRECT_DATA_MEDIA_BYTES_V1,
           mediaBodyBytes: 16 * 1024 * 1024,
         };
         metadataReserveBytes =
@@ -1415,7 +1510,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           state.counts.complete +
             "/" +
             items.length +
-            " verified. The final JSON retains published snapshots and every unresolved source.",
+            " verified. One capture file retains original media, published snapshots and every unresolved source.",
         );
       } catch (error) {
         fatalReason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")

@@ -16,6 +16,10 @@ import { importLegacyWorkspace } from "../src/domain/legacy-import.ts";
 import { prepareWorkspaceBackup } from "../src/domain/workspace-validation.ts";
 import { comparisonFixture, encode, masterRows } from "./workflow-fixtures.mjs";
 import { gzipSync } from "node:zlib";
+import { gunzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
+import { create_runPostIngestionQaCore_ } from "../src/engine/comparison/course.js";
+import JSZip from "jszip";
 import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-file.ts";
 const require = createRequire(import.meta.url),
   c = require("../tools/check.cjs");
@@ -65,6 +69,295 @@ test("compressed Coursera transport keeps original JSON provenance and a separat
   assert.deepEqual(output.result.itemResults, plainOutput.result.itemResults);
   assert.deepEqual(output.contentEvidence, plainOutput.contentEvidence);
 });
+
+test("large expanded capture bytes reach Compare without a full Base64 copy or changing evidence decisions", () => {
+  const input = comparisonFixture(),
+    baseline = workflows.compare(input);
+  const raw = JSON.parse(new TextDecoder().decode(input.json.bytes));
+  raw.retainedUnknownModel = { originalPadding: "x".repeat(27 * 1024 * 1024) };
+  input.json.bytes = encode(raw);
+  assert(Math.ceil(input.json.bytes.byteLength / 3) * 4 > 35000000);
+  const nativeEncode = globalThis.btoa,
+    nativeDecode = globalThis.atob;
+  try {
+    globalThis.btoa = (text) => {
+      assert(
+        text.length < 1024 * 1024,
+        "The selected large JSON must not become a Base64 copy",
+      );
+      return nativeEncode(text);
+    };
+    globalThis.atob = (text) => {
+      assert(
+        text.length < 1024 * 1024,
+        "The selected large JSON must not become a decoded Base64 number array",
+      );
+      return nativeDecode(text);
+    };
+    const result = workflows.compare(input);
+    assert.deepEqual(result.result, baseline.result);
+    assert.deepEqual(result.contentEvidence, baseline.contentEvidence);
+    assert.equal(
+      result.hashes.json,
+      createHash("sha256").update(input.json.bytes).digest("hex"),
+    );
+  } finally {
+    globalThis.btoa = nativeEncode;
+    globalThis.atob = nativeDecode;
+  }
+});
+
+test("expanded comparison bytes are bounded before package loading, while legacy Base64 retains its bound", () => {
+  const run = create_runPostIngestionQaCore_(createBrowserServices());
+  let loads = 0;
+  const io = {
+    loadPackage() {
+      loads++;
+      throw Error("Unexpected package load");
+    },
+  };
+  const input = comparisonFixture();
+  const argumentsFor = (json) => [
+    "AA==",
+    "course.xlsx",
+    json,
+    "course.json",
+    input.course.id,
+    "raw",
+    false,
+    {},
+    "",
+    "",
+    "",
+    "",
+    io,
+  ];
+  for (const bytes of [
+    new Uint8Array(0),
+    new Uint8Array(128 * 1024 * 1024 + 1),
+  ]) {
+    const result = run(...argumentsFor(bytes));
+    assert.equal(result.success, false);
+    assert.match(result.error, /128 MiB expanded capture limit/);
+  }
+  const legacy = run(...argumentsFor("A".repeat(35000001)));
+  assert.equal(legacy.success, false);
+  assert.match(legacy.error, /25 MB QA safety limit/);
+  assert.equal(loads, 0);
+});
+
+test("archive originals cross the comparison bridge explicitly, retain compact proofs, and reject tampering", async () => {
+  const input = comparisonFixture();
+  const original = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const sha256 = createHash("sha256").update(original).digest("hex"),
+    path = "files/" + sha256;
+  const capture = JSON.parse(new TextDecoder().decode(input.json.bytes));
+  capture.meta.directDataCapture = {
+    exportTransport: { format: "ZIP_GZIP_JSON_V1" },
+  };
+  capture.fingerprints[0].payload.directAssetEvidence = {
+    assets: [
+      {
+        assetId: "ABCDEFGHIJKLMNOPQRSTUV",
+        body: {
+          archivePath: path,
+          sha256,
+          size: original.length,
+          mime: "image/png",
+        },
+      },
+    ],
+  };
+  const zip = new JSZip();
+  zip.file("capture.json.gz", gzipSync(encode(capture)), {
+    createFolders: false,
+  });
+  zip.file(path, original, { createFolders: false });
+  const archive = new File(
+    [await zip.generateAsync({ type: "uint8array", compression: "STORE" })],
+    "course.cti.zip",
+  );
+  const decoded = await readCourseraCaptureFileBytes(archive);
+  input.json = { name: archive.name, ...decoded };
+  const output = workflows.compare(input);
+  assert.equal(output.result.success, true);
+  assert.equal(output.captureTransport.json.encoding, "zip");
+  assert.equal(output.captureTransport.json.originalBodyBytes, original.length);
+  assert.equal(output.archiveProof.metadataSha256, output.hashes.json);
+  assert.equal(output.archiveProof.archiveSha256, decoded.transport.sha256);
+  assert.equal(output.archiveProof.originalBytesStored, false);
+  assert.deepEqual(output.captureTransport.json.files, [
+    { path, sha256, size: original.length },
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(output)).archiveProof,
+    output.archiveProof,
+  );
+  assert.equal(output.archiveProof.files[0].size, original.length);
+  assert.equal(
+    output.hashes.json,
+    createHash("sha256").update(decoded.bytes).digest("hex"),
+  );
+  assert.equal(
+    JSON.stringify(output).includes('"archiveFiles"'),
+    false,
+    "Saved comparison is not a binary archive copy",
+  );
+  assert.equal(JSON.stringify(output).includes('"base64"'), false);
+  const corrupted = {
+    ...input.json.archiveFiles[0],
+    bytes: Uint8Array.from(original),
+  };
+  corrupted.bytes[corrupted.bytes.length - 1] ^= 1;
+  assert.throws(
+    () =>
+      workflows.compare({
+        ...input,
+        json: { ...input.json, archiveFiles: [corrupted] },
+      }),
+    /failed checksum/,
+  );
+  assert.throws(
+    () =>
+      workflows.compare({
+        ...input,
+        json: { ...input.json, archiveFiles: [] },
+      }),
+    /referenced original file is absent|differs from its body receipt/i,
+  );
+  assert.throws(
+    () =>
+      workflows.compare({
+        ...input,
+        json: {
+          ...input.json,
+          transport: {
+            ...decoded.transport,
+            files: [{ path, sha256, size: original.length + 1 }],
+          },
+        },
+      }),
+    /transport file inventory contradicts/,
+  );
+  assert.throws(
+    () =>
+      workflows.compare({
+        ...input,
+        json: { ...input.json, transport: undefined },
+      }),
+    /verified ZIP identity/,
+  );
+});
+
+const largeCaptureFixture = process.env.CTI_COURSERA_LARGE_COMPARE_FIXTURE;
+test(
+  "private large gzip capture reaches the full comparison with all retained questions and original JSON identity",
+  { skip: !largeCaptureFixture },
+  async () => {
+    const physical = fs.readFileSync(largeCaptureFixture);
+    const expanded =
+      physical[0] === 0x1f && physical[1] === 0x8b
+        ? gunzipSync(physical)
+        : physical;
+    assert(
+      Math.ceil(expanded.byteLength / 3) * 4 > 35000000,
+      "The real fixture must exercise the former Compare limit",
+    );
+    const capture = JSON.parse(expanded),
+      input = comparisonFixture();
+    const types = {
+      Reading: "Reading",
+      Assignment: "Graded Assignment",
+      Widget: "Ungraded Plugin",
+      Plugin: "Ungraded Plugin",
+      Discussion: "Discussion Prompt",
+    };
+    const rows = capture.fingerprints
+      .filter((item) => types[item.type])
+      .map((item) => [
+        types[item.type],
+        item.name,
+        "",
+        "",
+        "",
+        "",
+        "",
+        item.id,
+      ]);
+    input.excel = {
+      name: "matching-structural-inventory.xlsx",
+      bytes: writeWorkbook({
+        name: "matching",
+        sheets: { "FOR IMPORT": { values: rows } },
+      }),
+    };
+    const decoded = await readCourseraCaptureFileBytes(
+      new File(
+        [physical],
+        largeCaptureFixture.endsWith(".gz") ? "actual.json.gz" : "actual.json",
+      ),
+    );
+    input.json = { name: "actual.json.gz", ...decoded };
+    const nativeEncode = globalThis.btoa;
+    let output;
+    try {
+      globalThis.btoa = (text) => {
+        assert(
+          text.length < 1024 * 1024,
+          "Real expanded JSON must not be Base64 encoded",
+        );
+        return nativeEncode(text);
+      };
+      output = workflows.compare(input);
+    } finally {
+      globalThis.btoa = nativeEncode;
+    }
+    assert.equal(output.result.success, true);
+    assert.equal(output.result.inputCoherence.status, "PASS");
+    assert.equal(
+      output.hashes.json,
+      createHash("sha256").update(expanded).digest("hex"),
+    );
+    assert.equal(
+      output.captureTransport.json.sha256,
+      createHash("sha256").update(physical).digest("hex"),
+    );
+    assert.equal(
+      output.contentEvidence.coursera.reduce(
+        (total, item) => total + item.content.questions.length,
+        0,
+      ),
+      capture.fingerprints.reduce(
+        (total, item) =>
+          total + (item.payload?.structuredAssessment?.questions?.length || 0),
+        0,
+      ),
+    );
+    assert.equal(
+      output.result.stats.extractorMeta.captureAccounting.complete,
+      capture.meta.captureAccounting.complete,
+      "Transport cannot change the capture's evidence gaps",
+    );
+    const savedBytes = new TextEncoder().encode(
+      JSON.stringify(output),
+    ).byteLength;
+    assert(
+      savedBytes < 32 * 1024 * 1024,
+      "The real comparison report must fit the shared record bound",
+    );
+    if (process.env.CTI_COMPARE_PRINT_SIZE === "1")
+      process.stderr.write(
+        JSON.stringify({
+          captureMetadataBytes: expanded.byteLength,
+          comparisonRecordBytes: savedBytes,
+          sharedRecordLimitBytes: 32 * 1024 * 1024,
+        }) + "\n",
+      );
+  },
+);
 test("XLSX remains structural authority; JSON mismatch is not silently accepted", () => {
   const input = comparisonFixture();
   const data = JSON.parse(new TextDecoder().decode(input.json.bytes));
@@ -292,76 +585,82 @@ test("legacy imports are idempotent and retain all original sheets and explicit 
   bad.sheets.Packages[1][12] = "TREE:missing";
   assert.throws(() => importLegacyWorkspace(bad), /Incomplete/);
 });
-test(
-  "full engine equals the pre-migration GAS result",
-  {},
-  () => {
-    const input = comparisonFixture(),
-      books = new Map(),
-      s = createBrowserServices();
-    const old = { console, URL, ...s, XmlService: workerXml };
-    vm.createContext(old);
-    vm.runInContext(
-      fs.readFileSync(process.env.CTI_PRE_MIGRATION_GS || new URL("../archive/apps-script/Code.gs", import.meta.url), "utf8"),
-      old,
-    );
-    old.authorize_ = () => {};
-    old.fetchPackageStructureDb = () => ({
-      success: true,
-      tree: input.course.data.scan.courseTree,
-      packageMeta: {
-        partner: input.course.data.partner,
-        owner: "Owner",
-        fileName: "Synthetic.imscc",
-      },
-    });
-    old.qaLoadGenerationEvidenceContext_ = () =>
-      workflows.generationContext([], input.course.id, 1);
-    old.qaExternalRuntimeEvidenceForPackage_ = () => ({
-      checked: false,
-      required: false,
-      source: "",
-      warning: "External runtime inventory has not been imported.",
-    });
-    old.ctiImportXlsxAsSheet_ = (blob, name) => {
-      const id = crypto.randomUUID();
-      books.set(id, readWorkbook(Uint8Array.from(blob.getBytes()), name));
-      return { id };
-    };
-    old.SpreadsheetApp = { openById: (id) => workbookAdapter(books.get(id)) };
-    old.DriveApp = {
-      getFileById: (id) => ({ setTrashed: () => books.delete(id) }),
-    };
-    const result = old.runPostIngestionQa(
-      Buffer.from(input.excel.bytes).toString("base64"),
-      input.excel.name,
-      Buffer.from(input.json.bytes).toString("base64"),
-      input.json.name,
-      input.course.id,
-      "raw",
-      false,
-      { generation: 1 },
-      "",
-      "",
-      "",
-      "",
-    );
-    const actual = plain(workflows.compare(input).result),
-      expected = plain(result);
-    delete actual.workspaceWarnings;
-    // This unchanged fixture must preserve every evidence decision. Explicitly
-    // assert the distinct release identities before comparing its behavior.
-    assert.equal(actual.engineBuildId, "v8.0.2-owner-time-evidence-20261005");
-    assert.equal(expected.engineBuildId, "v8.0.0-source-item-evidence-20260930");
-    delete actual.engineBuildId;
-    delete expected.engineBuildId;
-    // The available extractor release is separately tested deployment metadata.
-    if (actual.captureReadiness) delete actual.captureReadiness.expectedVersion;
-    if (expected.captureReadiness) delete expected.captureReadiness.expectedVersion;
-    // Owner display now retains the XLSX lesson, while the comparable module
-    // path and every matching/readiness decision remain identical.
-    assert.deepEqual(actual.ownerView.items.map(item => item.lesson), ["Lesson 1", "Lesson 1"]);
-    expected.ownerView.items.forEach(item => { item.lesson = "Lesson 1"; });
-    assert.deepEqual(actual, expected);
-  },
-);
+test("full engine equals the pre-migration GAS result", {}, () => {
+  const input = comparisonFixture(),
+    books = new Map(),
+    s = createBrowserServices();
+  const old = { console, URL, ...s, XmlService: workerXml };
+  vm.createContext(old);
+  vm.runInContext(
+    fs.readFileSync(
+      process.env.CTI_PRE_MIGRATION_GS ||
+        new URL("../archive/apps-script/Code.gs", import.meta.url),
+      "utf8",
+    ),
+    old,
+  );
+  old.authorize_ = () => {};
+  old.fetchPackageStructureDb = () => ({
+    success: true,
+    tree: input.course.data.scan.courseTree,
+    packageMeta: {
+      partner: input.course.data.partner,
+      owner: "Owner",
+      fileName: "Synthetic.imscc",
+    },
+  });
+  old.qaLoadGenerationEvidenceContext_ = () =>
+    workflows.generationContext([], input.course.id, 1);
+  old.qaExternalRuntimeEvidenceForPackage_ = () => ({
+    checked: false,
+    required: false,
+    source: "",
+    warning: "External runtime inventory has not been imported.",
+  });
+  old.ctiImportXlsxAsSheet_ = (blob, name) => {
+    const id = crypto.randomUUID();
+    books.set(id, readWorkbook(Uint8Array.from(blob.getBytes()), name));
+    return { id };
+  };
+  old.SpreadsheetApp = { openById: (id) => workbookAdapter(books.get(id)) };
+  old.DriveApp = {
+    getFileById: (id) => ({ setTrashed: () => books.delete(id) }),
+  };
+  const result = old.runPostIngestionQa(
+    Buffer.from(input.excel.bytes).toString("base64"),
+    input.excel.name,
+    Buffer.from(input.json.bytes).toString("base64"),
+    input.json.name,
+    input.course.id,
+    "raw",
+    false,
+    { generation: 1 },
+    "",
+    "",
+    "",
+    "",
+  );
+  const actual = plain(workflows.compare(input).result),
+    expected = plain(result);
+  delete actual.workspaceWarnings;
+  // This unchanged fixture must preserve every evidence decision. Explicitly
+  // assert the distinct release identities before comparing its behavior.
+  assert.equal(actual.engineBuildId, "v8.0.2-owner-time-evidence-20261005");
+  assert.equal(expected.engineBuildId, "v8.0.0-source-item-evidence-20260930");
+  delete actual.engineBuildId;
+  delete expected.engineBuildId;
+  // The available extractor release is separately tested deployment metadata.
+  if (actual.captureReadiness) delete actual.captureReadiness.expectedVersion;
+  if (expected.captureReadiness)
+    delete expected.captureReadiness.expectedVersion;
+  // Owner display now retains the XLSX lesson, while the comparable module
+  // path and every matching/readiness decision remain identical.
+  assert.deepEqual(
+    actual.ownerView.items.map((item) => item.lesson),
+    ["Lesson 1", "Lesson 1"],
+  );
+  expected.ownerView.items.forEach((item) => {
+    item.lesson = "Lesson 1";
+  });
+  assert.deepEqual(actual, expected);
+});

@@ -1,6 +1,57 @@
 # Automatic Coursera capture in local Chrome
 
-## Bookmark setup and the full-course data prerequisite
+## One bookmark click per course with the v1.3 archive
+
+The primary local workflow is **CTI course capture** in Extract. Save this
+bookmark once, or replace the URL of an earlier saved bookmark with the current
+address once. Open the course's authoring Content page in the usual signed-in
+Chrome profile and click the bookmark. Keep that tab open while the progress
+card runs. No extension, installation, paid browser or Console paste is needed
+for each course.
+
+The final download is one `.cti.zip`. Select it directly in Extract or Compare;
+manual unzipping is unnecessary. The archive contains a compressed
+`capture.json.gz` manifest and the original downloaded file bytes under
+`files/<sha256>`. The manifest retains exact source models, receipts and file
+references; binary files are not expanded into base64 in the manifest. CTI
+independently checks each original's ownership, length, MIME, signature and
+SHA-256 before it counts as verified media. Earlier JSON and `.json.gz` captures
+remain supported.
+
+If a run is interrupted, use the same Chrome profile, reopen the same course's
+Content page and click the bookmark. Saved progress stays in IndexedDB. The
+current bookmark can also continue a finished v1.2 capture with missing media:
+when its source identity still matches, CTI keeps the saved assessment evidence
+and original observation dates and reads the unresolved media. It does not
+reread the saved question definitions. A newer source version is not silently
+merged into an older verified capture.
+
+Media downloads use two slots, a 16 MiB bound per file and a 512 MiB cumulative
+wire budget per saved run. Failed and repeated downloads count toward that
+wire budget. The archive separately allows 512 MiB of unique original files,
+with duplicate SHA-256 bodies stored once. Its compressed manifest and expanded
+manifest are each bounded to 128 MiB, and the final artifact is bounded to
+640 MiB. Limits stop acquisition explicitly and preserve saved progress; they
+do not certify incomplete evidence.
+
+The reviewed v1.2 Technical Drawing capture reached its earlier 64 MiB media
+allowance after saving 17 original assets, with 38 identified asset reads still
+unresolved. The archive removes base64 expansion from the metadata and raises
+that cumulative allowance while preserving the spent budget on continuation.
+That course also contains 43 readings whose source has image placeholders with
+no asset ID or location, and six external widgets without their body. These
+remain source gaps; the archive does not infer their contents. Assessment
+coverage and referenced-media coverage are reported separately.
+
+The setup UI describes this format and the one-time bookmark update. Fixture
+checks establish archive transport, native bookmark delivery and strict media
+validation separately; they do not certify every authenticated course, external
+widget or work-browser policy.
+
+## Earlier diagnostic bookmark and the full-course data prerequisite
+
+The following course-data check is a retained diagnostic, separate from the
+primary full-course capture above.
 
 The operator has confirmed that saving a Chrome bookmark once is permitted.
 This allows a user-controlled execution entry into the signed-in Coursera page;

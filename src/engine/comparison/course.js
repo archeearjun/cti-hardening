@@ -36,11 +36,16 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
     if (!lineageMeta || typeof lineageMeta !== 'object') lineageMeta = {};
 
     try {
+        // Browser workflows already supply bounded UTF-8 capture bytes. Keep
+        // that input intact rather than expanding it to a second Base64 copy.
+        // The legacy Base64 entry remains compatible with its original bound.
+        var jsonBytes = jsonBase64 instanceof Uint8Array ? jsonBase64 : null;
         if (!excelBase64) return { success: false, error: "Coursera Excel export is required as the authoritative structural inventory. Fingerprint JSON is optional payload enrichment." };
         if (String(excelBase64).length > 35000000) return { success:false, error:"Coursera Excel export is larger than the 25 MB QA safety limit." };
         if (readingRecoveryBase64 && !jsonBase64)return {success:false,error:'Attach the original full Coursera JSON together with its reading recovery JSON.'};
         if (readingRecoveryBase64 && String(readingRecoveryBase64).length>35000000)return {success:false,error:'Reading recovery JSON exceeds the 25 MB limit.'};
-        if (jsonBase64 && String(jsonBase64).length > 35000000) return { success:false, error:"Coursera fingerprint JSON is larger than the 25 MB QA safety limit." };
+        if (jsonBytes && (!jsonBytes.byteLength || jsonBytes.byteLength > 128 * 1024 * 1024)) return { success:false, error:"Coursera fingerprint JSON must be non-empty and no larger than the 128 MiB expanded capture limit." };
+        if (jsonBase64 && !jsonBytes && String(jsonBase64).length > 35000000) return { success:false, error:"Coursera fingerprint JSON is larger than the 25 MB QA safety limit." };
         if (sourceLiveBase64 && String(sourceLiveBase64).length > 56000000) return { success:false, error:"Brightspace live-source JSON is larger than the 40 MB QA safety limit." };
         targetUuid = validateUuid_(targetUuid);
 
@@ -73,8 +78,16 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
         var inputCoherence = { status:'NOT_CHECKED', reason:'XLSX↔JSON coherence has not been evaluated.' };
 
         if (jsonBase64) {
-            var jsonStr = Utilities.newBlob(Utilities.base64Decode(jsonBase64)).getDataAsString();
-            var parsed = JSON.parse(jsonStr);
+            var parsed;
+            if (jsonBytes && typeof io.readCourseraCapture === 'function') {
+                // This per-workflow bridge parses the supplied bytes once and
+                // binds separately verified archive originals before evaluation.
+                parsed = io.readCourseraCapture(jsonBytes);
+            } else {
+                var jsonStr = Utilities.newBlob(jsonBytes || Utilities.base64Decode(jsonBase64)).getDataAsString();
+                parsed = JSON.parse(jsonStr);
+            }
+            var jsonInputSha256 = jsonBytes ? Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, jsonBytes).map(function(b) { return (b & 255).toString(16).padStart(2, '0'); }).join('') : qaSha256Base64_(jsonBase64);
             qaAssertNotDiagnosticCapture_(parsed);
             if(parsed.kind==='CTI_COURSERA_READING_RECOVERY')throw new Error('Select the original full capture as the fingerprint JSON and attach this file under Reading recovery JSON.');
             if(readingRecoveryBase64)parsed=qaApplyReadingRecovery_(parsed,JSON.parse(Utilities.newBlob(Utilities.base64Decode(readingRecoveryBase64)).getDataAsString()),readingRecoveryName);
@@ -286,7 +299,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
         // Author Alignment Report remembered from an earlier snapshot.
         var snapshotContext = qaResolveSnapshotContext_(snapshotMode, courseraItems, currentSnapshotIngestionIntelligence);
         snapshotContext = qaApplySnapshotStageGuard_(snapshotContext, generationContext, courseraItems, {
-            excelSha256:qaSha256Base64_(excelBase64),jsonSha256:qaSha256Base64_(jsonBase64),
+            excelSha256:qaSha256Base64_(excelBase64),jsonSha256:jsonInputSha256 || '',
             hasReadingRecovery:!!readingRecoveryBase64 || !!extractorMeta.supplementalReadingRecovery
         });
         var destinationReadiness = null;
@@ -634,8 +647,8 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             qaResult.persistence = io.persistRun(targetUuid, isRaw ? 'SINGLE_C0' : 'SINGLE_C1', qaResult, {
                 c0ExcelName:isRaw ? excelName : '', c0JsonName:isRaw ? jsonName : '',
                 c1ExcelName:isRaw ? '' : excelName, c1JsonName:isRaw ? '' : jsonName,
-                c0ExcelSha256:isRaw ? qaSha256Base64_(excelBase64) : '', c0JsonSha256:isRaw ? qaSha256Base64_(jsonBase64) : '',
-                c1ExcelSha256:isRaw ? '' : qaSha256Base64_(excelBase64), c1JsonSha256:isRaw ? '' : qaSha256Base64_(jsonBase64),
+                c0ExcelSha256:isRaw ? qaSha256Base64_(excelBase64) : '', c0JsonSha256:isRaw ? jsonInputSha256 || '' : '',
+                c1ExcelSha256:isRaw ? '' : qaSha256Base64_(excelBase64), c1JsonSha256:isRaw ? '' : jsonInputSha256 || '',
                 liveSourcePlatform:liveSourceGroundTruth ? 'BRIGHTSPACE' : '', liveSourceFile:sourceLiveName || '', liveSourceSha256:sourceLiveBase64 ? qaSha256Base64_(sourceLiveBase64) : '',
                 liveSourceCourseId:liveSourceGroundTruth && liveSourceGroundTruth.course ? String(liveSourceGroundTruth.course.orgUnitId || '') : '',
                 liveSourceSchema:liveSourceGroundTruth ? String(liveSourceGroundTruth.schemaVersion || '') : '', liveSourceExtractor:liveSourceGroundTruth ? String(liveSourceGroundTruth.extractor || '') : '', liveSourceBuild:liveSourceGroundTruth ? String(liveSourceGroundTruth.buildId || '') : '',

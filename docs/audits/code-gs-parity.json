@@ -2905,8 +2905,8 @@
       "status": "adapted",
       "path": "src/engine/comparison/course.js",
       "effectiveOverride": false,
-      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. See syllabus-readiness.test.mjs.",
-      "reviewedCurrentHash": "a486236cc92f5c8d6ddec674d628b34de5eff0d5b47a391578bd9ac7f5967520"
+      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits, structural authority and audit decisions. See syllabus-readiness.test.mjs and workflows.test.mjs.",
+      "reviewedCurrentHash": "5ceca2e581ff7441250d4a1b2831a1b0a827c7e1116867d129ee4a258b6f17ba"
     },
     {
       "name": "tokenJaccardSimilarity_",

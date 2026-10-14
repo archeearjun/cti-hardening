@@ -4,6 +4,7 @@ import {getCourseraManagedRuntime} from '../src/domain/coursera-managed-runtime.
 import {createCourseraAssessmentProbeScript} from '../src/domain/coursera-assessment-probe.ts';
 import {createCourseraResponseSampleScript} from '../src/domain/coursera-response-sample.ts';
 import { parseCourseraShellUrl } from "../src/domain/coursera-background-extraction.ts";
+import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
 import {
   inspectLocalCourseraCaptureFile,
   readLocalCourseraCaptureFile,
@@ -219,7 +220,7 @@ export default function LocalCourseraExtraction({
           <p>
             Save CTI’s bookmark once, then run it from any signed-in Coursera
             authoring Content page. It reads course data directly and prepares
-            one final JSON.
+            one final .cti.zip containing the course data and downloaded files.
           </p>
         </div>
         <span className="badge">No extension · no fees</span>
@@ -253,7 +254,7 @@ export default function LocalCourseraExtraction({
       </label>
       <p className="hint">
         The bookmark gets the course identity from Coursera. This optional URL
-        checks the downloaded JSON against the intended course before Compare.
+        checks the downloaded capture against the intended course before Compare.
         If left empty, CTI uses the course identity recorded in your file.
       </p>
       {!shellTarget && shellUrl.trim() && (
@@ -532,21 +533,21 @@ export default function LocalCourseraExtraction({
           <strong>
             {capture
               ? capture.name
-              : "Choose the Coursera JSON or .json.gz downloaded by the extractor"}
+              : "Choose the Coursera .cti.zip, JSON or .json.gz downloaded by the extractor"}
           </strong>
           <span id={captureInputId + "-help"}>
             {capture
               ? (capture.size / 1024 / 1024).toFixed(2) + " MiB"
               : shellTarget
                 ? "Inspection happens in this browser before the file enters Compare."
-                : "Choose your saved JSON. CTI can fill the authoring URL from its recorded course identity."}
+                : "Choose your saved capture. CTI can fill the authoring URL from its recorded course identity."}
           </span>
         </label>
         <input
           id={captureInputId}
           className="visually-hidden-file"
           type="file"
-          accept=".json,.json.gz,application/json,application/gzip"
+          accept={COURSERA_CAPTURE_FILE_ACCEPT}
           disabled={disabled || !!busy}
           aria-describedby={captureInputId + "-help"}
           onChange={(event) => {
@@ -819,7 +820,7 @@ export default function LocalCourseraExtraction({
             {courseMismatch && (
               <p className="hint" role="alert">
                 This capture belongs to a different Coursera course than the URL
-                above. Select the matching JSON before continuing.
+                above. Select the matching capture before continuing.
               </p>
             )}
           </div>

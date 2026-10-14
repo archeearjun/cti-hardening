@@ -9,6 +9,7 @@ import {chromium} from 'playwright';
 import {createHash} from 'node:crypto';
 import JSZip from 'jszip';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
+import {readCourseraCaptureFileJson} from '../src/domain/coursera-capture-file.ts';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -101,6 +102,24 @@ function makeMediaCourse(id,mode='media-success'){
     value:'<co-content><p>Original media bodies must be retained, including café 日本語.</p>'+references+'</co-content>'}};
   return config;
 }
+function makeLargeMediaCourse(id){
+  const config=makeCourse(id,'large-export');config.mode='media-success';config.assetGets=new Map();config.mediaIds=[];
+  let index=0;
+  for(const reading of atoms.values()){
+    if(reading.courseId!==id||Number(reading.itemId.slice(5))<2)continue;
+    const assetId=key('large'+configs.size+'_',index),name='original-large-'+index+'.png';
+    const padding=index+1;
+    const url=mediaOrigin+'/'+id+'/'+assetId+'/'+name+'?X-Amz-Signature='+secrets[3]+'&Expires=2000000000';
+    const asset={courseId:id,name,mime:'image/png',url,value:{id:assetId,name,typeName:'image',url:{url}}};
+    Object.defineProperty(asset,'body',{get:()=>Buffer.concat([pngBytes,Buffer.alloc(12*1024*1024-pngBytes.length,padding)])});
+    assets.set(assetId,asset);
+    config.mediaIds.push(assetId);
+    reading.atom.draft.content.definition.content={typeName:'cml',definition:{dtdId:'supplement/1',
+      value:'<co-content><p>Retain the original image '+index+'.</p><asset id="'+assetId+'"/></co-content>'}};
+    index++;
+  }
+  return config;
+}
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 const interrupted=makeCourse('Direct_resume_fixture_123','resume');
@@ -115,6 +134,8 @@ const largeExport=makeCourse('Direct_large_export_123','large-export');
 const mediaSuccess=makeMediaCourse('Direct_media_complete_123');
 const mediaEnrichment=makeMediaCourse('Direct_media_enrichment_123','media-legacy-gap');
 const mediaCheckpoint=makeMediaCourse('Direct_media_checkpoint_123','media-legacy-gap');
+const mediaLegacyV12=makeMediaCourse('Direct_media_v12_archive_123');
+const largeMedia=makeLargeMediaCourse('Direct_media_beyond64_123');
 const mediaFailures=['media-pointer-missing','media-metadata-404','media-metadata-auth','media-body-403','media-body-cors',
   'media-body-redirect','media-body-html','media-metadata-changed','media-body-limit'].map((mode,index)=>makeMediaCourse('Direct_media_gap_'+index+'_123',mode));
 const sixWidgets=makeCourse('Direct_widgets_six_123','large-export');
@@ -210,7 +231,7 @@ try{
   });
   if(process.env.CTI_DIRECT_BROWSER_PROGRESS==='1')heartbeat=setInterval(async()=>{
     for(const context of browser.contexts())for(const page of context.pages())try{
-      const progress=await page.evaluate(()=>{const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return state&&{state:state.state,phase:state.phase,counts:state.counts};});
+      const progress=await page.evaluate(()=>{const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return state&&{courseId:state.courseId,state:state.state,phase:state.phase,counts:state.counts,exporting:state.exporting,exportError:state.exportError};});
       if(progress)console.error('Synthetic fixture progress: '+JSON.stringify(progress));
     }catch{ /* A closed synthetic page has no remaining state to report. */ }
   },10000);
@@ -281,12 +302,15 @@ try{
   }
   async function readFile(download){
     const bytes=fs.readFileSync(await download.path());
-    const compressed=download.suggestedFilename().endsWith('.json.gz');
-    assert(bytes.byteLength<=128*1024*1024,'The final file must fit its compressed or plain byte limit');
-    const jsonBytes=compressed?gunzipSync(bytes,{maxOutputLength:128*1024*1024}):bytes;
+    assert(download.suggestedFilename().endsWith('.zip'),'One ZIP carries the compressed native manifest and original files');
+    assert(bytes.byteLength<=640*1024*1024,'The final archive must fit its 640 MiB hard byte limit');
+    const zip=await JSZip.loadAsync(bytes,{checkCRC32:true});
+    assert(zip.file('capture.json.gz'));
+    const jsonBytes=gunzipSync(await zip.file('capture.json.gz').async('nodebuffer'),{maxOutputLength:128*1024*1024});
     assert(jsonBytes.byteLength<=128*1024*1024,'Expanded JSON must stay within the 128 MiB processing limit');
-    const capture=JSON.parse(jsonBytes.toString('utf8'));
-    fileSizes.set(capture,{compressed,fileBytes:bytes.byteLength,jsonBytes:jsonBytes.byteLength});
+    assert(!jsonBytes.toString('utf8').includes('"base64"'),'Original binary bodies are stored once as ZIP files, outside metadata');
+    const capture=await readCourseraCaptureFileJson(new File([bytes],download.suggestedFilename(),{type:'application/zip'}));
+    fileSizes.set(capture,{compressed:true,archive:true,fileBytes:bytes.byteLength,jsonBytes:jsonBytes.byteLength});
     return capture;
   }
   function assertTransport(config,start){
@@ -316,7 +340,10 @@ try{
     const downloading=target.page.waitForEvent('download',{timeout:180000});void downloading.catch(()=>{});
     const start=requests.length;await launch(target.page,target.context);const state=await terminal(target.page);
     assert(state.counts.total>0,'No fixture inventory was established: '+JSON.stringify({state,requests:requests.slice(start).map(request=>({resource:request.resource,reference:request.reference}))}));
-    const capture=await readFile(await downloading);await target.page.waitForTimeout(50);assert.equal(downloads.length,1);
+    const download=await Promise.race([downloading,target.page.waitForFunction(()=>{
+      const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return state?.exportError&&state.exporting===false;
+    },{},{timeout:180000}).then(async()=>{throw Error('Native archive export failed: '+await target.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.exportError));})]);
+    const capture=await readFile(download);await target.page.waitForTimeout(50);assert.equal(downloads.length,1);
     assertTransport(config,start);await assertNoEditor(target.page,target.destinations);
     for(const secret of secrets)assert(!JSON.stringify(capture).includes(secret),'Credential markers must not enter final JSON');
     return {...target,state,capture,start,downloads};
@@ -354,7 +381,7 @@ try{
   await success.context.close();
 
   const scaled=await runFileCase(largeExport),scaledSize=fileSizes.get(scaled.capture);
-  assert.equal(scaled.state.state,'COMPLETE');assert.equal(scaledSize.compressed,true,'Chrome should download one gzip file');
+  assert.equal(scaled.state.state,'COMPLETE');assert.equal(scaledSize.archive,true,'Chrome should download one ZIP with a gzip manifest');
   assert(scaledSize.jsonBytes>32*1024*1024,'The complete retained raw capture must exceed the old plain-JSON cutoff');
   assert(scaledSize.fileBytes<=32*1024*1024,'Lossless compression keeps the one-file download within the transfer limit');
   assert.equal(scaled.capture.fingerprints.length,9);assert(scaled.capture.fingerprints.every(fp=>fp.captureContract.complete===true));
@@ -370,7 +397,7 @@ try{
   await resumed.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
   const paused=await terminal(resumed.page);assert.equal(paused.state,'PAUSED');assert.equal(partialDownloads.length,0,'Operator stop saves checkpoints without an automatic partial file');
   const saved=await resumed.page.evaluate(async()=>{
-    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
     const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['definitions','groups','runs'],'readonly'),out={};
       for(const name of ['definitions','groups','runs']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result;};}
       transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});database.close();
@@ -397,7 +424,7 @@ try{
   await recovering.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
   const recoveryPaused=await terminal(recovering.page);assert.equal(recoveryPaused.state,'PAUSED');assert.equal(recoveryDownloads.length,0);
   const legacy=await recovering.page.evaluate(async()=>{
-    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
     const saved=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','groups','definitions'],'readwrite'),out={};
       const runs=transaction.objectStore('runs'),request=runs.getAll();request.onsuccess=()=>{
         const row=request.result.at(-1);row.state='INCOMPLETE';row.reason='DIRECT_CAPTURE_EXPORT_BYTE_LIMIT';
@@ -451,7 +478,7 @@ try{
     const result=new Map();
     const visit=value=>{
       if(!value||typeof value!=='object')return;
-      if(typeof value.assetId==='string'&&typeof value.body?.base64==='string')result.set(value.assetId,value);
+      if(typeof value.assetId==='string'&&value.body?.archivePath&&value.body.bytes instanceof Uint8Array)result.set(value.assetId,value);
       for(const child of Object.values(value))if(child&&typeof child==='object')visit(child);
     };
     visit(capture);return result;
@@ -460,11 +487,11 @@ try{
     const retained=retainedMediaBodies(capture),reading=capture.fingerprints.find(fp=>fp.id==='item_0002');
     assert.equal(reading.captureContract.complete,true,'Source-bound reading media is verified only after original bytes are retained');
     for(const assetId of config.mediaIds){
-      const original=assets.get(assetId),evidence=retained.get(assetId);
+      const original=assets.get(assetId),originalBytes=original.body,evidence=retained.get(assetId);
       assert(evidence,'The final JSON must retain each original image and attachment body');
-      assert.deepEqual(Buffer.from(evidence.body.base64,'base64'),original.body,'No thumbnail, converted copy or prefix replaces the original bytes');
-      const digest=createHash('sha256').update(original.body).digest('hex');
-      assert.equal(evidence.body.sha256,digest);assert.equal(evidence.body.size,original.body.byteLength);
+      assert.deepEqual(Buffer.from(evidence.body.bytes),originalBytes,'No thumbnail, converted copy or prefix replaces the original bytes');
+      const digest=createHash('sha256').update(originalBytes).digest('hex');
+      assert.equal(evidence.body.sha256,digest);assert.equal(evidence.body.size,originalBytes.byteLength);
       assert.equal(evidence.body.mime,original.mime);assert.equal(evidence.body.receipt.status,200);
       assert.equal(evidence.metadata.elements[0].id,assetId);assert.equal(evidence.metadataReceipt.id,assetId);
       assert.equal(evidence.metadataReceipt.resource,'assets.v1');assert.equal(evidence.metadataReceipt.requestPath,'/api/assets.v1');
@@ -473,6 +500,9 @@ try{
       assert.equal(evidence.stability.receipt.status,200);
       assert.equal(evidence.stability.receipt.resource,'assets.v1');assert.equal(evidence.stability.receipt.id,assetId);
       assert.equal(evidence.body.canonicalUrl,original.url.split('?')[0]);
+      const owner=capture.fingerprints.find(fp=>fp.payload.directAssetEvidence?.assets?.some(asset=>asset.assetId===assetId));
+      assert.equal(owner.payload.assetDetails.find(detail=>detail.assetId===assetId).name,original.name,
+        'Original file types remain identifiable by the native filename rather than a CML display label');
       assert.equal(config.assetGets.get(assetId),2,'Initial and fresh metadata bind and certify each body location');
     }
     const verdict=evaluateCourseraCapture(capture,config.id);assert.equal(verdict.complete,true,JSON.stringify(verdict.reasons));
@@ -480,6 +510,60 @@ try{
   }
   const boundMedia=await runFileCase(mediaSuccess);assert.equal(boundMedia.state.state,'COMPLETE');
   assertOriginalMedia(mediaSuccess,boundMedia.capture);await boundMedia.context.close();
+
+  const largeOriginals=await runFileCase(largeMedia);
+  assert.equal(largeOriginals.state.state,'COMPLETE');assertOriginalMedia(largeMedia,largeOriginals.capture);
+  const largeOriginalSize=fileSizes.get(largeOriginals.capture);
+  assert(largeOriginalSize.fileBytes>64*1024*1024,'One ZIP preserves more original binary bytes than the old course-wide 64 MiB cutoff');
+  assert(largeOriginals.capture.meta.directDataCapture.stats.media.bytes>=72*1024*1024);
+  assert.equal(largeOriginals.capture.meta.directDataCapture.stats.media.limits.totalBytes,512*1024*1024);
+  await largeOriginals.context.close();
+
+  const legacyV12=await runFileCase(mediaLegacyV12),legacyV12Bodies=retainedMediaBodies(legacyV12.capture);
+  const legacySaved=await legacyV12.page.evaluate(async()=>{
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items','bodies'],'readonly'),out={};
+      for(const name of ['runs','items','bodies']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result;};}
+      transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);
+    });
+    const encoded=new Map();
+    for(const row of rows.bodies){const bytes=new Uint8Array(await row.blob.arrayBuffer());let text='';for(const byte of bytes)text+=String.fromCharCode(byte);encoded.set(row.sha256,btoa(text));}
+    const run=rows.runs.at(-1);run.state='INCOMPLETE';run.reason='ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS';
+    run.buildId='v1.2.0-bound-reading-media-20261014';run.captureMeta.buildId=run.buildId;
+    run.captureMeta.extractor='CTI Direct Course Capture v1.2.0';run.budget.media.bytes=64*1024*1024;
+    Object.assign(run.captureMeta.directDataCapture,{acquisitionComplete:true,wholeCourseVerified:false,sourceStable:true,stopReason:run.reason});
+    for(const row of rows.items){
+      if(row.fingerprint?.id!=='item_0002')continue;
+      const fingerprint=row.fingerprint;
+      fingerprint.captureContract={...fingerprint.captureContract,complete:false,status:'UNRESOLVED_DIRECT_READING',reasons:['DIRECT_MEDIA_BYTE_LIMIT']};
+      fingerprint.payload.captureContract={...fingerprint.captureContract};
+      for(const asset of fingerprint.payload.directAssetEvidence.assets){
+        asset.body.base64=encoded.get(asset.body.sha256);delete asset.body.archivePath;
+        asset.body.receipt.bodyFormat='ORIGINAL_BINARY_BYTES_BASE64';delete asset.body.receipt.originalBodyFormat;
+      }
+    }
+    await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items','bodies'],'readwrite');
+      transaction.objectStore('runs').put(run);for(const row of rows.items)transaction.objectStore('items').put(row);transaction.objectStore('bodies').clear();
+      transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);
+    });database.close();return{runId:run.runId,apiRequests:run.budget.requests};
+  });
+  mediaLegacyV12.assetGets.clear();await legacyV12.page.reload();const legacyV12Start=requests.length;
+  const legacyDownloading=legacyV12.page.waitForEvent('download',{timeout:180000});void legacyDownloading.catch(()=>{});
+  await launch(legacyV12.page,legacyV12.context);const legacyFinal=await terminal(legacyV12.page),legacyCapture=await readFile(await legacyDownloading);
+  assert.equal(legacyFinal.runId,legacySaved.runId);assert.equal(legacyFinal.state,'COMPLETE');
+  assertOriginalMedia(mediaLegacyV12,legacyCapture);
+  assert.equal(legacyCapture.meta.directDataCapture.stats.media.bytes,64*1024*1024,'The old 64 MiB wire budget remains charged');
+  assert(legacyCapture.meta.directDataCapture.stats.requests>=legacySaved.apiRequests);
+  assert(!requests.slice(legacyV12Start).some(request=>[groupResource,definitionResource].includes(request.resource)),
+    'Migrating a completed v1.2 capture into one ZIP does not recapture assessment questions');
+  const migratedBodies=retainedMediaBodies(legacyCapture);
+  for(const assetId of mediaLegacyV12.mediaIds){
+    assert.equal(migratedBodies.get(assetId).body.receipt.observedAt,legacyV12Bodies.get(assetId).body.receipt.observedAt);
+    assert.equal(migratedBodies.get(assetId).body.receipt.originalBodyFormat,'ORIGINAL_BINARY_BYTES_BASE64');
+    assert.equal(mediaRequests.filter(request=>request.courseId===mediaLegacyV12.id&&request.assetId===assetId).length,1,
+      'Old retained originals migrate once rather than downloading again after the 64 MiB cutoff');
+  }
+  assert.equal(legacyV12.downloads.length,2);await legacyV12.context.close();
 
   const enriching=await runFileCase(mediaEnrichment);assert.equal(enriching.state.state,'INCOMPLETE');
   assert.equal(enriching.state.counts.processed,4,'The previous run acquired the complete inventory before encountering asset gaps');
@@ -489,7 +573,7 @@ try{
   }));
   assert.equal(preservedAssessments.length,2);
   const enrichmentLegacy=await enriching.page.evaluate(async()=>{
-    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
     const saved=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items'],'readwrite'),out={};
       const runs=transaction.objectStore('runs'),request=runs.getAll();request.onsuccess=()=>{
         const row=request.result.at(-1);row.state='INCOMPLETE';row.reason='ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS';
@@ -553,7 +637,7 @@ try{
   for(const assetId of mediaCheckpoint.mediaIds){
     const evidence=savedBodies.get(assetId),original=assets.get(assetId);
     assert(evidence?.body,'A final atom failure must preserve a successfully retained original media body');
-    assert.deepEqual(Buffer.from(evidence.body.base64,'base64'),original.body);
+    assert.deepEqual(Buffer.from(evidence.body.bytes),original.body);
     assert.equal(evidence.stability.stable,true,'The prior asset metadata consistency proof is retained separately from atom stability');
     assert.equal(evidence.metadata.elements[0].id,assetId);
   }
@@ -616,6 +700,7 @@ try{
     unchangedGroupsNeedOneFreshResumeRead:true,maximumRequestsInFlight:4,
     cumulativeResumeBudget:true,completeCaptureBeyondOld32MiBCutoff:true,losslessGzipWithin128MiB:true,expandedJsonWithin128MiB:true,
     originalPngPdfAndPptxBodies:true,exactAssetMetadataAndFreshStabilityReads:true,completedV110MediaEnrichmentSameRun:true,
+    completeOriginalsBeyondOld64MiBCutoff:true,completedV12OriginalsMigratedIntoOneZip:true,
     interruptedMediaBodiesAndNativeDraftPreserved:true,resumedUnchangedBodiesNotDownloadedAgain:true,
     enrichmentNeverRereadsVerifiedAssessmentDefinitions:true,sixExternalWidgetsRemainUnverified:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,

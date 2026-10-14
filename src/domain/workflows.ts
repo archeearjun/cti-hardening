@@ -9,6 +9,8 @@ import {
 } from "../adapters/workbook.ts";
 import { buildPostQaText_ } from "../reporting/owner-report.js";
 import { buildOwnerContext, buildOwnerTasks } from "./owner-actions.ts";
+import { attachCourseraArchiveFileBytes } from "./coursera-capture-file.ts";
+import { buildCourseraArchiveProof } from "./coursera-archive-proof.ts";
 import type {
   ComparisonInput,
   ComparisonOutput,
@@ -169,6 +171,9 @@ export function createWorkflows(xmlService: unknown) {
       persistRun() {
         throw new Error("Save reports through the workspace after comparison.");
       },
+      readCourseraCapture(_bytes: Uint8Array): EvidenceObject {
+        throw new Error("Coursera capture was not supplied.");
+      },
     };
   }
   const base64 = (bytes?: Uint8Array) =>
@@ -191,6 +196,20 @@ export function createWorkflows(xmlService: unknown) {
         "Ingestion generation must be a whole number from 0 (original import) through 99.",
       );
     const io = ioFor();
+    let parsedCourseraCapture: EvidenceObject | undefined;
+    if (input.json) {
+      io.readCourseraCapture = (bytes) => {
+        if (bytes !== input.json?.bytes)
+          throw Error(
+            "Comparison capture bytes do not match the selected input.",
+          );
+        parsedCourseraCapture = attachCourseraArchiveFileBytes(
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+          input.json.archiveFiles || [],
+        ) as EvidenceObject;
+        return parsedCourseraCapture;
+      };
+    }
     const course = input.course.data;
     io.loadPackage = () => ({
       success: true,
@@ -210,7 +229,7 @@ export function createWorkflows(xmlService: unknown) {
     const result = engine.runPostIngestionQaCore_(
       base64(input.excel.bytes),
       input.excel.name,
-      base64(input.json?.bytes),
+      input.json?.bytes || "",
       input.json?.name || "",
       input.course.id,
       input.mode,
@@ -226,6 +245,15 @@ export function createWorkflows(xmlService: unknown) {
       io,
     );
     if (!result.success) throw new Error(result.error || "Comparison failed.");
+    const jsonSha256 = hash(input.json?.bytes);
+    const archiveProof = input.json
+      ? buildCourseraArchiveProof(
+          jsonSha256,
+          input.json.bytes.byteLength,
+          input.json.transport,
+          input.json.archiveFiles || [],
+        )
+      : undefined;
     const warnings = [];
     if (!course.externalRuntimeEvidence)
       warnings.push(
@@ -240,6 +268,7 @@ export function createWorkflows(xmlService: unknown) {
       contentEvidence: buildContentSnapshot(
         input.json?.bytes,
         input.brightspace?.bytes,
+        parsedCourseraCapture,
       ),
       ownerContext: buildOwnerContext(
         input.brightspace?.bytes,
@@ -253,13 +282,31 @@ export function createWorkflows(xmlService: unknown) {
         buildPostQaText_(result),
       hashes: {
         excel: hash(input.excel.bytes),
-        json: hash(input.json?.bytes),
+        json: jsonSha256,
         brightspace: hash(input.brightspace?.bytes),
         recovery: hash(input.recovery?.bytes),
       },
       ...(input.json?.transport
-        ? { captureTransport: { json: structuredClone(input.json.transport) } }
+        ? {
+            captureTransport: {
+              json: {
+                encoding: input.json.transport.encoding,
+                name: input.json.transport.name,
+                bytes: input.json.transport.bytes,
+                sha256: input.json.transport.sha256,
+                expandedBytes: input.json.transport.expandedBytes,
+                ...(archiveProof
+                  ? {
+                      originalBodyBytes: archiveProof.originalBodyBytes,
+                      fileCount: archiveProof.fileCount,
+                      files: archiveProof.files,
+                    }
+                  : {}),
+              },
+            },
+          }
         : {}),
+      ...(archiveProof ? { archiveProof } : {}),
       generation: input.generation,
       ingestionCapabilityStatus: input.ingestionCapabilityStatus || "UNKNOWN",
       packageId: input.course.id,

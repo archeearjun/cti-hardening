@@ -1,21 +1,32 @@
 /** File transport limits are separate from capture fidelity. A gzip download
  * expands to the original JSON bytes before any identity or completion check. */
+import {
+  readCourseraCaptureArchive,
+  attachCourseraArchiveFileBytes,
+  type CourseraArchiveFile,
+} from "./coursera-capture-archive.ts";
+export { attachCourseraArchiveFileBytes } from "./coursera-capture-archive.ts";
+export type { CourseraArchiveFile } from "./coursera-capture-archive.ts";
 export const MAX_COURSERA_CAPTURE_JSON_BYTES = 128 * 1024 * 1024;
 export const MAX_COURSERA_COMPRESSED_CAPTURE_BYTES = 128 * 1024 * 1024;
 export const COURSERA_CAPTURE_FILE_ACCEPT =
-  ".json,.json.gz,application/json,application/gzip";
+  ".json,.json.gz,.zip,application/json,application/gzip,application/zip";
 
 export interface CourseraCaptureTransport {
-  encoding: "gzip";
+  encoding: "gzip" | "zip";
   name: string;
   bytes: number;
   sha256: string;
   expandedBytes: number;
+  originalBodyBytes?: number;
+  fileCount?: number;
+  files?: { path: string; sha256: string; size: number }[];
 }
 
 export interface CourseraCaptureFileBytes {
   bytes: Uint8Array;
   transport?: CourseraCaptureTransport;
+  archiveFiles?: CourseraArchiveFile[];
 }
 
 export function isCompressedCourseraCaptureFile(name: string): boolean {
@@ -24,7 +35,12 @@ export function isCompressedCourseraCaptureFile(name: string): boolean {
 
 export async function readCourseraCaptureFileBytes(
   file: File,
-  limits: { compressedBytes?: number; expandedBytes?: number } = {},
+  limits: {
+    compressedBytes?: number;
+    expandedBytes?: number;
+    archiveBytes?: number;
+    originalBytes?: number;
+  } = {},
 ): Promise<CourseraCaptureFileBytes> {
   const reducedLimit = (value: number | undefined, maximum: number) =>
     value === undefined
@@ -44,6 +60,46 @@ export async function readCourseraCaptureFileBytes(
   );
   if (!Number.isSafeInteger(file.size) || file.size < 1)
     throw Error("The selected capture file is empty or has an invalid size.");
+  if (/\.zip$/i.test(file.name)) {
+    const archived = await readCourseraCaptureArchive(
+      file,
+      async (source) => {
+        const expanded = await readCourseraCaptureFileBytes(
+          new File([source as BlobPart], "capture.json.gz", {
+            type: "application/gzip",
+          }),
+          {
+            compressedBytes: compressedLimit,
+            expandedBytes: expandedLimit,
+          },
+        );
+        return expanded.bytes;
+      },
+      {
+        archiveBytes: limits.archiveBytes,
+        originalBytes: limits.originalBytes,
+        metadataBytes: expandedLimit,
+      },
+    );
+    return {
+      bytes: archived.bytes,
+      archiveFiles: archived.archiveFiles,
+      transport: {
+        encoding: "zip",
+        name: file.name,
+        bytes: file.size,
+        sha256: archived.archiveSha256,
+        expandedBytes: archived.bytes.length,
+        originalBodyBytes: archived.originalBodyBytes,
+        fileCount: archived.archiveFiles.length,
+        files: archived.archiveFiles.map(({ path, sha256, size }) => ({
+          path,
+          sha256,
+          size,
+        })),
+      },
+    };
+  }
   const compressed = isCompressedCourseraCaptureFile(file.name);
   if (file.size > (compressed ? compressedLimit : expandedLimit))
     throw Error(
@@ -122,10 +178,16 @@ export async function readCourseraCaptureFileBytes(
 export async function readCourseraCaptureFileJson(
   file: File,
 ): Promise<unknown> {
-  const { bytes } = await readCourseraCaptureFileBytes(file);
+  const { bytes, archiveFiles } = await readCourseraCaptureFileBytes(file);
+  let capture: unknown;
   try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    capture = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
   } catch {
     throw Error("The selected Coursera capture is not valid UTF-8 JSON.");
   }
+  return archiveFiles
+    ? attachCourseraArchiveFileBytes(capture, archiveFiles)
+    : capture;
 }
