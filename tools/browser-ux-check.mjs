@@ -488,6 +488,7 @@ try {
     "Saved JSON can fill the matching authoring URL",
   );
   await shellInput.fill("https://example.test/not-coursera");
+  await page.locator('.local-extraction-card .legacy-local-extraction > summary').click();
   await page.getByText("Manual Console capture (requires reloads between batches)", {exact:true}).click();
   assert(
     await page
