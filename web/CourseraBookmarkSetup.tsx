@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
-import { createCourseraCourseDataProbeBookmark } from "../src/domain/coursera-course-data-probe.ts";
+import {
+  COURSERA_COURSE_DATA_PROBE_VERSION,
+  createCourseraCourseDataProbeBookmark,
+} from "../src/domain/coursera-course-data-probe.ts";
 
 export default function CourseraBookmarkSetup({
   disabled = false,
@@ -24,12 +27,15 @@ export default function CourseraBookmarkSetup({
 
   return (
     <div className="section-divider coursera-bookmark-setup">
-      <h3>Bookmark course data check</h3>
+      <h3>
+        Bookmark course data check · v{COURSERA_COURSE_DATA_PROBE_VERSION}
+      </h3>
       <p>
-        Full-course bookmark extraction is not available yet. This short
-        check reads the current course structure without opening quizzes or
-        reloading Coursera. It produces a diagnostic JSON to establish the data
-        path; it is not a complete course capture.
+        Full-course bookmark extraction is not available yet. This short check
+        reads the current course structure, then samples the underlying data for
+        one assessment and one reading. It opens no quizzes and makes at most
+        six requests. The diagnostic JSON helps establish the faster data path;
+        it is not a complete course capture.
       </p>
       <ol className="local-extraction-steps">
         <li>
@@ -45,7 +51,8 @@ export default function CourseraBookmarkSetup({
           <span>
             Use a normal tab with the extractor stopped. The same bookmark works
             on any authoring course. DevTools can stay closed. The check runs
-            for up to one minute.
+            for up to one minute. Replace an earlier course data check bookmark
+            with this updated link before using it.
           </span>
         </li>
         <li>

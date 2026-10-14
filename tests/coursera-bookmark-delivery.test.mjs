@@ -60,9 +60,23 @@ test("production-minified bookmark is independent of its Vite module closure", a
 
   const courseId = "Minified_delivery_course_123",
     calls = [],
-    alerts = [];
+    alerts = [],
+    downloads = [],
+    blobs = [];
+  const quizAtom = "q".repeat(22),
+    readingAtom = "r".repeat(22);
+  let inFlight = 0,
+    maximumInFlight = 0;
+  class FixtureUrl extends URL {
+    static createObjectURL(blob) {
+      blobs.push(blob);
+      return "blob:production-fixture-" + blobs.length;
+    }
+    static revokeObjectURL() {}
+  }
   class Element {
-    constructor() {
+    constructor(tag = "div") {
+      this.tagName = tag.toUpperCase();
       this.style = {};
       this.children = [];
     }
@@ -74,9 +88,13 @@ test("production-minified bookmark is independent of its Vite module closure", a
       return new Element();
     }
     remove() {}
+    click() {
+      if (this.tagName === "A")
+        downloads.push({ url: this.href, name: this.download });
+    }
   }
   const document = {
-    createElement: () => new Element(),
+    createElement: (tag) => new Element(tag),
     getElementById: () => null,
     documentElement: new Element(),
   };
@@ -88,39 +106,105 @@ test("production-minified bookmark is independent of its Vite module closure", a
   };
   window.top = window;
   window.fetch = async (input, options) => {
+    inFlight++;
+    maximumInFlight = Math.max(maximumInFlight, inFlight);
     calls.push({
       url: String(input),
       method: options.method,
       credentials: options.credentials,
     });
-    const material = String(input).includes("authoringCourseMaterials");
-    const model = {
-      elements: [
-        {
-          id: courseId,
-          material: material
-            ? {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      const requested = new URL(input),
+        resource = requested.pathname.split("/")[2],
+        key = requested.pathname.split("/")[3];
+      const model =
+        resource === "authoringCourseMaterials.v1"
+          ? {
+              elements: [
+                {
+                  id: courseId,
+                  conflictMetadata: { version: 7, courseBranchVersion: 9 },
+                  material: {
+                    elements: [
+                      {
+                        id: "module1",
+                        name: "Synthetic module",
+                        elements: [
+                          {
+                            id: "lesson1",
+                            name: "Synthetic lesson",
+                            elements: [
+                              {
+                                id: "quiz1",
+                                name: "Synthetic quiz",
+                                atomId: quizAtom,
+                                contentId: "atom~" + quizAtom,
+                                content: {
+                                  typeName: "staffGraded",
+                                  definition: {
+                                    assignmentId: "s".repeat(22) + "@1",
+                                    futureRelation: {
+                                      assignmentId: "observed-assignment",
+                                    },
+                                    accessToken: "PRIVATE_DELIVERY_TOKEN",
+                                    url: "/content?access_token=PRIVATE_URL_TOKEN&itemId=stable",
+                                  },
+                                },
+                              },
+                              {
+                                id: "reading1",
+                                name: "Synthetic reading",
+                                atomId: readingAtom,
+                                contentId: "atom~" + readingAtom,
+                                content: {
+                                  typeName: "supplement",
+                                  definition: {
+                                    assetId: "synthetic-cml-asset",
+                                    assetTypeName: "cml",
+                                  },
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                      {
+                        id: "empty1",
+                        name: "Empty synthetic module",
+                        elements: [],
+                      },
+                    ],
+                  },
+                },
+              ],
+              paging: {},
+              linked: {},
+            }
+          : resource === "authoringCourses.v2"
+            ? { elements: [{ id: courseId }], paging: {}, linked: {} }
+            : {
                 elements: [
                   {
-                    id: "observed-item",
-                    name: "Synthetic item",
-                    content: {
-                      futureRelation: { assignmentId: "observed-assignment" },
-                      accessToken: "PRIVATE_DELIVERY_TOKEN",
-                      url: "/content?access_token=PRIVATE_URL_TOKEN&itemId=stable",
+                    id: key,
+                    opaqueFutureRelation: {
+                      observedAtom: key,
+                      sourceResource: resource,
                     },
+                    session_token: "PRIVATE_RELATION_TOKEN",
                   },
                 ],
-              }
-            : undefined,
-        },
-      ],
-    };
-    const response = new Response(JSON.stringify(model), {
-      headers: { "content-type": "application/json" },
-    });
-    Object.defineProperty(response, "url", { value: String(input) });
-    return response;
+                paging: {},
+                linked: {},
+              };
+      const response = new Response(JSON.stringify(model), {
+        headers: { "content-type": "application/json" },
+      });
+      Object.defineProperty(response, "url", { value: String(input) });
+      return response;
+    } finally {
+      inFlight--;
+    }
   };
   const runtime = vm.createContext({
     window,
@@ -131,7 +215,7 @@ test("production-minified bookmark is independent of its Vite module closure", a
     performance: { getEntriesByType: () => [] },
     crypto: webcrypto,
     navigator: { clipboard: { writeText: async () => {} } },
-    URL,
+    URL: FixtureUrl,
     Blob,
     Response,
     TextDecoder,
@@ -157,32 +241,64 @@ test("production-minified bookmark is independent of its Vite module closure", a
     assert.equal(
       state.running,
       false,
-      "The compiled program must finish both reads",
+      "The compiled program must finish the bounded six-read sample",
     );
     assert.deepEqual(alerts, []);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 6);
+    assert.equal(maximumInFlight, 2);
     assert(
       calls.every(
-        (call) =>
-          call.method === "GET" &&
-          call.credentials === "include" &&
-          call.url.includes(courseId),
+        (call) => call.method === "GET" && call.credentials === "include",
       ),
     );
     const result = JSON.parse(JSON.stringify(state.result));
     assert.equal(result.status, "COURSE_SCHEMA_SAMPLED");
-    assert.equal(result.capturedResponses, 2);
+    assert.equal(result.capturedResponses, 6);
+    assert.equal(result.requests, 6);
+    assert.equal(result.relationRequests, 4);
+    assert.equal(result.structuralLeafCount, 3);
+    assert.equal(result.inventoryLeafCount, 2);
+    assert.equal(result.emptyStructuralLeafCount, 1);
+    assert.deepEqual(result.contentTypeCounts, {
+      staffGraded: 1,
+      supplement: 1,
+    });
+    assert.equal(
+      result.relationSampleReason,
+      "BOUNDED_DECLARED_ATOM_SCHEMA_SAMPLE",
+    );
     assert.equal(result.notForCourseAudit, true);
     assert.equal(result.wholeCourseVerified, false);
     const item = result.records.find(
       (record) => record.resource === "authoringCourseMaterials.v1",
-    ).data.elements[0].material.elements[0];
-    assert.deepEqual(item.content.futureRelation, {
+    ).data.elements[0].material.elements[0].elements[0].elements[0];
+    assert.deepEqual(item.content.definition.futureRelation, {
       assignmentId: "observed-assignment",
     });
-    assert.equal(item.content.url, "/content?itemId=stable");
+    assert.equal(item.content.definition.url, "/content?itemId=stable");
+    const relations = result.records.filter((record) => record.sourceBinding);
+    assert.equal(relations.length, 4);
+    for (const record of relations) {
+      assert.equal(record.sourceBinding.courseId, courseId);
+      assert.equal(record.sourceBinding.materialVersion, 7);
+      assert.equal(
+        record.sourceBinding.requestScope,
+        "EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE",
+      );
+      assert.equal(record.sourceBinding.assessmentRootCertified, false);
+      assert(record.requestPath.endsWith("/" + record.sourceBinding.atomId));
+      assert.equal(
+        record.data.elements[0].opaqueFutureRelation.observedAtom,
+        record.sourceBinding.atomId,
+      );
+    }
+    assert.equal(downloads.length, 1);
+    assert.equal(blobs.length, 1);
+    assert.equal(result.automaticDownloadAttempts, 1);
+    assert.deepEqual(JSON.parse(await blobs[0].text()), result);
     assert(!JSON.stringify(result).includes("PRIVATE_DELIVERY_TOKEN"));
     assert(!JSON.stringify(result).includes("PRIVATE_URL_TOKEN"));
+    assert(!JSON.stringify(result).includes("PRIVATE_RELATION_TOKEN"));
   } finally {
     if (state?.running) state.stop("TEST_CLEANUP");
   }

@@ -238,6 +238,141 @@ const button = (f, label) =>
     (element) => element.tagName === "BUTTON" && element.textContent === label,
   );
 
+function boundMaterial(f) {
+  const atomIds = ["AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB"];
+  f.material.elements[0].material.elements = [
+    {
+      id: "module-1",
+      name: "Module",
+      elements: [
+        {
+          id: "lesson-1",
+          name: "Lesson",
+          elements: atomIds.map((atomId, index) => ({
+            id: "bound-item-" + index,
+            name: "Synthetic item",
+            atomId,
+            contentId: "atom~" + atomId,
+            content: {
+              typeName: index === 0 ? "staffGraded" : "supplement",
+              definition:
+                index === 0
+                  ? { assignmentId: "CCCCCCCCCCCCCCCCCCCCCC@1" }
+                  : {
+                      assetId: "DDDDDDDDDDDDDDDDDDDDDD@1",
+                      assetTypeName: "cml",
+                    },
+            },
+          })),
+        },
+      ],
+    },
+    { id: "empty-module", name: "Empty module", elements: [] },
+  ];
+  f.material.elements[0].conflictMetadata = {
+    version: 262,
+    courseBranchVersion: 262,
+  };
+  const rootFetch = f.window.fetch;
+  f.window.fetch = async (input, options) => {
+    if (/authoring(?:ItemContentRelations\.v1|Atoms\.v2)/.test(String(input))) {
+      f.calls.push({ url: String(input), options });
+      return f.respond(
+        {
+          elements: [
+            {
+              id: new URL(input).pathname.split("/").at(-1),
+              opaqueCurrentModel: {
+                orderedPartIds: ["second", "first"],
+                revision: 9,
+              },
+              writeAccessToken: "PRIVATE_RELATION_TOKEN",
+            },
+          ],
+          paging: {},
+        },
+        input,
+      );
+    }
+    return rootFetch(input, options);
+  };
+  return atomIds;
+}
+
+test("declared course atoms admit only one assessment and reading sample after root reads, never the separate assignment reference", async () => {
+  const f = setup(),
+    atoms = boundMaterial(f),
+    result = await run(f);
+  assert.equal(result.probeVersion, 2);
+  assert.equal(result.requests, 6);
+  assert.equal(result.relationRequests, 4);
+  assert.equal(result.capturedResponses, 6);
+  assert.equal(result.inventoryLeafCount, 2);
+  assert.equal(result.structuralLeafCount, 3);
+  assert.equal(result.emptyStructuralLeafCount, 1);
+  assert.equal(
+    result.relationSampleReason,
+    "BOUNDED_DECLARED_ATOM_SCHEMA_SAMPLE",
+  );
+  assert.equal(result.relationSamplePlannedRequests, 4);
+  const reads = f.calls.slice(2).map((call) => new URL(call.url));
+  assert.equal(reads.length, 4);
+  assert.deepEqual(
+    new Set(reads.map((url) => url.pathname.split("/").at(-1))),
+    new Set(atoms),
+  );
+  assert(
+    reads.every(
+      (url) => !url.search && url.origin === "https://www.coursera.org",
+    ),
+  );
+  assert(!reads.some((url) => url.pathname.includes("CCCCCCCC")));
+  const records = result.records.filter((record) => record.sourceBinding);
+  assert.equal(records.length, 4);
+  assert(
+    records.every(
+      (record) =>
+        record.requestScope ===
+        "EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE",
+    ),
+  );
+  assert(
+    records.every(
+      (record) =>
+        record.declaredIdentityFields.identitySemantics ===
+        "REQUEST_BOUND_TO_DECLARED_ATOM_RESPONSE_MODEL_NOT_CERTIFIED",
+    ),
+  );
+  assert(records.every((record) => record.sourceBinding.courseId === courseId));
+  assert.deepEqual(
+    records[0].data.elements[0].opaqueCurrentModel.orderedPartIds,
+    ["second", "first"],
+  );
+  assert(!JSON.stringify(result).includes("PRIVATE_RELATION_TOKEN"));
+  assert.equal(result.wholeCourseVerified, false);
+  assert.equal(f.downloads.length, 1);
+  await button(f, "Copy check summary").onclick();
+  assert(!f.context.copied.includes(atoms[0]));
+  assert(!f.context.copied.includes("bound-item-"));
+});
+
+test("ambiguous or different course roots retain diagnostics but admit no item resource reads", async () => {
+  for (const defect of ["duplicate", "wrong-course", "pagination"]) {
+    const f = setup();
+    boundMaterial(f);
+    if (defect === "duplicate")
+      f.material.elements.push(f.material.elements[0]);
+    if (defect === "wrong-course") f.material.elements[0].id = "another-course";
+    if (defect === "pagination") f.material.paging = { next: "opaque" };
+    const result = await run(f);
+    assert.equal(result.requests, 2);
+    assert.equal(result.relationRequests, 0);
+    assert.equal(result.relationSamplePlannedRequests, 0);
+    assert.equal(result.relationInventory, null);
+    assert.equal(result.wholeCourseVerified, false);
+  }
+});
+
 test("one universal bookmark derives each current course without capturing module imports or a fixed course", async () => {
   const bookmark = createCourseraCourseDataProbeBookmark(),
     script = decodeURIComponent(bookmark.slice("javascript:".length));

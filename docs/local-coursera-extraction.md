@@ -14,10 +14,20 @@ the saved bookmark on a normal Coursera authoring Content page with the
 extractor stopped. No Console paste, extension, hosted script loader or paid
 browser is required for this diagnostic.
 
-The check makes at most two fixed, same-origin GETs: the current course's
+Version 2 makes at most six same-origin GETs. It first reads the current course's
 already-used `authoringCourseMaterials.v1` and `authoringCourses.v2` resources.
+After validating the exact material root and complete ordered hierarchy, it
+selects at most one assessment and one reading and samples
+`authoringItemContentRelations.v1/<atomId>` and `authoringAtoms.v2/<atomId>`.
+These resource families and the plain material `atomId` route binding were
+observed in earlier captures. Their historical query projections were discarded;
+the new bare GETs are prospective schema samples, not exact wire replays. The
+versioned staff assignment reference is retained separately and is never
+substituted for the atom route key. Invalid, ambiguous or paginated roots admit
+no item-resource samples. Missing atom/content bindings are explicitly declined.
 It does not open quiz editors or navigate/reload the page. It stops within one
-minute, with a 20-second limit per request, 2 MiB per body and 6 MiB total. The
+minute, with at most two concurrent reads, a 20-second limit per request,
+2 MiB per body and 6 MiB total. The
 course ID and slug come from the open authoring route; a copied Console variant
 can additionally require an exact expected course. A running extractor blocks
 the check. Recorded item-relation/atom resource paths are metadata only:
@@ -35,10 +45,16 @@ can still contain private course content. Nothing is sent to CTI or another
 server, and `notForCourseAudit: true` prevents accepting it as a course capture.
 
 This check is a development prerequisite, not the requested one-click full
-extractor. The full path still needs verified current course → item → assignment
-→ ordered part relationships and supported content definitions. A real response
-from this check is needed to establish those bindings without guessing resource
-IDs or treating an older quiz inventory as fresh evidence. The maintained
+extractor. The real first check established course → item → atom relationships
+in 682 ms with two requests. Its 165 content items correspond to 185 old
+structural leaves: 18 empty tracks and two empty modules account for the
+difference. All 26 retained older assessment owners matched their same item's
+current material atom ID. This corroborates the binding but does not make the
+older ordered question inventory current. The version 2 samples preserve the
+missing current response models needed to establish ordered parts and content
+definitions. Returned schemas and completeness are not inferred from a
+successful HTTP status or matching request key. Replace the earlier saved check
+bookmark to use the new version. The maintained
 Protocol monitor extractor and its strict completion gate remain separate.
 
 Delivery tests execute the production-minified bookmark in an isolated context,

@@ -1,6 +1,10 @@
 import { parseCourseraShellUrl } from "./coursera-background-extraction.ts";
+import {
+  parseCourseraCourseMaterialsRelations,
+  planCourseraCourseRelationSample,
+} from "./coursera-course-relations.ts";
 
-export const COURSERA_COURSE_DATA_PROBE_VERSION = 1;
+export const COURSERA_COURSE_DATA_PROBE_VERSION = 2;
 
 /** A diagnostic prerequisite for an editor-free reader, not a course capture.
  * The universal bookmark derives its course from the already-open authoring tab.
@@ -24,6 +28,10 @@ export function createCourseraCourseDataProbeScript(
     JSON.stringify({ version: COURSERA_COURSE_DATA_PROBE_VERSION, expected }) +
     ",(" +
     sanitizeCourseraCourseDataModel.toString() +
+    "),(" +
+    parseCourseraCourseMaterialsRelations.toString() +
+    "),(" +
+    planCourseraCourseRelationSample.toString() +
     "));"
   );
 }
@@ -193,6 +201,8 @@ interface CourseProbeConfig {
 async function runCourseraCourseDataProbe(
   config: CourseProbeConfig,
   sanitize: typeof sanitizeCourseraCourseDataModel,
+  parseMaterials: typeof parseCourseraCourseMaterialsRelations,
+  planSample: typeof planCourseraCourseRelationSample,
 ) {
   const host = window as Window & {
     __CTI_COURSERA_COURSE_DATA_PROBE?: any;
@@ -232,7 +242,7 @@ async function runCourseraCourseDataProbe(
       location.pathname.startsWith(coursePath + "/"));
   const limits = {
     durationMs: 60000,
-    requests: 2,
+    requests: 6,
     concurrentRequests: 2,
     bodyBytes: 2 * 1024 * 1024,
     totalBytes: 6 * 1024 * 1024,
@@ -275,7 +285,7 @@ async function runCourseraCourseDataProbe(
     boxShadow: "0 2px 12px #0003",
   });
   const title = document.createElement("strong");
-  title.textContent = "CTI · Course data check";
+  title.textContent = "CTI · Course data check v" + config.version;
   const help = document.createElement("p");
   help.textContent =
     "Checks the course's data structure without opening quizzes or reloading. This diagnostic will help build a faster extractor; it is not a full course capture.";
@@ -313,9 +323,13 @@ async function runCourseraCourseDataProbe(
   document.documentElement.append(root);
   let finished = false,
     requests = 0,
+    relationRequests = 0,
     bytes = 0,
     inventoryLeafCount = 0,
     automaticDownloadAttempts = 0;
+  let relationInventory: any = null,
+    relationSamplePlan: any[] = [],
+    relationSampleReason = "COURSE_MATERIALS_NOT_AVAILABLE";
   let timer: ReturnType<typeof setTimeout> | undefined;
   const observedPaths: {
     resource: string;
@@ -357,7 +371,9 @@ async function runCourseraCourseDataProbe(
       status.textContent =
         "Reading course data · " +
         requests +
-        " / 2 requests · " +
+        " / " +
+        limits.requests +
+        " requests · " +
         records.length +
         " responses saved · " +
         Math.floor((Date.now() - began) / 1000) +
@@ -386,8 +402,14 @@ async function runCourseraCourseDataProbe(
       responseBytes: bytes,
       capturedResponses: records.length,
       inventoryLeafCount,
+      structuralLeafCount: relationInventory?.structuralLeafCount ?? null,
+      emptyStructuralLeafCount:
+        relationInventory?.emptyStructuralLeafCount ?? null,
+      contentTypeCounts: relationInventory?.contentTypeCounts ?? null,
       observedRelationPathCount: observedPaths.length,
-      relationRequests: 0,
+      relationRequests,
+      relationSamplePlannedRequests: relationSamplePlan.length,
+      relationSampleReason,
       credentialFieldsRemoved: records.reduce(
         (count, record) => count + record.credentialFieldsRemoved,
         0,
@@ -412,6 +434,8 @@ async function runCourseraCourseDataProbe(
       credentialSanitization:
         "NORMALIZED_EXACT_CREDENTIAL_FIELD_AND_URL_PARAMETER_DENYLIST",
       records: [...records],
+      relationInventory,
+      relationSamplePlan,
       observedRelationPaths: observedPaths,
     };
     output.value = JSON.stringify(summary, null, 2);
@@ -420,7 +444,7 @@ async function runCourseraCourseDataProbe(
     downloadButton.disabled = records.length === 0;
     stopButton.textContent = "Close check";
     status.textContent = material
-      ? "Course data saved. Your diagnostic download was requested. Use Download course data check if it did not appear. No quizzes were opened."
+      ? "Course data check saved. Your diagnostic download was requested. Use Download course data check if it did not appear. No quizzes were opened; this is not a full course capture."
       : "Check stopped: " +
         code +
         ". Copy the summary; no full-course rerun is needed.";
@@ -489,7 +513,7 @@ async function runCourseraCourseDataProbe(
     }
     return true;
   }
-  async function read(resource: string, path: string) {
+  async function read(resource: string, path: string, sourceBinding?: any) {
     if (!current() || requests >= limits.requests) return;
     const controller = new AbortController();
     controllers.add(controller);
@@ -498,6 +522,7 @@ async function runCourseraCourseDataProbe(
       Math.min(limits.requestMs, deadline - Date.now()),
     );
     requests++;
+    if (sourceBinding) relationRequests++;
     render();
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
       requestBytes = 0;
@@ -598,7 +623,10 @@ async function runCourseraCourseDataProbe(
       records.push({
         resource,
         requestPath: requested.pathname,
-        requestScope: "EXACT_COURSE_RESOURCE_GET",
+        requestScope: sourceBinding
+          ? "EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE"
+          : "EXACT_COURSE_RESOURCE_GET",
+        ...(sourceBinding ? { sourceBinding } : {}),
         status: response.status,
         observedAt: new Date().toISOString(),
         responseBytes: requestBytes,
@@ -608,7 +636,9 @@ async function runCourseraCourseDataProbe(
             declared.length > 0
               ? declared.every((value) => value === courseId)
               : null,
-          identitySemantics: "COURSE_VERSUS_BRANCH_MEANING_NOT_CERTIFIED",
+          identitySemantics: sourceBinding
+            ? "REQUEST_BOUND_TO_DECLARED_ATOM_RESPONSE_MODEL_NOT_CERTIFIED"
+            : "COURSE_VERSUS_BRANCH_MEANING_NOT_CERTIFIED",
         },
         originalResponseSha256: [...new Uint8Array(digest)]
           .map((value) => value.toString(16).padStart(2, "0"))
@@ -682,6 +712,49 @@ async function runCourseraCourseDataProbe(
         "/api/authoringCourses.v2/" + encodeURIComponent(courseId),
       ),
     ]);
+    if (current()) {
+      const material = records.find(
+        (record) => record.resource === "authoringCourseMaterials.v1",
+      );
+      if (material) {
+        try {
+          relationInventory = parseMaterials(material.data, courseId);
+          inventoryLeafCount = relationInventory.contentItems.length;
+          const currentItem = location.pathname.match(
+            /\/content\/item\/[^/]+\/([^/]+)\/?$/,
+          )?.[1];
+          relationSamplePlan = planSample(relationInventory, currentItem);
+          relationSampleReason = relationSamplePlan.length
+            ? "BOUNDED_DECLARED_ATOM_SCHEMA_SAMPLE"
+            : "NO_SUPPORTED_SAMPLE_ITEMS";
+        } catch (error) {
+          relationSampleReason =
+            error instanceof Error && /^[A-Z_]{1,80}$/.test(error.message)
+              ? error.message
+              : "MATERIAL_RELATION_SCHEMA_NOT_SUPPORTED";
+        }
+        // At most two reads settle before admitting the next pair. The known
+        // resource family and exact atom reference are established; response
+        // schemas and ordered question inventories remain to be verified.
+        for (
+          let index = 0;
+          index < relationSamplePlan.length && current();
+          index += 2
+        ) {
+          await Promise.allSettled(
+            relationSamplePlan
+              .slice(index, index + 2)
+              .map((request) =>
+                read(
+                  request.resource,
+                  request.requestPath,
+                  request.sourceBinding,
+                ),
+              ),
+          );
+        }
+      }
+    }
     if (current()) finish("COURSE_DATA_CHECK_FINISHED");
   } catch {
     finish("COURSE_DATA_CHECK_FAILED");

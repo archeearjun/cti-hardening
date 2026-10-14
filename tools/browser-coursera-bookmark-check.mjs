@@ -30,16 +30,26 @@ const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'cti-bookmark-browser-'));
 execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes',
   '-keyout',path.join(scratch,'key.pem'),'-out',path.join(scratch,'cert.pem'),
   '-subj','/CN=www.coursera.org','-days','1'],{stdio:'ignore'});
-const requests=[],documentLoads=[],errors=[],browserMessages=[];
+const requests=[],documentLoads=[],errors=[],browserMessages=[],atomBindings=new Map(),inFlight=new Map(),maxInFlight=new Map(),completedRoots=new Map();
 const credentialMarkers=['fixture-http-only-cookie','fixture-write-access-secret',
   'fixture-nested-token-secret','fixture-serialized-token-secret','fixture-url-token-secret'];
 const relation={format:'unrecognized-future-relation',assignment:'fixture-assignment',
   questionOrder:['fixture-q2','fixture-q1'],unsupportedKind:'fixture-custom-kind'};
+function atomReference(id,kind){return(kind==='staffGraded'?'assess':'read__')+Buffer.from(id).toString('base64url').slice(0,16);}
 function models(id){
+  const assessmentAtom=atomReference(id,'staffGraded'),readingAtom=atomReference(id,'supplement');
+  atomBindings.set(assessmentAtom,{courseId:id,itemId:'Assess01',sourceContentType:'staffGraded',staffAssignmentId:'staff-fixture@3'});
+  atomBindings.set(readingAtom,{courseId:id,itemId:'Read01',sourceContentType:'supplement',staffAssignmentId:null});
   return {
-    materials:{elements:[{id,courseId:id,material:{elements:[
-      {id:'reading-fixture',name:'Synthetic reading',typeName:'reading',content:{atomId:'fixture-atom'}},
-      {id:'assessment-fixture',name:'Synthetic assessment',typeName:'project',content:{opaqueRelation:relation}},
+    materials:{elements:[{id,courseId:id,conflictMetadata:{version:17,courseBranchVersion:23},material:{elements:[
+      {id:'module-fixture',name:'Synthetic module',elements:[
+        {id:'lesson-fixture',name:'Synthetic lesson',elements:[
+          {id:'Assess01',name:'Synthetic assessment',atomId:assessmentAtom,contentId:'atom~'+assessmentAtom,
+            content:{typeName:'staffGraded',definition:{assignmentId:'staff-fixture@3',opaqueRelation:relation}}},
+          {id:'Read01',name:'Synthetic reading',atomId:readingAtom,contentId:'atom~'+readingAtom,
+            content:{typeName:'supplement',definition:{assetId:'reading-asset-fixture',assetTypeName:'html',opaqueRelation:relation}}},
+        ]},
+      ]},
     ]},writeAccessToken:credentialMarkers[1],nested:{accessToken:credentialMarkers[2]},
     configuration:JSON.stringify({writeAccessToken:credentialMarkers[3],knownRelation:relation}),
     url:'https://example.test/content?item=fixture&accessToken='+credentialMarkers[4]}]},
@@ -51,12 +61,24 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   const url=new URL(request.url,origin);
   if(url.pathname==='/favicon.ico'){response.statusCode=204;response.end();return;}
   if(url.pathname.startsWith('/api/')){
-    const match=url.pathname.match(/^\/api\/(authoringCourseMaterials\.v1|authoringCourses\.v2)\/([^/]+)\/?$/);
+    const match=url.pathname.match(/^\/api\/(authoringCourseMaterials\.v1|authoringCourses\.v2|authoringItemContentRelations\.v1|authoringAtoms\.v2)\/([^/]+)\/?$/);
+    const resource=match?.[1],reference=match?decodeURIComponent(match[2]):null;
+    const binding=atomBindings.get(reference),boundCourse=binding?.courseId||reference;
+    const active=(inFlight.get(boundCourse)||0)+1;inFlight.set(boundCourse,active);
+    maxInFlight.set(boundCourse,Math.max(maxInFlight.get(boundCourse)||0,active));
+    let settled=false;
+    const settle=()=>{
+      if(settled)return;settled=true;inFlight.set(boundCourse,(inFlight.get(boundCourse)||1)-1);
+      if(resource==='authoringCourseMaterials.v1'||resource==='authoringCourses.v2')
+        completedRoots.set(boundCourse,(completedRoots.get(boundCourse)||0)+1);
+    };
+    response.on('finish',settle);response.on('close',settle);
     requests.push({path:url.pathname,search:url.search,method:request.method,
-      authenticated:request.headers.cookie?.includes('fixtureSession='+credentialMarkers[0])===true});
+      authenticated:request.headers.cookie?.includes('fixtureSession='+credentialMarkers[0])===true,
+      courseId:boundCourse,resource,completedRootResponses:completedRoots.get(boundCourse)||0});
     response.setHeader('Content-Type','application/json; charset=utf-8');
     if(!match){response.statusCode=404;response.end('{}');return;}
-    const id=decodeURIComponent(match[2]);
+    const id=reference;
     if(id==='Forbidden_fixture_123'){response.statusCode=403;response.end('{"error":"fixture denied"}');return;}
     if(id==='Invalid_fixture_123'){response.end('{invalid synthetic JSON');return;}
     if(id==='Oversize_fixture_123'){
@@ -70,7 +92,18 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       };
       write();return;
     }
-    response.end(JSON.stringify(match[1]==='authoringCourseMaterials.v1'?models(id).materials:models(id).course));
+    let body;
+    if(resource==='authoringCourseMaterials.v1')body=models(id).materials;
+    else if(resource==='authoringCourses.v2')body=models(id).course;
+    else{
+      if(!binding){response.statusCode=404;response.end('{"error":"unknown fixture atom"}');return;}
+      body={elements:[{id:reference,courseId:binding.courseId,unknownSchemaRelation:relation,
+        ...(resource==='authoringAtoms.v2'?{content:{typeName:binding.sourceContentType,definition:{opaqueRelation:relation}}}:{}),
+        nested:{writeAccessToken:credentialMarkers[1]}}]};
+    }
+    // A small fixture delay makes overlap observable, so the browser check can
+    // enforce the maintained two-read ceiling rather than infer it from code.
+    setTimeout(()=>{if(!response.destroyed)response.end(JSON.stringify(body));},20);
     return;
   }
   documentLoads.push({origin:request.headers.host,path:url.pathname});
@@ -242,6 +275,7 @@ try{
     await page.mouse.click((box[0]+box[2]+box[4]+box[6])/4,(box[1]+box[3]+box[5]+box[7])/4);
   }
   const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+  const fetchedOrigins=[];page.on('request',request=>fetchedOrigins.push(new URL(request.url()).origin));
   page.on('console',message=>{if(message.type()==='error')browserMessages.push(message.text());});
   await page.goto(origin+'/teach/synthetic/'+courseId+'/content/edit');
   const downloads=[];page.on('download',download=>downloads.push(download));
@@ -255,12 +289,35 @@ try{
   assert.equal(result.kind,'CTI_COURSERA_COURSE_DATA_CHECK_V1');
   assert.equal(result.notForCourseAudit,true);assert.equal(result.wholeCourseVerified,false);
   assert.equal(result.courseId,courseId);assert.equal(result.status,'COURSE_SCHEMA_SAMPLED');
-  assert.equal(result.stopReason,'COURSE_DATA_CHECK_FINISHED');assert.equal(result.requests,2);
-  assert.equal(result.capturedResponses,2);assert.equal(result.inventoryLeafCount,2);
-  assert.equal(result.relationRequests,0);assert.equal(result.originalResponseBytesRetained,false);
+  assert.equal(result.stopReason,'COURSE_DATA_CHECK_FINISHED');assert.equal(result.requests,6);
+  assert.equal(result.capturedResponses,6);assert.equal(result.inventoryLeafCount,2);
+  assert.equal(result.relationRequests,4);assert.equal(result.originalResponseBytesRetained,false);
   assert.equal(result.bodyFormat,'PARSED_SANITIZED_JSON_MODEL');
   assert.equal(documentLoads.length,beforeLoads,'The probe opens no quiz and reloads no document');
-  assert.equal(requests.length-beforeRequests,2);assert(requests.slice(beforeRequests).every(request=>request.method==='GET'&&request.authenticated));
+  const capturedRequests=requests.slice(beforeRequests);
+  assert.equal(capturedRequests.length,6);assert(capturedRequests.every(request=>request.method==='GET'&&request.authenticated));
+  assert.deepEqual(new Set(capturedRequests.slice(0,2).map(request=>request.resource)),new Set(['authoringCourseMaterials.v1','authoringCourses.v2']));
+  assert(capturedRequests.slice(2).every(request=>request.completedRootResponses===2),'Root responses settle before relation samples start');
+  assert.equal(maxInFlight.get(courseId),2,'Exactly two reads overlap and the next pair waits for them');
+  assert(capturedRequests.every(request=>request.courseId===courseId));
+  assert.deepEqual(new Set(fetchedOrigins),new Set([origin]),'The course check contacts no other origin');
+  assert.equal(result.relationSamplePlan.length,4);
+  const assessmentAtom=atomReference(courseId,'staffGraded'),readingAtom=atomReference(courseId,'supplement');
+  assert.deepEqual(capturedRequests.slice(2).map(request=>request.path),[
+    '/api/authoringItemContentRelations.v1/'+assessmentAtom,'/api/authoringAtoms.v2/'+assessmentAtom,
+    '/api/authoringItemContentRelations.v1/'+readingAtom,'/api/authoringAtoms.v2/'+readingAtom,
+  ]);
+  for(const record of result.records.filter(record=>record.sourceBinding)){
+    const binding=record.sourceBinding,expected=atomBindings.get(binding.atomId);
+    assert.equal(binding.courseId,courseId);assert.equal(binding.itemId,expected.itemId);
+    assert.equal(binding.sourceContentId,'atom~'+binding.atomId);assert.equal(binding.sourceContentType,expected.sourceContentType);
+    assert.equal(binding.staffAssignmentId,expected.staffAssignmentId);assert.equal(binding.materialVersion,17);
+    assert.equal(binding.courseBranchVersion,23);assert.equal(binding.assessmentRootCertified,false);
+    assert.equal(record.requestScope,'EXPLICIT_MATERIAL_ATOM_REFERENCE_SCHEMA_SAMPLE');
+    assert.equal(record.declaredIdentityFields.identitySemantics,'REQUEST_BOUND_TO_DECLARED_ATOM_RESPONSE_MODEL_NOT_CERTIFIED');
+    assert.deepEqual(record.data.elements[0].unknownSchemaRelation,relation);
+  }
+  assert.equal(result.records.filter(record=>record.sourceBinding).length,4);
   assert.equal(await page.evaluate(()=>document.cookie.includes('fixtureSession')),false,'The session credential is HttpOnly');
   assert.deepEqual(await page.evaluate(()=>window.fixtureCspViolations),[],'The emitted bookmark runs without a fixture CSP relaxation');
   const courseRecord=result.records.find(record=>record.resource==='authoringCourses.v2');
@@ -285,8 +342,9 @@ try{
   // authoring document; it contains no hard-coded initial course identifier.
   const second=await context.newPage();await second.goto(origin+'/teach/another-synthetic/'+secondId+'/content/edit');
   const secondStart=requests.length,secondSession=await invoke(second),secondResult=await finished(second);
-  assert.equal(secondResult.courseId,secondId);assert.equal(requests.length-secondStart,2);
-  assert(requests.slice(secondStart).every(request=>request.path.includes(secondId)));await secondSession.detach();
+  assert.equal(secondResult.courseId,secondId);assert.equal(requests.length-secondStart,6);
+  assert(requests.slice(secondStart).every(request=>request.courseId===secondId));
+  assert.equal(maxInFlight.get(secondId),2);await secondSession.detach();
 
   for(const [id,code] of [['Forbidden_fixture_123','HTTP_403'],['Invalid_fixture_123','INVALID_JSON'],['Oversize_fixture_123','BODY_BYTE_LIMIT']]){
     const rejected=await context.newPage();await rejected.goto(origin+'/teach/synthetic/'+id+'/content/edit');
@@ -329,7 +387,8 @@ try{
   console.log(JSON.stringify({status:bookmarkExecuted?'PASS':'PARTIAL',
     mode:bookmarkExecuted?'Maintained React bookmark href via native browser javascript navigation':'Maintained emitted bookmark source via explicit debugger reader check only',
     bookmarkExecuted,readerVerified:true,policyCanaryVerified,
-    setupClipboardAndFallback:true,ctiClickReadsNothing:true,strictNonceCsp:true,authenticatedHttpOnlyGets:2,
+    setupClipboardAndFallback:true,ctiClickReadsNothing:true,strictNonceCsp:true,authenticatedHttpOnlyGets:6,
+    rootsBeforeBoundSamples:true,maximumOverlappingRequests:2,explicitAtomSourceBindings:true,
     unknownSchemaRetained:true,credentialFieldsExcluded:true,localDiagnosticDownloads:1,
     universalCourseBinding:true,foreignAndSubframeAndActiveExtractorGuards:true,
     forbiddenAndInvalidAndStreamedOversizeFailClosed:true,

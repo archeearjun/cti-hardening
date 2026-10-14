@@ -131,9 +131,25 @@ The operator now permits one-time Chrome bookmark setup. A saved bookmark can
 start a program in Coursera's own page context; a CTI hyperlink cannot inject
 into that different origin. The universal **Bookmark course data check** reads
 the two existing course resources without quiz visits and retains sanitized
-original relation models. It is explicitly diagnostic and does not claim that
+original relation models. Version 2 follows with at most four bounded item
+resource samples for one assessment and one reading using the exact atom IDs
+declared by that validated material root. It is explicitly diagnostic and does not claim that
 the missing full-course API path is implemented. See the
 [setup and remaining prerequisite](local-coursera-extraction.md#bookmark-setup-and-the-full-course-data-prerequisite).
+
+The actual 14 October bookmark check returned both course resources in **682 ms**,
+72,478 bytes, with no failures. It retained 165 content items: 34 assessments,
+123 CML reading references, six widget references and two discussion prompts.
+The previous 185-item inventory contains the same leaf IDs, plus 18 empty tracks
+and two empty modules. All 165 content items explicitly bind their item ID to
+an atom ID and `contentId = atom~<atomId>`. For 26 older assessment API records,
+the question-group owner matches the same item's fresh atom ID; the separate
+versioned staff assignment reference does not match that owner. Historical
+reading request paths also establish the two item-resource families with that
+plain atom ID. Their bodies and query projections were not retained. The root
+material supplies no question-group inventory, question ordering or content
+bodies for those references. A fast course inventory therefore establishes a
+promising data path, not yet a fast complete-course capture.
 
 | Option | Fits the restrictions? | What it can improve | Remaining limit |
 | --- | --- | --- | --- |
