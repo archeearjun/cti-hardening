@@ -477,6 +477,195 @@ test("direct reading source media stays unverified even when its exported asset 
   }
 });
 
+function directNativeImageCapture() {
+  const capture = directReadingCapture(),
+    payload = capture.fingerprints[0].payload,
+    id = "m".repeat(22),
+    canonicalUrl = "https://d3c33hcgiwev3.cloudfront.net/synthetic/image.png",
+    bytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z9ZkAAAAASUVORK5CYII=",
+      "base64",
+    ),
+    sha256 = createHash("sha256").update(bytes).digest("hex");
+  const value =
+      '<co-content><p>Current draft body</p><img assetId="' +
+      id +
+      '"/></co-content>',
+    draft = payload.directDataSources.atom.elements[0].draft;
+  draft.content.definition.content.definition.value = value;
+  payload.directDraftCml.definition.value = value;
+  payload.directDataSources.receipts.stability.atom.elements[0].draft =
+    structuredClone(draft);
+  payload.directDataSources.receipts.stability.draftHash = modelHash(draft);
+  Object.assign(payload.directDataEvidence, {
+    draftHash: modelHash(draft),
+    rawCmlLength: value.length,
+    rawCmlSha256: sourceHash(value),
+    assetReferenceCount: 1,
+  });
+  const metadata = {
+      elements: [
+        {
+          id,
+          name: "image.png",
+          typeName: "image",
+          contentVersion: 3,
+          url: { url: canonicalUrl, expires: 1 },
+        },
+      ],
+      paging: {},
+    },
+    receipt = {
+      resource: "assets.v1",
+      id,
+      status: 200,
+      requestPath: "/api/assets.v1",
+      requestQuery: [["ids", id]],
+      bodyFormat: "PARSED_SANITIZED_JSON_MODEL",
+      originalResponseSha256: "e".repeat(64),
+      sha256: "e".repeat(64),
+    },
+    fresh = structuredClone(metadata);
+  fresh.elements[0].url.expires = 2;
+  const asset = {
+    assetId: id,
+    metadata,
+    metadataReceipt: receipt,
+    stability: {
+      stable: true,
+      metadata: fresh,
+      receipt: structuredClone(receipt),
+    },
+    body: {
+      base64: bytes.toString("base64"),
+      size: bytes.length,
+      sha256,
+      mime: "image/png",
+      canonicalUrl,
+      receipt: {
+        status: 200,
+        bytes: bytes.length,
+        sha256,
+        mime: "image/png",
+        canonicalUrl,
+        observedAt: "2026-10-14T12:00:00.000Z",
+        bodyFormat: "ORIGINAL_BINARY_BYTES_BASE64",
+      },
+    },
+  };
+  payload.directAssetEvidence = {
+    method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+    assets: [asset],
+    missingPointers: [],
+    failures: [],
+  };
+  payload.assetDetails = [
+    {
+      assetId: id,
+      tag: "img",
+      url: canonicalUrl,
+      bodyVerified: true,
+      hashStatus: "HASHED_ORIGINAL_BINARY_BYTES",
+      evidenceSource: "bound-native-cml-asset-body",
+      sha256,
+      size: bytes.length,
+      mime: "image/png",
+    },
+  ];
+  return capture;
+}
+
+test("direct importer independently verifies retained media bytes and exact bound native IDs", () => {
+  assert.equal(
+    evaluateCourseraCapture(directNativeImageCapture(), directCourseId)
+      .complete,
+    true,
+  );
+  for (const mode of [
+    "hash",
+    "base64",
+    "missingBytes",
+    "size",
+    "mime",
+    "magic",
+    "metadataId",
+    "freshContent",
+    "route",
+    "query",
+    "bodyFormat",
+    "extraAsset",
+    "detailHash",
+    "hiddenReference",
+    "sourceMissingPointer",
+  ]) {
+    const capture = directNativeImageCapture(),
+      payload = capture.fingerprints[0].payload,
+      asset = payload.directAssetEvidence.assets[0];
+    if (mode === "hash")
+      asset.body.sha256 =
+        asset.body.receipt.sha256 =
+        payload.assetDetails[0].sha256 =
+          "f".repeat(64);
+    if (mode === "base64")
+      asset.body.base64 = "!".repeat(asset.body.base64.length);
+    if (mode === "missingBytes") delete asset.body.base64;
+    if (mode === "size")
+      asset.body.size =
+        asset.body.receipt.bytes =
+        payload.assetDetails[0].size =
+          999999;
+    if (mode === "mime")
+      asset.body.mime =
+        asset.body.receipt.mime =
+        payload.assetDetails[0].mime =
+          "application/pdf";
+    if (mode === "magic") {
+      const bytes = Buffer.from(asset.body.base64, "base64");
+      bytes[0] = 0;
+      asset.body.base64 = bytes.toString("base64");
+      asset.body.sha256 =
+        asset.body.receipt.sha256 =
+        payload.assetDetails[0].sha256 =
+          createHash("sha256").update(bytes).digest("hex");
+    }
+    if (mode === "metadataId") asset.metadata.elements[0].id = "x".repeat(22);
+    if (mode === "freshContent")
+      asset.stability.metadata.elements[0].contentVersion++;
+    if (mode === "route")
+      asset.metadataReceipt.requestPath = "/api/assets.v1/" + asset.assetId;
+    if (mode === "query")
+      asset.metadataReceipt.requestQuery[0][1] = "x".repeat(22);
+    if (mode === "bodyFormat") asset.body.receipt.bodyFormat = "HASH_ONLY";
+    if (mode === "extraAsset")
+      payload.directAssetEvidence.assets.push(structuredClone(asset));
+    if (mode === "detailHash") payload.assetDetails[0].sha256 = "f".repeat(64);
+    if (mode === "hiddenReference" || mode === "sourceMissingPointer") {
+      const draft = payload.directDataSources.atom.elements[0].draft,
+        old = draft.content.definition.content.definition.value,
+        value = old.replace(
+          "</co-content>",
+          (mode === "hiddenReference"
+            ? '<img assetId="' + "x".repeat(22) + '"/>'
+            : '<img alt=""/>') + "</co-content>",
+        );
+      draft.content.definition.content.definition.value = value;
+      payload.directDraftCml.definition.value = value;
+      payload.directDataSources.receipts.stability.atom.elements[0].draft =
+        structuredClone(draft);
+      payload.directDataSources.receipts.stability.draftHash =
+        payload.directDataEvidence.draftHash = modelHash(draft);
+      payload.directDataEvidence.rawCmlLength = value.length;
+      payload.directDataEvidence.rawCmlSha256 = sourceHash(value);
+    }
+    const result = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(result.complete, false, mode);
+    assert(
+      result.reasons.includes("DIRECT_DRAFT_READING_SOURCE_INVALID:reading-1"),
+      mode + ": " + result.reasons.join(", "),
+    );
+  }
+});
+
 test("empty structural completion requires a bound material receipt and an explicitly empty known structure", () => {
   const capture = directReadingCapture(),
     item = capture.fingerprints[0];

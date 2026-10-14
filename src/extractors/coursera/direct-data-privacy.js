@@ -60,6 +60,8 @@ export function sanitizeCourseraCourseDataModel(value) {
       "x-goog-credential",
       "x-goog-signature",
       "x-api-key",
+      "hmac",
+      "key-pair-id",
     ].map((key) => key.replace(/[^a-z0-9]/g, "")),
   );
   const credentialKey = (key) => key.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -96,7 +98,8 @@ export function sanitizeCourseraCourseDataModel(value) {
         address.username = "";
         address.password = "";
         for (const key of [...address.searchParams.keys()])
-          if (denied.has(credentialKey(key.replace(/^(?:amp;)+/g, "")))) {
+          if (denied.has(credentialKey(key.replace(/^(?:amp;)+/g, ""))) ||
+              /^(?:policy|expiry|expires|x-amz-expires|x-goog-expires)$/i.test(key.replace(/^(?:amp;)+/g, ""))) {
             address.searchParams.delete(key);
             changed = true;
           }

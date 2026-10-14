@@ -1,0 +1,331 @@
+import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
+import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
+
+/** Only locations returned by the bound asset API are eligible for downloads. */
+export function canonicalDirectAssetUrlV1(value) {
+  if (typeof value !== "string" || value.length > 16384) return "";
+  try {
+    const url = new URL(value), host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" || url.username || url.password ||
+        (url.port && url.port !== "443") ||
+        !/\.(?:cloudfront\.net|amazonaws\.com|coursera\.org)$/.test(host) ||
+        /(?:^|\.)(?:localhost|local|internal|metadata)(?:\.|$)/.test(host) ||
+        /^\/api(?:\/|$)/i.test(url.pathname)) return "";
+    const sanitized = sanitizeCourseraCourseDataModel({url:url.href});
+    if (sanitized.limitReached || typeof sanitized.data?.url !== "string") return "";
+    const canonical = new URL(sanitized.data.url);
+    canonical.hash = "";
+    return canonical.href;
+  } catch (_) { return ""; }
+}
+
+/** Delivery expiry is mutable transport metadata, not asset content identity. */
+export function directAssetMetadataBindingV1(envelope, assetId) {
+  if (!/^[A-Za-z0-9_-]{22}$/.test(assetId || "") || !envelope ||
+      !Array.isArray(envelope.elements) || envelope.elements.length !== 1 ||
+      (envelope.paging && envelope.paging.next != null)) return null;
+  const element = envelope.elements[0];
+  if (!element || element.id !== assetId || typeof element.name !== "string" ||
+      !element.name.trim() || element.name.length > 1024 ||
+      typeof element.typeName !== "string" || !element.typeName ||
+      typeof element.url?.url !== "string") return null;
+  const canonicalUrl = canonicalDirectAssetUrlV1(element.url.url);
+  if (!canonicalUrl) return null;
+  try {
+    const sanitized = sanitizeCourseraCourseDataModel(element);
+    if (sanitized.limitReached) return null;
+    const sourceModel = {...sanitized.data, url:{...sanitized.data.url,url:canonicalUrl}};
+    for (const key of Object.keys(sourceModel.url))
+      if (/^(?:expires|expiry|expiration|expiresAt)$/i.test(key)) delete sourceModel.url[key];
+    return {assetId,name:element.name,typeName:element.typeName,canonicalUrl,
+      sourceModel,modelCanonical:directCanonicalSourceTextV1(sourceModel)};
+  } catch (_) { return null; }
+}
+
+/** Inert original bytes must match both declared MIME and a supported signature. */
+export function directAssetBodyKindV1(bytes, mime, name = "") {
+  if (!(bytes instanceof Uint8Array) || !bytes.length || typeof mime !== "string") return "";
+  const type=mime.split(";")[0].trim().toLowerCase(), generic=type==="application/octet-stream";
+  const prefix = (...values)=>bytes.length>=values.length && values.every((value,index)=>bytes[index]===value);
+  const ascii=(start,end)=>String.fromCharCode(...bytes.subarray(start,end));
+  if (prefix(137,80,78,71,13,10,26,10) && (type==="image/png" || generic)) return "PNG";
+  if (prefix(255,216,255) && (type==="image/jpeg" || type==="image/jpg" || generic)) return "JPEG";
+  if (bytes.length>=6 && /^(?:GIF87a|GIF89a)$/.test(ascii(0,6)) && (type==="image/gif" || generic)) return "GIF";
+  if (bytes.length>=12 && ascii(0,4)==="RIFF" && ascii(8,12)==="WEBP" && (type==="image/webp" || generic)) return "WEBP";
+  if (prefix(37,80,68,70,45) && (type==="application/pdf" || generic)) return "PDF";
+  if (prefix(80,75,3,4)) {
+    const office = /\.(pptx|docx|xlsx)$/i.exec(name);
+    if (office) {
+      const suffix = {pptx:"presentationml.presentation",docx:"wordprocessingml.document",xlsx:"spreadsheetml.sheet"}[office[1].toLowerCase()];
+      if (generic || type==="application/zip" || type==="application/vnd.openxmlformats-officedocument."+suffix) return "OFFICE_ZIP";
+      return "";
+    }
+    if (type==="application/zip" || type==="application/x-zip-compressed" || generic && /\.zip$/i.test(name)) return "ZIP";
+  }
+  if (bytes.length>=12 && ascii(4,8)==="ftyp" && (type==="video/mp4" || type==="audio/mp4")) return "MP4";
+  if (prefix(73,68,51) && (type==="audio/mpeg" || type==="audio/mp3")) return "MP3";
+  return "";
+}
+
+/** Validate base64 length and padding before allocating a bounded byte array. */
+export function decodeDirectAssetBodyV1(body, maxBytes = 16*1024*1024) {
+  if (!body || typeof body.base64 !== "string" || !Number.isSafeInteger(body.size) ||
+      body.size < 1 || body.size > maxBytes || !Number.isSafeInteger(maxBytes) || maxBytes < 1) return null;
+  const encoded=body.base64;
+  if (!encoded.length || encoded.length%4 || encoded.length > Math.ceil(maxBytes/3)*4 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) return null;
+  const padding=encoded.endsWith("==")?2:encoded.endsWith("=")?1:0;
+  if (encoded.length/4*3-padding !== body.size) return null;
+  const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  if (padding && alphabet.indexOf(encoded[encoded.length-padding-1])%(padding===2?16:4)!==0) return null;
+  try {
+    const binary=atob(encoded);
+    if (binary.length!==body.size) return null;
+    const bytes=new Uint8Array(binary.length);
+    for (let index=0;index<binary.length;index++) bytes[index]=binary.charCodeAt(index);
+    return bytes;
+  } catch (_) { return null; }
+}
+
+export function encodeDirectAssetBodyV1(bytes) {
+  if (!(bytes instanceof Uint8Array)) return "";
+  const chunks=[];
+  // A multiple of three keeps independently encoded chunks free of padding.
+  for (let offset=0;offset<bytes.length;offset+=12288) {
+    let binary="";
+    for (const byte of bytes.subarray(offset,offset+12288)) binary+=String.fromCharCode(byte);
+    chunks.push(btoa(binary));
+  }
+  return chunks.join("");
+}
+
+/** Cached binary evidence remains eligible only with its original complete proof. */
+export function directRetainedAssetMetadataReceiptValidV1(receipt, assetId) {
+  const hash=receipt?.originalResponseSha256;
+  return !!receipt && receipt.resource==="assets.v1" && receipt.id===assetId &&
+    receipt.requestPath==="/api/assets.v1" && receipt.status===200 &&
+    receipt.bodyFormat==="PARSED_SANITIZED_JSON_MODEL" &&
+    Array.isArray(receipt.requestQuery) && receipt.requestQuery.length===1 &&
+    Array.isArray(receipt.requestQuery[0]) && receipt.requestQuery[0].length===2 &&
+    receipt.requestQuery[0][0]==="ids" && receipt.requestQuery[0][1]===assetId &&
+    /^[a-f0-9]{64}$/.test(hash || "") && (!receipt.sha256 || receipt.sha256===hash) &&
+    typeof receipt.observedAt==="string" && Number.isFinite(Date.parse(receipt.observedAt));
+}
+
+export async function directRetainedAssetBodyV1(evidence, assetId, maxBytes = 16*1024*1024) {
+  if (!evidence || evidence.reason || evidence.assetId!==assetId ||
+      evidence.stability?.stable!==true ||
+      !directRetainedAssetMetadataReceiptValidV1(evidence.metadataReceipt,assetId) ||
+      !directRetainedAssetMetadataReceiptValidV1(evidence.stability.receipt,assetId)) return null;
+  const initial=directAssetMetadataBindingV1(evidence.metadata,assetId),
+    fresh=directAssetMetadataBindingV1(evidence.stability.metadata,assetId), raw=evidence.body;
+  if (!initial || !fresh || initial.modelCanonical!==fresh.modelCanonical ||
+      !raw || !raw.receipt || typeof raw.mime!=="string" ||
+      raw.canonicalUrl!==initial.canonicalUrl || !/^[a-f0-9]{64}$/.test(raw.sha256 || "")) return null;
+  // Snapshot primitive fields before asynchronous hashing. The caller cannot
+  // turn a verified body into different bytes while current metadata is read.
+  const body={base64:raw.base64,sha256:raw.sha256,size:raw.size,mime:raw.mime,
+    canonicalUrl:raw.canonicalUrl,receipt:{...raw.receipt}}, receipt=body.receipt;
+  if (receipt.status!==200 || receipt.bodyFormat!=="ORIGINAL_BINARY_BYTES_BASE64" ||
+      receipt.bytes!==body.size || receipt.mime!==body.mime || receipt.sha256!==body.sha256 ||
+      receipt.canonicalUrl!==body.canonicalUrl || typeof receipt.observedAt!=="string" ||
+      !Number.isFinite(Date.parse(receipt.observedAt))) return null;
+  const bytes=decodeDirectAssetBodyV1(body,maxBytes);
+  if (!bytes || !directAssetBodyKindV1(bytes,body.mime,initial.name) || !globalThis.crypto?.subtle) return null;
+  try {
+    const hash=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));
+    const actual=[...hash].map(value=>value.toString(16).padStart(2,"0")).join("");
+    return actual===body.sha256?{binding:initial,body}:null;
+  } catch (_) {return null;}
+}
+
+/** Bounded asset bodies use their own two-slot pool; metadata shares API slots. */
+export function createDirectDataMediaReaderV1(options = {}) {
+  const defaults={concurrentRequests:2,bodyBytes:16*1024*1024,totalBytes:64*1024*1024,
+    requestMs:30000,durationMs:60*60*1000};
+  const limits={};
+  for (const [name, maximum] of Object.entries(defaults)) {
+    const requested=Number(options.limits?.[name]);
+    limits[name]=name==="totalBytes" && requested===0 ? 0 :
+      Number.isFinite(requested) && requested>0 ? Math.min(maximum,Math.max(1,Math.floor(requested))) : maximum;
+  }
+  const fetchImpl=options.fetchImpl || globalThis.fetch?.bind(globalThis), api=options.apiReader;
+  const startedAt=Date.now(),queue=[],controllers=new Set(),pending=new Map(),cancellation=new AbortController();
+  const stats={requests:0,bytes:0,completed:0,failed:0,active:0,maxConcurrentRequests:0,queued:0,statsHookFailures:0};
+  let stopReason="",bodyBudgetExhausted=false;
+  function snapshot() {return {...stats,queued:queue.length,elapsedMs:Date.now()-startedAt,
+    stopped:!!stopReason,stopReason,bodyBudgetExhausted,limits:{...limits}};}
+  function notify() {
+    if (typeof options.onStats!=="function") return;
+    try {
+      const result=options.onStats(snapshot());
+      if (result && typeof result.catch==="function") result.catch(()=>{stats.statsHookFailures++;});
+    } catch (_) {stats.statsHookFailures++;}
+  }
+  function failure(assetId,reason,partial={}) {return {assetId,reason,...partial};}
+  function abort(reason="OPERATOR_STOPPED") {
+    if (stopReason) return;
+    stopReason=typeof reason==="string" && /^[A-Z0-9_]{1,96}$/.test(reason)?reason:"OPERATOR_STOPPED";
+    cancellation.abort();
+    for (const controller of controllers) controller.abort();
+    while (queue.length) {const job=queue.shift();stats.failed++;job.resolve(failure(job.assetId,stopReason));}
+    notify();
+  }
+  function current() {
+    if (stopReason) return false;
+    if (Date.now()-startedAt>=limits.durationMs) {abort("DIRECT_MEDIA_TIME_LIMIT");return false;}
+    if (typeof options.assertCurrent==="function") {
+      try {
+        const result=options.assertCurrent();
+        if (result && typeof result.then==="function") {
+          if (typeof result.catch==="function") result.catch(()=>{});
+          abort("SOURCE_CONTEXT_CHECK_FAILED");return false;
+        }
+        if (result===false) {abort("SOURCE_CONTEXT_CHANGED");return false;}
+      } catch (_) {abort("SOURCE_CONTEXT_CHECK_FAILED");return false;}
+    }
+    return true;
+  }
+  function scopedReceipt(response,assetId) {
+    return response?.receipt ? {...response.receipt,id:assetId,sha256:response.receipt.originalResponseSha256} : null;
+  }
+  async function discard(response) {
+    try {if (response?.body && typeof response.body.cancel==="function") await response.body.cancel();} catch (_) {}
+  }
+  async function captureBody(assetId,url,binding,controller) {
+    if (!current()) return failure(assetId,stopReason);
+    if (stats.bytes>=limits.totalBytes) {bodyBudgetExhausted=true;notify();return failure(assetId,"DIRECT_MEDIA_BYTE_LIMIT");}
+    if (typeof fetchImpl!=="function") return failure(assetId,"FETCH_UNAVAILABLE");
+    stats.requests++;notify();
+    let response;
+    try {
+      response=await fetchImpl(url,{method:"GET",credentials:"omit",redirect:"error",
+        signal:controller.signal,headers:{Accept:"image/*,application/pdf,application/zip,application/octet-stream,*/*;q=0.1"}});
+      if (!current()) {await discard(response);return failure(assetId,stopReason);}
+      if (!response.ok || response.status!==200) {await discard(response);return failure(assetId,"DIRECT_ASSET_BODY_HTTP_"+Number(response.status || 0));}
+      const actual=response.url || url;
+      if (response.redirected || actual!==url || canonicalDirectAssetUrlV1(actual)!==binding.canonicalUrl) {
+        await discard(response);return failure(assetId,"DIRECT_ASSET_BODY_REDIRECT");
+      }
+      const mime=String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (!/^(?:image\/(?:png|jpe?g|gif|webp)|application\/(?:pdf|zip|x-zip-compressed|octet-stream|vnd\.openxmlformats-officedocument\.(?:presentationml\.presentation|wordprocessingml\.document|spreadsheetml\.sheet))|(?:video|audio)\/mp4|audio\/(?:mpeg|mp3))$/.test(mime)) {
+        await discard(response);return failure(assetId,"DIRECT_ASSET_BODY_MIME_UNSUPPORTED");
+      }
+      const advertised=Number(response.headers.get("content-length") || 0);
+      if (Number.isFinite(advertised) && advertised>limits.bodyBytes) {
+        await discard(response);return failure(assetId,"DIRECT_ASSET_BODY_BYTE_LIMIT");
+      }
+      const chunks=[];let count=0;
+      function add(bytes) {
+        count+=bytes.byteLength;stats.bytes+=bytes.byteLength;notify();
+        if (stats.bytes>limits.totalBytes) {
+          bodyBudgetExhausted=true;
+          // Stop active downloads while preserving metadata-only validation of
+          // earlier originals. Exhaustion is an asset gap, not a lost session.
+          for (const activeController of controllers) activeController.abort();
+          notify();return false;
+        }
+        if (count>limits.bodyBytes) return false;
+        chunks.push(bytes);return true;
+      }
+      if (response.body && typeof response.body.getReader==="function") {
+        const reader=response.body.getReader();
+        try {
+          while (current()) {
+            const next=await reader.read();
+            if (next.done) break;
+            if (!(next.value instanceof Uint8Array) || !add(next.value)) {
+              await reader.cancel();return failure(assetId,stopReason || (bodyBudgetExhausted?"DIRECT_MEDIA_BYTE_LIMIT":"DIRECT_ASSET_BODY_BYTE_LIMIT"));
+            }
+          }
+          if (!current()) {await reader.cancel();return failure(assetId,stopReason);}
+        } finally {reader.releaseLock();}
+      } else if (typeof response.arrayBuffer==="function") {
+        if (!add(new Uint8Array(await response.arrayBuffer()))) return failure(assetId,stopReason || (bodyBudgetExhausted?"DIRECT_MEDIA_BYTE_LIMIT":"DIRECT_ASSET_BODY_BYTE_LIMIT"));
+      } else return failure(assetId,"DIRECT_ASSET_BODY_UNAVAILABLE");
+      const bytes=new Uint8Array(count);let offset=0;
+      for (const chunk of chunks) {bytes.set(chunk,offset);offset+=chunk.byteLength;}
+      chunks.length=0;
+      if (!directAssetBodyKindV1(bytes,mime,binding.name)) return failure(assetId,"DIRECT_ASSET_BODY_MAGIC_INVALID");
+      if (!globalThis.crypto?.subtle) return failure(assetId,"RESPONSE_HASH_UNAVAILABLE");
+      const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));
+      if (!current()) return failure(assetId,stopReason);
+      const sha256=[...digest].map(value=>value.toString(16).padStart(2,"0")).join("");
+      const body={base64:encodeDirectAssetBodyV1(bytes),sha256,size:count,mime,canonicalUrl:binding.canonicalUrl,
+        receipt:{status:Number(response.status),bytes:count,mime,canonicalUrl:binding.canonicalUrl,sha256,
+          observedAt:new Date().toISOString(),bodyFormat:"ORIGINAL_BINARY_BYTES_BASE64"}};
+      return {assetId,body};
+    } catch (_) {return failure(assetId,stopReason || (bodyBudgetExhausted?"DIRECT_MEDIA_BYTE_LIMIT":controller.signal.aborted?"DIRECT_ASSET_BODY_ABORTED":"DIRECT_ASSET_BODY_FETCH_FAILED"));}
+  }
+  async function work(job,controller) {
+    const assetId=job.assetId;
+    if (!current()) return failure(assetId,stopReason);
+    if (typeof api?.readAsset!=="function") return failure(assetId,"ASSET_API_READER_UNAVAILABLE");
+    const retained=await directRetainedAssetBodyV1(job.retainedEvidence,assetId,limits.bodyBytes);
+    if (!current()) return failure(assetId,stopReason);
+    if (!retained && stats.bytes>=limits.totalBytes) {bodyBudgetExhausted=true;notify();return failure(assetId,"DIRECT_MEDIA_BYTE_LIMIT");}
+    const metadata=await api.readAsset(assetId);
+    if (!current()) return failure(assetId,stopReason);
+    const partial={metadata:metadata?.data || null,metadataReceipt:scopedReceipt(metadata,assetId)};
+    if (!metadata?.ok) return failure(assetId,metadata?.reason || "DIRECT_ASSET_METADATA_FAILED",partial);
+    const binding=directAssetMetadataBindingV1(metadata.data,assetId);
+    if (!binding) return failure(assetId,"DIRECT_ASSET_METADATA_INVALID",partial);
+    if (retained && retained.binding.modelCanonical===binding.modelCanonical) {
+      partial.body=retained.body;
+    } else {
+      const location=typeof metadata.takeAssetLocation==="function"?metadata.takeAssetLocation():"";
+      if (!location || canonicalDirectAssetUrlV1(location)!==binding.canonicalUrl)
+        return failure(assetId,"DIRECT_ASSET_LOCATION_UNSUPPORTED",partial);
+      const downloaded=await captureBody(assetId,location,binding,controller);
+      if (!downloaded.body) return failure(assetId,downloaded.reason || "DIRECT_ASSET_BODY_FETCH_FAILED",partial);
+      partial.body=downloaded.body;
+    }
+    const fresh=await api.readAsset(assetId);
+    if (!current()) return failure(assetId,stopReason,partial);
+    const freshBinding=fresh?.ok && directAssetMetadataBindingV1(fresh.data,assetId);
+    const stability={stable:!!freshBinding && freshBinding.modelCanonical===binding.modelCanonical,
+      metadata:fresh?.data || null,receipt:scopedReceipt(fresh,assetId)};
+    partial.stability=stability;
+    if (!fresh?.ok) return failure(assetId,fresh?.reason || "DIRECT_ASSET_STABILITY_FAILED",partial);
+    if (!stability.stable) return failure(assetId,"DIRECT_ASSET_METADATA_CHANGED",partial);
+    return {assetId,...partial};
+  }
+  async function execute(job) {
+    const controller=new AbortController();controllers.add(controller);
+    let timer,listener;
+    const cancelled=new Promise(resolve=>{
+      listener=()=>resolve(failure(job.assetId,stopReason || "OPERATOR_STOPPED"));
+      cancellation.signal.addEventListener("abort",listener,{once:true});
+      timer=setTimeout(()=>abort("DIRECT_MEDIA_REQUEST_TIMEOUT"),
+        Math.max(1,Math.min(limits.requestMs,limits.durationMs-(Date.now()-startedAt))));
+    });
+    try {return await Promise.race([work(job,controller),cancelled]);}
+    finally {clearTimeout(timer);cancellation.signal.removeEventListener("abort",listener);controllers.delete(controller);}
+  }
+  function pump() {
+    if (!current()) return;
+    while (queue.length && !stopReason && stats.active<limits.concurrentRequests) {
+      const job=queue.shift();stats.active++;stats.maxConcurrentRequests=Math.max(stats.maxConcurrentRequests,stats.active);notify();
+      const settle=result=>{stats.active--;if (result.reason) stats.failed++;else stats.completed++;notify();job.resolve(result);pump();};
+      execute(job).then(settle,()=>settle(failure(job.assetId,"DIRECT_MEDIA_READER_FAILED")));
+    }
+  }
+  function capture(assetId,retainedEvidence) {
+    if (!/^[A-Za-z0-9_-]{22}$/.test(assetId || "")) return Promise.resolve(failure(assetId,"INVALID_ASSET_ID"));
+    if (!current()) return Promise.resolve(failure(assetId,stopReason));
+    const previous=pending.get(assetId);
+    if (previous && !(previous.settled && previous.failed && retainedEvidence)) return previous.promise;
+    const record={settled:false,failed:false,promise:null};
+    const promise=new Promise(resolve=>{
+      queue.push({assetId,retainedEvidence,resolve:result=>{record.settled=true;record.failed=!!result.reason;resolve(result);}});notify();pump();
+    });
+    record.promise=promise;pending.set(assetId,record);
+    return promise;
+  }
+  function release(assetId) {
+    const record=pending.get(assetId);
+    if (!record?.settled) return false;
+    pending.delete(assetId);return true;
+  }
+  return {capture,snapshot,abort,release};
+}

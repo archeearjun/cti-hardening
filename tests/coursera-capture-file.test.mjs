@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import {
   MAX_COURSERA_CAPTURE_JSON_BYTES,
@@ -99,14 +99,51 @@ test("gzip headers, truncation, checksum corruption, and trailing garbage are re
   );
 });
 
+test("one gzip capture can retain incompressible original media above the old 32 MiB limit", async () => {
+  const media = randomBytes(33 * 1024 * 1024).toString("base64");
+  const original = Buffer.from(
+    JSON.stringify({
+      schemaVersion: 35,
+      fingerprints: [
+        {
+          payload: { directMediaBodies: [{ encoding: "base64", data: media }] },
+        },
+      ],
+    }),
+  );
+  const packed = gzipSync(original);
+  assert(packed.byteLength > 32 * 1024 * 1024);
+  assert(original.byteLength < MAX_COURSERA_CAPTURE_JSON_BYTES);
+  const decoded = await readCourseraCaptureFileBytes(file(packed));
+  assert.equal(
+    createHash("sha256").update(decoded.bytes).digest("hex"),
+    createHash("sha256").update(original).digest("hex"),
+    "Compressed transport retains all original media bytes",
+  );
+  assert.equal(decoded.transport.bytes, packed.byteLength);
+  assert.equal(decoded.transport.expandedBytes, original.byteLength);
+  assert.equal(
+    JSON.parse(new TextDecoder().decode(decoded.bytes)).fingerprints[0].payload
+      .directMediaBodies[0].data,
+    media,
+  );
+  await assert.rejects(
+    readCourseraCaptureFileBytes(file(packed), {
+      compressedBytes: 32 * 1024 * 1024,
+    }),
+    /128 MiB file limit/,
+    "A caller can still impose a smaller physical transport limit",
+  );
+});
+
 test("physical and expanded limits reject compression bombs before returning JSON bytes", async () => {
   assert.equal(MAX_COURSERA_CAPTURE_JSON_BYTES, 128 * 1024 * 1024);
-  assert.equal(MAX_COURSERA_COMPRESSED_CAPTURE_BYTES, 32 * 1024 * 1024);
+  assert.equal(MAX_COURSERA_COMPRESSED_CAPTURE_BYTES, 128 * 1024 * 1024);
   await assert.rejects(
     readCourseraCaptureFileBytes(file(compressed), {
       compressedBytes: compressed.length - 1,
     }),
-    /32 MiB file limit/,
+    /128 MiB file limit/,
   );
   await assert.rejects(
     readCourseraCaptureFileBytes(file(source, "large.json"), {
@@ -128,6 +165,43 @@ test("physical and expanded limits reject compression bombs before returning JSO
     readCourseraCaptureFileBytes(file(compressed), { compressedBytes: NaN }),
     /Invalid.*limit/,
   );
+});
+
+test("caller overrides cannot raise either transport bound and oversized files are rejected before reading", async () => {
+  let reads = 0;
+  const oversized = (name) => ({
+    name,
+    size: 128 * 1024 * 1024 + 1,
+    async arrayBuffer() {
+      reads += 1;
+      throw Error("The physical size check must run before reading");
+    },
+  });
+  await assert.rejects(
+    readCourseraCaptureFileBytes(oversized("large.json.gz"), {
+      compressedBytes: 256 * 1024 * 1024,
+    }),
+    /128 MiB file limit/,
+  );
+  await assert.rejects(
+    readCourseraCaptureFileBytes(oversized("large.json"), {
+      expandedBytes: 256 * 1024 * 1024,
+    }),
+    /128 MiB JSON limit/,
+  );
+  assert.equal(reads, 0);
+  for (const limit of [0, -1, Infinity, 1.5]) {
+    await assert.rejects(
+      readCourseraCaptureFileBytes(file(compressed), {
+        compressedBytes: limit,
+      }),
+      /Invalid.*limit/,
+    );
+    await assert.rejects(
+      readCourseraCaptureFileBytes(file(compressed), { expandedBytes: limit }),
+      /Invalid.*limit/,
+    );
+  }
 });
 
 test("gzip cannot hide non-JSON or invalid UTF-8 content", async () => {

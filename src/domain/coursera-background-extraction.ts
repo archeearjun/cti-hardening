@@ -2,6 +2,10 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parseCourseraCourseMaterialsRelations } from "./coursera-course-relations.ts";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
+import {
+  directCmlMediaInventoryV1,
+  directMediaEvidenceStructureV1,
+} from "../extractors/coursera/direct-data-media-contracts.js";
 
 export interface CourseraShellTarget {
   inputUrl: string;
@@ -351,6 +355,52 @@ function directTextOnlyCmlSource(value: string): boolean {
       value,
     )
   );
+}
+
+function directReadingMediaSourcesValid(
+  payload: Record<string, any>,
+  evidence: Record<string, any>,
+  value: string,
+): boolean {
+  const inventory = directCmlMediaInventoryV1(value);
+  if (!inventory.valid) return false;
+  const media = directMediaEvidenceStructureV1(
+    payload.directAssetEvidence,
+    inventory.references,
+  );
+  if (
+    !media.complete ||
+    evidence.assetReferenceCount !== inventory.references.length ||
+    evidence.assetsBodyVerified !== true ||
+    !Array.isArray(evidence.unresolvedAssetReferences) ||
+    evidence.unresolvedAssetReferences.length
+  )
+    return false;
+  for (const captured of media.decoded) {
+    if (bytesToHex(sha256(captured.bytes)) !== captured.asset.body.sha256)
+      return false;
+  }
+  if (!inventory.references.length) return true;
+  const details = payload.assetDetails;
+  if (!Array.isArray(details) || details.length !== inventory.references.length)
+    return false;
+  return media.resolved.every((resolved: any) => {
+    const position = inventory.references.indexOf(resolved.reference),
+      detail = record(details[position]),
+      body = resolved.asset.body;
+    return Boolean(
+      detail &&
+        detail.assetId === resolved.reference.id &&
+        detail.tag === resolved.reference.tag &&
+        detail.url === resolved.binding.canonicalUrl &&
+        detail.bodyVerified === true &&
+        detail.hashStatus === "HASHED_ORIGINAL_BINARY_BYTES" &&
+        detail.evidenceSource === "bound-native-cml-asset-body" &&
+        detail.sha256 === body.sha256 &&
+        detail.size === body.size &&
+        detail.mime === body.mime,
+    );
+  });
 }
 
 function directAssessmentSourcesValid(
@@ -942,7 +992,11 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         cml?.typeName !== "cml" ||
         cmlDefinition?.dtdId !== "supplement/1" ||
         typeof cmlDefinition?.value !== "string" ||
-        !directTextOnlyCmlSource(cmlDefinition.value) ||
+        !directReadingMediaSourcesValid(
+          payload,
+          evidence,
+          cmlDefinition.value,
+        ) ||
         JSON.stringify(payload.directDraftCml) !== JSON.stringify(cml) ||
         evidence.dtdId !== cmlDefinition.dtdId ||
         evidence.assetId !== definition?.assetId ||
@@ -958,10 +1012,6 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         !directHash(payload.textSha256) ||
         payload.textSha256 !==
           bytesToHex(sha256(new TextEncoder().encode(payload.textSample))) ||
-        evidence.assetReferenceCount !== 0 ||
-        evidence.assetsBodyVerified !== true ||
-        !Array.isArray(evidence.unresolvedAssetReferences) ||
-        evidence.unresolvedAssetReferences.length > 0 ||
         payload.textCaptureTruncated !== false ||
         payload.textCaptureEvidence != null ||
         payload.emptyReadingEvidence != null

@@ -1,5 +1,10 @@
 import { sha256 } from "./text-and-dom.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
+import {
+  directCmlMediaInventoryV1,
+  directMediaEvidenceStructureV1,
+} from "./direct-data-media-contracts.js";
+import { directAssetMetadataBindingV1 } from "./direct-data-media.js";
 
 export function directReceiptSourceValidV1(receipt, resource, id) {
   const hash = receipt?.originalResponseSha256 || receipt?.sha256;
@@ -152,6 +157,8 @@ export function directCmlTextV1(cml) {
     typeof DOMParser === "undefined"
   )
     return null;
+  const mediaInventory = directCmlMediaInventoryV1(cml);
+  if (!mediaInventory.valid) return null;
   // Bound markup before the XML parser allocates a document. Body-byte limits
   // alone do not bound the number of tiny XML nodes in a supplied source.
   let markup = 0;
@@ -214,7 +221,11 @@ export function directCmlTextV1(cml) {
         bodyVerified: false,
       });
     }
-    return { text, references, links: [...new Set(links)] };
+    return {
+      text,
+      references: mediaInventory.references,
+      links: [...new Set(links)],
+    };
   } catch (_) {
     return null;
   }
@@ -249,7 +260,31 @@ export async function directReadingPayloadV1(fp, bound, source) {
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
       "DIRECT_CML_NOT_SUPPORTED",
     ]);
-  const unresolved = parsed.references;
+  const media = directMediaEvidenceStructureV1(
+    payload.directAssetEvidence,
+    parsed.references,
+  );
+  let mediaVerified = media.complete,
+    mediaReason = media.reason;
+  if (mediaVerified) {
+    for (const captured of media.decoded) {
+      try {
+        if (typeof crypto === "undefined" || !crypto.subtle)
+          throw new Error("hash unavailable");
+        const digest = await crypto.subtle.digest("SHA-256", captured.bytes);
+        const hash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        if (hash !== captured.asset.body.sha256)
+          throw new Error("hash mismatch");
+      } catch (_) {
+        mediaVerified = false;
+        mediaReason = "DIRECT_ASSET_BODY_HASH_INVALID";
+        break;
+      }
+    }
+  }
+  const unresolved = mediaVerified ? [] : parsed.references;
   const textHash = await sha256(parsed.text),
     rawHash = await sha256(source.cml);
   payload.textSample = parsed.text;
@@ -261,25 +296,44 @@ export async function directReadingPayloadV1(fp, bound, source) {
   payload.textScopeKind = "bound-authoring-draft-cml";
   payload.textCaptureTruncated = false;
   payload.links = parsed.links;
-  payload.files = parsed.references
-    .filter((reference) => reference.locationResolved)
-    .map((reference) => reference.url);
-  payload.images = parsed.references
-    .filter(
-      (reference) =>
-        /^(?:img|image)$/.test(reference.tag) && reference.locationResolved,
-    )
-    .map((reference) => reference.url);
-  payload.assetDetails = parsed.references
-    .filter((reference) => reference.locationResolved)
-    .map((reference) => ({
-      url: reference.url,
+  // Keep missing-location references visible: a native ID or label is useful
+  // retained evidence even when its binary body cannot yet be acquired.
+  payload.assetDetails = parsed.references.map((reference) => {
+    const asset = payload.directAssetEvidence?.assets?.find(
+      (candidate) => candidate.assetId === reference.id,
+    );
+    const binding =
+      asset && directAssetMetadataBindingV1(asset.metadata, reference.id);
+    return {
+      url: binding?.canonicalUrl || reference.url,
       assetId: reference.id,
-      name: reference.name,
-      evidenceSource: "bound-authoring-draft-cml",
-      hashStatus: "NOT_FETCHED_DIRECT_DATA",
-      bodyVerified: false,
-    }));
+      name: reference.name || binding?.name || "",
+      tag: reference.tag,
+      evidenceSource: mediaVerified
+        ? "bound-native-cml-asset-body"
+        : "bound-authoring-draft-cml",
+      hashStatus: mediaVerified
+        ? "HASHED_ORIGINAL_BINARY_BYTES"
+        : "NOT_FETCHED_DIRECT_DATA",
+      bodyVerified: mediaVerified,
+      ...(mediaVerified && asset
+        ? {
+            sha256: asset.body.sha256,
+            size: asset.body.size,
+            mime: asset.body.mime,
+          }
+        : {}),
+    };
+  });
+  payload.files = payload.assetDetails
+    .filter((asset) => /^https?:\/\//i.test(asset.url))
+    .map((asset) => asset.url);
+  payload.images = payload.assetDetails
+    .filter(
+      (asset) =>
+        /^(?:img|image)$/.test(asset.tag) && /^https?:\/\//i.test(asset.url),
+    )
+    .map((asset) => asset.url);
   payload.directDataEvidence = {
     ...evidence,
     dtdId: source.dtdId,
@@ -288,16 +342,19 @@ export async function directReadingPayloadV1(fp, bound, source) {
     rawCmlSha256: rawHash,
     plainTextLength: parsed.text.length,
     assetReferenceCount: parsed.references.length,
-    assetsBodyVerified: parsed.references.length === 0,
+    assetsBodyVerified: mediaVerified,
     unresolvedAssetReferences: unresolved,
   };
   if (!textHash || !rawHash)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
       "DIRECT_READING_HASH_UNAVAILABLE",
     ]);
-  if (unresolved.length)
+  if (!mediaVerified)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
       "DIRECT_READING_ASSETS_UNRESOLVED",
+      ...(mediaReason && mediaReason !== "DIRECT_READING_ASSETS_UNRESOLVED"
+        ? [mediaReason]
+        : []),
     ]);
   return applyDirectContractV1(fp, "COMPLETE_BOUND_DRAFT_READING", true);
 }

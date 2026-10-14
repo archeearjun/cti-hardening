@@ -7,10 +7,27 @@ import {
   type CourseraCaptureVerdict,
 } from "./coursera-background-extraction.ts";
 import { readCourseraCaptureFileJson } from "./coursera-capture-file.ts";
+import { directDataCoverageSummaryV1 } from "../extractors/coursera/direct-data-summary.js";
 
 // Legacy Protocol commands embed a resume JSON literal. File inspection uses
 // the separate bounded JSON/gzip transport reader below.
 export const MAX_LOCAL_COURSERA_CAPTURE_BYTES = 40 * 1024 * 1024;
+
+export interface DirectCourseraCaptureSummary {
+  coverage: ReturnType<typeof directDataCoverageSummaryV1>;
+  currentAttempt: { requests: number | null; elapsedMs: number | null };
+  inheritedBudget: { requests: number | null; elapsedMs: number | null };
+  cumulativeBudget: { requests: number | null; elapsedMs: number | null };
+  timingSource: "RECORDED_ATTEMPT" | "RECEIPT_SPAN" | "UNAVAILABLE";
+  mediaContinuation: {
+    retainedAssessmentObservations: boolean;
+    baseSourceCapturedAt: string;
+  } | null;
+  media: {
+    currentAttempt: { requests: number | null; bytes: number | null };
+    cumulativeBudget: { requests: number | null; bytes: number | null };
+  } | null;
+}
 
 export interface LocalCourseraCaptureInspection {
   courseId: string;
@@ -26,6 +43,7 @@ export interface LocalCourseraCaptureInspection {
   pausedBatch: boolean;
   batchVisits: number;
   authoringShellUrl: string;
+  directSummary: DirectCourseraCaptureSummary | null;
 }
 
 const record = (value: unknown): Record<string, any> => {
@@ -33,6 +51,210 @@ const record = (value: unknown): Record<string, any> => {
     throw new Error("Select a full CTI Coursera capture JSON.");
   return value as Record<string, any>;
 };
+
+function directCapturePresentation(
+  capture: Record<string, any>,
+): DirectCourseraCaptureSummary {
+  const fingerprints = capture.fingerprints as Record<string, any>[];
+  const direct =
+    (capture.meta || capture.extractionMeta)?.directDataCapture || {};
+  const coverage = directDataCoverageSummaryV1(
+    fingerprints.map((item) => {
+      const payload = item.payload || {},
+        contract = item.captureContract || payload.captureContract || {},
+        references = Array.isArray(
+          payload.directDataEvidence?.unresolvedAssetReferences,
+        )
+          ? payload.directDataEvidence.unresolvedAssetReferences
+          : [];
+      return {
+        type: item.type,
+        contract,
+        processed:
+          contract.status !== "UNVISITED_DIRECT_ITEM" &&
+          !!payload.directDataSources &&
+          !!(
+            payload.directDataSources.atom ||
+            payload.directDataSources.materials
+          ),
+        questions: Array.isArray(payload.structuredAssessment?.questions)
+          ? payload.structuredAssessment.questions.length
+          : 0,
+        assetReferenceCount:
+          payload.directDataEvidence?.assetReferenceCount || references.length,
+        assetReferenceIds: [
+          ...references.map(
+            (reference: Record<string, any> | null) =>
+              reference?.id || reference?.url,
+          ),
+          ...(Array.isArray(payload.assetDetails)
+            ? payload.assetDetails
+            : []
+          ).map(
+            (detail: Record<string, any> | null) =>
+              detail?.assetId || detail?.url,
+          ),
+        ],
+        missingPointerCount: references.filter(
+          (reference: Record<string, any> | null) =>
+            !reference?.id && !reference?.url,
+        ).length,
+      };
+    }),
+  );
+  const nonnegative = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? value
+      : null;
+  const stats = direct.stats || {};
+  const cumulativeBudget = {
+    requests: nonnegative(stats.cumulativeBudget?.requests ?? stats.requests),
+    elapsedMs: nonnegative(
+      stats.cumulativeBudget?.elapsedMs ?? stats.elapsedMs,
+    ),
+  };
+  const recordedTime = nonnegative(stats.currentAttempt?.elapsedMs),
+    recordedRequests = nonnegative(stats.currentAttempt?.requests);
+  let currentAttempt = {
+    requests: recordedRequests,
+    elapsedMs: recordedTime,
+  };
+  let timingSource: DirectCourseraCaptureSummary["timingSource"] =
+    recordedTime !== null ? "RECORDED_ATTEMPT" : "UNAVAILABLE";
+  if (recordedTime === null) {
+    // v1.0/v1.1 recorded cumulative time alongside this attempt's resource
+    // counts. Saved question receipts can predate a resume by hours; only
+    // observations after the current material read belong to this attempt.
+    const timestamp = (value: unknown): number | null => {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value))
+        return null;
+      const time = Date.parse(value);
+      return Number.isFinite(time) ? time : null;
+    };
+    const first = timestamp(direct.materialsReceipt?.observedAt),
+      extractedAt = timestamp(capture.extractedAt),
+      observations = new Map<string, number>();
+    const observe = (receipt: any): void => {
+      const time = timestamp(receipt?.observedAt);
+      if (
+        first === null ||
+        time === null ||
+        time < first ||
+        (extractedAt !== null && time > extractedAt) ||
+        typeof receipt?.resource !== "string"
+      )
+        return;
+      const key = JSON.stringify([
+        receipt.resource,
+        receipt.id,
+        receipt.observedAt,
+      ]);
+      observations.set(key, time);
+    };
+    for (const receipt of [
+      direct.materialsReceipt,
+      direct.courseReceipt,
+      direct.finalMaterialsReceipt,
+    ])
+      observe(receipt);
+    for (const item of fingerprints) {
+      const payload = item.payload || {},
+        receipts = payload.directDataSources?.receipts || {},
+        assessment = payload.assessmentApiEvidence || {};
+      for (const receipt of [
+        receipts.atom,
+        receipts.relation,
+        receipts.materials,
+        receipts.stability?.receipt,
+      ])
+        observe(receipt);
+      for (const receipt of Array.isArray(assessment.receipts)
+        ? assessment.receipts
+        : [])
+        observe(receipt);
+      for (const stability of Array.isArray(assessment.groupStability)
+        ? assessment.groupStability
+        : [])
+        observe(stability?.receipt);
+    }
+    if (observations.size > 1) {
+      let minimum = Infinity,
+        maximum = -Infinity;
+      for (const time of observations.values()) {
+        minimum = Math.min(minimum, time);
+        maximum = Math.max(maximum, time);
+      }
+      const resourceCounts = Object.values(stats.byResource || {}),
+        resourceRequests = resourceCounts.every(
+          (count) => Number.isSafeInteger(count) && Number(count) >= 0,
+        )
+          ? resourceCounts.reduce<number>(
+              (total, count) => total + Number(count),
+              0,
+            )
+          : null;
+      currentAttempt = {
+        requests:
+          recordedRequests ??
+          (resourceRequests !== null &&
+          resourceRequests > 0 &&
+          (cumulativeBudget.requests === null ||
+            resourceRequests <= cumulativeBudget.requests)
+            ? resourceRequests
+            : observations.size),
+        elapsedMs: maximum - minimum,
+      };
+      timingSource = "RECEIPT_SPAN";
+    }
+  }
+  const difference = (total: number | null, current: number | null) =>
+    total !== null && current !== null && total >= current
+      ? total - current
+      : null;
+  const continuation = direct.mediaEnrichment,
+    media = stats.media;
+  const baseCapturedAt = continuation?.baseSourceCapturedAt;
+  return {
+    coverage,
+    currentAttempt,
+    inheritedBudget: {
+      requests:
+        nonnegative(stats.inheritedBudget?.requests) ??
+        difference(cumulativeBudget.requests, currentAttempt.requests),
+      elapsedMs:
+        nonnegative(stats.inheritedBudget?.elapsedMs) ??
+        difference(cumulativeBudget.elapsedMs, currentAttempt.elapsedMs),
+    },
+    cumulativeBudget,
+    timingSource,
+    mediaContinuation:
+      continuation?.scope === "REFERENCED_READING_MEDIA_ONLY"
+        ? {
+            retainedAssessmentObservations:
+              continuation.retainedAssessmentObservations === true,
+            baseSourceCapturedAt:
+              typeof baseCapturedAt === "string" &&
+              /^\d{4}-\d{2}-\d{2}T/.test(baseCapturedAt) &&
+              Number.isFinite(Date.parse(baseCapturedAt))
+                ? baseCapturedAt
+                : "",
+          }
+        : null,
+    media:
+      media && typeof media === "object"
+        ? {
+            currentAttempt: {
+              requests: nonnegative(media.currentAttempt?.requests),
+              bytes: nonnegative(media.currentAttempt?.bytes),
+            },
+            cumulativeBudget: {
+              requests: nonnegative(media.requests),
+              bytes: nonnegative(media.bytes),
+            },
+          }
+        : null,
+  };
+}
 
 export function inspectLocalCourseraCapture(
   value: unknown,
@@ -142,6 +364,7 @@ export function inspectLocalCourseraCapture(
       meta.automaticLocalCapture?.state !== "FINISHED",
     batchVisits: Number(meta.localCaptureBatch?.visits || 0),
     authoringShellUrl,
+    directSummary: directDraftApi ? directCapturePresentation(capture) : null,
   };
 }
 

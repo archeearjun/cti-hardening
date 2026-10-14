@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DOMParser as XmlParser } from "@xmldom/xmldom";
-import { webcrypto } from "node:crypto";
+import { webcrypto, createHash } from "node:crypto";
 import {
   directReadingPayloadV1,
   directAssessmentContractV1,
@@ -15,6 +15,7 @@ import {
   directDraftDiscussionSourceV1,
   directDraftAssessmentInventoryV1,
 } from "../src/extractors/coursera/direct-data-models.js";
+import { directCmlMediaInventoryV1 } from "../src/extractors/coursera/direct-data-media-contracts.js";
 import { parseCourseraMcqDefinitionV61524 } from "../src/extractors/coursera/assessment-api.js";
 import { assessmentCaptureCoverageV613 } from "../src/extractors/coursera/assessments-4.js";
 
@@ -249,6 +250,202 @@ test("unresolved attachment labels and external frames keep explicit gaps; URL r
     "NOT_FETCHED_DIRECT_DATA",
   );
   assert.equal(f.fp.payload.assetDetails[0].sha256, undefined);
+});
+
+function capturedNativePng(id = "m".repeat(22)) {
+  const bytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z9ZkAAAAASUVORK5CYII=",
+      "base64",
+    ),
+    sha256 = createHash("sha256").update(bytes).digest("hex"),
+    canonicalUrl = "https://d3c33hcgiwev3.cloudfront.net/synthetic/image.png";
+  const metadata = {
+    elements: [
+      {
+        id,
+        name: "image.png",
+        typeName: "image",
+        url: { url: canonicalUrl, expires: 1 },
+        contentVersion: 3,
+      },
+    ],
+    paging: {},
+  };
+  const receipt = {
+    resource: "assets.v1",
+    id,
+    requestPath: "/api/assets.v1",
+    requestQuery: [["ids", id]],
+    status: 200,
+    bodyFormat: "PARSED_SANITIZED_JSON_MODEL",
+    originalResponseSha256: "e".repeat(64),
+    sha256: "e".repeat(64),
+  };
+  const fresh = structuredClone(metadata);
+  fresh.elements[0].url.expires = 2;
+  return {
+    assetId: id,
+    metadata,
+    metadataReceipt: receipt,
+    stability: {
+      stable: true,
+      metadata: fresh,
+      receipt: structuredClone(receipt),
+    },
+    body: {
+      base64: bytes.toString("base64"),
+      size: bytes.length,
+      sha256,
+      mime: "image/png",
+      canonicalUrl,
+      receipt: {
+        status: 200,
+        bytes: bytes.length,
+        sha256,
+        mime: "image/png",
+        canonicalUrl,
+        observedAt: "2026-10-14T12:00:00.000Z",
+        bodyFormat: "ORIGINAL_BINARY_BYTES_BASE64",
+      },
+    },
+  };
+}
+
+test("bound native image IDs become complete only with scoped fresh metadata and retained original binary bytes", async () => {
+  const id = "m".repeat(22),
+    f = fixture("supplement", cml('Current <img assetId="' + id + '"/> image'));
+  f.fp.payload.directAssetEvidence = {
+    method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+    assets: [capturedNativePng(id)],
+    missingPointers: [],
+    failures: [],
+  };
+  const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+  assert.equal(result.complete, true);
+  assert.equal(f.fp.payload.directDataEvidence.assetReferenceCount, 1);
+  assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, true);
+  assert.deepEqual(
+    f.fp.payload.directDataEvidence.unresolvedAssetReferences,
+    [],
+  );
+  assert.equal(f.fp.payload.assetDetails[0].assetId, id);
+  assert.equal(f.fp.payload.assetDetails[0].bodyVerified, true);
+  assert.equal(
+    f.fp.payload.assetDetails[0].sha256,
+    f.fp.payload.directAssetEvidence.assets[0].body.sha256,
+  );
+  assert.equal(f.fp.payload.directDraftCml.definition.value, f.source.cml);
+});
+
+test("unrelated binary evidence cannot be attached to a text-only draft to claim complete media capture", async () => {
+  const f = fixture();
+  f.fp.payload.directAssetEvidence = {
+    method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+    assets: [capturedNativePng()],
+    missingPointers: [],
+    failures: [],
+  };
+  assert.equal((await directReadingPayloadV1(f.fp, f.bound, f.source)).complete, false);
+});
+
+test("forged binary flags, hashes, foreign IDs, metadata mutations and MIME mismatches never verify a reading", async () => {
+  for (const mode of [
+    "hash",
+    "base64",
+    "size",
+    "mime",
+    "metadataId",
+    "freshContent",
+    "route",
+    "query",
+    "bodyFormat",
+    "extraAsset",
+    "missingBody",
+    "missingPointer",
+  ]) {
+    const id = "m".repeat(22),
+      f = fixture(
+        "supplement",
+        cml('Current <img assetId="' + id + '"/> image'),
+      ),
+      asset = capturedNativePng(id);
+    f.fp.payload.directAssetEvidence = {
+      method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+      assets: [asset],
+      missingPointers: [],
+      failures: [],
+    };
+    if (mode === "hash")
+      asset.body.sha256 = asset.body.receipt.sha256 = "f".repeat(64);
+    if (mode === "base64")
+      asset.body.base64 = "!".repeat(asset.body.base64.length);
+    if (mode === "size") asset.body.size++;
+    if (mode === "mime")
+      asset.body.mime = asset.body.receipt.mime = "application/pdf";
+    if (mode === "metadataId") asset.metadata.elements[0].id = "x".repeat(22);
+    if (mode === "freshContent")
+      asset.stability.metadata.elements[0].contentVersion++;
+    if (mode === "route")
+      asset.metadataReceipt.requestPath = "/api/assets.v1/" + id;
+    if (mode === "query")
+      asset.metadataReceipt.requestQuery[0][1] = "x".repeat(22);
+    if (mode === "bodyFormat") asset.body.receipt.bodyFormat = "HASH_ONLY";
+    if (mode === "extraAsset")
+      f.fp.payload.directAssetEvidence.assets.push(
+        capturedNativePng("x".repeat(22)),
+      );
+    if (mode === "missingBody") delete asset.body;
+    if (mode === "missingPointer")
+      f.fp.payload.directAssetEvidence.missingPointers.push({ tag: "img" });
+    const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, false, mode);
+    assert.equal(
+      f.fp.payload.directDataEvidence.assetsBodyVerified,
+      false,
+      mode,
+    );
+    assert.equal(f.fp.payload.assetDetails[0].assetId, id, mode);
+  }
+});
+
+test("missing source image pointers and unresolved native attachment IDs remain visible, without guessed URLs", async () => {
+  for (const markup of [
+    '<img alt=""/>',
+    '<asset id="' +
+      "m".repeat(22) +
+      '" name="Original deck" extension="pptx"/>',
+  ]) {
+    const f = fixture("supplement", cml(markup)),
+      result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, false);
+    assert.equal(f.fp.payload.assetDetails.length, 1);
+    assert.equal(f.fp.payload.assetDetails[0].url, "");
+    if (markup.includes("alt"))
+      assert(result.reasons.includes("DIRECT_CML_MEDIA_REFERENCE_MISSING"));
+    else {
+      assert.equal(f.fp.payload.assetDetails[0].assetId, "m".repeat(22));
+      assert.equal(f.fp.payload.assetDetails[0].name, "Original deck");
+    }
+  }
+});
+
+test("independent CML media inventory ignores comments and CDATA while retaining namespaced native IDs", () => {
+  const id = "m".repeat(22),
+    result = directCmlMediaInventoryV1(
+      '<co-content><!-- <img assetId="wrong"/> --><text><![CDATA[<img assetId="wrong"/>]]></text><media:img xmlns:media="urn:synthetic" assetId="' +
+        id +
+        '"/></co-content>',
+    );
+  assert.equal(result.valid, true);
+  assert.equal(result.references.length, 1);
+  assert.equal(result.references[0].id, id);
+  for (const invalid of [
+    '<co-content><img assetId="x" assetId="y"/></co-content>',
+    "<co-content><text></co-content>",
+    "<!DOCTYPE co-content><co-content/>",
+    "<co-content/><co-content/>",
+  ])
+    assert.equal(directCmlMediaInventoryV1(invalid).valid, false, invalid);
 });
 
 function nativeDefinition(kind = "mcq") {

@@ -1,7 +1,7 @@
 /** File transport limits are separate from capture fidelity. A gzip download
  * expands to the original JSON bytes before any identity or completion check. */
 export const MAX_COURSERA_CAPTURE_JSON_BYTES = 128 * 1024 * 1024;
-export const MAX_COURSERA_COMPRESSED_CAPTURE_BYTES = 32 * 1024 * 1024;
+export const MAX_COURSERA_COMPRESSED_CAPTURE_BYTES = 128 * 1024 * 1024;
 export const COURSERA_CAPTURE_FILE_ACCEPT =
   ".json,.json.gz,application/json,application/gzip";
 
@@ -48,7 +48,7 @@ export async function readCourseraCaptureFileBytes(
   if (file.size > (compressed ? compressedLimit : expandedLimit))
     throw Error(
       compressed
-        ? "The compressed Coursera capture exceeds the 32 MiB file limit."
+        ? "The compressed Coursera capture exceeds the 128 MiB file limit."
         : "The Coursera capture exceeds the 128 MiB JSON limit.",
     );
   const source = new Uint8Array(await file.arrayBuffer());

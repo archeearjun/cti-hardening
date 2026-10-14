@@ -17,6 +17,11 @@ import { download } from "./workspace-ui";
 import CourseraBookmarkSetup from "./CourseraBookmarkSetup.tsx";
 import CourseraDirectCaptureSetup from "./CourseraDirectCaptureSetup.tsx";
 
+function captureDuration(milliseconds: number): string {
+  const seconds = Math.floor(milliseconds / 1000);
+  return Math.floor(seconds / 60) + "m " + (seconds % 60) + "s";
+}
+
 export default function LocalCourseraExtraction({
   disabled = false,
   onUseCapture,
@@ -606,6 +611,88 @@ export default function LocalCourseraExtraction({
             </div>
           </div>
 
+          {inspection.directSummary && (
+            <div className="scope direct-capture-summary">
+              <p>
+                <strong>
+                  {inspection.directSummary.coverage.inventory.read}/
+                  {inspection.directSummary.coverage.inventory.total} inventory
+                  {inspection.directSummary.mediaContinuation ? " entries retained" : " entries read"}
+                </strong>
+                {" · "}
+                {inspection.directSummary.coverage.content.verified}/
+                {inspection.directSummary.coverage.content.total} content items
+                fully verified
+              </p>
+              <ul>
+                <li>
+                  Assessments: {inspection.directSummary.coverage.assessments.verified}/
+                  {inspection.directSummary.coverage.assessments.total} verified
+                  {" · "}{inspection.directSummary.coverage.questions.toLocaleString()} questions
+                </li>
+                <li>
+                  Readings: {inspection.directSummary.coverage.readings.verified}/
+                  {inspection.directSummary.coverage.readings.total} verified
+                  {inspection.directSummary.coverage.readingMedia.items > 0 &&
+                    " · " + inspection.directSummary.coverage.readingMedia.items +
+                    " readings with media references"}
+                </li>
+                <li>
+                  External widgets: {inspection.directSummary.coverage.widgets.verified}/
+                  {inspection.directSummary.coverage.widgets.total} verified
+                  {" · "}{inspection.directSummary.coverage.structures.verified} empty
+                  structures accounted for separately
+                </li>
+              </ul>
+              {inspection.directSummary.mediaContinuation && (
+                <p className="hint">
+                  Reading-media continuation. Inventory counts include saved
+                  observations from the earlier capture.
+                  {inspection.directSummary.mediaContinuation.retainedAssessmentObservations &&
+                    " The assessment and widget observations keep their original timestamps; questions were not re-read in this attempt."}
+                  {inspection.directSummary.mediaContinuation.baseSourceCapturedAt && (
+                    <> Earlier source capture: <time dateTime={inspection.directSummary.mediaContinuation.baseSourceCapturedAt}>
+                      {inspection.directSummary.mediaContinuation.baseSourceCapturedAt}
+                    </time>.</>
+                  )}
+                </p>
+              )}
+              {inspection.directSummary.currentAttempt.elapsedMs !== null && (
+                <p>
+                  Latest attempt: {inspection.directSummary.timingSource === "RECEIPT_SPAN" ? "about " : ""}
+                  {captureDuration(inspection.directSummary.currentAttempt.elapsedMs)}
+                  {inspection.directSummary.currentAttempt.requests !== null &&
+                    " · " + inspection.directSummary.currentAttempt.requests.toLocaleString() + " API reads"}
+                  {inspection.directSummary.timingSource === "RECEIPT_SPAN" &&
+                    " (from recorded read timestamps)"}
+                </p>
+              )}
+              {inspection.directSummary.cumulativeBudget.elapsedMs !== null && (
+                <p>
+                  Total across saved attempts: {captureDuration(inspection.directSummary.cumulativeBudget.elapsedMs)}
+                  {inspection.directSummary.cumulativeBudget.requests !== null &&
+                    " · " + inspection.directSummary.cumulativeBudget.requests.toLocaleString() + " API reads"}
+                </p>
+              )}
+              {inspection.directSummary.media?.currentAttempt.requests !== null &&
+                inspection.directSummary.media?.currentAttempt.requests !== undefined && (
+                  <p>
+                    Media body requests this attempt: {inspection.directSummary.media.currentAttempt.requests.toLocaleString()}
+                    {inspection.directSummary.media.currentAttempt.bytes !== null &&
+                      " · " + (inspection.directSummary.media.currentAttempt.bytes / 1024 / 1024).toFixed(2) + " MiB received"}
+                    {inspection.directSummary.media.cumulativeBudget.requests !== null &&
+                      inspection.directSummary.media.cumulativeBudget.requests !== inspection.directSummary.media.currentAttempt.requests &&
+                      " · " + inspection.directSummary.media.cumulativeBudget.requests.toLocaleString() + " body requests across saved attempts"}
+                  </p>
+                )}
+              <p className="hint">
+                Reading text and question capture are separate from verifying image,
+                attachment and external-widget bodies. These counts retain the
+                evidence gaps reported by the capture.
+              </p>
+            </div>
+          )}
+
           <div
             className={
               inspection.verdict.complete
@@ -629,7 +716,9 @@ export default function LocalCourseraExtraction({
               Authoring draft capture. Returned published versions remain separate;
               evidence gaps determine whether this file passes the capture gate.
               Click the same saved bookmark on this course’s Content page after an
-              interruption. CTI checks current sources before reusing matching saved reads.
+              interruption. {inspection.directSummary?.mediaContinuation
+                ? "This continuation preserves the earlier assessment observations and checks reading media."
+                : "CTI checks current sources before reusing matching saved reads."}
             </p>}
             {legacyResumeAvailable && (
               <p>

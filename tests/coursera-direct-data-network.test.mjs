@@ -90,6 +90,38 @@ test('invalid resources, raw URL descriptors, unsafe IDs and absent sanitization
   assert.equal(absent.reason,'SANITIZER_UNAVAILABLE');assert.equal(calls,0);
 });
 
+test('the observed asset collection accepts one exact CML ID and keeps signing URLs out of JSON',async()=>{
+  const id='ABCDEFGHIJKLMNOPQRSTUV',signed='https://fixture.cloudfront.net/file.png?width=300&hmac=hidden-hmac&expiry=100&Signature=hidden-signature&Policy=hidden-policy&Key-Pair-Id=hidden-key';
+  let calls=0;
+  const reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{
+    calls++;const address=new URL(url);
+    assert.equal(address.pathname,'/api/assets.v1');assert.deepEqual([...address.searchParams],[['ids',id]]);
+    assert.equal(options.headers['X-Coursera-Naptime-Fields'],'ALL');
+    return new Response(JSON.stringify({elements:[{id,name:'file.png',typeName:'image',url:{url:signed,expires:100}}],paging:{}}),
+      {headers:{'content-type':'application/json'}});
+  }});
+  for(const invalid of ['short',id+',different',id+'@1','../'+id]) assert.equal((await reader.readAsset(invalid)).reason,'INVALID_API_DESCRIPTOR');
+  assert.equal(calls,0);
+  const result=await reader.readAsset(id);
+  assert.equal(result.ok,true);assert.equal(calls,1);
+  assert.equal(result.receipt.resource,'assets.v1');assert.equal(result.receipt.requestPath,'/api/assets.v1');
+  assert(!JSON.stringify(result).includes('hidden-'));assert(!Object.keys(result).includes('takeAssetLocation'));
+  assert.equal(result.data.elements[0].url.url,'https://fixture.cloudfront.net/file.png?width=300');
+  assert.equal(result.takeAssetLocation(),signed);assert.equal(result.takeAssetLocation(),'');
+});
+
+test('asset metadata identities and changed source context cannot release delivery locations',async()=>{
+  const id='ABCDEFGHIJKLMNOPQRSTUV';let current=true;
+  const reader=createDirectDataReaderV1({sanitize,assertCurrent:()=>current,fetchImpl:async()=>new Response(
+    JSON.stringify({elements:[{id,name:'x.png',typeName:'image',url:{url:'https://fixture.cloudfront.net/file.png?hmac=secret'}}]}),
+    {headers:{'content-type':'application/json'}})});
+  const result=await reader.readAsset(id);current=false;
+  assert.equal(result.takeAssetLocation(),'');assert(!JSON.stringify(result).includes('secret'));
+  const wrong=createDirectDataReaderV1({sanitize,fetchImpl:async()=>new Response(JSON.stringify({elements:[{id:'different'}]}),
+    {headers:{'content-type':'application/json'}})});
+  assert.equal((await wrong.readAsset(id)).reason,'UNEXPECTED_API_IDENTITY');
+});
+
 test('limits cannot exceed the stated transport bounds',()=>{
   const reader=createDirectDataReaderV1({sanitize,limits:{concurrentRequests:50,requests:1e9,bodyBytes:1e9,
     totalBytes:1e9,requestMs:1e9,durationMs:1e9}});

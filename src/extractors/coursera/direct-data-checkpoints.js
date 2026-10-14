@@ -506,6 +506,45 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         row.counts.processed < row.counts.total,
     );
   }
+  function recoverableMediaRun(row) {
+    const capture = row.captureMeta?.directDataCapture,
+      budget = row.budget;
+    try {
+      if (runId(row.runId) !== row.runId) return false;
+    } catch (_) {
+      return false;
+    }
+    return Boolean(
+      (row.buildId === "v1.1.0-compressed-resumable-drafts-20261014" ||
+        row.buildId === "v1.2.0-bound-reading-media-20261014") &&
+        capture &&
+        capture.mode === "BOUND_AUTHORING_DRAFT_API" &&
+        capture.version === 1 &&
+        capture.runId === row.runId &&
+        capture.materials?.elements?.[0]?.id === courseId &&
+        capture.sourceStable === true &&
+        capture.acquisitionComplete === true &&
+        capture.wholeCourseVerified === false &&
+        capture.stopReason === "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS" &&
+        Number.isInteger(row.counts?.processed) &&
+        row.counts.processed > 0 &&
+        Number.isInteger(row.counts?.total) &&
+        row.counts.processed === row.counts.total &&
+        budget &&
+        budget.limits &&
+        [
+          ["requests", "requests"],
+          ["bytes", "totalBytes"],
+          ["elapsedMs", "durationMs"],
+        ].every(
+          ([used, limit]) =>
+            Number.isFinite(budget[used]) &&
+            budget[used] > 0 &&
+            Number.isFinite(budget.limits[limit]) &&
+            budget.limits[limit] > budget[used],
+        ),
+    );
+  }
   store.getActiveRun = async (options = {}) => {
     const cutoff = Date.now() - ttlMs;
     return transact("runs", "readonly", (transaction, set, guard) => {
@@ -513,7 +552,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         .objectStore("runs")
         .index("courseStateUpdatedAt");
       const activeStates =
-        options.recoverExportLimit === true
+        options.recoverExportLimit === true || options.recoverMediaGaps === true
           ? ["RUNNING", "PAUSED", "INCOMPLETE"]
           : ["RUNNING", "PAUSED"];
       let pending = activeStates.length,
@@ -534,7 +573,13 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
               cursor &&
               (!sameRun(row, row.runId) ||
                 row.state !== activeState ||
-                (activeState === "INCOMPLETE" && !recoverableExportRun(row)))
+                (activeState === "INCOMPLETE" &&
+                  !(
+                    (options.recoverExportLimit === true &&
+                      recoverableExportRun(row)) ||
+                    (options.recoverMediaGaps === true &&
+                      recoverableMediaRun(row))
+                  )))
             ) {
               cursor.continue();
               return;

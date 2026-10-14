@@ -1,3 +1,5 @@
+import { sanitizeCourseraCourseDataModel } from './direct-data-privacy.js';
+
 /** Bounded transport for the observed Coursera authoring GET resources.
  * The caller supplies source binding and credential sanitization. This module
  * never guesses a resource, enumerates a collection, or renders an editor.
@@ -64,7 +66,7 @@ export function createDirectDataReaderV1(options = {}) {
     const simple = /^[A-Za-z0-9_-]{1,128}$/;
     const group = /^[A-Za-z0-9_-]{1,128}~[A-Za-z0-9_-]{1,128}$/;
     const definition = /^[A-Za-z0-9_-]{1,128}~[A-Za-z0-9_-]{1,128}@\d{1,12}$/;
-    let fields = '', includes = '', all = false, trailing = false;
+    let fields = '', includes = '', all = false, trailing = false, collection = false;
     if (resource === 'authoringCourseMaterials.v1') {
       if (!simple.test(id)) return null;
       fields='material,conflictMetadata,authoringAtomRelations.v1(embeddedContentSourceCourseId)';
@@ -80,9 +82,15 @@ export function createDirectDataReaderV1(options = {}) {
     } else if (resource === 'authoringAssignmentMachineEvaluableQuestions.v1') {
       if (!definition.test(id)) return null;
       all=true;includes='_links';fields='id,definition,validation';
+    } else if (resource === 'assets.v1') {
+      // This endpoint was observed in successful reading captures. Its known
+      // multiGet format is used for one exact CML reference, never enumeration.
+      if (!/^[A-Za-z0-9_-]{22}$/.test(id)) return null;
+      all=true;collection=true;
     } else return null;
     const pathKey=encodeURIComponent(id).replace(/%40/gi,'@');
-    const url=new URL('/api/'+resource+'/'+pathKey+(trailing?'/':''),origin);
+    const url=new URL('/api/'+resource+(collection?'':'/'+pathKey+(trailing?'/':'')),origin);
+    if (collection) url.searchParams.set('ids',id);
     if (resource === 'authoringAssignmentQuestionGroups.v1') url.searchParams.set('id',id);
     if (fields) url.searchParams.set('fields',fields);
     if (includes) url.searchParams.set('includes',includes);
@@ -175,6 +183,10 @@ export function createDirectDataReaderV1(options = {}) {
       if (!parsed || !Array.isArray(parsed.elements) || parsed.elements.length!==1 ||
           !parsed.elements[0] || parsed.elements[0].id!==job.descriptor.id) return failure(job,'UNEXPECTED_API_IDENTITY');
       if (parsed.paging && parsed.paging.next!=null) return failure(job,'UNEXPECTED_API_PAGINATION');
+      // Signed delivery locations are deliberately not part of the returned
+      // JSON model. The media reader can consume this short-lived closure once.
+      let assetLocation = job.descriptor.resource === 'assets.v1' &&
+          typeof parsed.elements[0]?.url?.url === 'string' ? parsed.elements[0].url.url : '';
       let sanitized;
       try {sanitized=await options.sanitize(parsed);}
       catch {return failure(job,'SANITIZER_FAILED');}
@@ -183,10 +195,19 @@ export function createDirectDataReaderV1(options = {}) {
           typeof sanitized.data!=='object') return failure(job,'SANITIZER_INCOMPLETE');
       if (!Array.isArray(sanitized.data.elements) || sanitized.data.elements.length!==1 ||
           sanitized.data.elements[0]?.id!==job.descriptor.id) return failure(job,'SANITIZER_INCOMPLETE');
+      if (job.descriptor.resource === 'assets.v1') {
+        const protectedModel=sanitizeCourseraCourseDataModel(sanitized.data);
+        if (protectedModel.limitReached) return failure(job,'SANITIZER_INCOMPLETE');
+        sanitized={...protectedModel,removedFields:Math.max(0,Number(sanitized.removedFields) || 0)+protectedModel.removedFields,
+          redactedUrls:Math.max(0,Number(sanitized.redactedUrls) || 0)+protectedModel.redactedUrls};
+      }
       job.receipt.credentialFieldsRemoved=Math.max(0,Number(sanitized.removedFields) || 0);
       job.receipt.credentialUrlsRedacted=Math.max(0,Number(sanitized.redactedUrls) || 0);
       if (!current()) return failure(job,stopReason);
-      return {ok:true,data:sanitized.data,receipt:{...job.receipt},reason:'',authenticationFailed:false};
+      const result={ok:true,data:sanitized.data,receipt:{...job.receipt},reason:'',authenticationFailed:false};
+      if (job.descriptor.resource === 'assets.v1') Object.defineProperty(result,'takeAssetLocation',{
+        enumerable:false,value:()=>{const location=current()?assetLocation:'';assetLocation='';return location;}});
+      return result;
     } catch {
       return failure(job,stopReason || (controller.signal.aborted?'API_REQUEST_ABORTED':'API_REQUEST_FAILED'));
     } finally {controllers.delete(controller);}
@@ -266,5 +287,6 @@ export function createDirectDataReaderV1(options = {}) {
     readAtom:id=>read({resource:'authoringAtoms.v2',id}),
     readRelation:id=>read({resource:'authoringItemContentRelations.v1',id}),
     readGroup:id=>read({resource:'authoringAssignmentQuestionGroups.v1',id}),
-    readDefinition:id=>read({resource:'authoringAssignmentMachineEvaluableQuestions.v1',id})};
+    readDefinition:id=>read({resource:'authoringAssignmentMachineEvaluableQuestions.v1',id}),
+    readAsset:id=>read({resource:'assets.v1',id})};
 }

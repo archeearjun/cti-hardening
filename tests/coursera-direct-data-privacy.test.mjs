@@ -68,6 +68,25 @@ test("nonsecret URLs, query text and ordinary source fragments remain byte-ident
   }
 });
 
+test("Coursera delivery HMAC, policy, signing-key and expiration parameters are not retained", () => {
+  const result=sanitize({url:'https://fixture.cloudfront.net/image.png?width=300&format=webp&hmac=hidden-hmac&expiry=100&Expires=101&Policy=hidden-policy&Key-Pair-Id=hidden-key&Signature=hidden-signature',
+    metadata:{expires:102,hmac:'hidden-field'}});
+  assert.equal(result.data.url,'https://fixture.cloudfront.net/image.png?width=300&format=webp');
+  assert(!JSON.stringify(result.data).includes('hidden-'));
+  assert.equal(result.data.metadata.expires,102);assert.equal(result.removedFields,1);
+});
+
+test("native scoring and configuration policy fields are preserved while delivery URL Policy is redacted", () => {
+  const source={configuration:{policy:{attempts:3,scoring:'highest',feedback:'after submission'}},
+    policy:'source wording',url:'https://fixture.cloudfront.net/file.pptx?Policy=secret-signed-policy&revision=2'};
+  const result=sanitize(source);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.data.configuration.policy)),source.configuration.policy);
+  assert.equal(result.data.policy,'source wording');
+  assert.equal(result.data.url,'https://fixture.cloudfront.net/file.pptx?revision=2');
+  assert.equal(result.removedFields,0);assert.equal(result.redactedUrls,1);
+  assert(!JSON.stringify(result.data).includes('secret-signed-policy'));
+});
+
 test("relative paths containing a double slash retain their path semantics when a query credential is removed", () => {
   const result = sanitize({
     href: "../assets//image?access_token=secret&id=keep",

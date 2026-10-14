@@ -5,6 +5,11 @@ import {
   CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
   CTI_DIRECT_DATA_MAX_PARTS_V1,
 } from "./direct-data-config.js";
+import { createDirectDataMediaReaderV1 } from "./direct-data-media.js";
+import {
+  directDataCoverageSummaryV1,
+  directDataAttemptMetricsV1,
+} from "./direct-data-summary.js";
 import { createDirectDataReaderV1 } from "./direct-data-network.js";
 import { createDirectDataCheckpointStoreV1 } from "./direct-data-checkpoints.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
@@ -142,7 +147,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       fatalReason = "";
     let budgetBase = { requests: 0, bytes: 0, elapsedMs: 0 },
       budgetLimits = null,
-      frozenStats = null;
+      frozenStats = null,
+      mediaReader = null,
+      mediaBase = { bytes: 0, requests: 0 },
+      frozenMediaStats = null;
     let budgetSaveTail = Promise.resolve(),
       lastBudgetSaveAt = 0,
       lastBudgetSaveRequests = 0,
@@ -166,24 +174,66 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       phase.textContent = state.phase;
       if (message) detail.textContent = message;
       const stats = budgetSnapshot();
+      const mediaOnly =
+        meta?.directDataCapture?.mediaEnrichment?.scope ===
+        "REFERENCED_READING_MEDIA_ONLY";
+      hint.textContent = mediaOnly
+        ? "This attempt reads referenced reading media. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
+        : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
       count.textContent =
         state.counts.processed +
         "/" +
         state.counts.total +
-        " inventory entries read · " +
+        (mediaOnly
+          ? " inventory entries retained · "
+          : " inventory entries read · ") +
         state.counts.complete +
         " verified · " +
         state.counts.questions +
         " questions · " +
-        Math.floor((stats.elapsedMs || 0) / 60000) +
-        "m active · " +
-        (stats.requests || 0) +
-        " API reads";
+        Math.floor((stats.currentAttempt?.elapsedMs || 0) / 60000) +
+        "m this attempt · " +
+        (stats.currentAttempt?.requests || 0) +
+        " API reads this attempt" +
+        (budgetBase.elapsedMs
+          ? " · " + Math.floor(stats.elapsedMs / 60000) + "m across attempts"
+          : "");
+      const summary = coverageSummary();
+      state.coverage = summary;
+      if (summary.assessments.total || summary.readings.total)
+        count.textContent +=
+          " · Assessments " +
+          summary.assessments.verified +
+          "/" +
+          summary.assessments.total +
+          " verified · Readings " +
+          summary.readings.verified +
+          "/" +
+          summary.readings.total +
+          " fully verified · " +
+          summary.missingPointers.items +
+          " readings missing media pointers · " +
+          summary.widgets.total +
+          " external widgets";
       stopButton.disabled = !state.running;
       downloadButton.disabled = state.running || !meta || exporting;
       resumeButton.hidden =
         state.running || state.terminal || state.state !== "PAUSED";
       resumeButton.disabled = exporting;
+    }
+    function coverageSummary() {
+      return directDataCoverageSummaryV1(
+        items.map(
+          (fp) =>
+            itemStates.get(fp.id) || {
+              type: fp.type,
+              structural: inventory?.leaves.get(fp.id)?.structural === true,
+              processed: false,
+              contract: { complete: false },
+              questions: 0,
+            },
+        ),
+      );
     }
     function requireRead(read) {
       if (!read.ok) throw Error(read.reason || "DIRECT_API_READ_FAILED");
@@ -198,12 +248,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     }
     function budgetSnapshot() {
       const stats = frozenStats || reader?.snapshot();
+      const media = frozenMediaStats || mediaReader?.snapshot();
       return {
-        ...stats,
-        requests: budgetBase.requests + (stats?.requests || 0),
-        bytes: budgetBase.bytes + (stats?.bytes || 0),
-        elapsedMs: budgetBase.elapsedMs + (stats?.elapsedMs || 0),
+        ...directDataAttemptMetricsV1(stats || {}, budgetBase),
         limits: { ...budgetLimits },
+        media: {
+          ...media,
+          bytes: mediaBase.bytes + (media?.bytes || 0),
+          requests: mediaBase.requests + (media?.requests || 0),
+          currentAttempt: media || { bytes: 0, requests: 0 },
+        },
       };
     }
     function terminalBudgetReason(reason) {
@@ -241,6 +295,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             bytes: budget.bytes,
             elapsedMs: budget.elapsedMs,
             limits: { ...budgetLimits },
+            media: budget.media,
           },
         };
       if (includeMeta && meta) value.captureMeta = meta;
@@ -279,7 +334,20 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       itemStates.set(fp.id, {
         processed,
         contract: fp.captureContract,
+        type: fp.type,
+        structural: inventory?.leaves.get(fp.id)?.structural === true,
         questions: fp.payload.structuredAssessment?.questions?.length || 0,
+        assetReferenceCount:
+          fp.payload.directDataEvidence?.assetReferenceCount || 0,
+        assetReferenceIds: [
+          ...(
+            fp.payload.directDataEvidence?.unresolvedAssetReferences || []
+          ).map((ref) => ref.id),
+          ...(fp.payload.assetDetails || []).map((detail) => detail.assetId),
+        ].filter(Boolean),
+        missingPointerCount: (
+          fp.payload.directDataEvidence?.unresolvedAssetReferences || []
+        ).filter((ref) => !ref.id && !ref.url).length,
       });
       state.counts.processed = [...itemStates.values()].filter(
         (value) => value.processed,
@@ -555,6 +623,117 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         bound,
       );
     }
+    function retainedReadingMedia(fp, previous, source) {
+      if (
+        previous?.id !== fp.id ||
+        previous?.atomId !== fp.atomId ||
+        !previous.payload?.directDataSources
+      )
+        return null;
+      try {
+        const bound = bindDirectAuthoringDraftV1(
+            fp,
+            courseId,
+            slug,
+            previous.payload.directDataSources.atom,
+            previous.payload.directDataSources.relation,
+          ),
+          reading = directDraftReadingSourceV1(bound);
+        if (
+          bound.draft.content.typeName !== "supplementDraft" ||
+          !source?.cml ||
+          reading.cml !== source.cml ||
+          reading.dtdId !== source.dtdId ||
+          reading.assetId !== source.assetId
+        )
+          return null;
+        return {
+          assets: (previous.payload.directAssetEvidence?.assets || []).map(
+            (asset) =>
+              asset.reason && asset.retainedEvidence?.body
+                ? asset.retainedEvidence
+                : asset.body
+                  ? asset
+                  : asset.retainedEvidence?.body
+                    ? asset.retainedEvidence
+                    : asset,
+          ),
+        };
+      } catch (_) {
+        return null;
+      }
+    }
+    async function captureReadingMedia(fp, source, previous) {
+      const parsed = directCmlTextV1(source.cml);
+      if (!parsed || !parsed.references.length) return;
+      const refs = parsed.references,
+        ids = [
+          ...new Set(
+            refs
+              .map((ref) => ref.id)
+              .filter((id) => /^[A-Za-z0-9_-]{22}$/.test(id || "")),
+          ),
+        ],
+        retained = retainedReadingMedia(fp, previous, source),
+        assets = [],
+        failures = [];
+      fp.payload.directAssetEvidence = {
+        method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+        assets,
+        missingPointers: refs.filter((ref) => !ref.id && !ref.url),
+        failures,
+      };
+      if (!ids.length) return;
+      if (!mediaReader)
+        mediaReader = createDirectDataMediaReaderV1({
+          apiReader: reader,
+          assertCurrent: assertContext,
+          limits: {
+            totalBytes: Math.max(
+              0,
+              Math.min(
+                64 * 1024 * 1024 - mediaBase.bytes,
+                Math.floor(
+                  ((CTI_DIRECT_DATA_EXPORT_BYTES_V1 -
+                    metadataReserveBytes -
+                    [...retainedSizes.values()].reduce(
+                      (sum, value) => sum + value,
+                      0,
+                    ) -
+                    2 * 1024 * 1024) *
+                    3) /
+                    4,
+                ),
+              ),
+            ),
+            durationMs: Math.max(
+              1,
+              remainingLimits().durationMs -
+                (reader?.snapshot().elapsedMs || 0),
+            ),
+          },
+          onStats: () => {
+            render();
+            checkpointBudget();
+          },
+        });
+      for (const id of ids) {
+        if (reader.snapshot().stopped || !assertContext()) break;
+        state.phase = "Reading referenced media";
+        render(fp.name + " · Reading the original referenced file.");
+        const retainedAsset = retained?.assets.find(
+            (asset) => asset.assetId === id,
+          ),
+          asset = await mediaReader.capture(id, retainedAsset);
+        // Failed current metadata never certifies a historical body. Keep
+        // the original proof separately so a later bound read can retry its
+        // metadata without losing or downloading the same bytes again.
+        if (asset.reason && retainedAsset?.body)
+          asset.retainedEvidence = retainedAsset;
+        assets.push(asset);
+        if (asset.reason) failures.push({ id, reason: asset.reason });
+      }
+    }
     async function captureItem(fp) {
       const source = inventory.leaves.get(fp.id);
       if (source.structural) {
@@ -659,9 +838,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             bound,
             directDraftDiscussionSourceV1(bound),
           );
-        else if (bound.draft.content.typeName === "supplementDraft")
-          fp.payload.directDraftCml = directDraftReadingSourceV1(bound).rawCML;
-        else
+        else if (bound.draft.content.typeName === "supplementDraft") {
+          const reading = directDraftReadingSourceV1(bound);
+          fp.payload.directDraftCml = reading.rawCML;
+          await captureReadingMedia(fp, reading, previous);
+        } else
           directUnsupportedContractV1(
             fp,
             "DIRECT_DRAFT_TYPE_UNSUPPORTED",
@@ -726,12 +907,25 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           fp.payload.structuredAssessment?.questions?.length || 0;
         const previousQuestions =
           previous?.payload?.structuredAssessment?.questions?.length || 0;
+        const readingMediaAttempt =
+          bound?.draft?.content?.typeName === "supplementDraft" &&
+          fp.payload.directAssetEvidence &&
+          retainedReadingMedia(fp, previous, directDraftReadingSourceV1(bound))
+            ? {
+                directDataSources: fp.payload.directDataSources,
+                directDraftCml: fp.payload.directDraftCml,
+                directAssetEvidence: fp.payload.directAssetEvidence,
+              }
+            : null;
         if (previous?.payload && previousQuestions >= currentQuestions) {
           // A failed resumed read must not replace saved observations with an
           // empty body. Retain them, with an explicit failed current check and
           // an incomplete contract; they are not certified as current content.
           fp.payload = {
             ...previous.payload,
+            // A failed final atom check remains incomplete, while original
+            // bytes obtained for the same bound CML stay available locally.
+            ...(readingMediaAttempt || {}),
             directResumeRevalidation: {
               verified: false,
               reason,
@@ -750,6 +944,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         processed = !reader.snapshot().stopped;
       }
       await persist(fp, processed);
+      for (const asset of fp.payload.directAssetEvidence?.assets || [])
+        mediaReader?.release?.(asset.assetId);
     }
     async function prepareResult() {
       if (!meta) throw Error("DIRECT_INVENTORY_NOT_AVAILABLE");
@@ -926,6 +1122,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       budgetBase = { requests: 0, bytes: 0, elapsedMs: 0 };
       materialHash = "";
       checkpointReady = false;
+      mediaReader = null;
+      mediaBase = { bytes: 0, requests: 0 };
+      frozenMediaStats = null;
       state.counts = { processed: 0, complete: 0, questions: 0, total: 0 };
       render();
       const clock = setInterval(() => {
@@ -944,10 +1143,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const policy = policyReader.snapshot().limits;
         policyReader.abort("POLICY_ONLY");
         budgetLimits = { ...policy };
-        const active = await store.getActiveRun({ recoverExportLimit: true }),
+        const active = await store.getActiveRun({
+            recoverExportLimit: true,
+            recoverMediaGaps: true,
+          }),
           candidate = [
             CTI_DIRECT_DATA_BUILD_V1,
             "v1.0.0-bound-authoring-drafts-20261014",
+            "v1.1.0-compressed-resumable-drafts-20261014",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -972,6 +1175,19 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             bytes: saved.bytes,
             elapsedMs: saved.elapsedMs,
           };
+          if (saved.media) {
+            if (
+              !["bytes", "requests"].every(
+                (key) =>
+                  Number.isFinite(saved.media[key]) && saved.media[key] >= 0,
+              )
+            )
+              throw Error("DIRECT_RUN_BUDGET_METADATA_INVALID");
+            mediaBase = {
+              bytes: saved.media.bytes,
+              requests: saved.media.requests,
+            };
+          }
           for (const key of Object.keys(policy))
             budgetLimits[key] =
               key === "concurrentRequests" &&
@@ -1021,6 +1237,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         inventory = await directCourseInventoryV1(materialData, courseId);
         const currentMaterialHash = await hash(materialData.elements[0]);
         const resuming = candidate?.materialHash === currentMaterialHash;
+        const baseCapture = candidate?.captureMeta?.directDataCapture;
+        const enriching =
+          resuming &&
+          ((baseCapture?.acquisitionComplete === true &&
+            baseCapture?.sourceStable === true &&
+            baseCapture?.stopReason ===
+              "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS") ||
+            (baseCapture?.mediaEnrichment?.scope ===
+              "REFERENCED_READING_MEDIA_ONLY" &&
+              baseCapture.mediaEnrichment.baseAcquisitionComplete === true));
         if (candidate && !resuming) {
           // The same course now has a different material graph. Preserve the
           // old run and charge the discovery reads to a separate fresh run.
@@ -1033,6 +1259,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           };
           budgetLimits = { ...policy };
           frozenStats = null;
+          mediaReader = null;
+          mediaBase = { bytes: 0, requests: 0 };
+          frozenMediaStats = null;
           state.runId = "";
           itemStates = new Map();
           retainedSizes = new Map();
@@ -1063,6 +1292,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               resuming && candidate.buildId !== CTI_DIRECT_DATA_BUILD_V1
                 ? candidate.buildId
                 : "",
+            ...(enriching
+              ? {
+                  mediaEnrichment: {
+                    scope: "REFERENCED_READING_MEDIA_ONLY",
+                    baseAcquisitionComplete: true,
+                    baseBuildId:
+                      baseCapture.mediaEnrichment?.baseBuildId ||
+                      candidate.buildId,
+                    baseSourceCapturedAt:
+                      baseCapture.mediaEnrichment?.baseSourceCapturedAt ||
+                      baseCapture.finalMaterialsReceipt?.observedAt ||
+                      "",
+                    retainedAssessmentObservations: true,
+                  },
+                }
+              : {}),
             initialMaterialHash: materialHash,
             materialVersion: inventory.materialVersion,
             courseBranchVersion: inventory.courseBranchVersion,
@@ -1082,6 +1327,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           ...budgetLimits,
           exportBytes: CTI_DIRECT_DATA_EXPORT_BYTES_V1,
           partsPerAssessment: CTI_DIRECT_DATA_MAX_PARTS_V1,
+          mediaBytes: 64 * 1024 * 1024,
+          mediaBodyBytes: 16 * 1024 * 1024,
         };
         metadataReserveBytes =
           encoder.encode(JSON.stringify(meta)).byteLength +
@@ -1096,6 +1343,28 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         for (let index = 0; index < items.length; index++) {
           if (reader.snapshot().stopped) break;
           const fp = items[index];
+          // A media-only continuation preserves the completed assessment and
+          // widget observations, including their original source timestamps.
+          // It does not call question APIs or label them freshly observed.
+          const previous = enriching
+            ? await store.getItem(state.runId, fp.id)
+            : null;
+          const keep =
+            enriching &&
+            !inventory.leaves.get(fp.id).structural &&
+            previous?.state?.processed === true &&
+            previous?.fingerprint?.id === fp.id &&
+            previous.fingerprint.atomId === fp.atomId &&
+            (previous.fingerprint.captureContract?.complete === true ||
+              previous.fingerprint.typeName !== "supplement");
+          if (keep) {
+            items[index] = {
+              ...previous.fingerprint,
+              payload: {},
+              captureContract: previous.fingerprint.captureContract,
+            };
+            continue;
+          }
           await captureItem(fp);
           // Finalized item bodies live in IDB. Keep only the inventory and
           // summary in the renderer between items, particularly large banks.
@@ -1171,7 +1440,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         );
       } finally {
         frozenStats = reader?.snapshot() || null;
-        if (meta) meta.directDataCapture.stats = budgetSnapshot();
+        frozenMediaStats = mediaReader?.snapshot() || null;
+        if (meta) {
+          meta.directDataCapture.stats = budgetSnapshot();
+          meta.directDataCapture.coverage = coverageSummary();
+        }
+        mediaReader?.abort("RUN_FINISHED");
         reader?.abort("RUN_FINISHED");
         clearInterval(clock);
         try {
@@ -1190,6 +1464,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     state.stop = () => {
       operatorStopped = true;
       reader?.abort("OPERATOR_PAUSED");
+      mediaReader?.abort("OPERATOR_PAUSED");
     };
     state.resume = () => void run();
     state.export = () => void download();
@@ -1199,6 +1474,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     window.addEventListener("pagehide", () => {
       operatorStopped = true;
       reader?.abort("PAGE_CLOSED_OR_NAVIGATED");
+      mediaReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
     });
     await run();
   })().catch(() => {

@@ -6,6 +6,8 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {gunzipSync} from 'node:zlib';
 import {chromium} from 'playwright';
+import {createHash} from 'node:crypto';
+import JSZip from 'jszip';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
 
 // Execute the actual generated direct-data delivery program. The default CI
@@ -23,10 +25,18 @@ try{const policy=JSON.parse(fs.readFileSync('/etc/chromium/policies/managed/urls
 execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',path.join(scratch,'key.pem'),
   '-out',path.join(scratch,'cert.pem'),'-subj','/CN=www.coursera.org','-days','1'],{stdio:'ignore'});
 const groupResource='authoringAssignmentQuestionGroups.v1',definitionResource='authoringAssignmentMachineEvaluableQuestions.v1';
-const resources=new Set(['authoringCourseMaterials.v1','authoringCourses.v2','authoringAtoms.v2','authoringItemContentRelations.v1',groupResource,definitionResource]);
-const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-token'];
-const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),fileSizes=new WeakMap();
-const requests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
+const resources=new Set(['authoringCourseMaterials.v1','authoringCourses.v2','authoringAtoms.v2','authoringItemContentRelations.v1',groupResource,definitionResource,'assets.v1']);
+const mediaOrigin='https://fixture-cdn.cloudfront.net';
+const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-token','fixture-asset-signed-secret'];
+const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),assets=new Map(),fileSizes=new WeakMap();
+const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
+const pngBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7sAAAAAASUVORK5CYII=','base64');
+const pdfBytes=Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\ntrailer\n<< /Root 1 0 R /Size 3 >>\n%%EOF\n');
+const presentation=new JSZip();
+presentation.file('[Content_Types].xml','<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>');
+presentation.file('_rels/.rels','<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>');
+presentation.file('ppt/presentation.xml','<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldIdLst/></p:presentation>');
+const pptxBytes=await presentation.generateAsync({type:'nodebuffer',compression:'DEFLATE'});
 function key(prefix,index){return prefix+String(index).padStart(22-prefix.length,'0');}
 function cml(text,dtd='assess/1'){return {typeName:'cml',definition:{dtdId:dtd,value:'<co-content><p>'+text+'</p></co-content>'}};}
 function makeCourse(id,mode,large=false){
@@ -74,6 +84,23 @@ function makeCourse(id,mode,large=false){
     material:{elements:[{id:'module_main',name:'Module',elements:[{id:'lesson_main',name:'Lesson',trackId:'fixture-track',elements:items}]},...empty]}};
   return config;
 }
+function makeMediaCourse(id,mode='media-success'){
+  const config=makeCourse(id,mode),reading=[...atoms.values()].find(row=>row.courseId===id&&row.itemId==='item_0002');
+  const mediaKinds=[['image.png','image/png',pngBytes],['reference.pdf','application/pdf',pdfBytes],
+    ['lesson.pptx','application/vnd.openxmlformats-officedocument.presentationml.presentation',pptxBytes]];
+  config.assetGets=new Map();config.mediaIds=[];
+  for(let index=0;index<mediaKinds.length;index++){
+    const [name,mime,body]=mediaKinds[index],assetId=key('asset'+configs.size+'_',index);
+    config.mediaIds.push(assetId);
+    const url=mediaOrigin+'/'+id+'/'+assetId+'/'+name+'?X-Amz-Signature='+secrets[3]+'&Expires=2000000000';
+    assets.set(assetId,{courseId:id,name,mime,body,url,value:{id:assetId,name,typeName:index===0?'image':'file',url:{url},writeAccessToken:secrets[1]}});
+  }
+  const references=mode==='media-pointer-missing'?'<img src="https://unfetched.example.invalid/missing.png"/>':
+    '<img assetId="'+config.mediaIds[0]+'"/><asset id="'+config.mediaIds[1]+'" name="reference.pdf"/><asset id="'+config.mediaIds[2]+'" name="lesson.pptx"/>';
+  reading.atom.draft.content.definition.content={typeName:'cml',definition:{dtdId:'supplement/1',
+    value:'<co-content><p>Original media bodies must be retained, including café 日本語.</p>'+references+'</co-content>'}};
+  return config;
+}
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 const interrupted=makeCourse('Direct_resume_fixture_123','resume');
@@ -85,14 +112,34 @@ const changedGroup=makeCourse('Direct_group_change_123','group-changed');
 const authentication=makeCourse('Direct_auth_fixture_123','authentication');
 const limited=makeCourse('Direct_limit_fixture_123','limited');
 const largeExport=makeCourse('Direct_large_export_123','large-export');
+const mediaSuccess=makeMediaCourse('Direct_media_complete_123');
+const mediaEnrichment=makeMediaCourse('Direct_media_enrichment_123','media-legacy-gap');
+const mediaCheckpoint=makeMediaCourse('Direct_media_checkpoint_123','media-legacy-gap');
+const mediaFailures=['media-pointer-missing','media-metadata-404','media-metadata-auth','media-body-403','media-body-cors',
+  'media-body-redirect','media-body-html','media-metadata-changed','media-body-limit'].map((mode,index)=>makeMediaCourse('Direct_media_gap_'+index+'_123',mode));
+const sixWidgets=makeCourse('Direct_widgets_six_123','large-export');
+for(const row of atoms.values())if(row.courseId===sixWidgets.id&&Number(row.itemId.slice(5))>=2){
+  row.atom.draft.content={typeName:'ungradedWidgetDraft',definition:{widgetId:'fixture-external-widget',opaque:{externalBody:'not-fetched'}}};
+  const leaf=sixWidgets.material.material.elements[0].elements[0].elements.find(item=>item.id===row.itemId);
+  leaf.content={typeName:'ungradedWidget',definition:{widgetId:'fixture-external-widget'}};
+}
 const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem')),cert:fs.readFileSync(path.join(scratch,'cert.pem'))},(request,response)=>{
   const url=new URL(request.url,origin);
+  if(request.headers.host==='fixture-cdn.cloudfront.net'){
+    const [courseId,assetId]=url.pathname.split('/').slice(1),config=configs.get(courseId),asset=assets.get(assetId);
+    assert(config&&asset&&asset.courseId===courseId);assert.equal(config.mode,'media-body-cors');
+    assert.equal(request.headers.origin,origin,'The native fetch must enforce a real cross-origin response');
+    response.setHeader('Content-Type',asset.mime);
+    // Browser interception can synthesize a CORS-approved response. Serve this
+    // one through the real HTTPS network boundary, deliberately without ACAO.
+    response.end(asset.body);return;
+  }
   if(url.pathname==='/favicon.ico'){response.statusCode=204;response.end();return;}
   if(!url.pathname.startsWith('/api/')){
     const courseId=url.pathname.split('/')[3],config=configs.get(courseId);documents.push(url.pathname);
     response.setHeader('Content-Type','text/html; charset=utf-8');
     response.setHeader('Set-Cookie','fixtureSession='+secrets[0]+'; HttpOnly; Secure; SameSite=Lax; Path=/');
-    if(!url.searchParams.has('open'))response.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'nonce-fixture'; style-src 'self'; connect-src 'self'");
+    if(!url.searchParams.has('open'))response.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'nonce-fixture'; style-src 'self'; connect-src 'self' "+mediaOrigin);
     response.end(`<!doctype html><title>Direct capture fixture</title><main><a id="editor" href="/teach/${slug}/${courseId}/content/item/project/item_0000">Open quiz normally</a></main><script nonce="fixture">
       window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixtureCsp=[];
       document.getElementById('editor').onclick=()=>{window.fixtureEditorClicks++;};
@@ -102,8 +149,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       ${config?.mode==='limited'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:4};':config?.mode==='budget-resume'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:40};':''}
     </script>`);return;
   }
-  const [, ,resource,...tail]=url.pathname.split('/'),reference=decodeURIComponent(tail.join('/').replace(/\/$/,''));
-  const binding=atoms.get(reference)||groups.get(reference)||definitions.get(reference),courseId=binding?.courseId||reference;
+  const [, ,resource,...tail]=url.pathname.split('/'),reference=resource==='assets.v1'?url.searchParams.get('ids'):
+    decodeURIComponent(tail.join('/').replace(/\/$/,''));
+  const binding=atoms.get(reference)||groups.get(reference)||definitions.get(reference)||assets.get(reference),courseId=binding?.courseId||reference;
   const config=configs.get(courseId),inFlight=(active.get(courseId)||0)+1;
   active.set(courseId,inFlight);maximum.set(courseId,Math.max(maximum.get(courseId)||0,inFlight));
   let settled=false;const settle=()=>{if(settled)return;settled=true;active.set(courseId,(active.get(courseId)||1)-1);};
@@ -113,13 +161,25 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   response.setHeader('Content-Type','application/json; charset=utf-8');
   let value;
   if(!config||!resources.has(resource)){response.statusCode=404;response.end('{}');return;}
-  if(config.mode==='authentication'&&resource===groupResource){response.statusCode=401;response.end('{"error":"fixture auth stopped"}');return;}
-  if(resource==='authoringCourseMaterials.v1'){
+  if(resource==='assets.v1'){
+    const count=(config.assetGets.get(reference)||0)+1;config.assetGets.set(reference,count);
+    assert.equal(url.pathname,'/api/assets.v1');assert.equal(url.searchParams.get('ids'),reference);
+    assert.equal(request.headers['x-coursera-naptime-fields'],'ALL');
+    if(['media-metadata-404','media-legacy-gap'].includes(config.mode)){response.statusCode=404;response.end('{}');return;}
+    if(config.mode==='media-metadata-auth'){response.statusCode=401;response.end('{}');return;}
+    value=structuredClone(binding.value);
+    if(config.mode==='media-metadata-changed'&&count>1)value.name='Changed '+value.name;
+  }
+  else if(config.mode==='authentication'&&resource===groupResource){response.statusCode=401;response.end('{"error":"fixture auth stopped"}');return;}
+  else if(resource==='authoringCourseMaterials.v1'){
     config.materialGets++;value=structuredClone(config.material);
     if(config.mode==='material-changed'&&config.materialGets>1)value.conflictMetadata.version=2;
   }else if(resource==='authoringCourses.v2')value={id:courseId,name:'Synthetic course'};
   else if(resource==='authoringAtoms.v2'){
     const count=(config.atomGets.get(reference)||0)+1;config.atomGets.set(reference,count);value=structuredClone(binding.atom);
+    if(config.mode==='media-final-atom-failed'&&binding.itemId==='item_0002'&&count>1){
+      response.statusCode=503;response.end('{"error":"final atom consistency read interrupted"}');return;
+    }
     if(config.mode==='changed'&&count>1){value.storedAtomVersion=2;value.metadata.updatedAt=2000;}
   }else if(resource==='authoringItemContentRelations.v1')value=structuredClone(binding.relation);
   else if(resource===groupResource){
@@ -145,7 +205,8 @@ try{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   browser=await chromium.launch({headless:true,
     ...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{channel:'chromium'}),
-    args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server','--host-resolver-rules=MAP www.coursera.org 127.0.0.1:'+server.address().port],
+    args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server','--host-resolver-rules=MAP www.coursera.org 127.0.0.1:'+server.address().port+
+      ',MAP fixture-cdn.cloudfront.net 127.0.0.1:'+server.address().port],
   });
   if(process.env.CTI_DIRECT_BROWSER_PROGRESS==='1')heartbeat=setInterval(async()=>{
     for(const context of browser.contexts())for(const page of context.pages())try{
@@ -187,6 +248,27 @@ try{
   }
   async function open(config){
     const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true}),page=await context.newPage();
+    await context.route(mediaOrigin+'/**',async route=>{
+      const request=route.request(),url=new URL(request.url()),assetId=url.pathname.split('/')[2],asset=assets.get(assetId);
+      const headers=await request.allHeaders();
+      mediaRequests.push({courseId:config.id,assetId,url:request.url(),method:request.method(),
+        credentialHeaders:['cookie','authorization'].filter(name=>headers[name])});
+      assert(asset&&asset.courseId===config.id,'The binary URL must originate in this course\'s exact asset metadata');
+      assert.equal(request.method(),'GET');assert.equal(headers.cookie,undefined);assert.equal(headers.authorization,undefined);
+      assert.equal(url.searchParams.get('X-Amz-Signature'),secrets[3],
+        'The signed response location is used ephemerally for the one fetch');
+      const responseHeaders={'Content-Type':asset.mime,'Access-Control-Allow-Origin':origin};
+      if(config.mode==='media-body-403'){await route.fulfill({status:403,headers:responseHeaders,body:'denied'});return;}
+      if(config.mode==='media-body-cors'){await route.continue();return;}
+      if(config.mode==='media-body-redirect'){
+        await route.fulfill({status:302,headers:{...responseHeaders,Location:mediaOrigin+'/unexpected/redirect'},body:''});return;
+      }
+      if(config.mode==='media-body-html'){
+        await route.fulfill({status:200,headers:{...responseHeaders,'Content-Type':'text/html'},body:'<!doctype html><title>Login</title>'});return;
+      }
+      const body=config.mode==='media-body-limit'?Buffer.concat([pngBytes,Buffer.alloc(17*1024*1024)]):asset.body;
+      await route.fulfill({status:200,headers:responseHeaders,body});
+    });
     page.on('pageerror',error=>errors.push(error.message));
     const destinations=[];page.on('request',request=>destinations.push(new URL(request.url()).origin));
     await page.goto(origin+'/teach/'+slug+'/'+config.id+'/content/edit');
@@ -200,7 +282,7 @@ try{
   async function readFile(download){
     const bytes=fs.readFileSync(await download.path());
     const compressed=download.suggestedFilename().endsWith('.json.gz');
-    assert(bytes.byteLength<=(compressed?32:128)*1024*1024,'The final file must fit its compressed or plain byte limit');
+    assert(bytes.byteLength<=128*1024*1024,'The final file must fit its compressed or plain byte limit');
     const jsonBytes=compressed?gunzipSync(bytes,{maxOutputLength:128*1024*1024}):bytes;
     assert(jsonBytes.byteLength<=128*1024*1024,'Expanded JSON must stay within the 128 MiB processing limit');
     const capture=JSON.parse(jsonBytes.toString('utf8'));
@@ -210,16 +292,20 @@ try{
   function assertTransport(config,start){
     const received=requests.slice(start).filter(request=>request.courseId===config.id);
     assert(received.length>0);assert(received.every(request=>request.method==='GET'&&request.authenticated&&resources.has(request.resource)));
-    assert(received.every(request=>!request.query.some(([key])=>key==='ids')),'No collection enumeration or guessed batch request');
+    assert(received.every(request=>!request.query.some(([key])=>key==='ids')||request.resource==='assets.v1'&&
+      new Map(request.query).get('ids')===request.reference&&!request.reference.includes(',')),
+      'Only exact source-referenced single asset IDs use the observed collection GET format');
     assert(maximum.get(config.id)<=4,'All roots, items, groups and definitions share one four-read pool');
     for(const request of received){
       if([groupResource,definitionResource,'authoringAtoms.v2','authoringItemContentRelations.v1'].includes(request.resource))assert.equal(request.all,'ALL');
       if(request.resource===definitionResource){assert(definitions.has(request.reference));assert(request.path.endsWith('@'+request.reference.split('@')[1]));assert(!/%40/i.test(request.path));}
       if(request.resource===groupResource){assert(groups.has(request.reference));assert.equal(new Map(request.query).get('id'),request.reference);}
+      if(request.resource==='assets.v1'){assert(assets.has(request.reference));assert.equal(request.all,'ALL');}
     }
   }
   async function assertNoEditor(page,destinations){
-    assert.deepEqual(new Set(destinations),new Set([origin]));
+    assert([...new Set(destinations)].every(destination=>destination===origin||destination===mediaOrigin),
+      'Only the authenticated authoring API and exact metadata-returned CDN can be requested');
     assert.equal(await page.evaluate(()=>window.fixtureEditorClicks),0);assert.equal(await page.evaluate(()=>window.fixtureScrolls),0);
     assert(!documents.some(address=>address.includes('/content/item/')),'No authoring editor is opened');
     assert.equal(await page.evaluate(()=>document.cookie.includes('fixtureSession')),false);
@@ -361,6 +447,160 @@ try{
   assert.equal(evaluateCourseraCapture(budgetCapture,budgetResume.id).complete,false);
   assertTransport(budgetResume,budgetStart);await assertNoEditor(budgetTarget.page,budgetTarget.destinations);await budgetTarget.context.close();
 
+  function retainedMediaBodies(capture){
+    const result=new Map();
+    const visit=value=>{
+      if(!value||typeof value!=='object')return;
+      if(typeof value.assetId==='string'&&typeof value.body?.base64==='string')result.set(value.assetId,value);
+      for(const child of Object.values(value))if(child&&typeof child==='object')visit(child);
+    };
+    visit(capture);return result;
+  }
+  function assertOriginalMedia(config,capture){
+    const retained=retainedMediaBodies(capture),reading=capture.fingerprints.find(fp=>fp.id==='item_0002');
+    assert.equal(reading.captureContract.complete,true,'Source-bound reading media is verified only after original bytes are retained');
+    for(const assetId of config.mediaIds){
+      const original=assets.get(assetId),evidence=retained.get(assetId);
+      assert(evidence,'The final JSON must retain each original image and attachment body');
+      assert.deepEqual(Buffer.from(evidence.body.base64,'base64'),original.body,'No thumbnail, converted copy or prefix replaces the original bytes');
+      const digest=createHash('sha256').update(original.body).digest('hex');
+      assert.equal(evidence.body.sha256,digest);assert.equal(evidence.body.size,original.body.byteLength);
+      assert.equal(evidence.body.mime,original.mime);assert.equal(evidence.body.receipt.status,200);
+      assert.equal(evidence.metadata.elements[0].id,assetId);assert.equal(evidence.metadataReceipt.id,assetId);
+      assert.equal(evidence.metadataReceipt.resource,'assets.v1');assert.equal(evidence.metadataReceipt.requestPath,'/api/assets.v1');
+      assert.equal(new Map(evidence.metadataReceipt.requestQuery).get('ids'),assetId);
+      assert.equal(evidence.stability.stable,true);assert.equal(evidence.stability.metadata.elements[0].id,assetId);
+      assert.equal(evidence.stability.receipt.status,200);
+      assert.equal(evidence.stability.receipt.resource,'assets.v1');assert.equal(evidence.stability.receipt.id,assetId);
+      assert.equal(evidence.body.canonicalUrl,original.url.split('?')[0]);
+      assert.equal(config.assetGets.get(assetId),2,'Initial and fresh metadata bind and certify each body location');
+    }
+    const verdict=evaluateCourseraCapture(capture,config.id);assert.equal(verdict.complete,true,JSON.stringify(verdict.reasons));
+    assert(mediaRequests.filter(request=>request.courseId===config.id).every(request=>request.credentialHeaders.length===0));
+  }
+  const boundMedia=await runFileCase(mediaSuccess);assert.equal(boundMedia.state.state,'COMPLETE');
+  assertOriginalMedia(mediaSuccess,boundMedia.capture);await boundMedia.context.close();
+
+  const enriching=await runFileCase(mediaEnrichment);assert.equal(enriching.state.state,'INCOMPLETE');
+  assert.equal(enriching.state.counts.processed,4,'The previous run acquired the complete inventory before encountering asset gaps');
+  const preservedAssessments=enriching.capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence).map(fp=>({
+    id:fp.id,atom:fp.payload.directDataSources.atom,groups:fp.payload.assessmentApiEvidence.groups,
+    definitions:fp.payload.assessmentApiEvidence.questionDefinitions,questions:fp.payload.structuredAssessment.questions,
+  }));
+  assert.equal(preservedAssessments.length,2);
+  const enrichmentLegacy=await enriching.page.evaluate(async()=>{
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const saved=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items'],'readwrite'),out={};
+      const runs=transaction.objectStore('runs'),request=runs.getAll();request.onsuccess=()=>{
+        const row=request.result.at(-1);row.state='INCOMPLETE';row.reason='ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS';
+        row.buildId='v1.1.0-compressed-resumable-drafts-20261014';row.captureMeta.buildId=row.buildId;
+        row.captureMeta.directDataCapture.acquisitionComplete=true;row.captureMeta.directDataCapture.wholeCourseVerified=false;
+        row.captureMeta.directDataCapture.stopReason=row.reason;runs.put(row);
+        out.runId=row.runId;out.requests=row.budget.requests;out.elapsedMs=row.budget.elapsedMs;
+      };
+      const items=transaction.objectStore('items'),itemRequest=items.getAll();itemRequest.onsuccess=()=>{
+        for(const row of itemRequest.result){
+          if(row.fingerprint?.id!=='item_0002')continue;
+          for(const field of Object.keys(row.fingerprint.payload))if(/media|assets?Evidence/i.test(field))delete row.fingerprint.payload[field];
+          items.put(row);
+        }
+      };
+      transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);
+    });database.close();return saved;
+  });
+  mediaEnrichment.mode='media-success';mediaEnrichment.assetGets.clear();
+  await enriching.page.reload();const enrichmentStart=requests.length;
+  const enrichedDownloading=enriching.page.waitForEvent('download',{timeout:180000});void enrichedDownloading.catch(()=>{});
+  await launch(enriching.page,enriching.context);const enrichedState=await terminal(enriching.page),enrichedCapture=await readFile(await enrichedDownloading);
+  assert.equal(enrichedState.runId,enrichmentLegacy.runId,'Media enrichment retains the completed v1.1 run identity');
+  assert.equal(enrichedState.state,'COMPLETE');assert.equal(enriching.downloads.length,2,'Each bookmark attempt produces exactly one final file');
+  assert(enrichedCapture.meta.directDataCapture.stats.requests>=enrichmentLegacy.requests,
+    'Enrichment preserves all requests already spent in the completed run');
+  assert(enrichedCapture.meta.directDataCapture.stats.elapsedMs>=enrichmentLegacy.elapsedMs,
+    'Enrichment preserves the completed run\'s cumulative active duration');
+  assert(!requests.slice(enrichmentStart).some(request=>request.courseId===mediaEnrichment.id&&
+    [groupResource,definitionResource].includes(request.resource)),
+    'Already verified assessment groups and definitions must not be captured again to add reading media');
+  for(const prior of preservedAssessments){
+    const current=enrichedCapture.fingerprints.find(fp=>fp.id===prior.id);
+    assert.deepEqual(current.payload.directDataSources.atom,prior.atom);
+    assert.deepEqual(current.payload.assessmentApiEvidence.groups,prior.groups);
+    assert.deepEqual(current.payload.assessmentApiEvidence.questionDefinitions,prior.definitions);
+    assert.deepEqual(current.payload.structuredAssessment.questions,prior.questions);
+  }
+  assertOriginalMedia(mediaEnrichment,enrichedCapture);assertTransport(mediaEnrichment,enrichmentStart);
+  await assertNoEditor(enriching.page,enriching.destinations);await enriching.context.close();
+
+  const checkpointedMedia=await runFileCase(mediaCheckpoint);
+  assert.equal(checkpointedMedia.state.state,'INCOMPLETE');
+  assert.equal(retainedMediaBodies(checkpointedMedia.capture).size,0,
+    'A previous reading checkpoint exists before its missing original media becomes available');
+  const previousReadingRunId=checkpointedMedia.state.runId;
+  mediaCheckpoint.mode='media-final-atom-failed';mediaCheckpoint.atomGets.clear();mediaCheckpoint.assetGets.clear();
+  await checkpointedMedia.page.reload();
+  const interruptedDownloading=checkpointedMedia.page.waitForEvent('download',{timeout:180000});void interruptedDownloading.catch(()=>{});
+  await launch(checkpointedMedia.page,checkpointedMedia.context);
+  checkpointedMedia.state=await terminal(checkpointedMedia.page);checkpointedMedia.capture=await readFile(await interruptedDownloading);
+  assert.equal(checkpointedMedia.state.runId,previousReadingRunId,'New media is added to the existing saved reading run');
+  assert.equal(checkpointedMedia.state.state,'INCOMPLETE');
+  const failedMediaReading=checkpointedMedia.capture.fingerprints.find(fp=>fp.id==='item_0002');
+  assert.equal(failedMediaReading.captureContract.complete,false,'A failed final atom read cannot certify the reading as stable');
+  assert(failedMediaReading.payload.directDataSources?.atom?.elements[0]?.draft,
+    'Initial native draft evidence survives a final consistency-read failure');
+  assert.notEqual(failedMediaReading.payload.directDataSources.receipts.stability?.stable,true,
+    'The failed consistency read cannot inherit a successful stability flag');
+  const savedBodies=retainedMediaBodies(checkpointedMedia.capture);
+  for(const assetId of mediaCheckpoint.mediaIds){
+    const evidence=savedBodies.get(assetId),original=assets.get(assetId);
+    assert(evidence?.body,'A final atom failure must preserve a successfully retained original media body');
+    assert.deepEqual(Buffer.from(evidence.body.base64,'base64'),original.body);
+    assert.equal(evidence.stability.stable,true,'The prior asset metadata consistency proof is retained separately from atom stability');
+    assert.equal(evidence.metadata.elements[0].id,assetId);
+  }
+  mediaCheckpoint.mode='media-success';mediaCheckpoint.assetGets.clear();
+  await checkpointedMedia.page.reload();const checkpointResumeStart=requests.length;
+  const checkpointDownloading=checkpointedMedia.page.waitForEvent('download',{timeout:180000});void checkpointDownloading.catch(()=>{});
+  await launch(checkpointedMedia.page,checkpointedMedia.context);
+  const checkpointFinal=await terminal(checkpointedMedia.page),checkpointCapture=await readFile(await checkpointDownloading);
+  assert.equal(checkpointFinal.runId,checkpointedMedia.state.runId,'Interrupted media revalidation resumes its existing run');
+  assert.equal(checkpointedMedia.downloads.length,3,'Each of the saved-gap, interrupted-media, and successful-resume attempts downloads one final capture');
+  assert.equal(checkpointFinal.state,'COMPLETE');assertOriginalMedia(mediaCheckpoint,checkpointCapture);
+  const resumedBodies=retainedMediaBodies(checkpointCapture);
+  for(const assetId of mediaCheckpoint.mediaIds){
+    const previous=savedBodies.get(assetId),current=resumedBodies.get(assetId);
+    assert.deepEqual(current.body,previous.body,'Reusing unchanged original bytes preserves their original receipt and observation time');
+    assert.equal(mediaRequests.filter(request=>request.courseId===mediaCheckpoint.id&&request.assetId===assetId).length,1,
+      'A retained valid image or attachment is not downloaded again during resumed atom revalidation');
+    assert.equal(requests.slice(checkpointResumeStart).filter(request=>request.courseId===mediaCheckpoint.id&&
+      request.resource==='assets.v1'&&request.reference===assetId).length,2,
+      'Reused original bytes still require two fresh native asset metadata reads');
+  }
+  assert(checkpointCapture.meta.directDataCapture.stats.requests>=checkpointedMedia.capture.meta.directDataCapture.stats.requests,
+    'An interrupted media run retains its cumulative authoring API budget');
+  assertTransport(mediaCheckpoint,checkpointResumeStart);await assertNoEditor(checkpointedMedia.page,checkpointedMedia.destinations);
+  await checkpointedMedia.context.close();
+
+  for(const config of mediaFailures){
+    const target=await runFileCase(config),reading=target.capture.fingerprints.find(fp=>fp.id==='item_0002');
+    if(process.env.CTI_DIRECT_BROWSER_PROGRESS==='1')console.error('Synthetic media gap: '+config.mode+' · '+target.state.state);
+    assert.equal(evaluateCourseraCapture(target.capture,config.id).complete,false,config.mode+' must remain an explicit capture gap');
+    assert.equal(reading.captureContract.complete,false,config.mode+' must remain an explicit body gap');
+    assert(reading.captureContract.status.startsWith('UNRESOLVED_'),config.mode+' cannot certify a pointer or failed transport');
+    if(config.mode==='media-pointer-missing'){
+      assert.equal(requests.slice(target.start).filter(request=>request.resource==='assets.v1').length,0,
+        'A native img pointer without an asset ID cannot trigger guessed metadata reads');
+      assert.equal(mediaRequests.filter(request=>request.courseId===config.id).length,0);
+    }
+    if(config.mode==='media-metadata-auth')assert.equal(target.state.state,'PAUSED');
+    await target.context.close();
+  }
+  const widgets=await runFileCase(sixWidgets);
+  const widgetEntries=widgets.capture.fingerprints.filter(fp=>fp.payload.directDataSources?.atom?.elements[0]?.draft?.content?.typeName==='ungradedWidgetDraft');
+  assert.equal(widgetEntries.length,6);assert(widgetEntries.every(fp=>fp.captureContract.complete===false&&fp.captureContract.externalBodyVerified===false));
+  assert.equal(evaluateCourseraCapture(widgets.capture,sixWidgets.id).complete,false,
+    'Retaining six widget references does not verify their external implementation');
+  await widgets.context.close();
+
   for(const config of [changed,changedMaterial,changedGroup,authentication,limited]){
     const target=await runFileCase(config);assert.equal(evaluateCourseraCapture(target.capture,config.id).complete,false);
     assert(target.capture.fingerprints.some(fp=>fp.captureContract?.complete!==true),'Failures remain explicit item gaps');
@@ -374,7 +614,11 @@ try{
     inventory:185,contentItems:165,orderedMcqQuestions:609,checkboxKeys:true,unknownWidgetPreventsCompletion:true,
     realIndexedDbInterruptedResume:true,oldExportCutoffRunRecovered:true,stableVersionedDefinitionsNotReread:true,
     unchangedGroupsNeedOneFreshResumeRead:true,maximumRequestsInFlight:4,
-    cumulativeResumeBudget:true,completeCaptureBeyondOld32MiBCutoff:true,losslessGzipWithin32MiB:true,expandedJsonWithin128MiB:true,
+    cumulativeResumeBudget:true,completeCaptureBeyondOld32MiBCutoff:true,losslessGzipWithin128MiB:true,expandedJsonWithin128MiB:true,
+    originalPngPdfAndPptxBodies:true,exactAssetMetadataAndFreshStabilityReads:true,completedV110MediaEnrichmentSameRun:true,
+    interruptedMediaBodiesAndNativeDraftPreserved:true,resumedUnchangedBodiesNotDownloadedAgain:true,
+    enrichmentNeverRereadsVerifiedAssessmentDefinitions:true,sixExternalWidgetsRemainUnverified:true,
+    missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,
     finalDownloadsPerCompletedRun:1,noEditorNavigation:true,authenticationAndLimitsAndSourceChangesRemainGaps:true,
     scope:'Actual generated entry with synthetic authoring draft APIs; no private-course completeness or throughput claim.'}));
 }catch(error){

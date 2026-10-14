@@ -1031,6 +1031,268 @@ test("newer unrelated incomplete runs cannot hide an older eligible export recov
   });
 });
 
+function completedMediaGapRun(run, captureChanges = {}, runChanges = {}) {
+  const base = interruptedExportRun(run);
+  return {
+    ...base,
+    buildId: "v1.1.0-compressed-resumable-drafts-20261014",
+    counts: { processed: 185, complete: 81, questions: 4007, total: 185 },
+    budget: {
+      ...base.budget,
+      requests: 16269,
+      elapsedMs: 42 * 60 * 1000,
+    },
+    captureMeta: {
+      directDataCapture: {
+        ...base.captureMeta.directDataCapture,
+        sourceStable: true,
+        acquisitionComplete: true,
+        wholeCourseVerified: false,
+        stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
+        finalMaterials: { elements: [{ id: run.courseId }] },
+        historicalSourceScope: { observations: "original-assessment-proof" },
+        ...captureChanges,
+      },
+    },
+    ...runChanges,
+  };
+}
+
+test("media-gap recovery is opt-in and preserves the completed inventory, all definitions and historical metadata", async () => {
+  await withDatabase(async (fake) => {
+    const store = await storeFor(),
+      stopped = await store.openRun();
+    for (let index = 0; index < 185; index++)
+      await store.putItem(
+        stopped.runId,
+        "item-" + index,
+        source("item-" + index),
+        index < 81 ? "COMPLETE" : "INCOMPLETE",
+      );
+    await store.putGroup(stopped.runId, "item-0", "original-group", {
+      id: "original-group",
+      questions: ["original-definition@1"],
+      receipt: { originalResponseSha256: "original-native-receipt" },
+    });
+    for (let index = 0; index < 4007; index++)
+      await store.putDefinition(stopped.runId, "definition-" + index + "@1", {
+        id: "definition-" + index + "@1",
+        raw: { futureSourceField: [index, false, null] },
+        receipt: { originalResponseSha256: "retained-" + index },
+      });
+    const metadata = completedMediaGapRun(stopped);
+    await store.saveRun(metadata);
+    assert.equal(await store.getActiveRun(), null);
+    assert.equal(await store.getActiveRun({ recoverExportLimit: true }), null);
+    assert.equal(await store.getActiveRun({ recoverMediaGaps: false }), null);
+    const before = structuredClone(
+        Object.fromEntries(
+          ["runs", "items", "groups", "definitions"].map((name) => [
+            name,
+            fake.rows(name),
+          ]),
+        ),
+      ),
+      beforeWrites = fake.metrics.writes.length,
+      recovered = await store.getActiveRun({ recoverMediaGaps: true });
+    assert.equal(recovered.runId, stopped.runId);
+    assert.equal(recovered.state, "INCOMPLETE");
+    assert.deepEqual(recovered.captureMeta, metadata.captureMeta);
+    assert.deepEqual(recovered.counts, metadata.counts);
+    assert.deepEqual(recovered.budget, metadata.budget);
+    assert.equal(
+      (
+        await store.getActiveRun({
+          recoverExportLimit: true,
+          recoverMediaGaps: true,
+        })
+      ).runId,
+      stopped.runId,
+    );
+    assert.equal(fake.metrics.writes.length, beforeWrites);
+    for (const name of ["runs", "items", "groups", "definitions"])
+      assert.deepEqual(fake.rows(name), before[name], name + " is unchanged");
+    assert.equal(fake.rows("items").length, 185);
+    assert.equal(fake.rows("definitions").length, 4007);
+    recovered.captureMeta.directDataCapture.historicalSourceScope.observations =
+      "caller-mutated";
+    assert.equal(
+      (await store.getActiveRun({ recoverMediaGaps: true })).captureMeta
+        .directDataCapture.historicalSourceScope.observations,
+      "original-assessment-proof",
+      "the returned historical metadata is an independent snapshot",
+    );
+    store.close();
+  });
+});
+
+test("media-gap recovery accepts only explicitly compatible builds and owned complete-acquisition metadata", async () => {
+  await withDatabase(async (fake) => {
+    const store = await storeFor(),
+      stopped = await store.openRun();
+    for (const buildId of [
+      "v1.1.0-compressed-resumable-drafts-20261014",
+      "v1.2.0-bound-reading-media-20261014",
+    ]) {
+      await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));
+      assert.equal(
+        (await store.getActiveRun({ recoverMediaGaps: true })).runId,
+        stopped.runId,
+        buildId,
+      );
+    }
+    const variations = [
+      [{ sourceStable: false }, {}],
+      [{ sourceStable: undefined }, {}],
+      [{ acquisitionComplete: false }, {}],
+      [{ acquisitionComplete: undefined }, {}],
+      [{ wholeCourseVerified: true }, {}],
+      [{ wholeCourseVerified: undefined }, {}],
+      [{ stopReason: "DIRECT_CAPTURE_FAILED" }, {}],
+      [{ stopReason: undefined }, {}],
+      [{ mode: "UNRECOGNIZED_CAPTURE" }, {}],
+      [{ version: 2 }, {}],
+      [{ runId: "99999999-9999-4999-8999-999999999999" }, {}],
+      [{ materials: { elements: [{ id: OTHER }] } }, {}],
+      [{ materials: undefined }, {}],
+      [{}, { buildId: "v1.0.0-bound-authoring-drafts-20261014" }],
+      [{}, { buildId: "unknown-build" }],
+      [{}, { buildId: undefined }],
+      [{}, { counts: { processed: 184, total: 185 } }],
+      [{}, { counts: { processed: 186, total: 185 } }],
+      [{}, { counts: { processed: 0, total: 0 } }],
+      [{}, { counts: { processed: 185.5, total: 185.5 } }],
+      [{}, { counts: { processed: Infinity, total: Infinity } }],
+      [{}, { counts: { processed: "185", total: "185" } }],
+      [{}, { counts: undefined }],
+      [{}, { captureMeta: undefined }],
+    ];
+    for (const [captureChanges, runChanges] of variations) {
+      await store.saveRun(
+        completedMediaGapRun(stopped, captureChanges, runChanges),
+      );
+      assert.equal(
+        await store.getActiveRun({ recoverMediaGaps: true }),
+        null,
+        "incompatible media-gap capture must not resume: " +
+          JSON.stringify([captureChanges, runChanges]),
+      );
+    }
+    await store.saveRun(completedMediaGapRun(stopped));
+    const row = fake.rows("runs")[0];
+    row.runId = "non-uuid-run";
+    row.key = [COURSE, row.runId];
+    row.captureMeta.directDataCapture.runId = row.runId;
+    assert.equal(await store.getActiveRun({ recoverMediaGaps: true }), null);
+    assert.equal(fake.rows("runs").length, 1);
+    store.close();
+  });
+});
+
+test("media-gap recovery excludes exhausted cumulative budgets, verified captures and terminal failures", async () => {
+  await withDatabase(async () => {
+    const store = await storeFor(),
+      stopped = await store.openRun(),
+      metadata = completedMediaGapRun(stopped);
+    for (const [used, limit] of [
+      ["requests", "requests"],
+      ["bytes", "totalBytes"],
+      ["elapsedMs", "durationMs"],
+    ]) {
+      for (const value of [
+        0,
+        -1,
+        Infinity,
+        NaN,
+        undefined,
+        metadata.budget.limits[limit],
+        metadata.budget.limits[limit] + 1,
+      ]) {
+        await store.saveRun({
+          ...metadata,
+          budget: { ...metadata.budget, [used]: value },
+        });
+        assert.equal(
+          await store.getActiveRun({ recoverMediaGaps: true }),
+          null,
+          used + "=" + value,
+        );
+      }
+      for (const value of [0, -1, Infinity, NaN, undefined]) {
+        await store.saveRun({
+          ...metadata,
+          budget: {
+            ...metadata.budget,
+            limits: { ...metadata.budget.limits, [limit]: value },
+          },
+        });
+        assert.equal(
+          await store.getActiveRun({ recoverMediaGaps: true }),
+          null,
+          limit + " limit=" + value,
+        );
+      }
+    }
+    for (const budget of [
+      undefined,
+      { ...metadata.budget, limits: undefined },
+    ]) {
+      await store.saveRun({ ...metadata, budget });
+      assert.equal(await store.getActiveRun({ recoverMediaGaps: true }), null);
+    }
+    for (const state of ["COMPLETE", "FAILED", "CANCELLED"]) {
+      await store.saveRun({ ...metadata, state });
+      assert.equal(await store.getActiveRun({ recoverMediaGaps: true }), null);
+    }
+    await store.saveRun(
+      completedMediaGapRun(stopped, { wholeCourseVerified: true }),
+    );
+    assert.equal(await store.getActiveRun({ recoverMediaGaps: true }), null);
+    await store.saveRun(metadata);
+    assert.equal(
+      (await store.getActiveRun({ recoverMediaGaps: true })).runId,
+      stopped.runId,
+    );
+    store.close();
+  });
+});
+
+test("media-gap selection stays course-bound, skips unrelated newer runs and excludes expired saved work", async () => {
+  await withDatabase(async (fake) => {
+    const store = await storeFor(),
+      other = await storeFor(OTHER),
+      stopped = await store.openRun(),
+      foreign = await other.openRun();
+    await store.saveRun(completedMediaGapRun(stopped));
+    await other.saveRun(completedMediaGapRun(foreign));
+    for (let index = 0; index < 10; index++) {
+      const unrelated = await store.openRun();
+      await store.saveRun(
+        completedMediaGapRun(unrelated, {
+          stopReason: "COURSE_API_TIME_LIMIT",
+        }),
+      );
+    }
+    for (const row of fake.rows("runs"))
+      ageRow(row, row.runId === stopped.runId ? 60000 : 1000);
+    assert.equal(
+      (await store.getActiveRun({ recoverMediaGaps: true })).runId,
+      stopped.runId,
+    );
+    ageRow(
+      fake.rows("runs").find((row) => row.runId === stopped.runId),
+      WEEK + 1000,
+    );
+    assert.equal(await store.getActiveRun({ recoverMediaGaps: true }), null);
+    assert.equal(
+      (await other.getActiveRun({ recoverMediaGaps: true })).runId,
+      foreign.runId,
+    );
+    store.close();
+    other.close();
+  });
+});
+
 test("expired-run pruning is bounded instead of deleting every old capture in one call", async () => {
   await withDatabase(async (fake) => {
     const store = await storeFor(),

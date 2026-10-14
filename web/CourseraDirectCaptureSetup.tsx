@@ -63,8 +63,10 @@ export default function CourseraDirectCaptureSetup({
       </p>
       <p className="hint">
         This captures authoring drafts. Published versions, when returned by
-        Coursera, are retained separately. Unsupported content keeps its
-        original data and an explicit evidence gap.
+        Coursera, are retained separately. Where Coursera supplies the original
+        source, CTI includes referenced images and attachments in the same file.
+        Missing sources, unsupported content, and external widget bodies keep an
+        explicit evidence gap.
       </p>
       <ol className="local-extraction-steps">
         <li>
@@ -91,7 +93,8 @@ export default function CourseraDirectCaptureSetup({
             download. Check the file below before using it in Compare. If
             capture is interrupted, reopen the same course’s Content page and
             click the same bookmark. CTI checks current sources before reusing
-            matching saved reads.
+            matching saved reads. The same bookmark can also resume a finished
+            capture to add newly supported images and attachments.
           </span>
         </li>
       </ol>
@@ -99,7 +102,8 @@ export default function CourseraDirectCaptureSetup({
         Saved progress stays in this Chrome profile. Use the same profile when
         resuming. If you saved an earlier bookmark, replace its URL with this
         version once. It can recover the earlier capture that reached the
-        export-size limit and rechecks its saved sources before continuing.
+        export-size limit or finished with missing media, and rechecks its saved
+        sources before continuing.
       </p>
       <div className="action-links">
         {!disabled && delivery.address && (

@@ -5,6 +5,10 @@ import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
 import ts from "typescript";
 import {
+  directDataCoverageSummaryV1,
+  directDataAttemptMetricsV1,
+} from "../src/extractors/coursera/direct-data-summary.js";
+import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
@@ -93,6 +97,7 @@ function harness(options = {}) {
   const fingerprint = (id) => ({
     id,
     type: "reading",
+    typeName: "supplement",
     name: id,
     atomId: "Atom_" + id,
     payload: {},
@@ -294,7 +299,11 @@ function harness(options = {}) {
           updatedAt: 1,
           draft: {
             name: id,
-            content: { typeName: "supplementDraft" },
+            content: clone(
+              options.readingContent?.({ factory: readerIndex, id }) || {
+                typeName: "supplementDraft",
+              },
+            ),
           },
         };
       metrics.completed++;
@@ -335,6 +344,8 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_EXPORT_BYTES_V1,
     CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
     CTI_DIRECT_DATA_MAX_PARTS_V1,
+    directDataCoverageSummaryV1,
+    directDataAttemptMetricsV1,
     location,
     document,
     crypto: { subtle: webcrypto.subtle, randomUUID: webcrypto.randomUUID },
@@ -358,6 +369,10 @@ function harness(options = {}) {
     clearTimeout() {},
     createDirectDataCheckpointStoreV1: async () => store,
     createDirectDataReaderV1: createReader,
+    createDirectDataMediaReaderV1: (settings) => {
+      assert.equal(typeof options.mediaReaderFactory, "function");
+      return options.mediaReaderFactory(settings);
+    },
     sanitizeCourseraCourseDataModel: () => {},
     directCanonicalSourceTextV1: JSON.stringify,
     directCourseInventoryV1: async () => ({
@@ -370,7 +385,8 @@ function harness(options = {}) {
       atomId: fp.atomId,
       ...atomData.elements[0],
     }),
-    directDraftReadingSourceV1: () => ({ rawCML: "Synthetic reading" }),
+    directDraftReadingSourceV1: (bound) =>
+      options.readingSource?.(bound) || { rawCML: "Synthetic reading" },
     directReadingPayloadV1: async (fp) => {
       fp.payload.reading = "Synthetic reading";
       contract(fp, "DIRECT_READING", true);
@@ -391,7 +407,7 @@ function harness(options = {}) {
     },
     directAssessmentContractV1() {},
     parseCourseraCheckboxDefinitionDirectV1() {},
-    directCmlTextV1() {},
+    directCmlTextV1: options.parseCml || (() => undefined),
     parseCourseraMcqDefinitionV61524() {},
     assessmentCaptureCoverageV613() {},
     __CTI_COURSERA_DIRECT_DATA_LIMITS__: options.limits,
@@ -575,6 +591,269 @@ test("manual Pause preserves saved reads and Resume can restart the same course"
   await app.idle();
   assert.equal(app.state().state, "COMPLETE");
   assert.equal(app.state().runId, runId);
+});
+
+function readingMediaOptions({
+  failFinalAtom = false,
+  failMetadata = false,
+  failMetadataAfterBody = false,
+} = {}) {
+  const assetId = "a".repeat(22),
+    sourceAssetId = "r".repeat(22) + "@1",
+    cml = '<co-content><asset id="' + assetId + '" /></co-content>',
+    mediaCalls = [],
+    settings = [];
+  let mediaAttempt = 0,
+    resumedAtomReads = 0,
+    currentCml = cml;
+  const record = (label) => ({
+    assetId,
+    metadata: { elements: [{ id: assetId, label }] },
+    metadataReceipt: { retainedMarker: label },
+    body: {
+      base64: "T1JJR0lOQUw=",
+      size: 8,
+      sha256: label,
+      receipt: { observedAt: "original-" + label },
+    },
+    stability: {
+      stable: true,
+      metadata: { elements: [{ id: assetId, label }] },
+    },
+  });
+  const options = {
+    readingContent: () => ({
+      typeName: "supplementDraft",
+      definition: {
+        assetId: sourceAssetId,
+        content: {
+          typeName: "cml",
+          definition: { dtdId: "supplement/1", value: currentCml },
+        },
+      },
+    }),
+    readingSource: (bound) => {
+      const definition = bound.draft.content.definition;
+      return {
+        rawCML: definition.content,
+        cml: definition.content.definition.value,
+        dtdId: definition.content.definition.dtdId,
+        assetId: definition.assetId,
+      };
+    },
+    parseCml: () => ({ references: [{ id: assetId, tag: "asset" }] }),
+    beforeRead: ({ factory, resource, id }, { abort }) => {
+      if (factory === 0 && resource === "atom" && id === "Atom_ReadingB") {
+        abort("NETWORK_FAILED");
+        return "NETWORK_FAILED";
+      }
+      if (
+        failFinalAtom &&
+        factory === 1 &&
+        resource === "atom" &&
+        id === "Atom_ReadingA" &&
+        ++resumedAtomReads === 2
+      ) {
+        abort("NETWORK_FAILED");
+        return "NETWORK_FAILED";
+      }
+    },
+    readingPayload(fp) {
+      if (fp.payload.directAssetEvidence?.failures.length) {
+        fp.captureContract.complete = false;
+        fp.captureContract.contentPartsCaptured = false;
+        fp.captureContract.reasons = ["DIRECT_READING_ASSETS_UNRESOLVED"];
+      }
+    },
+    mediaReaderFactory: (configuration) => {
+      const attempt = mediaAttempt++,
+        metrics = { bytes: 0, requests: 0 };
+      settings.push(clone(configuration.limits));
+      return {
+        async capture(id, retained) {
+          mediaCalls.push({ attempt, id, retained: clone(retained) });
+          metrics.requests++;
+          if (attempt === 1 && failMetadata)
+            return { assetId: id, reason: "DIRECT_ASSET_METADATA_FAILED" };
+          if (attempt === 1 && failMetadataAfterBody)
+            return {
+              ...record("new-body-with-failed-metadata"),
+              reason: "DIRECT_ASSET_STABILITY_FAILED",
+              stability: { stable: false },
+            };
+          if (
+            retained?.body &&
+            (attempt >= 2 || configuration.limits.totalBytes === 0)
+          ) {
+            return clone(retained);
+          }
+          if (configuration.limits.totalBytes === 0)
+            return { assetId: id, reason: "DIRECT_MEDIA_BYTE_LIMIT" };
+          metrics.bytes += 8;
+          return record(attempt === 0 ? "old-body" : "new-body");
+        },
+        snapshot: () => clone(metrics),
+        abort() {},
+        release() {},
+      };
+    },
+  };
+  return {
+    options,
+    mediaCalls,
+    settings,
+    changeCml: () =>
+      (currentCml = cml.replace("<asset", "<text>changed</text><asset")),
+  };
+}
+
+test("a failed final atom check retains fresh media bytes for the same bound reading without certifying them", async () => {
+  const fixture = readingMediaOptions({ failFinalAtom: true }),
+    app = harness(fixture.options);
+  app.execute();
+  await app.idle();
+  const runId = app.state().runId,
+    first = app.items.get(runId + "/ReadingA").fingerprint;
+  assert.equal(
+    first.payload.directAssetEvidence.assets[0].body.sha256,
+    "old-body",
+  );
+  assert.equal(first.payload.directDataSources.receipts.stability.stable, true);
+  app.state().resume();
+  await app.idle();
+  assert.equal(app.state().state, "PAUSED");
+  const interrupted = app.items.get(runId + "/ReadingA").fingerprint;
+  assert.equal(
+    interrupted.payload.directAssetEvidence.assets[0].body.sha256,
+    "new-body",
+    "new raw bytes survive a failed final source read",
+  );
+  assert.equal(
+    interrupted.payload.directDataSources.receipts.stability.stable,
+    false,
+  );
+  assert.equal(interrupted.captureContract.complete, false);
+  assert.equal(interrupted.payload.directResumeRevalidation.verified, false);
+  assert.equal(
+    interrupted.payload.directResumeRevalidation.reason,
+    "NETWORK_FAILED",
+  );
+  assert.equal(app.runs.get(runId).budget.media.bytes, 16);
+  assert.equal(fixture.mediaCalls[1].retained.body.sha256, "old-body");
+  app.state().resume();
+  await app.idle();
+  assert.equal(app.state().state, "COMPLETE");
+  assert.equal(app.state().runId, runId);
+  assert.equal(
+    fixture.mediaCalls.find((call) => call.attempt === 2).retained.body.sha256,
+    "new-body",
+    "a later fresh source check can reuse the interrupted native media proof",
+  );
+  assert.equal(app.runs.get(runId).budget.media.bytes, 24);
+});
+
+test("a failed media metadata revalidation retains historical bytes separately and keeps the reading incomplete", async () => {
+  const fixture = readingMediaOptions({ failMetadata: true }),
+    app = harness(fixture.options);
+  app.execute();
+  await app.idle();
+  const runId = app.state().runId;
+  app.state().resume();
+  await app.idle();
+  const failed = app.items.get(runId + "/ReadingA").fingerprint,
+    asset = failed.payload.directAssetEvidence.assets[0];
+  assert.equal(asset.reason, "DIRECT_ASSET_METADATA_FAILED");
+  assert.equal(
+    asset.body,
+    undefined,
+    "failed current evidence cannot look verified",
+  );
+  assert.equal(asset.retainedEvidence.body.sha256, "old-body");
+  assert.equal(failed.captureContract.complete, false);
+  assert.equal(failed.payload.directAssetEvidence.failures.length, 1);
+  // The controlled store exposes normal PAUSED work; real checkpoint selection
+  // separately tests completed media-gap recovery from INCOMPLETE runs.
+  app.runs.get(runId).state = "PAUSED";
+  app.state().resume();
+  await app.idle();
+  assert.equal(app.state().state, "COMPLETE");
+  assert(
+    app.nodes.some((node) =>
+      node.textContent.includes("inventory entries retained"),
+    ),
+    "a media-only continuation identifies retained inventory",
+  );
+  assert(
+    app.nodes.some((node) =>
+      node.textContent.includes(
+        "Saved questions retain their original capture timestamps",
+      ),
+    ),
+    "the card must distinguish historical question observations",
+  );
+  assert.equal(
+    fixture.mediaCalls.find((call) => call.attempt === 2).retained.body.sha256,
+    "old-body",
+  );
+  assert.equal(app.runs.get(runId).budget.media.bytes, 16);
+});
+
+test("exhausted binary budgets still allow the media helper to validate matching retained bodies", async () => {
+  const fixture = readingMediaOptions(),
+    app = harness(fixture.options);
+  app.execute();
+  await app.idle();
+  const runId = app.state().runId;
+  app.runs.get(runId).budget.media.bytes = 64 * 1024 * 1024;
+  app.state().resume();
+  await app.idle();
+  assert.equal(fixture.settings[1].totalBytes, 0);
+  assert.equal(
+    fixture.mediaCalls.find((call) => call.attempt === 1).retained.body.sha256,
+    "old-body",
+    "entry delegates strict metadata-only reuse instead of rejecting saved bytes",
+  );
+  assert.equal(app.runs.get(runId).budget.media.bytes, 64 * 1024 * 1024);
+});
+
+test("a failed second media metadata read preserves both the current raw attempt and older complete proof", async () => {
+  const fixture = readingMediaOptions({ failMetadataAfterBody: true }),
+    app = harness(fixture.options);
+  app.execute();
+  await app.idle();
+  const runId = app.state().runId;
+  app.state().resume();
+  await app.idle();
+  const failed = app.items.get(runId + "/ReadingA").fingerprint,
+    asset = failed.payload.directAssetEvidence.assets[0];
+  assert.equal(asset.reason, "DIRECT_ASSET_STABILITY_FAILED");
+  assert.equal(asset.body.sha256, "new-body-with-failed-metadata");
+  assert.equal(asset.stability.stable, false);
+  assert.equal(asset.retainedEvidence.body.sha256, "old-body");
+  assert.equal(failed.captureContract.complete, false);
+  app.runs.get(runId).state = "PAUSED";
+  app.state().resume();
+  await app.idle();
+  assert.equal(
+    fixture.mediaCalls.find((call) => call.attempt === 2).retained.body.sha256,
+    "old-body",
+    "only the older complete asset proof is proposed for metadata-only reuse",
+  );
+});
+
+test("changed CML cannot reuse an earlier reading's media proof", async () => {
+  const fixture = readingMediaOptions(),
+    app = harness(fixture.options);
+  app.execute();
+  await app.idle();
+  fixture.changeCml();
+  app.state().resume();
+  await app.idle();
+  assert.equal(
+    fixture.mediaCalls.find((call) => call.attempt === 1).retained,
+    undefined,
+    "the exact bound CML must match before passing any historical bytes",
+  );
 });
 
 test("an already exhausted saved run restores its partial inventory without starting network reads", async () => {

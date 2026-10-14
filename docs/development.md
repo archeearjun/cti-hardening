@@ -102,18 +102,28 @@ and was confirmed by an authenticated course-data sample.
 Direct capture retains authoring drafts and published snapshots separately.
 Draft parts supply ordered group identities; exact versioned definitions supply
 supported MCQ/checkbox keys. Fresh atom and group reads and a final material
-read check source stability. Unknown models, variants, media bodies and external
-widgets remain explicit gaps. Four shared request slots, request/time/byte bounds,
+read check source stability. Bound source IDs permit retaining original referenced
+image and attachment bodies in the same capture. Exact `assets.v1` metadata is
+checked again after downloading supported original bytes; the importer checks
+their IDs, receipts, MIME, signature, length and SHA-256 independently. Media
+uses two download slots, a 16 MiB per-file bound and 64 MiB cumulative bound.
+Completed captures with gaps can continue media acquisition while preserving
+assessment observations and their original timestamps; this scoped continuation
+does not reread question definitions or present them as newly observed.
+Missing sources, unknown models,
+variants and external widget bodies remain explicit gaps. Four shared request slots, request/time/byte bounds,
 and incremental IndexedDB transactions replace repeated editor traversal.
 The dedicated `cti-coursera-direct-data-v1` database isolates runs and courses
 from legacy checkpoints. Resuming revalidates current sources before reusing
 matching versioned definitions. Unchanged saved groups need one current read,
 while changed groups receive two current reads. Export serializes one item at a
 time with a 128 MiB expanded bound, then streams lossless gzip to one final
-local .json.gz file with a 32 MiB compressed bound. CTI expands the file within
+local .json.gz file with a 128 MiB compressed bound. CTI expands the file within
 the same bounds before validation and records its compressed transport hash
 separately from the original JSON hash. Interrupted v1.0.0 export-limit runs
 can resume without clearing their cumulative budgets or definition caches.
+Progress and imported summaries separate current-attempt time and requests from
+cumulative budgets, and distinguish assessment, reading and structural coverage.
 The importer independently validates its source receipts
 and ordered inventory. Native fixture checks verify delivery separately from
 browser policy restrictions; fixtures do not certify every live private course.
