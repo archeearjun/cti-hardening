@@ -9,7 +9,12 @@ import {
   directUnsupportedContractV1,
   parseCourseraCheckboxDefinitionDirectV1,
   directCmlTextV1,
+  directDiscussionPayloadV1,
 } from "../src/extractors/coursera/direct-data-contracts.js";
+import {
+  directDraftDiscussionSourceV1,
+  directDraftAssessmentInventoryV1,
+} from "../src/extractors/coursera/direct-data-models.js";
 import { parseCourseraMcqDefinitionV61524 } from "../src/extractors/coursera/assessment-api.js";
 import { assessmentCaptureCoverageV613 } from "../src/extractors/coursera/assessments-4.js";
 
@@ -515,4 +520,217 @@ test("widgets are accounted without inventing body verification or editor observ
   assert.equal(contract.externalBodyVerified, false);
   assert.equal(contract.accounted, true);
   assert.equal(f.fp.payload.nativeAssignment, undefined);
+});
+
+function discussionFixture(
+  markup = "<co-content><text>Discuss the observed topic</text></co-content>",
+) {
+  const f = fixture();
+  f.fp.type = "Discussion";
+  f.fp.typeName = "discussionPrompt";
+  f.bound.atom.draft.content = {
+    typeName: "discussionPromptDraft",
+    definition: {
+      promptType: {
+        typeName: "questionPerSession",
+        definition: {
+          title: "Observed discussion title",
+          promptPermissions: { viewAnswersBeforeReplying: false },
+          prompt: {
+            typeName: "cml",
+            definition: { dtdId: "discussion/1", value: markup },
+          },
+        },
+      },
+    },
+  };
+  f.sources.receipts.stability.atom = structuredClone(f.sources.atom);
+  return f;
+}
+
+test("bound discussions capture exact authoring prompt and permissions without responses or editor receipts", async () => {
+  const f = discussionFixture();
+  const source = directDraftDiscussionSourceV1(f.bound);
+  const result = await directDiscussionPayloadV1(f.fp, f.bound, source);
+  assert.equal(result.status, "COMPLETE_BOUND_DRAFT_DISCUSSION");
+  assert.equal(result.complete, true);
+  assert.equal(f.fp.payload.discussionTitle, source.title);
+  assert.strictEqual(
+    f.fp.payload.discussionPromptPermissions,
+    source.promptPermissions,
+  );
+  assert.strictEqual(f.fp.payload.directDraftDiscussion, source.rawDefinition);
+  assert.equal(f.fp.payload.textSample, "Discuss the observed topic");
+  assert.equal(
+    f.fp.payload.textScopeKind,
+    "bound-authoring-draft-discussion-cml",
+  );
+  assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, true);
+  assert.equal(f.fp.payload.textCaptureEvidence, undefined);
+  assert.equal(f.fp.payload.responses, undefined);
+});
+
+test("discussion media, changed permissions and foreign source bindings stay incomplete", async () => {
+  for (const mode of [
+    "media",
+    "changedPermissions",
+    "foreignRelation",
+    "missingReceipt",
+    "malformedXml",
+  ]) {
+    const f = discussionFixture(
+      mode === "media"
+        ? '<co-content><img src="https://example.test/unfetched.png"/></co-content>'
+        : mode === "malformedXml"
+          ? "<co-content><text>Broken</co-content>"
+          : undefined,
+    );
+    const source = structuredClone(directDraftDiscussionSourceV1(f.bound));
+    if (mode === "changedPermissions")
+      source.rawDefinition.promptPermissions.viewAnswersBeforeReplying = true;
+    if (mode === "foreignRelation")
+      f.sources.relation.elements[0].branchRelationMap[
+        courseId + "~item1"
+      ].itemId = "other";
+    if (mode === "missingReceipt") delete f.sources.receipts.stability.receipt;
+    const result = await directDiscussionPayloadV1(f.fp, f.bound, source);
+    assert.equal(result.complete, false, mode);
+    if (mode === "media") {
+      assert(result.reasons.includes("DIRECT_DISCUSSION_ASSETS_UNRESOLVED"));
+      assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, false);
+    }
+  }
+});
+
+function emptyAssessmentFixture() {
+  const f = fixture("staffGraded"),
+    sourceCml = (text) => ({
+      typeName: "cml",
+      definition: {
+        dtdId: "assess/1",
+        value: "<co-content><text>" + text + "</text></co-content>",
+      },
+    });
+  const definition = {
+    parts: [],
+    configuration: {
+      isGraded: true,
+      attemptConfiguration: { submissionLimitForEachAttempt: 1 },
+    },
+    introduction: sourceCml("Instructions retained"),
+    reviewCriteria: sourceCml("Criteria retained"),
+    passingFraction: 0.8,
+    assignmentLevelRubrics: [],
+  };
+  f.bound.atom.draft.content = { typeName: "staffGradedDraft", definition };
+  f.sources.receipts.stability.atom = structuredClone(f.sources.atom);
+  const inventory = directDraftAssessmentInventoryV1(f.bound);
+  f.fp.payload.directAssessmentInventory = inventory;
+  f.fp.payload.assessmentApiEvidence = {
+    method: "BOUND_AUTHORING_DRAFT_API",
+    courseId,
+    itemId: f.fp.id,
+    assignmentId: atomId,
+    inventory: [],
+    rawParts: [],
+    unsupportedParts: [],
+    groups: [],
+    questionDefinitions: [],
+    receipts: [],
+    groupStability: [],
+    failures: [],
+  };
+  const assessment = {
+    declaredQuestionCount: 0,
+    questionCount: 0,
+    answerEvidenceQuestionCount: 0,
+    questions: [],
+    ...Object.fromEntries(
+      [
+        "configuration",
+        "introduction",
+        "reviewCriteria",
+        "passingFraction",
+        "assignmentLevelRubrics",
+      ].map((key) => [key, definition[key]]),
+    ),
+    captureCompleteness: assessmentCaptureCoverageV613([], 0, "AUTHORING_API", {
+      declaredContentParts: 0,
+    }),
+  };
+  return { ...f, inventory, assessment };
+}
+
+test("explicit zero-part assessments retain complete source emptiness without fabricating question or answer coverage", () => {
+  const f = emptyAssessmentFixture();
+  assert.equal(
+    f.assessment.captureCompleteness.questionCoverageComplete,
+    false,
+    "The generic zero-count parser does not establish source emptiness",
+  );
+  const result = directAssessmentContractV1(
+    f.fp,
+    f.assessment,
+    f.inventory,
+    f.bound,
+  );
+  assert.equal(result.complete, true);
+  assert.equal(result.status, "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT");
+  assert.equal(f.fp.payload.explicitEmptyAssessmentEvidence.sourceEmpty, true);
+  assert.equal(
+    f.fp.payload.explicitEmptyAssessmentEvidence.answerKeyApplicable,
+    false,
+  );
+  assert.equal(
+    f.assessment.captureCompleteness.answerKeyApplicability,
+    "NOT_APPLICABLE_NO_QUESTIONS",
+  );
+  assert.deepEqual(f.assessment.questions, []);
+  assert.deepEqual(f.fp.payload.directDataEvidence.orderedGroupIds, []);
+  assert.equal(f.assessment.configuration.isGraded, true);
+});
+
+test("missing parts, discarded settings, hidden questions and unfetched introduction media cannot claim explicit empty capture", () => {
+  for (const mode of [
+    "missingParts",
+    "freshParts",
+    "question",
+    "settings",
+    "failure",
+    "media",
+    "rubric",
+    "missingRawParts",
+    "wrongItem",
+  ]) {
+    const f = emptyAssessmentFixture();
+    if (mode === "missingParts")
+      delete f.bound.atom.draft.content.definition.parts;
+    if (mode === "freshParts")
+      f.sources.receipts.stability.atom.elements[0].draft.content.definition.parts.push(
+        { typeName: "storedQuestionGroupPart", definition: { id: localId } },
+      );
+    if (mode === "question") f.assessment.questions.push({ id: "1" });
+    if (mode === "settings") f.assessment.configuration = { isGraded: false };
+    if (mode === "failure")
+      f.fp.payload.assessmentApiEvidence.failures.push({
+        reason: "SOURCE_READ_FAILED",
+      });
+    if (mode === "media")
+      f.bound.atom.draft.content.definition.introduction.definition.value =
+        '<co-content><img src="https://example.test/body.png"/></co-content>';
+    if (mode === "rubric")
+      f.bound.atom.draft.content.definition.assignmentLevelRubrics.push({
+        unknown: "source rubric",
+      });
+    if (mode === "missingRawParts")
+      delete f.fp.payload.assessmentApiEvidence.rawParts;
+    if (mode === "wrongItem")
+      f.fp.payload.assessmentApiEvidence.itemId = "other";
+    assert.equal(
+      directAssessmentContractV1(f.fp, f.assessment, f.inventory, f.bound)
+        .complete,
+      false,
+      mode,
+    );
+  }
 });

@@ -6,6 +6,7 @@ import {
   bindDirectAuthoringDraftV1,
   directDraftAssessmentInventoryV1,
   directDraftReadingSourceV1,
+  directDraftDiscussionSourceV1,
 } from "../src/extractors/coursera/direct-data-models.js";
 
 const courseId = "Synthetic_course_branch_123",
@@ -452,5 +453,61 @@ test("the real v3 paired draft models bind on local replay without exposing thei
       assert.equal(source.dtdId, "supplement/1");
       assert.equal(source.cml.length, 3753);
     }
+  }
+});
+
+test("observed discussion drafts retain exact prompt, title and permissions without published response inference", () => {
+  const f = fixture();
+  f.atom.draft.content = {
+    typeName: "discussionPromptDraft",
+    definition: {
+      promptType: {
+        typeName: "questionPerSession",
+        definition: {
+          title: "Observed prompt title",
+          promptPermissions: { viewAnswersBeforeReplying: false },
+          prompt: {
+            typeName: "cml",
+            definition: {
+              dtdId: "discussion/1",
+              value: "<co-content><text>Discuss the topic</text></co-content>",
+            },
+          },
+        },
+      },
+    },
+  };
+  const source = directDraftDiscussionSourceV1(f.bind());
+  assert.equal(source.title, "Observed prompt title");
+  assert.equal(source.dtdId, "discussion/1");
+  assert.equal(source.promptPermissions.viewAnswersBeforeReplying, false);
+  assert.strictEqual(
+    source.rawDefinition,
+    f.atom.draft.content.definition.promptType.definition,
+  );
+  for (const mutate of [
+    (a) => {
+      a.typeName = "unknownDraft";
+    },
+    (a) => {
+      a.definition.promptType.typeName = "unobservedPromptType";
+    },
+    (a) => {
+      delete a.definition.promptType.definition.promptPermissions;
+    },
+    (a) => {
+      a.definition.promptType.definition.prompt.definition.dtdId =
+        "supplement/1";
+    },
+    (a) => {
+      a.definition.promptType.definition.prompt.definition.value = {};
+    },
+  ]) {
+    const bound = f.bind(),
+      copy = structuredClone(bound);
+    mutate(copy.draft.content);
+    assert.throws(() => directDraftDiscussionSourceV1(copy), {
+      message: "DIRECT_AUTHORING_DISCUSSION_MODEL_UNSUPPORTED",
+    });
   }
 });

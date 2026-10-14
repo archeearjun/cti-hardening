@@ -302,6 +302,208 @@ export async function directReadingPayloadV1(fp, bound, source) {
   return applyDirectContractV1(fp, "COMPLETE_BOUND_DRAFT_READING", true);
 }
 
+export async function directDiscussionPayloadV1(fp, bound, source) {
+  const payload = fp.payload || (fp.payload = {}),
+    evidence = directSourceBindingEvidenceV1(fp, bound);
+  const content =
+      payload.directDataSources?.atom?.elements?.[0]?.draft?.content,
+    promptType = content?.definition?.promptType,
+    definition = promptType?.definition,
+    raw = definition?.prompt;
+  let sameDefinition = false;
+  try {
+    sameDefinition =
+      directCanonicalSourceTextV1(definition) ===
+      directCanonicalSourceTextV1(source?.rawDefinition);
+  } catch (_) {
+    /* Missing or non-JSON source evidence remains incomplete. */
+  }
+  if (
+    !evidence ||
+    fp.typeName !== "discussionPrompt" ||
+    source?.sourceState !== "AUTHORING_DRAFT" ||
+    content?.typeName !== "discussionPromptDraft" ||
+    promptType?.typeName !== "questionPerSession" ||
+    source.promptType !== promptType.typeName ||
+    !sameDefinition ||
+    typeof definition?.title !== "string" ||
+    source.title !== definition.title ||
+    typeof definition.promptPermissions?.viewAnswersBeforeReplying !==
+      "boolean" ||
+    raw?.typeName !== "cml" ||
+    raw.definition?.dtdId !== "discussion/1" ||
+    source.dtdId !== "discussion/1" ||
+    typeof raw.definition?.value !== "string" ||
+    source.cml !== raw.definition.value
+  )
+    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
+      "DIRECT_DISCUSSION_SOURCE_NOT_BOUND",
+    ]);
+  payload.directDraftDiscussion = definition;
+  payload.directDraftCml = raw;
+  payload.discussionTitle = definition.title;
+  payload.discussionPromptPermissions = definition.promptPermissions;
+  const parsed = directCmlTextV1(source.cml);
+  if (!parsed)
+    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
+      "DIRECT_CML_NOT_SUPPORTED",
+    ]);
+  const textHash = await sha256(parsed.text),
+    rawHash = await sha256(source.cml);
+  payload.textSample = parsed.text;
+  payload.textLength = parsed.text.length;
+  payload.textSha256 = textHash;
+  payload.textConfidence = "high";
+  payload.textEvidencePriority = 98;
+  payload.textEvidenceCompleteness = 1;
+  payload.textScopeKind = "bound-authoring-draft-discussion-cml";
+  payload.textCaptureTruncated = false;
+  payload.links = parsed.links;
+  payload.directDataEvidence = {
+    ...evidence,
+    discussionPromptType: "questionPerSession",
+    dtdId: "discussion/1",
+    rawCmlLength: source.cml.length,
+    rawCmlSha256: rawHash,
+    plainTextLength: parsed.text.length,
+    assetReferenceCount: parsed.references.length,
+    assetsBodyVerified: parsed.references.length === 0,
+    unresolvedAssetReferences: parsed.references,
+  };
+  if (!textHash || !rawHash)
+    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
+      "DIRECT_DISCUSSION_HASH_UNAVAILABLE",
+    ]);
+  if (parsed.references.length)
+    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
+      "DIRECT_DISCUSSION_ASSETS_UNRESOLVED",
+    ]);
+  return applyDirectContractV1(fp, "COMPLETE_BOUND_DRAFT_DISCUSSION", true);
+}
+
+/** Explicit zero-part drafts are source emptiness, not evidence of missing
+ * questions or a claim that an assessment is instructionally complete. */
+export function directEmptyAssessmentContractV1(
+  fp,
+  assessment,
+  inventory,
+  bound,
+) {
+  const payload = fp.payload || (fp.payload = {}),
+    evidence = directSourceBindingEvidenceV1(fp, bound),
+    content = payload.directDataSources?.atom?.elements?.[0]?.draft?.content,
+    definition = content?.definition,
+    raw = payload.assessmentApiEvidence;
+  const empty = (value) => Array.isArray(value) && value.length === 0;
+  const cml = (value) =>
+    value?.typeName === "cml" &&
+    /^(?:assess|staffGraded)\/1$/.test(value.definition?.dtdId || "") &&
+    typeof value.definition?.value === "string" &&
+    directCmlTextV1(value.definition.value)?.references.length === 0;
+  const same = (left, right) => {
+    try {
+      return (
+        directCanonicalSourceTextV1(left) === directCanonicalSourceTextV1(right)
+      );
+    } catch (_) {
+      return false;
+    }
+  };
+  const valid = Boolean(
+    evidence &&
+      fp.typeName === "staffGraded" &&
+      content?.typeName === "staffGradedDraft" &&
+      empty(definition?.parts) &&
+      definition.configuration &&
+      typeof definition.configuration === "object" &&
+      !Array.isArray(definition.configuration) &&
+      cml(definition.introduction) &&
+      cml(definition.reviewCriteria) &&
+      empty(definition.assignmentLevelRubrics) &&
+      typeof definition.passingFraction === "number" &&
+      Number.isFinite(definition.passingFraction) &&
+      definition.passingFraction >= 0 &&
+      definition.passingFraction <= 1 &&
+      inventory?.complete === true &&
+      inventory.reason === "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS" &&
+      inventory.assignmentId === bound.atomId &&
+      inventory.declared === 0 &&
+      inventory.declaredContentParts === 0 &&
+      empty(inventory.candidates) &&
+      empty(inventory.rawParts) &&
+      empty(inventory.unsupportedParts) &&
+      raw?.method === "BOUND_AUTHORING_DRAFT_API" &&
+      raw.courseId === bound.courseId &&
+      raw.itemId === fp.id &&
+      raw.assignmentId === bound.atomId &&
+      [
+        "inventory",
+        "rawParts",
+        "unsupportedParts",
+        "groups",
+        "questionDefinitions",
+        "receipts",
+        "groupStability",
+        "failures",
+      ].every((key) => empty(raw[key])) &&
+      assessment?.declaredQuestionCount === 0 &&
+      assessment.questionCount === 0 &&
+      assessment.answerEvidenceQuestionCount === 0 &&
+      empty(assessment.questions) &&
+      [
+        "configuration",
+        "introduction",
+        "reviewCriteria",
+        "passingFraction",
+        "assignmentLevelRubrics",
+      ].every(
+        (key) =>
+          same(assessment[key], definition[key]) &&
+          same(inventory[key], definition[key]),
+      ),
+  );
+  if (evidence)
+    payload.directDataEvidence = {
+      ...evidence,
+      declaredContentParts: 0,
+      orderedGroupIds: [],
+      sourceEmpty: valid,
+    };
+  if (assessment) payload.structuredAssessment = assessment;
+  if (valid) {
+    payload.explicitEmptyAssessmentEvidence = {
+      method: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+      courseId: bound.courseId,
+      itemId: fp.id,
+      atomId: bound.atomId,
+      sourceEmpty: true,
+      declaredContentParts: 0,
+      answerKeyApplicable: false,
+    };
+    assessment.captureCompleteness = {
+      declared: 0,
+      declaredContentParts: 0,
+      captured: 0,
+      questionCoverageComplete: true,
+      answerCoverageComplete: true,
+      requiredAnswerCoverageComplete: true,
+      missingQuestionOrdinals: [],
+      missingRequiredAnswerOrdinals: [],
+      sourceEmpty: true,
+      answerKeyApplicability: "NOT_APPLICABLE_NO_QUESTIONS",
+      stopReason: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+    };
+  }
+  return applyDirectContractV1(
+    fp,
+    valid
+      ? "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT"
+      : "UNRESOLVED_DIRECT_ASSESSMENT",
+    valid,
+    valid ? [] : ["DIRECT_EMPTY_ASSESSMENT_SOURCE_NOT_ESTABLISHED"],
+  );
+}
+
 export function directAssessmentContractV1(fp, assessment, inventory, bound) {
   const payload = fp.payload || (fp.payload = {}),
     evidence = directSourceBindingEvidenceV1(fp, bound);
@@ -311,6 +513,8 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
         ?.parts;
   const raw = payload.assessmentApiEvidence,
     coverage = assessment && assessment.captureCompleteness;
+  if (Array.isArray(parts) && parts.length === 0)
+    return directEmptyAssessmentContractV1(fp, assessment, inventory, bound);
   let valid = Boolean(
     evidence &&
       inventory?.complete === true &&

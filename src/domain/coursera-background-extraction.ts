@@ -571,6 +571,162 @@ function directAssessmentSourcesValid(
   return true;
 }
 
+function directEmptyAssessmentSourcesValid(
+  item: Record<string, any>,
+  payload: Record<string, any>,
+  evidence: Record<string, any>,
+  definition: Record<string, any> | null,
+  atomId: string,
+  courseId: string,
+): boolean {
+  const raw = record(payload.assessmentApiEvidence),
+    inventory = record(payload.directAssessmentInventory),
+    assessment = record(payload.structuredAssessment),
+    coverage = record(assessment?.captureCompleteness),
+    emptySource = record(payload.explicitEmptyAssessmentEvidence);
+  const empty = (value: unknown) => Array.isArray(value) && value.length === 0;
+  const same = (left: unknown, right: unknown) => {
+    try {
+      return (
+        directCanonicalSourceTextV1(left) === directCanonicalSourceTextV1(right)
+      );
+    } catch {
+      return false;
+    }
+  };
+  const cml = (value: unknown) => {
+    const source = record(value),
+      body = record(source?.definition);
+    return (
+      source?.typeName === "cml" &&
+      /^(?:assess|staffGraded)\/1$/.test(String(body?.dtdId || "")) &&
+      typeof body?.value === "string" &&
+      directTextOnlyCmlSource(body.value)
+    );
+  };
+  return Boolean(
+    empty(definition?.parts) &&
+      record(definition?.configuration) &&
+      cml(definition?.introduction) &&
+      cml(definition?.reviewCriteria) &&
+      empty(definition?.assignmentLevelRubrics) &&
+      typeof definition?.passingFraction === "number" &&
+      Number.isFinite(definition.passingFraction) &&
+      definition.passingFraction >= 0 &&
+      definition.passingFraction <= 1 &&
+      raw?.method === "BOUND_AUTHORING_DRAFT_API" &&
+      raw.courseId === courseId &&
+      raw.itemId === item.id &&
+      raw.assignmentId === atomId &&
+      [
+        "inventory",
+        "rawParts",
+        "unsupportedParts",
+        "groups",
+        "questionDefinitions",
+        "receipts",
+        "groupStability",
+        "failures",
+      ].every((key) => empty(raw[key])) &&
+      inventory?.complete === true &&
+      inventory.reason === "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS" &&
+      inventory.assignmentId === atomId &&
+      inventory.declared === 0 &&
+      inventory.declaredContentParts === 0 &&
+      empty(inventory.candidates) &&
+      empty(inventory.rawParts) &&
+      empty(inventory.unsupportedParts) &&
+      assessment?.declaredQuestionCount === 0 &&
+      assessment.questionCount === 0 &&
+      assessment.answerEvidenceQuestionCount === 0 &&
+      empty(assessment.questions) &&
+      [
+        "configuration",
+        "introduction",
+        "reviewCriteria",
+        "passingFraction",
+        "assignmentLevelRubrics",
+      ].every(
+        (key) =>
+          same(assessment[key], definition[key]) &&
+          same(inventory[key], definition[key]),
+      ) &&
+      coverage?.declared === 0 &&
+      coverage.declaredContentParts === 0 &&
+      coverage.captured === 0 &&
+      coverage.questionCoverageComplete === true &&
+      coverage.requiredAnswerCoverageComplete === true &&
+      empty(coverage.missingQuestionOrdinals) &&
+      empty(coverage.missingRequiredAnswerOrdinals) &&
+      coverage.sourceEmpty === true &&
+      coverage.answerKeyApplicability === "NOT_APPLICABLE_NO_QUESTIONS" &&
+      emptySource?.method === "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS" &&
+      emptySource.courseId === courseId &&
+      emptySource.itemId === item.id &&
+      emptySource.atomId === atomId &&
+      emptySource.sourceEmpty === true &&
+      emptySource.declaredContentParts === 0 &&
+      emptySource.answerKeyApplicable === false &&
+      evidence.sourceEmpty === true &&
+      evidence.declaredContentParts === 0 &&
+      empty(evidence.orderedGroupIds),
+  );
+}
+
+function directDiscussionSourcesValid(
+  payload: Record<string, any>,
+  evidence: Record<string, any>,
+  definition: Record<string, any> | null,
+): boolean {
+  const promptType = record(definition?.promptType),
+    raw = record(promptType?.definition),
+    cml = record(raw?.prompt),
+    body = record(cml?.definition);
+  let retained = false;
+  try {
+    retained =
+      directCanonicalSourceTextV1(payload.directDraftDiscussion) ===
+        directCanonicalSourceTextV1(raw) &&
+      directCanonicalSourceTextV1(payload.discussionPromptPermissions) ===
+        directCanonicalSourceTextV1(raw?.promptPermissions) &&
+      directCanonicalSourceTextV1(payload.directDraftCml) ===
+        directCanonicalSourceTextV1(cml);
+  } catch {
+    /* Missing original models fail closed. */
+  }
+  return Boolean(
+    promptType?.typeName === "questionPerSession" &&
+      typeof raw?.title === "string" &&
+      typeof record(raw.promptPermissions)?.viewAnswersBeforeReplying ===
+        "boolean" &&
+      cml?.typeName === "cml" &&
+      body?.dtdId === "discussion/1" &&
+      typeof body.value === "string" &&
+      directTextOnlyCmlSource(body.value) &&
+      retained &&
+      payload.discussionTitle === raw.title &&
+      evidence.discussionPromptType === "questionPerSession" &&
+      evidence.dtdId === "discussion/1" &&
+      evidence.rawCmlLength === body.value.length &&
+      directHash(evidence.rawCmlSha256) &&
+      evidence.rawCmlSha256 ===
+        bytesToHex(sha256(new TextEncoder().encode(body.value))) &&
+      typeof payload.textSample === "string" &&
+      evidence.plainTextLength === payload.textSample.length &&
+      payload.textLength === payload.textSample.length &&
+      payload.textScopeKind === "bound-authoring-draft-discussion-cml" &&
+      directHash(payload.textSha256) &&
+      payload.textSha256 ===
+        bytesToHex(sha256(new TextEncoder().encode(payload.textSample))) &&
+      evidence.assetReferenceCount === 0 &&
+      evidence.assetsBodyVerified === true &&
+      Array.isArray(evidence.unresolvedAssetReferences) &&
+      evidence.unresolvedAssetReferences.length === 0 &&
+      payload.textCaptureTruncated === false &&
+      payload.textCaptureEvidence == null,
+  );
+}
+
 function directDraftCaptureReasons(capture: Record<string, any>): string[] {
   const meta = record(capture.meta) || {},
     mode = record(meta.directDataCapture) || {};
@@ -827,6 +983,31 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         )
       )
         reasons.push(`DIRECT_DRAFT_ASSESSMENT_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    if (contract.status === "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT") {
+      if (
+        sourceItems.get(item.id)?.sourceContentType !== "staffGraded" ||
+        content?.typeName !== "staffGradedDraft" ||
+        !directEmptyAssessmentSourcesValid(
+          item,
+          payload,
+          evidence,
+          definition,
+          atomId,
+          courseId,
+        )
+      )
+        reasons.push(`DIRECT_DRAFT_EMPTY_ASSESSMENT_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    if (contract.status === "COMPLETE_BOUND_DRAFT_DISCUSSION") {
+      if (
+        sourceItems.get(item.id)?.sourceContentType !== "discussionPrompt" ||
+        content?.typeName !== "discussionPromptDraft" ||
+        !directDiscussionSourcesValid(payload, evidence, definition)
+      )
+        reasons.push(`DIRECT_DRAFT_DISCUSSION_SOURCE_INVALID:${id}`);
       continue;
     }
     // A direct capture cannot use the legacy status to substitute a target URL,

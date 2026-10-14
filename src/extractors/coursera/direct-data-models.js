@@ -215,3 +215,38 @@ export function directDraftReadingSourceV1(bound) {
     publishedTimeCommitment: bound.publishedTimeCommitment,
   };
 }
+
+/** Preserve the observed authoring discussion prompt and permissions, separate
+ * from learner responses and the retained published discussion snapshot. */
+export function directDraftDiscussionSourceV1(bound) {
+  const object = (value) =>
+    value && typeof value === "object" && !Array.isArray(value);
+  const content = bound?.draft?.content,
+    promptType = content?.definition?.promptType,
+    definition = promptType?.definition,
+    prompt = definition?.prompt;
+  if (
+    bound?.sourceState !== "AUTHORING_DRAFT" ||
+    content?.typeName !== "discussionPromptDraft" ||
+    promptType?.typeName !== "questionPerSession" ||
+    !object(definition) ||
+    typeof definition.title !== "string" ||
+    !object(definition.promptPermissions) ||
+    typeof definition.promptPermissions.viewAnswersBeforeReplying !==
+      "boolean" ||
+    prompt?.typeName !== "cml" ||
+    prompt.definition?.dtdId !== "discussion/1" ||
+    typeof prompt.definition.value !== "string"
+  )
+    throw new Error("DIRECT_AUTHORING_DISCUSSION_MODEL_UNSUPPORTED");
+  return {
+    promptType: "questionPerSession",
+    rawDefinition: definition,
+    rawCML: prompt,
+    cml: prompt.definition.value,
+    dtdId: prompt.definition.dtdId,
+    title: definition.title,
+    promptPermissions: definition.promptPermissions,
+    sourceState: "AUTHORING_DRAFT",
+  };
+}

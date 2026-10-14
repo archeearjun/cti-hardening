@@ -864,16 +864,350 @@ test("direct capture inventory remains bound to the complete material hierarchy 
 
 test("direct source evidence cannot bypass strict verification by downgrading its mode or completion flags", () => {
   for (const [change, expectedReason] of [
-    [(capture) => { delete capture.meta.directDataCapture.mode; }, "DIRECT_DRAFT_CAPTURE_MODE_INVALID"],
-    [(capture) => { capture.meta.directDataCapture.mode = "BOUND_AUTHORING_DRAF_API"; }, "DIRECT_DRAFT_CAPTURE_MODE_INVALID"],
-    [(capture) => { capture.meta.directDataCapture.acquisitionComplete = false; }, "DIRECT_DRAFT_ACQUISITION_NOT_COMPLETE"],
-    [(capture) => { capture.meta.directDataCapture.wholeCourseVerified = false; }, "DIRECT_DRAFT_WHOLE_COURSE_NOT_VERIFIED"],
-    [(capture) => { delete capture.meta.directDataCapture; }, "DIRECT_DRAFT_CAPTURE_MODE_INVALID"],
+    [
+      (capture) => {
+        delete capture.meta.directDataCapture.mode;
+      },
+      "DIRECT_DRAFT_CAPTURE_MODE_INVALID",
+    ],
+    [
+      (capture) => {
+        capture.meta.directDataCapture.mode = "BOUND_AUTHORING_DRAF_API";
+      },
+      "DIRECT_DRAFT_CAPTURE_MODE_INVALID",
+    ],
+    [
+      (capture) => {
+        capture.meta.directDataCapture.acquisitionComplete = false;
+      },
+      "DIRECT_DRAFT_ACQUISITION_NOT_COMPLETE",
+    ],
+    [
+      (capture) => {
+        capture.meta.directDataCapture.wholeCourseVerified = false;
+      },
+      "DIRECT_DRAFT_WHOLE_COURSE_NOT_VERIFIED",
+    ],
+    [
+      (capture) => {
+        delete capture.meta.directDataCapture;
+      },
+      "DIRECT_DRAFT_CAPTURE_MODE_INVALID",
+    ],
   ]) {
     const capture = directReadingCapture();
     change(capture);
     const verdict = evaluateCourseraCapture(capture, directCourseId);
     assert.equal(verdict.complete, false, String(change));
-    assert(verdict.reasons.includes(expectedReason), verdict.reasons.join("\n"));
+    assert(
+      verdict.reasons.includes(expectedReason),
+      verdict.reasons.join("\n"),
+    );
+  }
+});
+
+function replaceDirectFixtureDraft(capture, draft) {
+  const payload = capture.fingerprints[0].payload,
+    hash = modelHash(draft);
+  payload.directDataSources.atom.elements[0].draft = draft;
+  payload.directDataSources.receipts.stability.atom.elements[0].draft =
+    structuredClone(draft);
+  payload.directDataSources.receipts.stability.draftHash = hash;
+  payload.directDataEvidence.draftHash = hash;
+}
+function directDiscussionCapture() {
+  const capture = directReadingCapture(),
+    item = capture.fingerprints[0],
+    payload = item.payload;
+  item.type = "Discussion";
+  item.typeName = "discussionPrompt";
+  item.captureContract.status = "COMPLETE_BOUND_DRAFT_DISCUSSION";
+  const raw = {
+    title: "Source discussion title",
+    promptPermissions: { viewAnswersBeforeReplying: false },
+    prompt: {
+      typeName: "cml",
+      definition: {
+        dtdId: "discussion/1",
+        value:
+          "<co-content><text>Discuss the observed topic</text></co-content>",
+      },
+    },
+  };
+  replaceDirectFixtureDraft(capture, {
+    content: {
+      typeName: "discussionPromptDraft",
+      definition: {
+        promptType: { typeName: "questionPerSession", definition: raw },
+      },
+    },
+  });
+  payload.directDraftDiscussion = raw;
+  payload.directDraftCml = raw.prompt;
+  payload.discussionTitle = raw.title;
+  payload.discussionPromptPermissions = raw.promptPermissions;
+  payload.textSample = "Discuss the observed topic";
+  payload.textLength = payload.textSample.length;
+  payload.textSha256 = sourceHash(payload.textSample);
+  payload.textScopeKind = "bound-authoring-draft-discussion-cml";
+  Object.assign(payload.directDataEvidence, {
+    discussionPromptType: "questionPerSession",
+    dtdId: "discussion/1",
+    rawCmlLength: raw.prompt.definition.value.length,
+    rawCmlSha256: sourceHash(raw.prompt.definition.value),
+    plainTextLength: payload.textLength,
+  });
+  delete payload.directDataEvidence.assetId;
+  return attachMaterials(capture, {
+    id: item.id,
+    originalName: "Original discussion",
+    atomId: directAtomId,
+    contentId: item.contentId,
+    content: { typeName: "discussionPrompt", definition: {} },
+    elements: [],
+  });
+}
+
+test("direct discussion importer verifies observed draft prompt, permissions and original CML independently", () => {
+  const capture = directDiscussionCapture(),
+    before = JSON.stringify(capture);
+  const verdict = evaluateCourseraCapture(capture, directCourseId);
+  assert.equal(verdict.complete, true, verdict.reasons.join("\n"));
+  assert.equal(JSON.stringify(capture), before);
+});
+
+test("discussion source tampering, hidden media and unrelated editor receipts never pass the direct gate", () => {
+  for (const mode of [
+    "title",
+    "permissions",
+    "rawPrompt",
+    "rawHash",
+    "sourceType",
+    "media",
+    "receipt",
+    "foreignRelation",
+    "editorReceipt",
+  ]) {
+    const capture = directDiscussionCapture(),
+      payload = capture.fingerprints[0].payload;
+    if (mode === "title") payload.discussionTitle = "Different title";
+    if (mode === "permissions")
+      payload.discussionPromptPermissions = { viewAnswersBeforeReplying: true };
+    if (mode === "rawPrompt")
+      payload.directDraftDiscussion = {
+        ...payload.directDraftDiscussion,
+        prompt: {
+          typeName: "cml",
+          definition: {
+            dtdId: "discussion/1",
+            value: "<co-content><text>Other prompt</text></co-content>",
+          },
+        },
+      };
+    if (mode === "rawHash")
+      payload.directDataEvidence.rawCmlSha256 = sourceHash("different source");
+    if (mode === "sourceType") {
+      const draft = structuredClone(
+        payload.directDataSources.atom.elements[0].draft,
+      );
+      draft.content.definition.promptType.typeName = "unknownPrompt";
+      replaceDirectFixtureDraft(capture, draft);
+    }
+    if (mode === "media") {
+      const draft = structuredClone(
+          payload.directDataSources.atom.elements[0].draft,
+        ),
+        value =
+          '<co-content><text>Discuss</text><img src="https://example.test/unfetched.png"/></co-content>';
+      draft.content.definition.promptType.definition.prompt.definition.value =
+        value;
+      replaceDirectFixtureDraft(capture, draft);
+      payload.directDraftDiscussion =
+        draft.content.definition.promptType.definition;
+      payload.directDraftCml = payload.directDraftDiscussion.prompt;
+      payload.directDataEvidence.rawCmlLength = value.length;
+      payload.directDataEvidence.rawCmlSha256 = sourceHash(value);
+      assert.equal(
+        payload.directDataEvidence.assetReferenceCount,
+        0,
+        "Forged zero media counters cannot override actual source markup",
+      );
+    }
+    if (mode === "receipt")
+      payload.directDataSources.receipts.stability.receipt.status = 206;
+    if (mode === "foreignRelation")
+      payload.directDataSources.relation.elements[0].branchRelationMap[
+        directCourseId + "~" + capture.fingerprints[0].id
+      ].itemId = "foreign";
+    if (mode === "editorReceipt")
+      payload.textCaptureEvidence = { editorOpened: true, textObserved: true };
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(verdict.complete, false, mode);
+    assert.match(
+      verdict.reasons.join("\n"),
+      /DIRECT_DRAFT_(?:DISCUSSION_SOURCE|SOURCE_BINDING)_INVALID/,
+      mode,
+    );
+  }
+});
+
+function directEmptyAssessmentCapture() {
+  const capture = directAssessmentCapture(),
+    item = capture.fingerprints[0],
+    payload = item.payload;
+  item.captureContract.status = "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT";
+  const cml = (value) => ({
+    typeName: "cml",
+    definition: {
+      dtdId: "assess/1",
+      value: "<co-content><text>" + value + "</text></co-content>",
+    },
+  });
+  const definition = {
+    parts: [],
+    configuration: { isGraded: true },
+    introduction: cml("Instructions"),
+    reviewCriteria: cml("Criteria"),
+    passingFraction: 0.8,
+    assignmentLevelRubrics: [],
+  };
+  replaceDirectFixtureDraft(capture, {
+    content: { typeName: "staffGradedDraft", definition },
+  });
+  Object.assign(payload.directDataEvidence, {
+    declaredContentParts: 0,
+    orderedGroupIds: [],
+    sourceEmpty: true,
+  });
+  payload.assessmentApiEvidence = {
+    method: "BOUND_AUTHORING_DRAFT_API",
+    courseId: directCourseId,
+    itemId: item.id,
+    assignmentId: directAtomId,
+    inventory: [],
+    rawParts: [],
+    unsupportedParts: [],
+    groups: [],
+    questionDefinitions: [],
+    receipts: [],
+    groupStability: [],
+    failures: [],
+  };
+  payload.directAssessmentInventory = {
+    complete: true,
+    reason: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+    assignmentId: directAtomId,
+    candidates: [],
+    declared: 0,
+    declaredContentParts: 0,
+    rawParts: [],
+    unsupportedParts: [],
+    ...definition,
+  };
+  payload.structuredAssessment = {
+    declaredQuestionCount: 0,
+    questionCount: 0,
+    answerEvidenceQuestionCount: 0,
+    questions: [],
+    ...definition,
+    captureCompleteness: {
+      declared: 0,
+      declaredContentParts: 0,
+      captured: 0,
+      questionCoverageComplete: true,
+      requiredAnswerCoverageComplete: true,
+      missingQuestionOrdinals: [],
+      missingRequiredAnswerOrdinals: [],
+      sourceEmpty: true,
+      answerKeyApplicability: "NOT_APPLICABLE_NO_QUESTIONS",
+    },
+  };
+  payload.explicitEmptyAssessmentEvidence = {
+    method: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+    courseId: directCourseId,
+    itemId: item.id,
+    atomId: directAtomId,
+    sourceEmpty: true,
+    declaredContentParts: 0,
+    answerKeyApplicable: false,
+  };
+  return capture;
+}
+
+test("the importer accepts bound stable explicit empty assessment drafts without claiming answer keys exist", () => {
+  const capture = directEmptyAssessmentCapture(),
+    before = JSON.stringify(capture),
+    verdict = evaluateCourseraCapture(capture, directCourseId);
+  assert.equal(verdict.complete, true, verdict.reasons.join("\n"));
+  assert.equal(
+    capture.fingerprints[0].payload.explicitEmptyAssessmentEvidence
+      .answerKeyApplicable,
+    false,
+  );
+  assert.equal(JSON.stringify(capture), before);
+});
+
+test("zero-count flags cannot conceal source parts, lost settings, failed reads or answer applicability", () => {
+  for (const mode of [
+    "missingParts",
+    "hiddenPart",
+    "lostSettings",
+    "question",
+    "failure",
+    "missingRawParts",
+    "foreignEmptyScope",
+    "answerApplicable",
+    "media",
+    "rubric",
+    "ordinaryStatus",
+    "freshSourceChanged",
+  ]) {
+    const capture = directEmptyAssessmentCapture(),
+      item = capture.fingerprints[0],
+      payload = item.payload;
+    if (["missingParts", "hiddenPart", "media", "rubric"].includes(mode)) {
+      const draft = structuredClone(
+        payload.directDataSources.atom.elements[0].draft,
+      );
+      if (mode === "missingParts") delete draft.content.definition.parts;
+      if (mode === "hiddenPart")
+        draft.content.definition.parts.push({
+          typeName: "storedQuestionGroupPart",
+          definition: { id: "c".repeat(22) },
+        });
+      if (mode === "media")
+        draft.content.definition.introduction.definition.value =
+          '<co-content><img src="https://example.test/unfetched.png"/></co-content>';
+      if (mode === "rubric")
+        draft.content.definition.assignmentLevelRubrics.push({
+          unknown: "rubric",
+        });
+      replaceDirectFixtureDraft(capture, draft);
+    }
+    if (mode === "lostSettings")
+      payload.structuredAssessment.configuration = { isGraded: false };
+    if (mode === "question")
+      payload.structuredAssessment.questions.push({ id: "1" });
+    if (mode === "failure")
+      payload.assessmentApiEvidence.failures.push({ reason: "READ_FAILED" });
+    if (mode === "missingRawParts")
+      delete payload.assessmentApiEvidence.rawParts;
+    if (mode === "foreignEmptyScope")
+      payload.explicitEmptyAssessmentEvidence.itemId = "foreign";
+    if (mode === "answerApplicable")
+      payload.explicitEmptyAssessmentEvidence.answerKeyApplicable = true;
+    if (mode === "ordinaryStatus")
+      item.captureContract.status = "COMPLETE_BOUND_DRAFT_ASSESSMENT";
+    if (mode === "freshSourceChanged")
+      payload.directDataSources.receipts.stability.atom.elements[0].draft.content.definition.parts.push(
+        { typeName: "unknownPart" },
+      );
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(verdict.complete, false, mode);
+    assert.match(
+      verdict.reasons.join("\n"),
+      /DIRECT_DRAFT_(?:EMPTY_ASSESSMENT_SOURCE|ASSESSMENT_SOURCE|SOURCE_BINDING)_INVALID/,
+      mode,
+    );
   }
 });
