@@ -599,19 +599,19 @@ export default function LocalCourseraExtraction({
           <div className="metric-grid portfolio-counts">
             <div>
               <strong>{inspection.verdict.inventoryCount}</strong>
-              <span>Inventory items</span>
+              <span>Capture-reported inventory items</span>
             </div>
             <div>
               <strong>{inspection.verdict.completeCount}</strong>
-              <span>Fully complete</span>
+              <span>Capture-reported complete</span>
             </div>
             <div>
               <strong>{inspection.verdict.unresolvedCount}</strong>
-              <span>Unresolved</span>
+              <span>Capture-reported unresolved</span>
             </div>
             <div>
               <strong>{inspection.verdict.unvisitedCount}</strong>
-              <span>Unvisited</span>
+              <span>Capture-reported unvisited</span>
             </div>
           </div>
 
@@ -621,31 +621,31 @@ export default function LocalCourseraExtraction({
                 <strong>
                   {inspection.directSummary.coverage.inventory.read}/
                   {inspection.directSummary.coverage.inventory.total} inventory
-                  {inspection.directSummary.mediaContinuation ? " entries retained" : " entries read"}
+                  {inspection.directSummary.mediaContinuation ? " entries reported retained" : " entries reported read"}
                 </strong>
                 {" · "}
                 {inspection.directSummary.coverage.content.verified}/
                 {inspection.directSummary.coverage.content.total} content items
-                fully verified
+                reported complete
               </p>
               <ul>
                 <li>
                   Assessments: {inspection.directSummary.coverage.assessments.verified}/
-                  {inspection.directSummary.coverage.assessments.total} verified
-                  {" · "}{inspection.directSummary.coverage.questions.toLocaleString()} questions
+                  {inspection.directSummary.coverage.assessments.total} reported complete
+                  {" · "}{inspection.directSummary.coverage.questions.toLocaleString()} captured question records
                 </li>
                 <li>
                   Readings: {inspection.directSummary.coverage.readings.verified}/
-                  {inspection.directSummary.coverage.readings.total} verified
+                  {inspection.directSummary.coverage.readings.total} reported complete
                   {inspection.directSummary.coverage.readingMedia.items > 0 &&
                     " · " + inspection.directSummary.coverage.readingMedia.items +
                     " readings with media references"}
                 </li>
                 <li>
                   External widgets: {inspection.directSummary.coverage.widgets.verified}/
-                  {inspection.directSummary.coverage.widgets.total} verified
+                  {inspection.directSummary.coverage.widgets.total} reported complete
                   {" · "}{inspection.directSummary.coverage.structures.verified} empty
-                  structures accounted for separately
+                  structures reported complete separately
                 </li>
               </ul>
               {inspection.directSummary.mediaContinuation && (
@@ -690,9 +690,9 @@ export default function LocalCourseraExtraction({
                   </p>
                 )}
               <p className="hint">
-                Reading text and question capture are separate from verifying image,
-                attachment and external-widget bodies. These counts retain the
-                evidence gaps reported by the capture.
+                These counts reflect completion reported in the selected capture.
+                The independent capture gate below checks the supporting evidence
+                for text, questions, images, attachments and external widgets.
               </p>
             </div>
           )}
@@ -721,7 +721,7 @@ export default function LocalCourseraExtraction({
               evidence gaps determine whether this file passes the capture gate.
               Click the same saved bookmark on this course’s Content page after an
               interruption. {inspection.directSummary?.mediaContinuation
-                ? "This continuation preserves the earlier assessment observations and checks reading media."
+                ? "This continuation preserves the earlier assessment observations and checks reading and discussion media."
                 : "CTI checks current sources before reusing matching saved reads."}
             </p>}
             {legacyResumeAvailable && (

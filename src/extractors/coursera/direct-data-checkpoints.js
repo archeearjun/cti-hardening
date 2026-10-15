@@ -519,7 +519,8 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
     return Boolean(
       (row.buildId === "v1.1.0-compressed-resumable-drafts-20261014" ||
         row.buildId === "v1.2.0-bound-reading-media-20261014" ||
-        row.buildId === "v1.3.0-deduplicated-original-archive-20261014") &&
+        row.buildId === "v1.3.0-deduplicated-original-archive-20261014" ||
+        row.buildId === "v1.4.0-bound-content-integrity-20261015") &&
         capture &&
         capture.mode === "BOUND_AUTHORING_DRAFT_API" &&
         capture.version === 1 &&

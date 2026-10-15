@@ -13,7 +13,9 @@ import { directDataCoverageSummaryV1 } from "../extractors/coursera/direct-data-
 // the separate bounded JSON/gzip transport reader below.
 export const MAX_LOCAL_COURSERA_CAPTURE_BYTES = 40 * 1024 * 1024;
 
+/** Recorded item completion counts; the independent verdict checks their proof. */
 export interface DirectCourseraCaptureSummary {
+  completenessScope: "CAPTURE_REPORTED";
   coverage: ReturnType<typeof directDataCoverageSummaryV1>;
   currentAttempt: { requests: number | null; elapsedMs: number | null };
   inheritedBudget: { requests: number | null; elapsedMs: number | null };
@@ -323,6 +325,7 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
     kind: "CTI_COURSERA_CAPTURE_REVIEW_SUMMARY_V1",
     notForCourseAudit: true,
     scope: "LOCAL_CAPTURE_METADATA_ONLY",
+    completenessScope: "CAPTURE_REPORTED",
     schemaVersion: number(capture.schemaVersion),
     courseId: identifier(capture.page?.courseId || direct.courseId),
     capture: {
@@ -338,7 +341,7 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
       stopReason: reason(direct.stopReason),
       limits: limits(direct.limits),
       mediaContinuation:
-        direct.mediaEnrichment?.scope === "REFERENCED_READING_MEDIA_ONLY",
+        ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(direct.mediaEnrichment?.scope),
       retainedAssessmentObservations: flag(
         direct.mediaEnrichment?.retainedAssessmentObservations,
       ),
@@ -577,6 +580,7 @@ function directCapturePresentation(
     media = stats.media;
   const baseCapturedAt = continuation?.baseSourceCapturedAt;
   return {
+    completenessScope: "CAPTURE_REPORTED",
     coverage,
     currentAttempt,
     inheritedBudget: {
@@ -590,7 +594,7 @@ function directCapturePresentation(
     cumulativeBudget,
     timingSource,
     mediaContinuation:
-      continuation?.scope === "REFERENCED_READING_MEDIA_ONLY"
+      ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(continuation?.scope)
         ? {
             retainedAssessmentObservations:
               continuation.retainedAssessmentObservations === true,

@@ -35,6 +35,7 @@ import {
   directUnsupportedContractV1,
   parseCourseraCheckboxDefinitionDirectV1,
   directCmlTextV1,
+  directAssessmentQuestionProjectionV1,
 } from "./direct-data-contracts.js";
 import { parseCourseraMcqDefinitionV61524 } from "./assessment-api.js";
 import { assessmentCaptureCoverageV613 } from "./assessments-4.js";
@@ -178,11 +179,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       phase.textContent = state.phase;
       if (message) detail.textContent = message;
       const stats = budgetSnapshot();
-      const mediaOnly =
-        meta?.directDataCapture?.mediaEnrichment?.scope ===
-        "REFERENCED_READING_MEDIA_ONLY";
+      const mediaOnly = ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(
+        meta?.directDataCapture?.mediaEnrichment?.scope,
+      );
       hint.textContent = mediaOnly
-        ? "This attempt reads referenced reading media. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
+        ? "This attempt reads referenced reading and discussion media. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
       count.textContent =
         state.counts.processed +
@@ -370,10 +371,45 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       for (const fp of items) {
         const row = await store.getItem(state.runId, fp.id);
         if (!row?.fingerprint || row.fingerprint.id !== fp.id) continue;
-        // Upgrade legacy embedded originals one item at a time. Existing
-        // capture timestamps, source receipts and verdicts remain unchanged.
-        const migrated = await archiveItemBodies(row.fingerprint);
-        if (migrated) await store.putItem(state.runId, fp.id, row.fingerprint, row.state);
+        // Recheck retained evidence one item at a time. Source receipts and
+        // capture timestamps remain the original observations.
+        const retained = row.fingerprint;
+        const bodiesAvailable = await hydrateItemBodies(retained, true);
+        try {
+          const bound = bindDirectAuthoringDraftV1(
+            retained, courseId, slug,
+            retained.payload.directDataSources?.atom,
+            retained.payload.directDataSources?.relation,
+          );
+          if (bound.draft.content.typeName === "staffGradedDraft") {
+            // Rebuild derived text from the exact retained native definitions.
+            // This does not refresh source receipts or observation timestamps.
+            const definitions = retained.payload.assessmentApiEvidence?.questionDefinitions || [];
+            for (const question of retained.payload.structuredAssessment?.questions || []) {
+              const matches = definitions.filter(value => value.id === question.sourceDefinitionId);
+              const projection = matches.length === 1 && directAssessmentQuestionProjectionV1(matches[0]);
+              if (projection) Object.assign(question, projection);
+            }
+            directAssessmentContractV1(
+              retained, retained.payload.structuredAssessment,
+              directDraftAssessmentInventoryV1(bound), bound,
+            );
+          } else if (bound.draft.content.typeName === "supplementDraft")
+            await directReadingPayloadV1(retained, bound, directDraftReadingSourceV1(bound));
+          else if (bound.draft.content.typeName === "discussionPromptDraft")
+            await directDiscussionPayloadV1(retained, bound, directDraftDiscussionSourceV1(bound));
+        } catch (_) {
+          // Keep every original observation, while withdrawing a completion
+          // claim that the current source verifier cannot establish.
+          if (!inventory.leaves.get(fp.id).structural)
+            directUnsupportedContractV1(retained, "DIRECT_RETAINED_SOURCE_REVALIDATION_FAILED");
+        }
+        if (!bodiesAvailable || retained.payload?.directResumeRevalidation?.verified === false)
+          directUnsupportedContractV1(retained, !bodiesAvailable
+            ? "DIRECT_ARCHIVE_BODY_UNAVAILABLE"
+            : "DIRECT_RESUME_REVALIDATION_FAILED");
+        await archiveItemBodies(retained);
+        await store.putItem(state.runId, fp.id, retained, row.state);
         const size = encoder.encode(JSON.stringify(row.fingerprint)).byteLength;
         summarizeItem(row.fingerprint, row.state?.processed === true, size);
       }
@@ -389,17 +425,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       }
       return bodies;
     }
-    async function hydrateItemBodies(fp) {
+    async function hydrateItemBodies(fp, tolerateMissing = false) {
+      let available = true;
       for (const body of itemBodies(fp)) {
         if (!body.archivePath || body.bytes instanceof Uint8Array) continue;
         if (body.archivePath !== "files/" + body.sha256)
           throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
         const stored = await store.getBody(state.runId, body.sha256);
-        if (!stored?.blob || stored.size !== body.size)
-          throw Error("DIRECT_ARCHIVE_BODY_UNAVAILABLE");
+        if (!stored?.blob || stored.size !== body.size) {
+          if (!tolerateMissing) throw Error("DIRECT_ARCHIVE_BODY_UNAVAILABLE");
+          available = false;
+          continue;
+        }
         const bytes = new Uint8Array(await stored.blob.arrayBuffer());
         Object.defineProperty(body, "bytes", {value: bytes, configurable: true});
       }
+      return available;
     }
     async function archiveItemBodies(fp, temporaryBodies = null) {
       let changed = false;
@@ -589,6 +630,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                   ? parseCourseraCheckboxDefinitionDirectV1(raw, candidate)
                   : null;
         }
+        const projection = parsed && directAssessmentQuestionProjectionV1(raw);
+        if (projection) Object.assign(parsed, projection);
+        else parsed = null;
         const refreshedGroupRead = reusableGroup
           ? currentGroupRead
           : await reader.readGroup(candidate.id);
@@ -689,7 +733,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         bound,
       );
     }
-    function retainedReadingMedia(fp, previous, source) {
+    function boundCmlSource(bound) {
+      return bound.draft.content.typeName === "supplementDraft"
+        ? directDraftReadingSourceV1(bound)
+        : directDraftDiscussionSourceV1(bound);
+    }
+    function retainedCmlMedia(fp, previous, source) {
       if (
         previous?.id !== fp.id ||
         previous?.atomId !== fp.atomId ||
@@ -704,13 +753,15 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             previous.payload.directDataSources.atom,
             previous.payload.directDataSources.relation,
           ),
-          reading = directDraftReadingSourceV1(bound);
+          reading = boundCmlSource(bound);
         if (
-          bound.draft.content.typeName !== "supplementDraft" ||
           !source?.cml ||
           reading.cml !== source.cml ||
           reading.dtdId !== source.dtdId ||
-          reading.assetId !== source.assetId
+          reading.assetId !== source.assetId ||
+          (reading.rawDefinition &&
+            directCanonicalSourceTextV1(reading.rawDefinition) !==
+              directCanonicalSourceTextV1(source.rawDefinition))
         )
           return null;
         return {
@@ -729,7 +780,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         return null;
       }
     }
-    async function captureReadingMedia(fp, source, previous) {
+    async function captureCmlMedia(fp, source, previous) {
       const parsed = directCmlTextV1(source.cml);
       if (!parsed || !parsed.references.length) return;
       const refs = parsed.references,
@@ -740,7 +791,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               .filter((id) => /^[A-Za-z0-9_-]{22}$/.test(id || "")),
           ),
         ],
-        retained = retainedReadingMedia(fp, previous, source),
+        retained = retainedCmlMedia(fp, previous, source),
         assets = [],
         failures = [];
       fp.payload.directAssetEvidence = {
@@ -776,7 +827,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             (asset) => asset.assetId === id,
           ),
           retainedBytes = assets.reduce((sum, asset) => sum + (asset.body?.size || 0), 0),
-          // Bound the originals held for one reading independently of the
+          // Bound the originals held for one content item independently of the
           // course archive. Remaining source references remain explicit gaps.
           asset = retainedBytes >= 64 * 1024 * 1024
             ? {assetId: id, reason: "DIRECT_READING_MEDIA_BYTE_LIMIT"}
@@ -818,7 +869,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         previousRow.fingerprint.atomId === fp.atomId
           ? previousRow.fingerprint
           : null;
-      if (previous) await hydrateItemBodies(previous);
+      if (previous) await hydrateItemBodies(previous, true);
       state.phase = "Reading item data";
       render(fp.name);
       const [atomRead, relationRead] = await Promise.all([
@@ -867,7 +918,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         fp.payload.directPublishedTimeCommitment =
           bound.publishedTimeCommitment ?? null;
         if (
-          bound.draft.content.typeName === "supplementDraft" &&
+          ["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName) &&
           previous?.payload?.directDataSources?.receipts?.stability?.stable ===
             true &&
           previous.payload.directDataSources.receipts.stability.draftHash ===
@@ -877,7 +928,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           previous.payload.directDataSources.receipts.stability.updatedAt ===
             bound.updatedAt
         ) {
-          // Reuse a reading body only after a fresh, bound draft hash matches.
+          // Reuse a CML body only after a fresh, bound draft hash matches.
           // Source receipts and the final atom stability read remain current.
           const freshSources = fp.payload.directDataSources;
           fp.payload = {
@@ -889,16 +940,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         if (bound.draft.content.typeName === "staffGradedDraft")
           await captureAssessment(fp, bound);
-        else if (bound.draft.content.typeName === "discussionPromptDraft")
-          await directDiscussionPayloadV1(
-            fp,
-            bound,
-            directDraftDiscussionSourceV1(bound),
-          );
-        else if (bound.draft.content.typeName === "supplementDraft") {
-          const reading = directDraftReadingSourceV1(bound);
-          fp.payload.directDraftCml = reading.rawCML;
-          await captureReadingMedia(fp, reading, previous);
+        else if (["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName)) {
+          const cmlSource = boundCmlSource(bound);
+          fp.payload.directDraftCml = cmlSource.rawCML;
+          await captureCmlMedia(fp, cmlSource, previous);
         } else
           directUnsupportedContractV1(
             fp,
@@ -964,10 +1009,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           fp.payload.structuredAssessment?.questions?.length || 0;
         const previousQuestions =
           previous?.payload?.structuredAssessment?.questions?.length || 0;
-        const readingMediaAttempt =
-          bound?.draft?.content?.typeName === "supplementDraft" &&
+        const cmlMediaAttempt =
+          ["supplementDraft", "discussionPromptDraft"].includes(bound?.draft?.content?.typeName) &&
           fp.payload.directAssetEvidence &&
-          retainedReadingMedia(fp, previous, directDraftReadingSourceV1(bound))
+          retainedCmlMedia(fp, previous, boundCmlSource(bound))
             ? {
                 directDataSources: fp.payload.directDataSources,
                 directDraftCml: fp.payload.directDraftCml,
@@ -982,7 +1027,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ...previous.payload,
             // A failed final atom check remains incomplete, while original
             // bytes obtained for the same bound CML stay available locally.
-            ...(readingMediaAttempt || {}),
+            ...(cmlMediaAttempt || {}),
             directResumeRevalidation: {
               verified: false,
               reason,
@@ -1246,6 +1291,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.0.0-bound-authoring-drafts-20261014",
             "v1.1.0-compressed-resumable-drafts-20261014",
             "v1.2.0-bound-reading-media-20261014",
+            "v1.3.0-deduplicated-original-archive-20261014",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1339,8 +1385,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             baseCapture?.sourceStable === true &&
             baseCapture?.stopReason ===
               "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS") ||
-            (baseCapture?.mediaEnrichment?.scope ===
-              "REFERENCED_READING_MEDIA_ONLY" &&
+            (["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(
+              baseCapture?.mediaEnrichment?.scope,
+            ) &&
               baseCapture.mediaEnrichment.baseAcquisitionComplete === true));
         if (candidate && !resuming) {
           // The same course now has a different material graph. Preserve the
@@ -1390,7 +1437,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ...(enriching
               ? {
                   mediaEnrichment: {
-                    scope: "REFERENCED_READING_MEDIA_ONLY",
+                    scope: "REFERENCED_CML_MEDIA_ONLY",
                     baseAcquisitionComplete: true,
                     baseBuildId:
                       baseCapture.mediaEnrichment?.baseBuildId ||
@@ -1451,7 +1498,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             previous?.fingerprint?.id === fp.id &&
             previous.fingerprint.atomId === fp.atomId &&
             (previous.fingerprint.captureContract?.complete === true ||
-              previous.fingerprint.typeName !== "supplement");
+              !["supplement", "discussionPrompt"].includes(previous.fingerprint.typeName));
           if (keep) {
             items[index] = {
               ...previous.fingerprint,

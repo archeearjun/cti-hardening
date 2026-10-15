@@ -58,6 +58,7 @@ export function directSourceBindingEvidenceV1(fp, bound) {
     stable = receipts && receipts.stability;
   if (
     !bound ||
+    fp?.payload?.directResumeRevalidation?.verified === false ||
     bound.sourceState !== "AUTHORING_DRAFT" ||
     !sources ||
     !Array.isArray(atom) ||
@@ -179,10 +180,7 @@ export function directCmlTextV1(cml) {
       document.getElementsByTagName("style").length
     )
       return null;
-    const text = String(root.textContent || "")
-      .replace(/[\u200b-\u200d\ufeff]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const text = mediaInventory.text;
     if (root.getElementsByTagName("*").length > 50000) return null;
     const references = [],
       links = [];
@@ -231,35 +229,14 @@ export function directCmlTextV1(cml) {
   }
 }
 
-export async function directReadingPayloadV1(fp, bound, source) {
-  const payload = fp.payload || (fp.payload = {}),
-    evidence = directSourceBindingEvidenceV1(fp, bound);
-  const actual = payload.directDataSources?.atom?.elements?.[0]?.draft?.content;
-  const raw =
-    actual &&
-    actual.typeName === "supplementDraft" &&
-    actual.definition?.content;
-  if (
-    !evidence ||
-    !source ||
-    source.sourceState !== "AUTHORING_DRAFT" ||
-    raw?.typeName !== "cml" ||
-    raw.definition?.dtdId !== "supplement/1" ||
-    source.dtdId !== "supplement/1" ||
-    typeof raw.definition?.value !== "string" ||
-    raw.definition.value !== source.cml ||
-    source.assetId !== actual.definition.assetId ||
-    !/^[A-Za-z0-9_-]{22}@\d+$/.test(source.assetId || "")
-  )
-    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
-      "DIRECT_READING_SOURCE_NOT_BOUND",
-    ]);
-  const parsed = directCmlTextV1(source.cml);
-  payload.directDraftCml = raw;
-  if (!parsed)
-    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
-      "DIRECT_CML_NOT_SUPPORTED",
-    ]);
+/** Shared binary proof for native CML readings and discussion prompts. */
+export async function directCmlMediaPayloadV1(
+  payload,
+  parsed,
+  source,
+  evidence,
+  textScopeKind,
+) {
   const media = directMediaEvidenceStructureV1(
     payload.directAssetEvidence,
     parsed.references,
@@ -293,7 +270,7 @@ export async function directReadingPayloadV1(fp, bound, source) {
   payload.textConfidence = "high";
   payload.textEvidencePriority = 98;
   payload.textEvidenceCompleteness = 1;
-  payload.textScopeKind = "bound-authoring-draft-cml";
+  payload.textScopeKind = textScopeKind;
   payload.textCaptureTruncated = false;
   payload.links = parsed.links;
   // Keep missing-location references visible: a native ID or label is useful
@@ -337,8 +314,6 @@ export async function directReadingPayloadV1(fp, bound, source) {
     .map((asset) => asset.url);
   payload.directDataEvidence = {
     ...evidence,
-    dtdId: source.dtdId,
-    assetId: source.assetId,
     rawCmlLength: source.cml.length,
     rawCmlSha256: rawHash,
     plainTextLength: parsed.text.length,
@@ -346,6 +321,46 @@ export async function directReadingPayloadV1(fp, bound, source) {
     assetsBodyVerified: mediaVerified,
     unresolvedAssetReferences: unresolved,
   };
+  return { mediaVerified, mediaReason, textHash, rawHash };
+}
+
+export async function directReadingPayloadV1(fp, bound, source) {
+  const payload = fp.payload || (fp.payload = {}),
+    evidence = directSourceBindingEvidenceV1(fp, bound);
+  const actual = payload.directDataSources?.atom?.elements?.[0]?.draft?.content;
+  const raw =
+    actual &&
+    actual.typeName === "supplementDraft" &&
+    actual.definition?.content;
+  if (
+    !evidence ||
+    !source ||
+    source.sourceState !== "AUTHORING_DRAFT" ||
+    raw?.typeName !== "cml" ||
+    raw.definition?.dtdId !== "supplement/1" ||
+    source.dtdId !== "supplement/1" ||
+    typeof raw.definition?.value !== "string" ||
+    raw.definition.value !== source.cml ||
+    source.assetId !== actual.definition.assetId ||
+    !/^[A-Za-z0-9_-]{22}@\d+$/.test(source.assetId || "")
+  )
+    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
+      "DIRECT_READING_SOURCE_NOT_BOUND",
+    ]);
+  const parsed = directCmlTextV1(source.cml);
+  payload.directDraftCml = raw;
+  if (!parsed)
+    return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
+      "DIRECT_CML_NOT_SUPPORTED",
+    ]);
+  const { mediaVerified, mediaReason, textHash, rawHash } =
+    await directCmlMediaPayloadV1(
+      payload,
+      parsed,
+      source,
+      { ...evidence, dtdId: source.dtdId, assetId: source.assetId },
+      "bound-authoring-draft-cml",
+    );
   if (!textHash || !rawHash)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
       "DIRECT_READING_HASH_UNAVAILABLE",
@@ -406,35 +421,28 @@ export async function directDiscussionPayloadV1(fp, bound, source) {
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
       "DIRECT_CML_NOT_SUPPORTED",
     ]);
-  const textHash = await sha256(parsed.text),
-    rawHash = await sha256(source.cml);
-  payload.textSample = parsed.text;
-  payload.textLength = parsed.text.length;
-  payload.textSha256 = textHash;
-  payload.textConfidence = "high";
-  payload.textEvidencePriority = 98;
-  payload.textEvidenceCompleteness = 1;
-  payload.textScopeKind = "bound-authoring-draft-discussion-cml";
-  payload.textCaptureTruncated = false;
-  payload.links = parsed.links;
-  payload.directDataEvidence = {
-    ...evidence,
-    discussionPromptType: "questionPerSession",
-    dtdId: "discussion/1",
-    rawCmlLength: source.cml.length,
-    rawCmlSha256: rawHash,
-    plainTextLength: parsed.text.length,
-    assetReferenceCount: parsed.references.length,
-    assetsBodyVerified: parsed.references.length === 0,
-    unresolvedAssetReferences: parsed.references,
-  };
+  const { mediaVerified, mediaReason, textHash, rawHash } =
+    await directCmlMediaPayloadV1(
+      payload,
+      parsed,
+      source,
+      {
+        ...evidence,
+        discussionPromptType: "questionPerSession",
+        dtdId: "discussion/1",
+      },
+      "bound-authoring-draft-discussion-cml",
+    );
   if (!textHash || !rawHash)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
       "DIRECT_DISCUSSION_HASH_UNAVAILABLE",
     ]);
-  if (parsed.references.length)
+  if (!mediaVerified)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
       "DIRECT_DISCUSSION_ASSETS_UNRESOLVED",
+      ...(mediaReason && mediaReason !== "DIRECT_READING_ASSETS_UNRESOLVED"
+        ? [mediaReason]
+        : []),
     ]);
   return applyDirectContractV1(fp, "COMPLETE_BOUND_DRAFT_DISCUSSION", true);
 }
@@ -573,8 +581,14 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
     coverage = assessment && assessment.captureCompleteness;
   if (Array.isArray(parts) && parts.length === 0)
     return directEmptyAssessmentContractV1(fp, assessment, inventory, bound);
+  const metadata = directAssessmentMetadataCoverageV1(
+    bound?.draft?.content?.definition,
+    assessment,
+    inventory,
+  );
   let valid = Boolean(
     evidence &&
+      metadata.valid &&
       inventory?.complete === true &&
       Array.isArray(parts) &&
       parts.length > 0 &&
@@ -586,6 +600,13 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
       raw.courseId === bound.courseId &&
       raw.itemId === fp.id &&
       raw.assignmentId === bound.atomId &&
+      Array.isArray(raw.rawParts) &&
+      directCanonicalSourceTextV1(raw.rawParts) ===
+        directCanonicalSourceTextV1(parts) &&
+      Array.isArray(raw.unsupportedParts) &&
+      raw.unsupportedParts.length === 0 &&
+      Array.isArray(raw.failures) &&
+      raw.failures.length === 0 &&
       Array.isArray(raw.groups) &&
       raw.groups.length === parts.length &&
       Array.isArray(raw.questionDefinitions) &&
@@ -671,6 +692,7 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
       const definition = definitions.get(definitionId),
         native = definition?.definition?.definition,
         kind = definition?.definition?.typeName;
+      const projection = directAssessmentQuestionProjectionV1(definition);
       const correct =
         kind === "mcq"
           ? [native?.correctOption]
@@ -694,6 +716,7 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
           definitionId,
         ) ||
         !definition ||
+        !projection ||
         !sourceReceipts.has(
           "authoringAssignmentQuestionGroups.v1/" + groupId,
         ) ||
@@ -704,7 +727,12 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
         question.courseraQuestionId !== groupId ||
         question.sourceDefinitionId !== definitionId ||
         question.questionOrdinalObserved !== true ||
-        !String(question.prompt || "").trim() ||
+        question.textFormat !== projection.textFormat ||
+        question.prompt !== projection.prompt ||
+        question.feedback !== projection.feedback ||
+        question.shuffleOptions !== projection.shuffleOptions ||
+        (kind === "checkbox" &&
+          question.allowPartialScoring !== projection.allowPartialScoring) ||
         question.answerTextReliable !== true ||
         question.optionTextReliable !== true ||
         question.observationMethod !==
@@ -729,7 +757,9 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
           (option, position) =>
             option?.sourceOptionId !== native.options[position]?.id ||
             option?.id !== native.options[position]?.id ||
-            !String(option.text || "").trim() ||
+            option.text !== projection.options[position].text ||
+            option.label !== projection.options[position].label ||
+            option.feedback !== projection.options[position].feedback ||
             option.correct !== correct.includes(option.sourceOptionId),
         ) ||
         !Array.isArray(question.correctAnswers) ||
@@ -778,14 +808,173 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
       orderedGroupIds: Array.isArray(candidates)
         ? candidates.map((candidate) => candidate.id)
         : [],
+      unresolvedAssessmentMediaReferences: metadata.references,
     };
   if (assessment) payload.structuredAssessment = assessment;
   return applyDirectContractV1(
     fp,
     valid ? "COMPLETE_BOUND_DRAFT_ASSESSMENT" : "UNRESOLVED_DIRECT_ASSESSMENT",
     valid,
-    valid ? [] : ["DIRECT_ASSESSMENT_SOURCE_OR_COVERAGE_INCOMPLETE"],
+    valid
+      ? []
+      : [
+          "DIRECT_ASSESSMENT_SOURCE_OR_COVERAGE_INCOMPLETE",
+          ...(metadata.reason ? [metadata.reason] : []),
+        ],
   );
+}
+
+/** Retain settings and source text exactly. Unobserved rubric models and media
+ * bodies remain explicit gaps, even when every supported question has a key. */
+export function directAssessmentMetadataCoverageV1(
+  definition,
+  assessment,
+  inventory,
+) {
+  const references = [],
+    fail = (reason) => ({ valid: false, reason, references });
+  const object = (value) =>
+    value && typeof value === "object" && !Array.isArray(value);
+  if (
+    !object(definition) ||
+    (definition.configuration !== undefined &&
+      !object(definition.configuration))
+  )
+    return fail("DIRECT_ASSESSMENT_METADATA_INCOMPLETE");
+  for (const field of ["introduction", "reviewCriteria"]) {
+    const source = definition[field];
+    if (source === undefined || (Array.isArray(source) && !source.length))
+      continue;
+    const cml =
+      source?.typeName === "cml"
+        ? directCmlMediaInventoryV1(source.definition?.value)
+        : null;
+    if (!cml?.valid) return fail("DIRECT_ASSESSMENT_METADATA_INCOMPLETE");
+    references.push(
+      ...cml.references.map((reference) => ({ ...reference, field })),
+    );
+  }
+  if (references.length) return fail("DIRECT_ASSESSMENT_MEDIA_UNRESOLVED");
+  if (
+    definition.assignmentLevelRubrics !== undefined &&
+    !Array.isArray(definition.assignmentLevelRubrics)
+  )
+    return fail("DIRECT_ASSESSMENT_METADATA_INCOMPLETE");
+  if (definition.assignmentLevelRubrics?.length)
+    return fail("DIRECT_ASSESSMENT_RUBRIC_MODEL_UNSUPPORTED");
+  if (
+    definition.passingFraction !== undefined &&
+    (typeof definition.passingFraction !== "number" ||
+      !Number.isFinite(definition.passingFraction) ||
+      definition.passingFraction < 0 ||
+      definition.passingFraction > 1)
+  )
+    return fail("DIRECT_ASSESSMENT_METADATA_INCOMPLETE");
+  try {
+    for (const field of [
+      "configuration",
+      "introduction",
+      "reviewCriteria",
+      "passingFraction",
+      "assignmentLevelRubrics",
+    ]) {
+      if (definition[field] === undefined) {
+        if (
+          assessment?.[field] !== undefined ||
+          inventory?.[field] !== undefined
+        )
+          return fail("DIRECT_ASSESSMENT_METADATA_NOT_RETAINED");
+        continue;
+      }
+      const original = directCanonicalSourceTextV1(definition[field]);
+      if (
+        original !== directCanonicalSourceTextV1(assessment?.[field]) ||
+        original !== directCanonicalSourceTextV1(inventory?.[field])
+      )
+        return fail("DIRECT_ASSESSMENT_METADATA_NOT_RETAINED");
+    }
+  } catch (_) {
+    return fail("DIRECT_ASSESSMENT_METADATA_NOT_RETAINED");
+  }
+  return { valid: true, reason: "", references };
+}
+
+/** Derive learner text from the native definition without HTML interpretation.
+ * No media URL can substitute for the body of an assessment image/attachment. */
+export function directAssessmentQuestionProjectionV1(element) {
+  const kind = element?.definition?.typeName,
+    native = element?.definition?.definition;
+  if (
+    !/^(?:mcq|checkbox)$/.test(kind || "") ||
+    !Array.isArray(native?.options) ||
+    native.options.length < 2 ||
+    native.options.length > 100
+  )
+    return null;
+  const read = (source, required = true) => {
+    const cml =
+      source?.typeName === "cml"
+        ? directCmlMediaInventoryV1(source.definition?.value)
+        : null;
+    return cml?.valid && !cml.references.length && (!required || cml.text)
+      ? cml.text
+      : null;
+  };
+  const prompt = read(native.prompt),
+    correct = kind === "mcq" ? [native.correctOption] : native.correctOptions;
+  if (
+    prompt == null ||
+    !Array.isArray(correct) ||
+    !correct.length ||
+    correct.some((id) => typeof id !== "string" || !id) ||
+    new Set(correct).size !== correct.length
+  )
+    return null;
+  const ids = new Set(),
+    options = [];
+  for (const option of native.options) {
+    const text = read(option?.display),
+      feedback = option?.feedback == null ? "" : read(option.feedback, false);
+    if (
+      typeof option?.id !== "string" ||
+      !option.id ||
+      ids.has(option.id) ||
+      text == null ||
+      feedback == null
+    )
+      return null;
+    ids.add(option.id);
+    options.push({
+      id: option.id,
+      sourceOptionId: option.id,
+      text,
+      label: text,
+      description: "",
+      aliases: [],
+      correct: correct.includes(option.id),
+      feedback,
+    });
+  }
+  if (correct.some((id) => !ids.has(id))) return null;
+  return {
+    textFormat: "PLAIN_TEXT",
+    prompt,
+    options,
+    correctAnswers: options
+      .filter((option) => option.correct)
+      .map((option) => option.text),
+    feedback: "",
+    shuffleOptions:
+      typeof native.shuffleOptions === "boolean" ? native.shuffleOptions : null,
+    ...(kind === "checkbox"
+      ? {
+          allowPartialScoring:
+            typeof native.allowPartialScoring === "boolean"
+              ? native.allowPartialScoring
+              : null,
+        }
+      : {}),
+  };
 }
 
 export function directEmptyStructureContractV1(fp, bound, rawNode) {
@@ -913,6 +1102,7 @@ export function parseCourseraCheckboxDefinitionDirectV1(element, candidate) {
   }
   if (definition.correctOptions.some((id) => !ids.has(id))) return null;
   return {
+    textFormat: "PLAIN_TEXT",
     id: String(candidate.ordinal),
     courseraQuestionId: candidate.id,
     sourceDefinitionId: element.id,

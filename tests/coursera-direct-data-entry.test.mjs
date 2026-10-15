@@ -444,9 +444,10 @@ function harness(options = {}) {
       noSilentMisses: true,
     }),
     directDraftAssessmentInventoryV1: () => {
+      if (options.assessmentInventory) return options.assessmentInventory();
       throw Error("Unexpected assessment fixture");
     },
-    directAssessmentContractV1() {},
+    directAssessmentContractV1: (fp) => options.assessmentInventory && contract(fp, "DIRECT_ASSESSMENT", true),
     parseCourseraCheckboxDefinitionDirectV1() {},
     directCmlTextV1: options.parseCml || (() => undefined),
     parseCourseraMcqDefinitionV61524() {},
@@ -908,7 +909,7 @@ test("changed CML cannot reuse an earlier reading's media proof", async () => {
 
 test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates retained originals once without rereading questions", async () => {
   const fixture = readingMediaOptions({ reuseRetainedOnFirst: true }),
-    app = harness({ ...fixture.options, ids: ["ReadingA", "AssessmentZ"], assignmentIds: ["AssessmentZ"] });
+    app = harness({ ...fixture.options, ids: ["ReadingA", "AssessmentZ"], assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
   app.execute();
   await app.idle();
   const runId = app.state().runId, saved = app.runs.get(runId);
@@ -969,6 +970,20 @@ test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates ret
   assert.equal(migratedDetail.name, "source-old-body.bin", "Migration uses the bound native filename for the retained original");
   assert.equal(migratedDetail.referenceName, "Old CML attachment label", "The older CML display label remains separately recorded");
   assert.equal(app.downloads.length, 2, "Each acquisition attempt emits one ZIP file");
+});
+
+test("missing local original bodies allow a bound current media read to recover", async () => {
+  const fixture = readingMediaOptions(), app = harness(fixture.options);
+  app.execute(); await app.idle();
+  const runId = app.state().runId;
+  app.bodies.clear();
+  const before = app.calls.length;
+  app.execute(); await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert(app.calls.slice(before).some(call => call.resource === "atom" && call.id === "Atom_ReadingA"));
+  assert(fixture.mediaCalls.some(call => call.attempt === 1), "Missing local bytes must not abort before media acquisition");
+  assert.equal(app.state().state, "COMPLETE");
+  assert.equal(app.downloads.length, 2);
 });
 
 test("readable legacy originals still export in one ZIP when quota prevents body checkpoint migration", async () => {
