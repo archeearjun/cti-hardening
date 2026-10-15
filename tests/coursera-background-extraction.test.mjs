@@ -3,10 +3,118 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
 import { attachCourseraArchiveFileBytes } from "../src/domain/coursera-capture-file.ts";
+import { directWidgetContractV1 } from "../src/extractors/coursera/direct-data-contracts.js";
+import {
+  widgetFixture,
+  WIDGET_COURSE,
+  WIDGET_SLUG,
+} from "./coursera-direct-widget-fixtures.mjs";
 import {
   evaluateCourseraCapture,
   parseCourseraShellUrl,
 } from "../src/domain/coursera-background-extraction.ts";
+
+function directWidgetCapture() {
+  const { fp, bound } = widgetFixture();
+  directWidgetContractV1(fp, bound);
+  const materials = {
+    elements: [{
+      id: WIDGET_COURSE,
+      material: { elements: [{ id: "widget-module", name: "Module", elements: [{
+        id: fp.id, name: fp.name, atomId: fp.atomId, contentId: fp.contentId,
+        content: { typeName: "ungradedWidget", definition: {} },
+      }] }] },
+      conflictMetadata: { version: 1, courseBranchVersion: 1 },
+    }],
+    paging: {},
+  };
+  const materialHash = modelHash(materials.elements[0]);
+  return {
+    page: {
+      courseId: WIDGET_COURSE,
+      url: `https://www.coursera.org/teach/${WIDGET_SLUG}/${WIDGET_COURSE}/content/edit`,
+    },
+    meta: {
+      baseFingerprintCount: 1,
+      directDataCapture: {
+        mode: "BOUND_AUTHORING_DRAFT_API", version: 1,
+        sourceStable: true, acquisitionComplete: true, wholeCourseVerified: false,
+        initialMaterialHash: materialHash, finalMaterialHash: materialHash,
+        materialVersion: 1, courseBranchVersion: 1,
+        materials, finalMaterials: structuredClone(materials),
+        materialsReceipt: receipt("authoringCourseMaterials.v1", WIDGET_COURSE),
+        finalMaterialsReceipt: receipt("authoringCourseMaterials.v1", WIDGET_COURSE),
+      },
+      captureAccounting: {
+        inventoryCount: 1, completeCount: 0, unresolvedCount: 1,
+        unknownCount: 0, unvisitedCount: 0, externalContentUnverifiedCount: 1,
+        allInventoryAccounted: true, noSilentMisses: true, complete: false,
+      },
+    },
+    fingerprints: [fp],
+  };
+}
+
+test("bound widget configuration remains incomplete while its source proof validates independently", () => {
+  const capture = directWidgetCapture(), verdict = evaluateCourseraCapture(capture, WIDGET_COURSE);
+  assert.equal(verdict.complete, false);
+  assert.ok(verdict.reasons.includes("PLUGIN_BODY_UNVERIFIED:WidgetA"));
+  assert.ok(!verdict.reasons.some(reason => reason.includes("DIRECT_WIDGET_PROVIDER_SOURCE_INVALID")));
+});
+
+test("incomplete widget source claims cannot bypass independent binding, hash or target checks", () => {
+  const changes = [
+    ["wrong finder course", (fp, raw) => {
+      raw.final.receipt.requestQuery.find(pair => pair[0] === "courseId")[1] = "other-course";
+    }],
+    ["duplicate finder selector", (fp, raw) => {
+      raw.final.receipt.requestQuery.push(["courseId", WIDGET_COURSE]);
+    }],
+    ["action request", (fp, raw) => {
+      raw.initial.receipt.requestQuery.push(["action", "getConfiguration"]);
+    }],
+    ["wrong provider model", (fp, raw) => {
+      raw.initial.model.elements[0].id = "x".repeat(22);
+    }],
+    ["provider changed independently", (fp, raw) => {
+      raw.final.model.elements[0].metadata.updatedAt++;
+    }],
+    ["both provider copies edited without source hash", (fp, raw) => {
+      for (const read of [raw.initial, raw.final])
+        read.model.elements[0].draft.configuration.customSetting = "edited after capture";
+    }],
+    ["forged target", (fp, raw) => {
+      raw.targets[0].url = "https://other.example.test/not-observed";
+    }],
+    ["linked example promoted to target", (fp, raw) => {
+      raw.targets[0].url = raw.initial.model.linked["authoringWidgetSummaries.v1"][0]
+        .configurationExamples[0].configuration.url;
+    }],
+    ["retained credentials", (fp, raw) => {
+      raw.initial.model.elements[0].draft.configuration.access_token = "synthetic-secret";
+    }],
+    ["failed current atom check", fp => {
+      fp.payload.directResumeRevalidation = { verified: false };
+    }],
+    ["source claim without retained proof", fp => {
+      delete fp.payload.directWidgetProviderEvidence;
+    }],
+    ["provider proof without contract", fp => {
+      delete fp.captureContract;
+      delete fp.payload.captureContract;
+    }],
+    ["provider proof claims external body", fp => {
+      fp.captureContract.externalBodyVerified = true;
+    }],
+  ];
+  for (const [name, change] of changes) {
+    const capture = directWidgetCapture(), fp = capture.fingerprints[0];
+    change(fp, fp.payload.directWidgetProviderEvidence);
+    const verdict = evaluateCourseraCapture(capture, WIDGET_COURSE);
+    assert.equal(verdict.complete, false, name);
+    assert.ok(verdict.reasons.includes("DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:WidgetA"), name);
+  }
+});
 
 test("Coursera shell URL is normalized and rejects non-Coursera targets", () => {
   const target = parseCourseraShellUrl(

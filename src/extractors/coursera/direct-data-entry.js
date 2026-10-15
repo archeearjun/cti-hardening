@@ -18,6 +18,8 @@ import { createDirectDataReaderV1 } from "./direct-data-network.js";
 import { createDirectDataCheckpointStoreV1 } from "./direct-data-checkpoints.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
+import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
+  directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
 import {
   bindDirectAuthoringDraftV1,
@@ -33,6 +35,7 @@ import {
   directAssessmentContractV1,
   directEmptyStructureContractV1,
   directUnsupportedContractV1,
+  directWidgetContractV1,
   parseCourseraCheckboxDefinitionDirectV1,
   directCmlTextV1,
   directAssessmentQuestionProjectionV1,
@@ -179,11 +182,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       phase.textContent = state.phase;
       if (message) detail.textContent = message;
       const stats = budgetSnapshot();
-      const mediaOnly = ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(
+      const mediaOnly = ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"].includes(
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
       hint.textContent = mediaOnly
-        ? "This attempt reads referenced reading and discussion media. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
+        ? "This attempt reads referenced reading and discussion media and widget settings. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
       count.textContent =
         state.counts.processed +
@@ -205,7 +208,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           : "");
       const summary = coverageSummary();
       state.coverage = summary;
-      if (summary.assessments.total || summary.readings.total)
+      if (summary.assessments.total || summary.readings.total || summary.widgets.total)
         count.textContent +=
           " · Assessments " +
           summary.assessments.verified +
@@ -218,8 +221,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           " fully verified · " +
           summary.missingPointers.items +
           " readings missing media pointers · " +
-          summary.widgets.total +
-          " external widgets";
+          "Widget settings " +
+          (summary.widgets.configurations || 0) +
+          "/" + summary.widgets.total +
+          " captured · external widget bodies unverified";
       stopButton.disabled = !state.running;
       downloadButton.disabled = state.running || !meta || exporting;
       resumeButton.hidden =
@@ -399,6 +404,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             await directReadingPayloadV1(retained, bound, directDraftReadingSourceV1(bound));
           else if (bound.draft.content.typeName === "discussionPromptDraft")
             await directDiscussionPayloadV1(retained, bound, directDraftDiscussionSourceV1(bound));
+          else if (bound.draft.content.typeName === "widgetDraft")
+            directWidgetContractV1(retained, bound);
         } catch (_) {
           // Keep every original observation, while withdrawing a completion
           // claim that the current source verifier cannot establish.
@@ -846,6 +853,34 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (asset.reason) failures.push({ id, reason: asset.reason });
       }
     }
+    async function captureWidgetProvider(fp, bound) {
+      let binding;
+      try { binding = directDraftWidgetProviderV1(bound); }
+      catch (_) {
+        // An unknown widget model supplies no provider selector. Preserve the
+        // normal final atom check without guessing a provider or finder query.
+        directUnsupportedContractV1(fp, "DIRECT_WIDGET_PROVIDER_BINDING_FAILED", bound);
+        return;
+      }
+      const evidence = {
+          method: "BOUND_AUTHORING_WIDGET_PROVIDER", ...binding,
+          initial: null, final: null, stableSource: false, targets: [],
+          bodyVerified: false, playbackVerified: false,
+          launchVerified: false, wholeWidgetVerified: false,
+        };
+      fp.payload.directWidgetProviderEvidence = evidence;
+      // Provider configuration can change independently of the owning atom.
+      // Keep two current reads as well as the item's final atom stability read.
+      const initial = await reader.readWidgetProvider(binding.providerId, courseId);
+      evidence.initial = {model: initial.data, receipt: receipt(initial, binding.providerId), sourceHash: ""};
+      const initialSource = directWidgetProviderSourceV1(bound, requireRead(initial));
+      evidence.initial.sourceHash = await hash(initialSource);
+      evidence.targets = directWidgetProviderTargetsV1(bound, initial.data);
+      const final = await reader.readWidgetProvider(binding.providerId, courseId);
+      evidence.final = {model: final.data, receipt: receipt(final, binding.providerId), sourceHash: ""};
+      evidence.final.sourceHash = await hash(directWidgetProviderSourceV1(bound, requireRead(final)));
+      evidence.stableSource = evidence.initial.sourceHash === evidence.final.sourceHash;
+    }
     async function captureItem(fp) {
       const source = inventory.leaves.get(fp.id);
       if (source.structural) {
@@ -949,7 +984,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const cmlSource = boundCmlSource(bound);
           fp.payload.directDraftCml = cmlSource.rawCML;
           await captureCmlMedia(fp, cmlSource, previous);
-        } else
+        } else if (bound.draft.content.typeName === "widgetDraft")
+          await captureWidgetProvider(fp, bound);
+        else
           directUnsupportedContractV1(
             fp,
             "DIRECT_DRAFT_TYPE_UNSUPPORTED",
@@ -1000,6 +1037,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             fp.payload.directAssessmentInventory,
             bound,
           );
+        else if (bound.draft.content.typeName === "widgetDraft")
+          directWidgetContractV1(fp, bound);
         else
           directUnsupportedContractV1(
             fp,
@@ -1033,6 +1072,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             // A failed final atom check remains incomplete, while original
             // bytes obtained for the same bound CML stay available locally.
             ...(cmlMediaAttempt || {}),
+            ...(fp.payload.directWidgetProviderEvidence
+              ? {directWidgetProviderAttempt: fp.payload.directWidgetProviderEvidence}
+              : {}),
             directResumeRevalidation: {
               verified: false,
               reason,
@@ -1297,6 +1339,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.1.0-compressed-resumable-drafts-20261014",
             "v1.2.0-bound-reading-media-20261014",
             "v1.3.0-deduplicated-original-archive-20261014",
+            "v1.4.0-bound-content-integrity-20261015",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1390,7 +1433,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             baseCapture?.sourceStable === true &&
             baseCapture?.stopReason ===
               "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS") ||
-            (["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(
+            (["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"].includes(
               baseCapture?.mediaEnrichment?.scope,
             ) &&
               baseCapture.mediaEnrichment.baseAcquisitionComplete === true));
@@ -1442,7 +1485,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ...(enriching
               ? {
                   mediaEnrichment: {
-                    scope: "REFERENCED_CML_MEDIA_ONLY",
+                    scope: "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES",
                     baseAcquisitionComplete: true,
                     baseBuildId:
                       baseCapture.mediaEnrichment?.baseBuildId ||
@@ -1490,9 +1533,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         for (let index = 0; index < items.length; index++) {
           if (reader.snapshot().stopped) break;
           const fp = items[index];
-          // A media-only continuation preserves the completed assessment and
-          // widget observations, including their original source timestamps.
-          // It does not call question APIs or label them freshly observed.
+          // A source/media continuation preserves assessment observations and
+          // their original timestamps. Widget providers are read again because
+          // their configuration may change independently of the owning atom.
           const previous = enriching
             ? await store.getItem(state.runId, fp.id)
             : null;
@@ -1502,6 +1545,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             previous?.state?.processed === true &&
             previous?.fingerprint?.id === fp.id &&
             previous.fingerprint.atomId === fp.atomId &&
+            previous.fingerprint.payload?.directDataSources?.atom?.elements?.[0]?.draft?.content?.typeName !== "widgetDraft" &&
+            !/widget|plugin|lti/i.test(String(fp.typeName || fp.type || "")) &&
             (previous.fingerprint.captureContract?.complete === true ||
               !["supplement", "discussionPrompt"].includes(previous.fingerprint.typeName));
           if (keep) {

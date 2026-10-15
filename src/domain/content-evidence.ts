@@ -4,6 +4,9 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import { directCmlMediaInventoryV1 } from "../extractors/coursera/direct-data-media-contracts.js";
+import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
+import { directWidgetEvidenceValidV1 } from "../extractors/coursera/direct-data-contracts.js";
+import { directWidgetProviderSourceV1 } from "../extractors/coursera/direct-data-widget.js";
 import { workerXml } from "../adapters/worker-xml.ts";
 import {
   capturedTime,
@@ -500,6 +503,36 @@ function authoredImageAltText(
   }
 }
 
+/** Expose only the exact item's source-bound widget targets, never summary
+ * configuration examples or a same-title item's settings. */
+function verifiedDirectWidgetTargets(p: Obj, itemId?: string): string[] {
+  if (!itemId) return [];
+  try {
+    const sources = contentObject(p.directDataSources),
+      atom = contentObject(array(contentObject(sources.atom).elements)[0]),
+      evidence = contentObject(p.directDataEvidence),
+      courseId = string(evidence.courseId),
+      relation = contentObject(array(contentObject(sources.relation).elements)[0]),
+      branch = contentObject(contentObject(relation.branchRelationMap)[courseId + "~" + itemId]),
+      fp = { id: itemId, atomId: atom.id, contentId: atom.contentId, payload: p },
+      bound = bindDirectAuthoringDraftV1(fp, courseId, string(branch.courseSlug), sources.atom, sources.relation);
+    if (!directWidgetEvidenceValidV1(fp, bound)) return [];
+    const proof = contentObject(p.directWidgetProviderEvidence),
+      hash = (value: unknown) => bytesToHex(sha256(new TextEncoder().encode(directCanonicalSourceTextV1(value))));
+    if (hash(atom.draft) !== contentObject(contentObject(sources.receipts).stability).draftHash)
+      return [];
+    for (const value of [proof.initial, proof.final]) {
+      const observation = contentObject(value);
+      if (hash(directWidgetProviderSourceV1(bound, observation.model)) !== observation.sourceHash)
+        return [];
+    }
+    return array(proof.targets)
+      .map(target => string(contentObject(target).url)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export function capturedContent(
   payload: unknown,
   options: {
@@ -593,9 +626,11 @@ export function capturedContent(
     : (exact || directFull) && !truncated
       ? "EMPTY"
       : "UNVERIFIED";
+  const widgetTargets = options.source ? [] : verifiedDirectWidgetTargets(p, options.itemId);
   const references = [
     ...new Set(
       [
+        ...widgetTargets,
         ...array(p.links),
         ...array(p.embeddedRefs),
         ...array(contentObject(p.readingEditorEvidence).frames).map(
@@ -608,6 +643,10 @@ export function capturedContent(
       ].filter((v): v is string => typeof v === "string"),
     ),
   ];
+  if (widgetTargets.length)
+    limitations.push(
+      "Configured widget links were captured from this item's authoring draft. External page content, video files, captions and playback remain unverified.",
+    );
   const unreadFrames = array(
     contentObject(p.readingEditorEvidence).frames,
   ).filter((v) => contentObject(v).documentStatus === "NOT_READABLE").length;

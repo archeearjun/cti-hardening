@@ -6,6 +6,13 @@ import {
   directCmlMediaInventoryV1,
   directMediaEvidenceStructureV1,
 } from "../extractors/coursera/direct-data-media-contracts.js";
+import {
+  CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
+  CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1,
+  directDraftWidgetProviderV1,
+  directWidgetProviderSourceV1,
+  directWidgetProviderTargetsV1,
+} from "../extractors/coursera/direct-data-widget.js";
 
 export interface CourseraShellTarget {
   inputUrl: string;
@@ -342,6 +349,78 @@ function directSingleSource(
     return null;
   const root = record(envelope.elements[0]);
   return root?.id === id ? root : null;
+}
+
+function directWidgetFinderReceiptValid(
+  value: unknown,
+  courseId: string,
+  providerId: string,
+): boolean {
+  const receipt = record(value);
+  if (
+    !receipt || receipt.resource !== "authoringWidgetSessionProviders.v1" ||
+    receipt.id !== providerId || receipt.status !== 200 ||
+    receipt.requestPath !== "/api/authoringWidgetSessionProviders.v1/" ||
+    receipt.bodyFormat !== "PARSED_SANITIZED_JSON_MODEL" ||
+    !directHash(receipt.originalResponseSha256) ||
+    receipt.sha256 !== receipt.originalResponseSha256 ||
+    !Array.isArray(receipt.requestQuery) || receipt.requestQuery.length !== 5
+  )
+    return false;
+  const expected: Record<string, string> = {
+    q: "getWithCourseId",
+    widgetSessionProviderId: providerId,
+    courseId,
+    fields: CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
+    includes: CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1,
+  };
+  const seen = new Set<string>();
+  for (const pair of receipt.requestQuery) {
+    if (
+      !Array.isArray(pair) || pair.length !== 2 ||
+      typeof pair[0] !== "string" || typeof pair[1] !== "string" ||
+      !Object.hasOwn(expected, pair[0]) || seen.has(pair[0]) ||
+      expected[pair[0]] !== pair[1]
+    )
+      return false;
+    seen.add(pair[0]);
+  }
+  return seen.size === 5;
+}
+
+function directWidgetSourcesValid(
+  payload: Record<string, any>,
+  bound: Record<string, any>,
+): boolean {
+  const raw = record(payload.directWidgetProviderEvidence);
+  try {
+    const binding = directDraftWidgetProviderV1(bound);
+    if (
+      !raw || raw.method !== "BOUND_AUTHORING_WIDGET_PROVIDER" ||
+      raw.providerId !== binding.providerId || raw.courseId !== binding.courseId ||
+      raw.itemId !== binding.itemId || raw.atomId !== binding.atomId ||
+      raw.sourceState !== "AUTHORING_DRAFT" || raw.stableSource !== true ||
+      raw.bodyVerified !== false || raw.playbackVerified !== false ||
+      raw.launchVerified !== false || raw.wholeWidgetVerified !== false ||
+      raw.binaryContentVerified === true || raw.externalBodyVerified === true ||
+      !directHash(raw.initial?.sourceHash) ||
+      !directHash(raw.final?.sourceHash) ||
+      !directWidgetFinderReceiptValid(raw.initial.receipt, binding.courseId, binding.providerId) ||
+      !directWidgetFinderReceiptValid(raw.final.receipt, binding.courseId, binding.providerId)
+    )
+      return false;
+    const initial = directWidgetProviderSourceV1(bound, raw.initial.model),
+      final = directWidgetProviderSourceV1(bound, raw.final.model),
+      sourceHash = directModelHash(initial);
+    return (
+      sourceHash !== null && sourceHash === raw.initial.sourceHash &&
+      sourceHash === raw.final.sourceHash && sourceHash === directModelHash(final) &&
+      directCanonicalSourceTextV1(raw.targets) ===
+        directCanonicalSourceTextV1(directWidgetProviderTargetsV1(bound, raw.initial.model))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function directTextOnlyCmlSource(value: string): boolean {
@@ -934,9 +1013,21 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
     const id = String(item.id || "unknown"),
       payload = record(item.payload) || {};
     const contract = record(item.captureContract || payload.captureContract);
-    // Incomplete records retain useful original source models without claiming
-    // that an unsupported content model is fully captured.
-    if (contract?.complete !== true) continue;
+    // Incomplete widgets can still claim verified configuration coverage. Check
+    // that narrower proof independently before retaining its derived targets.
+    const widgetConfigurationClaim =
+      payload.directWidgetProviderEvidence !== undefined ||
+      contract?.sourceConfigurationVerified === true;
+    if (contract?.complete !== true && !widgetConfigurationClaim) continue;
+    if (!contract) {
+      reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    if (
+      widgetConfigurationClaim &&
+      !/widget|plugin|lti/i.test(String(sourceItems.get(item.id)?.sourceContentType || ""))
+    )
+      reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
     const evidence = record(payload.directDataEvidence),
       sources = record(payload.directDataSources);
     const receipts = record(sources?.receipts),
@@ -953,6 +1044,8 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
       stability?.stable === true;
     if (!commonValid) {
       reasons.push(`DIRECT_DRAFT_SOURCE_BINDING_INVALID:${id}`);
+      if (widgetConfigurationClaim)
+        reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
       continue;
     }
     if (contract.status === "COMPLETE_EMPTY_STRUCTURE") {
@@ -1042,7 +1135,21 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
       record(refreshedAtom?.metadata)?.updatedAt === stability.updatedAt;
     if (!atomValid) {
       reasons.push(`DIRECT_DRAFT_SOURCE_BINDING_INVALID:${id}`);
+      if (widgetConfigurationClaim)
+        reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
       continue;
+    }
+    if (widgetConfigurationClaim) {
+      if (
+        contract?.sourceConfigurationVerified !== true || contract.complete !== false ||
+        contract.externalBodyVerified !== false ||
+        !directWidgetSourcesValid(payload, {
+          courseId, itemId: item.id, atomId,
+          sourceState: "AUTHORING_DRAFT", draft: atom.draft,
+        })
+      )
+        reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
+      if (contract?.complete !== true) continue;
     }
     const content = record(record(atom?.draft)?.content),
       definition = record(content?.definition);

@@ -11,7 +11,7 @@ export function directDataCoverageSummaryV1(items) {
     readings: counts(),
     readingMedia: { items: 0, references: 0, uniqueReferences: 0 },
     missingPointers: { items: 0, references: 0 },
-    widgets: counts(),
+    widgets: { ...counts(), configurations: 0 },
     structures: counts(),
     discussions: counts(),
   };
@@ -53,7 +53,11 @@ export function directDataCoverageSummaryV1(items) {
       const missing = integer(item.missingPointerCount);
       if (missing) summary.missingPointers.items++;
       summary.missingPointers.references += missing;
-    } else if (/^(?:plugin|widget)$/.test(type)) count(summary.widgets, item);
+    } else if (/^(?:plugin|widget)$/.test(type)) {
+      count(summary.widgets, item);
+      if (item.contract?.sourceConfigurationVerified === true)
+        summary.widgets.configurations++;
+    }
     else if (type === "discussion") count(summary.discussions, item);
   }
   summary.readingMedia.uniqueReferences = referenceIds.size;

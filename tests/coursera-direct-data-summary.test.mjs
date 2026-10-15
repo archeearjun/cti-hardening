@@ -49,7 +49,7 @@ test("coverage separates a complete question bank from reading media and empty s
     uniqueReferences: 49,
   });
   assert.deepEqual(summary.missingPointers, { items: 3, references: 3 });
-  assert.deepEqual(summary.widgets, { total: 6, read: 6, verified: 0 });
+  assert.deepEqual(summary.widgets, { total: 6, read: 6, verified: 0, configurations: 0 });
   assert.deepEqual(summary.structures, { total: 20, read: 20, verified: 20 });
   assert.deepEqual(summary.discussions, { total: 2, read: 2, verified: 2 });
 });
@@ -73,6 +73,16 @@ test("unknown content and unvisited records cannot be presented as empty or acqu
   assert.deepEqual(summary.structures, { total: 1, read: 1, verified: 0 });
   assert.throws(() => directDataCoverageSummaryV1([null]), /ITEM_INVALID/);
   assert.throws(() => directDataCoverageSummaryV1({}), /INPUT_INVALID/);
+});
+
+test("captured widget settings do not increase verified content or widget body counts", () => {
+  const summary = directDataCoverageSummaryV1([
+    { type: "Plugin", processed: true, contract: { complete: false, sourceConfigurationVerified: true } },
+    { type: "Plugin", processed: true, contract: { complete: false, sourceConfigurationVerified: false } },
+  ]);
+  assert.deepEqual(summary.widgets, { total: 2, read: 2, verified: 0, configurations: 1 });
+  assert.equal(summary.inventory.verified, 0);
+  assert.equal(summary.content.verified, 0);
 });
 
 test("resumed metrics preserve spent limits while showing the ten-minute attempt separately", () => {
