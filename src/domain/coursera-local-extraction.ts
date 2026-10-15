@@ -341,7 +341,7 @@ export function buildLocalCourseraCaptureReviewSummary(value: unknown) {
       stopReason: reason(direct.stopReason),
       limits: limits(direct.limits),
       mediaContinuation:
-        ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(direct.mediaEnrichment?.scope),
+        ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"].includes(direct.mediaEnrichment?.scope),
       retainedAssessmentObservations: flag(
         direct.mediaEnrichment?.retainedAssessmentObservations,
       ),
@@ -594,7 +594,7 @@ function directCapturePresentation(
     cumulativeBudget,
     timingSource,
     mediaContinuation:
-      ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY"].includes(continuation?.scope)
+      ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"].includes(continuation?.scope)
         ? {
             retainedAssessmentObservations:
               continuation.retainedAssessmentObservations === true,

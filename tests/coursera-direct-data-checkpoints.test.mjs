@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createDirectDataCheckpointStoreV1 } from "../src/extractors/coursera/direct-data-checkpoints.js";
+import { CTI_DIRECT_DATA_BUILD_V1 } from "../src/extractors/coursera/direct-data-config.js";
 
 const DATABASE = "cti-coursera-direct-data-v1",
   COURSE = "Synthetic_course",
@@ -1277,6 +1278,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       "v1.2.0-bound-reading-media-20261014",
       "v1.3.0-deduplicated-original-archive-20261014",
       "v1.4.0-bound-content-integrity-20261015",
+      CTI_DIRECT_DATA_BUILD_V1,
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));
       assert.equal(
