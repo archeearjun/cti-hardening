@@ -125,6 +125,8 @@ const complete=makeCourse('Direct_complete_fixture_123','complete');
 const interrupted=makeCourse('Direct_resume_fixture_123','resume');
 const oldCutoff=makeCourse('Direct_old_cutoff_fixture_123','resume');
 const budgetResume=makeCourse('Direct_budget_resume_123','budget-resume');
+const pauseDefinitionLimit=4;
+for(const config of [interrupted,oldCutoff,budgetResume])config.pauseFixture={released:false,reads:0,held:0};
 const changed=makeCourse('Direct_changed_fixture_123','changed');
 const changedMaterial=makeCourse('Direct_material_change_123','material-changed');
 const changedGroup=makeCourse('Direct_group_change_123','group-changed');
@@ -210,6 +212,10 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   }
   else if(resource===definitionResource){
     if(/%40/i.test(url.pathname)){response.statusCode=404;response.end('{"error":"literal version delimiter required"}');return;}
+    // Leave later reads in flight until the operator stops. Request arrival
+    // alone does not establish that an earlier response reached IndexedDB.
+    const pause=config.pauseFixture;
+    if(pause&&!pause.released&&++pause.reads>pauseDefinitionLimit){pause.held++;return;}
     value=structuredClone(definitions.get(reference)?.value);
   }
   if(!value){response.statusCode=404;response.end('{}');return;}
@@ -299,6 +305,26 @@ try{
     await page.waitForFunction(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__?.running===false,{},{timeout:180000});
     return page.evaluate(()=>{const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return {state:state.state,runId:state.runId,phase:state.phase,counts:state.counts,
       diagnostic:document.getElementById('cti-direct-data-capture-v1')?.innerText.slice(0,900)};});
+  }
+  async function savedProgress(page){
+    return page.evaluate(async()=>{
+      const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;
+      if(!state?.runId)return null;
+      const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+      const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['definitions','groups','runs'],'readonly'),out={};
+        for(const name of ['definitions','groups','runs']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result.filter(row=>row.courseId===state.courseId&&row.runId===state.runId);};}
+        transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});database.close();
+      return {running:state.running,definitions:rows.definitions.map(row=>row.definitionId),groups:rows.groups.length,
+        groupIds:rows.groups.map(row=>row.groupId),runs:rows.runs.map(row=>({runId:row.runId,state:row.state}))};
+    });
+  }
+  async function pauseAfterSavedProgress(target,config){
+    assert(await poll(async()=>{
+      const saved=await savedProgress(target.page);
+      return saved?.running&&saved.definitions.length===pauseDefinitionLimit&&saved.groups>=pauseDefinitionLimit&&config.pauseFixture.held>0;
+    },15000),'Pause requires committed definitions and groups while later definition reads remain in flight: '+config.id);
+    await target.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
+    config.pauseFixture.released=true;
   }
   async function readFile(download){
     const bytes=fs.readFileSync(await download.path());
@@ -393,18 +419,10 @@ try{
 
   const resumed=await open(interrupted),partialDownloads=[];resumed.page.on('download',download=>partialDownloads.push(download));
   const resumeStart=requests.length;await launch(resumed.page,resumed.context);
-  assert(await poll(()=>requests.slice(resumeStart).filter(request=>request.resource===definitionResource).length>=4,15000));
-  await resumed.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
+  await pauseAfterSavedProgress(resumed,interrupted);
   const paused=await terminal(resumed.page);assert.equal(paused.state,'PAUSED');assert.equal(partialDownloads.length,0,'Operator stop saves checkpoints without an automatic partial file');
-  const saved=await resumed.page.evaluate(async()=>{
-    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
-    const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['definitions','groups','runs'],'readonly'),out={};
-      for(const name of ['definitions','groups','runs']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result;};}
-      transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});database.close();
-    return {definitions:rows.definitions.map(row=>row.definitionId),groups:rows.groups.length,
-      groupIds:rows.groups.map(row=>row.groupId),runs:rows.runs.map(row=>({runId:row.runId,state:row.state}))};
-  });
-  assert(saved.definitions.length>0);assert(saved.groups>0);assert(saved.runs.some(run=>run.runId===paused.runId));
+  const saved=await savedProgress(resumed.page);
+  assert.equal(saved.definitions.length,pauseDefinitionLimit);assert(saved.groups>=pauseDefinitionLimit);assert(saved.runs.some(run=>run.runId===paused.runId));
   await resumed.page.reload();const afterResumeStart=requests.length;
   const resumeDownload=resumed.page.waitForEvent('download',{timeout:180000});void resumeDownload.catch(()=>{});
   await launch(resumed.page,resumed.context);const resumeState=await terminal(resumed.page),resumeCapture=await readFile(await resumeDownload);
@@ -420,8 +438,7 @@ try{
 
   const recovering=await open(oldCutoff),recoveryDownloads=[];recovering.page.on('download',download=>recoveryDownloads.push(download));
   const recoveryStart=requests.length;await launch(recovering.page,recovering.context);
-  assert(await poll(()=>requests.slice(recoveryStart).filter(request=>request.resource===definitionResource).length>=4,15000));
-  await recovering.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
+  await pauseAfterSavedProgress(recovering,oldCutoff);
   const recoveryPaused=await terminal(recovering.page);assert.equal(recoveryPaused.state,'PAUSED');assert.equal(recoveryDownloads.length,0);
   const legacy=await recovering.page.evaluate(async()=>{
     const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
@@ -460,8 +477,7 @@ try{
 
   const budgetTarget=await open(budgetResume),budgetDownloads=[];budgetTarget.page.on('download',download=>budgetDownloads.push(download));
   const budgetStart=requests.length;await launch(budgetTarget.page,budgetTarget.context);
-  assert(await poll(()=>requests.slice(budgetStart).filter(request=>request.resource===definitionResource).length>=4,15000));
-  await budgetTarget.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.stop());
+  await pauseAfterSavedProgress(budgetTarget,budgetResume);
   const budgetPaused=await terminal(budgetTarget.page);assert.equal(budgetPaused.state,'PAUSED');assert.equal(budgetDownloads.length,0);
   await budgetTarget.page.reload();
   const budgetDownloading=budgetTarget.page.waitForEvent('download',{timeout:180000});void budgetDownloading.catch(()=>{});
