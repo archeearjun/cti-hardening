@@ -48,6 +48,32 @@ const payload = {
   },
 };
 
+function nativeFeedbackQuestions() {
+  return [1, 2].map((ordinal) => ({
+    id: String(ordinal),
+    courseraQuestionId: "native-checkbox-" + ordinal,
+    type: "multiple-select",
+    rawType: "checkbox",
+    textFormat: "PLAIN_TEXT",
+    observationMethod: "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION",
+    prompt: "Choose the marked examples.",
+    options: [
+      "Authored <div> &amp; feedback.",
+      "Authored &lt;p&gt; feedback.",
+      "Authored first line.\nSecond line.",
+      "Authored <span> & feedback.",
+    ].map((feedback, index) => ({
+      id: "option-" + index,
+      text: "Choice " + index,
+      feedback: "Question " + ordinal + ": " + feedback,
+    })),
+    correctAnswers: ["Choice 0", "Choice 1"],
+    feedback: "",
+    answerTextReliable: true,
+    optionTextReliable: true,
+  }));
+}
+
 function directTextFixture({ discussion = false, empty = false } = {}) {
   const courseId = "Direct_content_course_123",
     itemId = "direct-item",
@@ -343,6 +369,12 @@ test("content supplements use exact original hashes and preserve immutable audit
   const input = comparisonFixture();
   const raw = JSON.parse(new TextDecoder().decode(input.json.bytes));
   raw.fingerprints[0].payload.timeEstimateMinutes = 12;
+  const feedbackQuestions = nativeFeedbackQuestions();
+  raw.fingerprints[1].payload.structuredAssessment = {
+    questions: feedbackQuestions,
+    declaredQuestionCount: 2,
+    captureCompleteness: { declared: 2, questionCoverageComplete: true },
+  };
   input.json.bytes = encode(raw);
   const report = createWorkflows(workerXml).compare(input);
   delete report.contentEvidence;
@@ -389,6 +421,13 @@ test("content supplements use exact original hashes and preserve immutable audit
   );
   assert.equal(merged.coursera.length, 2);
   assert(merged.coursera[0].content.text);
+  assert.deepEqual(
+    merged.coursera[1].content.questions.flatMap((q) =>
+      q.options.map((o) => o.feedback),
+    ),
+    feedbackQuestions.flatMap((q) => q.options.map((o) => o.feedback)),
+    "All eight authored option-feedback fields survive saving and loading original content",
+  );
   const supplement = [...records.values()].find((r) => r.kind === "operations");
   assert.equal(supplement.data.sourceHash, await digest(input.json.bytes));
   assert.equal(recordSummary(supplement).data.contentEvidence, undefined);
@@ -555,6 +594,63 @@ test("direct definition plain text preserves literal tags, entities and answer k
     );
     assert.notEqual(legacy.prompt, direct.prompt);
   }
+});
+test("authored option feedback is retained exactly in snapshots and copied exports; missing and empty stay distinct", () => {
+  const questions = nativeFeedbackQuestions();
+  const bytes = encode({
+    fingerprints: [
+      {
+        id: "assessment",
+        payload: {
+          structuredAssessment: {
+            questions,
+            declaredQuestionCount: questions.length,
+            captureCompleteness: {
+              declared: questions.length,
+              questionCoverageComplete: true,
+            },
+          },
+        },
+      },
+    ],
+  });
+  const snapshot = buildContentSnapshot(bytes),
+    saved = JSON.parse(JSON.stringify(snapshot)),
+    content = saved.coursera[0].content,
+    expected = questions.flatMap((q) => q.options.map((o) => o.feedback));
+  validateContentSnapshot(saved);
+  assert.equal(expected.length, 8);
+  assert.deepEqual(
+    content.questions.flatMap((q) => q.options.map((o) => o.feedback)),
+    expected,
+  );
+  for (const feedback of expected)
+    assert(contentEvidenceText(content).includes(feedback));
+  assert(
+    content.questions.every((q) => q.feedback === ""),
+    "Choice feedback is never replaced by question-level text",
+  );
+  const older = structuredClone(saved);
+  for (const q of older.coursera[0].content.questions)
+    for (const o of q.options) delete o.feedback;
+  validateContentSnapshot(older);
+  const bad = structuredClone(saved);
+  bad.coursera[0].content.questions[0].options[0].feedback = {
+    text: "invalid",
+  };
+  assert.throws(
+    () => validateContentSnapshot(bad),
+    /Invalid saved question evidence/,
+  );
+  const empty = nativeFeedbackQuestions()[0];
+  empty.options[0].feedback = "";
+  delete empty.options[1].feedback;
+  const projected = capturedContent(
+    { structuredAssessment: { questions: [empty] } },
+    { basis: "empty-feedback" },
+  ).questions[0];
+  assert.equal(projected.options[0].feedback, "");
+  assert.equal(Object.hasOwn(projected.options[1], "feedback"), false);
 });
 test("bound draft reading and discussion text is verified separately from unresolved media", () => {
   for (const discussion of [false, true]) {

@@ -170,6 +170,7 @@ const openAudit = async () => {
     .getByRole("heading", { name: "Coursera content view", exact: true })
     .waitFor();
 };
+const choiceFeedback = "Keep literal <span> &amp; choice feedback.";
 const capture = {
   kind: "CTI_COURSERA_ITEM_CHECK",
   schemaVersion: 1,
@@ -189,7 +190,16 @@ const capture = {
     textSample: "Fresh reading content",
     structuredAssessment: {
       questions: [
-        { id: "q1", prompt: "First question" },
+        {
+          id: "q1",
+          prompt: "First question",
+          textFormat: "PLAIN_TEXT",
+          observationMethod: "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION",
+          options: [
+            { id: "a", text: "First choice", feedback: choiceFeedback },
+            { id: "b", text: "Second choice", feedback: "" },
+          ],
+        },
         { id: "q2", prompt: "Second question" },
       ],
       captureCompleteness: { declared: 2, questionCoverageComplete: true },
@@ -585,6 +595,21 @@ try {
   await destinationContent
     .getByText("First question", { exact: true })
     .waitFor();
+  const firstQuestion = destinationContent.locator(".captured-questions > li").first(),
+    displayedChoiceFeedback = firstQuestion.getByText(
+      "Captured feedback: " + choiceFeedback,
+      { exact: true },
+    );
+  await displayedChoiceFeedback.waitFor();
+  assert.equal(await displayedChoiceFeedback.locator("span").count(), 0,
+    "Literal feedback markup stays text");
+  assert.equal(await firstQuestion.getByText("Captured feedback:", { exact: true }).count(), 1,
+    "Empty option feedback does not add a feedback label");
+  await page.getByLabel("Find captured question text", { exact: true }).fill(choiceFeedback);
+  assert.equal(await destinationContent.locator(".captured-questions > li").count(), 1,
+    "Question search includes authored choice feedback");
+  assert.equal(await sourceContent.locator(".captured-questions > li").count(), 0);
+  await page.getByLabel("Find captured question text", { exact: true }).fill("");
   assert.equal(
     await sourceContent.locator(".captured-questions > li").count(),
     10,
