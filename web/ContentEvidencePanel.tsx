@@ -32,7 +32,7 @@ function Evidence({
         q.ordinal,
         q.type,
         q.prompt,
-        ...q.options.map((o) => o.text),
+        ...q.options.flatMap((o) => [o.text, o.feedback || ""]),
         ...q.answers,
         q.feedback,
         ctiAnswerCheck(q).answer,
@@ -126,6 +126,12 @@ function Evidence({
                           <strong>{choiceLabel(j)}: </strong>
                           {o.text || "Choice text not captured"}
                         </span>
+                        {o.feedback && (
+                          <div className="captured-text">
+                            <strong>Captured feedback: </strong>
+                            {o.feedback}
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>

@@ -30,7 +30,7 @@ export interface ContentQuestion {
   ordinal: string;
   type: string;
   prompt: string;
-  options: { id: string; text: string }[];
+  options: { id: string; text: string; feedback?: string }[];
   answers: string[];
   feedback: string;
   media: string[];
@@ -143,7 +143,10 @@ export function validateContentSnapshot(
           q.options.some(
             (v) =>
               typeof contentObject(v).id !== "string" ||
-              typeof contentObject(v).text !== "string",
+              typeof contentObject(v).text !== "string" ||
+              (contentObject(v).feedback !== undefined &&
+                (typeof contentObject(v).feedback !== "string" ||
+                  string(contentObject(v).feedback).length > 100000)),
           ) ||
           ![q.answers, q.media, q.limitations].every(
             (v) => Array.isArray(v) && v.every((x) => typeof x === "string"),
@@ -260,8 +263,18 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
       const t = fieldText(
         typeof v === "string" ? v : (o.text ?? o.label ?? o.description),
       );
+      const feedback =
+        typeof o.feedback === "string" ? fieldText(o.feedback) : undefined;
       if (t.length > 100000) limitations.push("Choice text is truncated.");
-      return { id: String(o.id ?? i + 1), text: t.slice(0, 100000) };
+      if (feedback !== undefined && feedback.length > 100000)
+        limitations.push("Choice feedback is truncated.");
+      return {
+        id: String(o.id ?? i + 1),
+        text: t.slice(0, 100000),
+        ...(feedback !== undefined
+          ? { feedback: feedback.slice(0, 100000) }
+          : {}),
+      };
     }),
     answers: array(q.correctAnswers)
       .map((v) =>
@@ -693,10 +706,12 @@ export function contentQuestionText(q: ContentQuestion): string {
   return [
     `Question ${q.ordinal} [${q.type}]`,
     q.prompt || "[Prompt not captured]",
-    ...q.options.map(
-      (o, i) =>
-        `  ${choiceLabel(i)} (recorded ID ${o.id}): ${o.text || "[Choice text not captured]"}`,
-    ),
+    ...q.options.flatMap((o, i) => [
+      `  ${choiceLabel(i)} (recorded ID ${o.id}): ${o.text || "[Choice text not captured]"}`,
+      ...(o.feedback
+        ? [`  Captured feedback for ${choiceLabel(i)}: ${o.feedback}`]
+        : []),
+    ]),
     ...(q.answerCoverage
       ? [`Source answer-key coverage: ${q.answerCoverage}`]
       : []),
