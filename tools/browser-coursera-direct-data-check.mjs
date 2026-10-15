@@ -246,7 +246,7 @@ async function waitForHelperFixture(config,signal){
 function releaseHelperFixture(config){config.helperReleased=true;for(const release of config.helperWaiters||[])release();config.helperWaiters=[];}
 async function fixtureProviderFetch(address,init){
   const url=new URL(address),headers=new Headers(init.headers);
-  assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');
+  assert.equal(init.credentials,'omit');assert.equal(init.redirect,'manual');
   assert.equal(headers.get('cookie'),null);assert.equal(headers.get('authorization'),null);
   if(url.origin===panoptoOrigin){
     assert.equal(url.pathname,'/Panopto/Pages/Viewer/DeliveryInfo.aspx');assert.equal(init.method,'POST');
