@@ -523,6 +523,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         row.buildId === "v1.3.0-deduplicated-original-archive-20261014" ||
         row.buildId === "v1.4.0-bound-content-integrity-20261015" ||
         row.buildId === "v1.5.0-bound-widget-configuration-20261015" ||
+        row.buildId === "v1.6.0-integrated-panopto-bookmark-20261015" ||
         row.buildId === CTI_DIRECT_DATA_BUILD_V1) &&
         capture &&
         capture.mode === "BOUND_AUTHORING_DRAFT_API" &&

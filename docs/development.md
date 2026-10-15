@@ -181,6 +181,22 @@ an empty caption inventory applies only to that delivery. An archived podcast
 rendition does not establish uploaded-original identity, HLS completeness,
 playback, course launch or complete widget content.
 
+Version 1.6.1 opens the bookmark card without starting network or checkpoint
+work until the operator chooses Capture/resume course or Check Panopto access.
+The separate diagnostic reads the current outline and bound plugin sources,
+then tests at most twelve configured Panopto targets, deduplicating repeated
+placements. It does not reread assessment definitions, readings or video bytes,
+open editors, or mutate saved course checkpoints. The card shows and copies a
+plain result and can download a separate `CTI_PROVIDER_ACCESS_DIAGNOSTIC` JSON
+report. HTTP observations, timeouts and enforced CSP events remain distinct;
+an origin-only CSP event is explicitly qualified, and an unclassified fetch
+failure does not distinguish CORS from network failure. No absence of a policy
+event establishes that CSP permits access. Reports retain scoped native source
+models, hashes and receipts without provider bodies, raw error strings, policy
+text or credential values. Source binding and derived classifications are
+recomputed independently. The capture launcher and checkpoint recovery both
+accept saved v1.5 and v1.6 builds without resetting budgets or assessment dates.
+
 An item's captured Panopto target can also receive a manually copied
 `DeliveryInfo.aspx` response in its owner card. This is a separate, report-bound
 metadata supplement, not a rewritten course capture or a newly observed source

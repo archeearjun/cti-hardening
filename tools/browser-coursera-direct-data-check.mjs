@@ -11,6 +11,7 @@ import JSZip from 'jszip';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
 import {readCourseraCaptureFileJson} from '../src/domain/coursera-capture-file.ts';
 import {panoptoDeliveryFixture} from '../tests/panopto-delivery-fixtures.mjs';
+import {validateProviderAccessDiagnostic,providerAccessDiagnosticText} from '../src/domain/provider-access-diagnostic.ts';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -237,6 +238,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       // CORS permission for a real Panopto tenant or authenticated session.
       if(config.panoptoMode!=='metadata-cors')response.setHeader('Access-Control-Allow-Origin',origin);
       response.setHeader('Content-Type','application/json; charset=utf-8');
+      if(config.panoptoMode==='metadata-auth'){
+        response.statusCode=401;response.end('{"error":"Synthetic provider sign-in required"}');return;
+      }
       response.end(JSON.stringify(config.panoptoModel));
     });return;
   }
@@ -270,12 +274,15 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     response.setHeader('Content-Type','text/html; charset=utf-8');
     response.setHeader('Set-Cookie','fixtureSession='+secrets[0]+'; HttpOnly; Secure; SameSite=Lax; Path=/');
     if(!url.searchParams.has('open'))response.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'nonce-fixture'; style-src 'self'; connect-src 'self' "+mediaOrigin+
-      (config?.panoptoMode?' '+panoptoOrigin+' '+panoptoMediaOrigin:''));
+      (config?.panoptoMode&&config.panoptoMode!=='metadata-csp'?' '+panoptoOrigin+' '+panoptoMediaOrigin:''));
     response.end(`<!doctype html><title>Direct capture fixture</title><main><a id="editor" href="/teach/${slug}/${courseId}/content/item/project/item_0000">Open quiz normally</a></main><script nonce="fixture">
-      window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixtureCsp=[];
+      window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixtureCsp=[];window.fixtureCspEvents=[];
       document.getElementById('editor').onclick=()=>{window.fixtureEditorClicks++;};
       window.addEventListener('scroll',()=>window.fixtureScrolls++,true);
-      document.addEventListener('securitypolicyviolation',event=>window.fixtureCsp.push(event.violatedDirective));
+      document.addEventListener('securitypolicyviolation',event=>{
+        window.fixtureCsp.push(event.violatedDirective);
+        window.fixtureCspEvents.push({blockedURI:event.blockedURI,effectiveDirective:event.effectiveDirective,disposition:event.disposition});
+      });
       localStorage.setItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_${courseId}','legacy-fixture-sentinel');
       ${config?.mode==='limited'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:4};':config?.mode==='budget-resume'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:40};':''}
     </script>`);return;
@@ -373,7 +380,7 @@ try{
     assert.equal(requests.length,0);policyCanaryVerified=true;await session.detach();await canary.close();
   }
   await canaryContext.close();
-  async function launch(page,context){
+  async function launch(page,context,startCapture=true){
     const session=await context.newCDPSession(page);
     if(process.env.CTI_DIRECT_DEBUG_EXCEPTIONS==='1'){
       session.on('Debugger.paused',async event=>{
@@ -394,6 +401,8 @@ try{
       await page.waitForFunction(()=>Boolean(window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__));
     }
     if(process.env.CTI_DIRECT_DEBUG_EXCEPTIONS!=='1')await session.detach();
+    await page.getByRole('button',{name:'Capture/resume course',exact:true}).waitFor();
+    if(startCapture)await page.getByRole('button',{name:'Capture/resume course',exact:true}).click();
   }
   async function open(config){
     const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true}),page=await context.newPage();
@@ -990,7 +999,103 @@ try{
   assert.equal(panoptoRequests.slice(changedProviderStart).filter(request=>request.courseId===panoptoComplete.id&&request.role==='PODCAST').length,1);
   assert.notEqual(changedPodcast.podcast.body.receipt.observedAt,savedPodcast.receipt.observedAt,'A newly downloaded rendition carries its own source observation time');
   assert.deepEqual(changedPodcastCapture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence),savedMixedAssessments);
-  await assertNoEditor(mixed.page,mixed.destinations);await mixed.context.close();
+  await assertNoEditor(mixed.page,mixed.destinations);
+
+  async function checkpointSnapshot(page){
+    return page.evaluate(async()=>{
+      const database=await new Promise((resolve,reject)=>{
+        const request=indexedDB.open('cti-coursera-direct-data-v1');
+        request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+      });
+      const names=[...database.objectStoreNames],rows=await new Promise((resolve,reject)=>{
+        const transaction=database.transaction(names,'readonly'),out={};
+        for(const name of names){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result;};}
+        transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);
+      });database.close();
+      for(const values of Object.values(rows))for(const row of values)if(row.blob instanceof Blob){
+        const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',await row.blob.arrayBuffer()));
+        row.blob={size:row.blob.size,type:row.blob.type,sha256:[...digest].map(value=>value.toString(16).padStart(2,'0')).join('')};
+      }
+      return JSON.parse(JSON.stringify(rows));
+    });
+  }
+  const savedBeforeAccess=await checkpointSnapshot(mixed.page);
+  for(const mode of ['allowed','metadata-csp','metadata-cors','metadata-auth']){
+    panoptoComplete.panoptoMode=mode;
+    await mixed.page.reload();const nativeStart=requests.length,externalStart=panoptoRequests.length,downloadStart=mixed.downloads.length;
+    await launch(mixed.page,mixed.context,false);
+    assert.deepEqual(await mixed.page.evaluate(()=>{
+      const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return {state:state.state,running:state.running,runId:state.runId};
+    }),{state:'READY',running:false,runId:''},'Opening the bookmark waits for an explicit operation');
+    assert.equal(requests.length,nativeStart,'Opening the bookmark makes no authoring API requests');
+    assert.equal(panoptoRequests.length,externalStart,'Opening the bookmark makes no provider requests');
+    assert.deepEqual(await checkpointSnapshot(mixed.page),savedBeforeAccess,'Opening the bookmark does not alter any saved course record or body');
+    await mixed.page.getByRole('button',{name:'Check Panopto access',exact:true}).click();
+    await mixed.page.waitForFunction(()=>{
+      const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return !!state?.accessDiagnostic&&!state.running&&!state.diagnosing;
+    },{},{timeout:30000});
+    const diagnostic=await mixed.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.accessDiagnostic);
+    validateProviderAccessDiagnostic(diagnostic);
+    assert.equal(diagnostic.kind,'CTI_PROVIDER_ACCESS_DIAGNOSTIC');assert.equal(diagnostic.schemaVersion,1);
+    assert.equal(diagnostic.courseId,panoptoComplete.id);assert.equal(diagnostic.notForCourseAudit,true);
+    assert.equal(diagnostic.stopReason,'');
+    assert.equal(await mixed.page.locator('#cti-direct-data-capture-v1 pre[role="status"]').innerText(),providerAccessDiagnosticText(diagnostic),
+      'The actual bookmark card visibly explains the result instead of showing an empty failure');
+    for(const key of ['contentCompletionVerified','sourceStabilityVerified','bodyVerified','playbackVerified','launchVerified','wholeWidgetVerified'])
+      assert.equal(diagnostic[key],false,'An access check cannot promote '+key);
+    assert.equal(diagnostic.items.length,2,'One target result remains bound to both distinct native placements');
+    assert.deepEqual(diagnostic.items.map(item=>item.itemId).sort(),['item_0003','item_0005']);
+    assert.equal(diagnostic.nativeFailures.length,0);
+    assert.equal(diagnostic.items[0].request.receipt.observedAt,diagnostic.items[1].request.receipt.observedAt,
+      'The shared target is checked once without relabeling its receipt as two observations');
+    const nativeReads=requests.slice(nativeStart).filter(request=>request.courseId===panoptoComplete.id),observed=panoptoRequests.slice(externalStart);
+    assert.equal(nativeReads.filter(request=>request.resource==='authoringCourseMaterials.v1').length,1);
+    for(const resource of ['authoringAtoms.v2','authoringItemContentRelations.v1',providerResource])
+      assert.equal(nativeReads.filter(request=>request.resource===resource).length,3,'Only native widget sources are read for '+resource);
+    assert(nativeReads.every(request=>['authoringCourseMaterials.v1','authoringAtoms.v2','authoringItemContentRelations.v1',providerResource].includes(request.resource)),
+      'Access checks do not recapture questions, reading media or the full course');
+    assert.equal(observed.filter(request=>request.role==='PODCAST').length,0,'Access diagnostics never download video bodies');
+    let expectedOutcome=mode==='metadata-cors'?'CORS_OR_NETWORK':'HTTP_OBSERVED';
+    if(mode==='metadata-csp'){
+      assert.equal(observed.filter(request=>request.role==='METADATA').length,0,'An enforced connect-src denial prevents the request from reaching the HTTPS server');
+      const events=await mixed.page.evaluate(()=>window.fixtureCspEvents),endpoint=panoptoOrigin+'/Panopto/Pages/Viewer/DeliveryInfo.aspx';
+      const scoped=events.filter(event=>{
+        try{return event.disposition==='enforce'&&['connect-src','default-src'].includes(event.effectiveDirective)&&new URL(event.blockedURI).origin===new URL(endpoint).origin;}
+        catch{return false;}
+      });
+      assert(scoped.length>0,'The browser fixture independently observes a genuine provider CSP denial');
+      const exact=scoped.some(event=>new URL(event.blockedURI).pathname===new URL(endpoint).pathname);
+      const originOnly=scoped.some(event=>{const url=new URL(event.blockedURI);return url.pathname==='/'&&!url.search&&!url.hash;});
+      assert(exact||originOnly,'Only exact endpoint or redacted origin events support a scoped policy conclusion');
+      expectedOutcome=exact?'ENFORCED_CSP':'CSP_REPORTED_FOR_ORIGIN';
+    }else assert.equal(observed.filter(request=>request.role==='METADATA').length,1,'The browser checks the single configured target through the real cross-origin HTTPS endpoint');
+    for(const item of diagnostic.items){
+      assert.equal(item.targetUrl,panoptoComplete.panoptoTarget);
+      assert(!Object.hasOwn(item.request,'model')&&!Object.hasOwn(item.request,'data'),'The small access report does not retain provider content');
+      const receipt=item.request.receipt,details=receipt.diagnostics;
+      assert.equal(details.outcome,expectedOutcome);assert.equal(details.policyEventsAvailable,true);
+      assert.equal(details.httpStatus,mode==='allowed'?200:mode==='metadata-auth'?401:0);
+      assert.equal(receipt.status,details.httpStatus);
+      if(expectedOutcome==='ENFORCED_CSP')assert.deepEqual(details.enforcedCsp,{effectiveDirective:'connect-src',disposition:'enforce'});
+      else assert.equal(details.enforcedCsp,null);
+      if(expectedOutcome==='CSP_REPORTED_FOR_ORIGIN')assert.deepEqual(details.relatedEnforcedCsp,
+        {effectiveDirective:'connect-src',disposition:'enforce',requestMatch:'ORIGIN_ONLY'});
+      else assert.equal(details.relatedEnforcedCsp,null);
+    }
+    assert.equal(mixed.downloads.length,downloadStart,'Access diagnostics do not automatically download or rewrite the course capture');
+    assert.deepEqual(await checkpointSnapshot(mixed.page),savedBeforeAccess,
+      'All checkpoints, quiz timestamps, saved receipts and original body hashes survive the access check unchanged');
+    const serialized=JSON.stringify(diagnostic);
+    assert(Buffer.byteLength(serialized)<=1024*1024);assert(!serialized.includes('blockedURI')&&!serialized.includes('originalPolicy'));
+    for(const secret of secrets)assert(!serialized.includes(secret));
+    const accessDownload=mixed.page.waitForEvent('download');
+    await mixed.page.getByRole('button',{name:'Download access report',exact:true}).click();
+    const downloaded=await accessDownload;
+    assert(downloaded.suggestedFilename().endsWith('.json'));assert(!downloaded.suggestedFilename().endsWith('.cti.zip'));
+    assert.deepEqual(validateProviderAccessDiagnostic(JSON.parse(fs.readFileSync(await downloaded.path(),'utf8'))),diagnostic);
+    await assertNoEditor(mixed.page,mixed.destinations);
+  }
+  panoptoComplete.panoptoMode='allowed';await mixed.context.close();
 
   for(const config of [panoptoMetadataCors,panoptoBodyCors]){
     const target=await runFileCase(config);assert.equal(target.state.state,'INCOMPLETE');
@@ -1033,6 +1138,8 @@ try{
     mixedProviderDispatchInOneBookmarkAndZip:true,panoptoNativeMetadataAndPodcastRenditionBytes:true,
     genuineMetadataAndPodcastCorsDenialRemainItemGaps:true,unknownProvidersNeverRequested:true,
     panoptoResumeFreshlyDownloadsMutableRenditionAndPreservesAssessments:true,changedRenditionSourceInvalidatesReuse:true,
+    bookmarkWaitsForExplicitCaptureOrAccessCheck:true,accessDiagnosticDistinguishesHttpAndObservedCspAndAmbiguousCorsOrNetwork:true,
+    accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,
     finalDownloadsPerCompletedRun:1,noEditorNavigation:true,authenticationAndLimitsAndSourceChangesRemainGaps:true,
     scope:'Actual generated entry with synthetic authoring draft APIs and explicit CORS-policy fixtures; no real Panopto CORS, playback or private-course completeness claim.'}));

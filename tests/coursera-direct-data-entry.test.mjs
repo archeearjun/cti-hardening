@@ -14,6 +14,8 @@ import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
   CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1 } from "../src/extractors/coursera/direct-data-panopto.js";
 import { directPanoptoRequestFormV1 } from "../src/extractors/coursera/direct-data-panopto-contracts.js";
 import { panoptoDeliveryFixture } from "./panopto-delivery-fixtures.mjs";
+import { widgetFixture } from "./coursera-direct-widget-fixtures.mjs";
+import { directProviderAccessDiagnosticV1, directProviderAccessDiagnosticTextV1 } from "../src/extractors/coursera/direct-data-provider-diagnostic.js";
 import ts from "typescript";
 import {
   directDataCoverageSummaryV1,
@@ -106,6 +108,7 @@ function harness(options = {}) {
     downloads = [],
     events = new Map();
   const metrics = {
+    storeOpens: 0,
     itemReads: [],
     maxActiveItemReads: 0,
     listItemCalls: 0,
@@ -301,6 +304,7 @@ function harness(options = {}) {
       options: clone(readerOptions.limits || {}),
       metrics,
       policyOnly,
+      hasSanitizer: typeof readerOptions.sanitize === "function",
     };
     factories.push(factory);
     function abort(reason) {
@@ -308,6 +312,8 @@ function harness(options = {}) {
       metrics.stopReason ||= reason;
     }
     async function read(resource, id, courseId) {
+      if (typeof readerOptions.sanitize !== "function")
+        return { ok: false, reason: "SANITIZER_UNAVAILABLE" };
       if (!readerOptions.assertCurrent()) abort("CONTEXT_CHANGED");
       if (metrics.requests >= limits.requests)
         abort("COURSE_API_REQUEST_LIMIT");
@@ -334,6 +340,11 @@ function harness(options = {}) {
       if (failure) {
         metrics.failed++;
         return { ok: false, reason: failure };
+      }
+      const supplied = options.readResult?.(call);
+      if (supplied) {
+        metrics[supplied.ok ? "completed" : "failed"]++;
+        return clone(supplied);
       }
       let element = { id };
       if (resource === "materials")
@@ -428,6 +439,8 @@ function harness(options = {}) {
     directPanoptoAutomaticTargetV1,
     directPanoptoSourceV1,
     directPanoptoPodcastBindingsV1,
+    directProviderAccessDiagnosticV1,
+    directProviderAccessDiagnosticTextV1,
     CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1,
     URL: {
       createObjectURL(blob) {
@@ -443,7 +456,7 @@ function harness(options = {}) {
     clearInterval() {},
     setTimeout: () => 1,
     clearTimeout() {},
-    createDirectDataCheckpointStoreV1: async () => store,
+    createDirectDataCheckpointStoreV1: async () => { metrics.storeOpens++; return store; },
     createDirectDataReaderV1: createReader,
     createDirectDataMediaReaderV1: (settings) => {
       assert.equal(typeof options.mediaReaderFactory, "function");
@@ -530,8 +543,13 @@ function harness(options = {}) {
       "Entry never reached a downloadable idle state: " +
         JSON.stringify({ state: state(), alerts }),
     );
+  const launch = () => {
+    execute();
+    if (["READY", "PAUSED"].includes(state()?.state)) button("Capture/resume course")?.click();
+  };
   return {
     execute,
+    launch,
     state,
     button,
     idle,
@@ -557,7 +575,7 @@ function harness(options = {}) {
 test("the actual entry captures drafts without navigation and exports its saved inventory", async () => {
   const app = harness();
   const initialPath = app.location.pathname;
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().state, "COMPLETE");
   assert.equal(app.location.pathname, initialPath);
@@ -581,9 +599,9 @@ test("a second click focuses an active capture rather than creating another read
       if (resource === "materials") await held.promise;
     },
   });
-  app.execute();
+  app.launch();
   await until(() => app.readers().length === 1, "Reader did not start");
-  app.execute();
+  app.launch();
   assert.equal(app.readers().length, 1);
   assert.equal(
     app.context.document.getElementById("cti-direct-data-capture-v1").focused,
@@ -610,7 +628,7 @@ test("paused runs keep request, byte and time budgets across Resume", async () =
       }
     },
   });
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().state, "PAUSED");
   const first = app.readers()[0].metrics;
@@ -666,7 +684,7 @@ test("manual Pause preserves saved reads and Resume can restart the same course"
       }
     },
   });
-  app.execute();
+  app.launch();
   await until(() => reachedItem, "Capture never began reading an item");
   app.state().stop();
   held.resolve();
@@ -809,7 +827,7 @@ function readingMediaOptions({
 test("a failed final atom check retains fresh media bytes for the same bound reading without certifying them", async () => {
   const fixture = readingMediaOptions({ failFinalAtom: true }),
     app = harness(fixture.options);
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId,
     first = app.items.get(runId + "/ReadingA").fingerprint;
@@ -854,7 +872,7 @@ test("a failed final atom check retains fresh media bytes for the same bound rea
 test("a failed media metadata revalidation retains historical bytes separately and keeps the reading incomplete", async () => {
   const fixture = readingMediaOptions({ failMetadata: true }),
     app = harness(fixture.options);
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId;
   app.state().resume();
@@ -900,7 +918,7 @@ test("a failed media metadata revalidation retains historical bytes separately a
 test("exhausted binary budgets still allow the media helper to validate matching retained bodies", async () => {
   const fixture = readingMediaOptions(),
     app = harness(fixture.options);
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId;
   app.runs.get(runId).budget.media.bytes = CTI_DIRECT_DATA_MEDIA_BYTES_V1;
@@ -918,7 +936,7 @@ test("exhausted binary budgets still allow the media helper to validate matching
 test("a failed second media metadata read preserves both the current raw attempt and older complete proof", async () => {
   const fixture = readingMediaOptions({ failMetadataAfterBody: true }),
     app = harness(fixture.options);
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId;
   app.state().resume();
@@ -943,7 +961,7 @@ test("a failed second media metadata read preserves both the current raw attempt
 test("changed CML cannot reuse an earlier reading's media proof", async () => {
   const fixture = readingMediaOptions(),
     app = harness(fixture.options);
-  app.execute();
+  app.launch();
   await app.idle();
   fixture.changeCml();
   app.state().resume();
@@ -958,7 +976,7 @@ test("changed CML cannot reuse an earlier reading's media proof", async () => {
 test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates retained originals once without rereading questions", async () => {
   const fixture = readingMediaOptions({ reuseRetainedOnFirst: true }),
     app = harness({ ...fixture.options, ids: ["ReadingA", "AssessmentZ"], assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId, saved = app.runs.get(runId);
   assert.equal(app.downloads.length, 1, "The pre-upgrade fixture must itself export: " + app.state().exportError);
@@ -991,7 +1009,7 @@ test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates ret
   saved.budget.media = { bytes: 64 * 1024 * 1024, requests: 88 };
   app.bodies.clear();app.metrics.bodyWrites.length = 0;
   const initialCalls = app.calls.length, initialBudget = clone(saved.budget);
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().runId, runId);
   assert.equal(app.state().state, "COMPLETE");
@@ -1023,7 +1041,7 @@ test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates ret
 test("v1.3 enrichment freshly reads widget configuration while retaining assessment evidence and its original timestamps", async () => {
   const app = harness({ ids: ["WidgetA", "AssessmentZ"], widgetIds: ["WidgetA"],
     assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId, saved = app.runs.get(runId),
     widget = app.items.get(runId + "/WidgetA");
@@ -1059,7 +1077,7 @@ test("v1.3 enrichment freshly reads widget configuration while retaining assessm
   const baseObservedAt = saved.captureMeta.directDataCapture.finalMaterialsReceipt.observedAt;
   const callsBefore = app.calls.length;
   app.advance(60_000);
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().runId, runId);
   assert.equal(app.state().state, "INCOMPLETE", "configured targets cannot complete an external widget");
@@ -1088,7 +1106,7 @@ test("v1.3 enrichment freshly reads widget configuration while retaining assessm
 
 test("retained proof cannot promote an unresolved item before fresh current source reads", async () => {
   const app = harness({ids: ["ReadingA"]});
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   const runId = app.state().runId, saved = app.runs.get(runId), row = app.items.get(runId + "/ReadingA");
   row.fingerprint.captureContract.complete = false;
   row.fingerprint.captureContract.reasons = ["DIRECT_READING_ASSETS_UNRESOLVED"];
@@ -1099,7 +1117,7 @@ test("retained proof cannot promote an unresolved item before fresh current sour
     stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
   });
   const before = app.calls.length;
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   assert.equal(app.state().runId, runId);
   assert.equal(app.calls.slice(before).filter(call => call.resource === "atom" && call.id === "Atom_ReadingA").length, 2,
     "Rechecking retained text cannot skip both fresh bound atom reads for an unresolved item");
@@ -1108,11 +1126,11 @@ test("retained proof cannot promote an unresolved item before fresh current sour
 
 test("missing local original bodies allow a bound current media read to recover", async () => {
   const fixture = readingMediaOptions(), app = harness(fixture.options);
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   const runId = app.state().runId;
   app.bodies.clear();
   const before = app.calls.length;
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   assert.equal(app.state().runId, runId);
   assert(app.calls.slice(before).some(call => call.resource === "atom" && call.id === "Atom_ReadingA"));
   assert(fixture.mediaCalls.some(call => call.attempt === 1), "Missing local bytes must not abort before media acquisition");
@@ -1122,7 +1140,7 @@ test("missing local original bodies allow a bound current media read to recover"
 
 test("readable legacy originals still export in one ZIP when quota prevents body checkpoint migration", async () => {
   const fixture = readingMediaOptions(), app = harness(fixture.options);
-  app.execute();await app.idle();
+  app.launch();await app.idle();
   const runId = app.state().runId, saved = app.runs.get(runId), row = app.items.get(runId + "/ReadingA");
   row.fingerprint.payload.directAssetEvidence.assets = [fixture.assetRecord("old-body")];
   saved.buildId = "v1.2.0-bound-reading-media-20261014";
@@ -1159,7 +1177,7 @@ test("an already exhausted saved run restores its partial inventory without star
       }
     },
   });
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId,
     row = app.runs.get(runId),
@@ -1189,7 +1207,7 @@ test("an already exhausted saved run restores its partial inventory without star
 
 test("a hard exhausted budget blocks same-run Resume and a new bookmark click starts a separate run", async () => {
   const app = harness({ limits: { requests: 5 } });
-  app.execute();
+  app.launch();
   await app.idle();
   assert.notEqual(app.state().state, "COMPLETE");
   const readers = app.readers().length,
@@ -1206,7 +1224,7 @@ test("a hard exhausted budget blocks same-run Resume and a new bookmark click st
     readers,
     "Exhausted same-run allowances may not reset",
   );
-  app.execute();
+  app.launch();
   await app.idle();
   assert.notEqual(app.state().runId, runId);
   assert.equal(app.readers().length, readers + 1);
@@ -1221,7 +1239,7 @@ test("asynchronous export blocks Resume and captures one stable run snapshot", a
       }
     },
   });
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().state, "PAUSED");
   const runId = app.state().runId,
@@ -1263,7 +1281,7 @@ test("a prior global from another course does not hijack this bookmark's capture
     resume: () => resumed++,
     focus: () => focused++,
   };
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(resumed, 0);
   assert.equal(focused, 0);
@@ -1285,7 +1303,7 @@ test("interrupted resume revalidation preserves the saved item body as unverifie
       }
     },
   });
-  app.execute();
+  app.launch();
   await app.idle();
   const runId = app.state().runId,
     savedKey = `${runId}/ReadingA`,
@@ -1329,7 +1347,7 @@ test("an oversized unpersisted item exports only a fresh lightweight inventory s
     },
   });
   app.context.CTI_DIRECT_DATA_EXPORT_BYTES_V1 = exportLimit;
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().state, "INCOMPLETE");
   assert.equal(app.state().terminal, true);
@@ -1368,7 +1386,7 @@ test("another bookmark click cannot replace a terminal run while its export is r
     },
   });
   app.context.CTI_DIRECT_DATA_EXPORT_BYTES_V1 = 512 * 1024;
-  app.execute();
+  app.launch();
   await app.idle();
   assert.equal(app.state().state, "INCOMPLETE");
   const original = app.state(),
@@ -1382,7 +1400,7 @@ test("another bookmark click cannot replace a terminal run while its export is r
     "Terminal export did not begin",
   );
   assert.equal(original.exporting, true);
-  app.execute();
+  app.launch();
   await turn();
   assert.equal(
     app.state(),
@@ -1461,7 +1479,7 @@ function panoptoEntryOptions() {
 
 test("the entry binds repeated-title widgets separately while deduplicating a shared Panopto body within one attempt", async () => {
   const fixture = panoptoEntryOptions(), app = harness(fixture.options);
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   assert.equal(app.state().state, "INCOMPLETE");
   assert.equal(app.state().exportError, "");
   assert.equal(app.downloads.length, 1);
@@ -1504,7 +1522,7 @@ test("the entry binds repeated-title widgets separately while deduplicating a sh
 test("Panopto continuation fetches the rendition again while preserving assessment models and observation times", async () => {
   const fixture = panoptoEntryOptions(), app = harness({ ...fixture.options,
     ids: ["WidgetA", "WidgetB", "AssessmentZ"], assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   const runId = app.state().runId, assessment = app.items.get(runId + "/AssessmentZ").fingerprint;
   const observedAt = assessment.payload.directDataSources.receipts.atom.observedAt;
   assessment.payload.assessmentApiEvidence = { questionDefinitions: [{ id: "saved-question@1", definition: "Synthetic saved native definition" }],
@@ -1535,7 +1553,7 @@ test("Panopto continuation fetches the rendition again while preserving assessme
 
 test("failed fresh podcast acquisition retains historical proof and its original ZIP bytes", async () => {
   const fixture = panoptoEntryOptions(), app = harness({ ...fixture.options, ids: ["WidgetA"], widgetIds: ["WidgetA"] });
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   const runId = app.state().runId;
   const previous = clone(app.items.get(runId + "/WidgetA").fingerprint.payload.directPanoptoEvidence.deliveries[0]);
   fixture.control.failBodyAttempt = 1;
@@ -1558,7 +1576,7 @@ test("failed fresh podcast acquisition retains historical proof and its original
 
 test("a failed final provider read preserves fresh podcast bytes without seeding the next item's shared-target cache", async () => {
   const fixture = panoptoEntryOptions(), app = harness(fixture.options);
-  app.execute(); await app.idle();
+  app.launch(); await app.idle();
   fixture.control.failProviderAttempt = 1;
   app.advance(60000); app.state().resume(); await app.idle();
   assert.equal(app.state().exportError, "");
@@ -1576,4 +1594,147 @@ test("a failed final provider read preserves fresh podcast bytes without seeding
   assert.deepEqual(await zip.file("files/" + fixture.sha(1)).async("nodebuffer"), Buffer.from(fixture.bytes(1)));
   assert.equal(app.metrics.bodyWrites.filter(value => value.sha256 === fixture.sha(1)).length, 1,
     "separate current reads still share content-addressed body storage");
+});
+
+test("completed v1.5 and v1.6 gap captures continue in the original run without rereading saved assessment banks", async () => {
+  for (const buildId of ["v1.5.0-bound-widget-configuration-20261015", "v1.6.0-integrated-panopto-bookmark-20261015"]) {
+    const app = harness({ ids: ["WidgetA", "AssessmentZ"], widgetIds: ["WidgetA"],
+      assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
+    app.launch(); await app.idle();
+    const runId = app.state().runId, saved = app.runs.get(runId);
+    const assessment = app.items.get(runId + "/AssessmentZ").fingerprint;
+    const observedAt = assessment.payload.directDataSources.receipts.atom.observedAt;
+    assessment.payload.assessmentApiEvidence = { questionDefinitions: [{ id: "saved-question@1", native: "Synthetic saved native definition" }],
+      receipts: [{ observedAt }] };
+    assessment.payload.structuredAssessment = { questions: [{ id: "saved-question@1", prompt: "Synthetic saved prompt", answerKey: "Synthetic saved key" }] };
+    const original = clone(assessment.payload);
+    saved.state = "INCOMPLETE";
+    saved.buildId = buildId;
+    saved.captureMeta.buildId = buildId;
+    Object.assign(saved.captureMeta.directDataCapture, { acquisitionComplete: true, sourceStable: true,
+      wholeCourseVerified: false, stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS" });
+    const baseObservedAt = saved.captureMeta.directDataCapture.finalMaterialsReceipt.observedAt;
+    const before = app.calls.length;
+    app.advance(60000); app.launch(); await app.idle();
+    assert.equal(app.state().runId, runId, buildId + " must remain the same capture run");
+    assert.equal(app.state().exportError, "");
+    assert.equal(app.state().state, "INCOMPLETE");
+    assert.equal(app.calls.slice(before).filter(call => call.resource === "widget").length, 2);
+    assert(!app.calls.slice(before).some(call => call.id === "Atom_AssessmentZ" || ["group", "definition"].includes(call.resource)));
+    assert.deepEqual(app.items.get(runId + "/AssessmentZ").fingerprint.payload, original);
+    const { capture } = await exportedCapture(app.downloads.at(-1));
+    assert.equal(capture.meta.directDataCapture.runId, runId);
+    assert.equal(capture.meta.directDataCapture.mediaEnrichment.baseBuildId, buildId);
+    assert.equal(capture.meta.directDataCapture.mediaEnrichment.baseSourceCapturedAt, baseObservedAt);
+    assert.deepEqual(capture.fingerprints.find(fp => fp.id === "AssessmentZ").payload, original);
+  }
+});
+
+function providerDiagnosticOptions() {
+  const native = panoptoDeliveryFixture(), widgetIds = Array.from({ length: 6 }, (_, index) => "Widget" + index);
+  const fixtures = widgetIds.map((itemId, index) => {
+    const targetUrl = native.targetUrl.replace("video.example.test", "fixture.hosted.panopto.com")
+      .replace(native.ids.A, [native.ids.A, native.ids.B, native.ids.C][Math.floor(index / 2)]);
+    const f = widgetFixture({ itemId, atomId: String.fromCharCode(75 + index).repeat(22),
+      providerId: String.fromCharCode(112 + index).repeat(22), url: targetUrl });
+    f.relation.branchRelationMap = { [COURSE + "~" + itemId]: { courseId: COURSE, itemId, courseSlug: SLUG } };
+    f.providerReceipt.requestQuery.find(pair => pair[0] === "courseId")[1] = COURSE;
+    return f;
+  });
+  const options = {
+    ids: [...widgetIds, "ReadingZ", "AssessmentZ"], widgetIds,
+    assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}),
+    readResult(call) {
+      const f = fixtures.find(value => call.resource === "widget" ? value.providerReceipt.id === call.id : value.atom.id === call.id);
+      const observedAt = new Date(call.at).toISOString();
+      if (call.resource === "atom" || call.resource === "relation") {
+        const data = { elements: [f[call.resource]] };
+        const receipt = { ...f.fp.payload.directDataSources.receipts[call.resource], observedAt };
+        return { ok: true, data, receipt };
+      }
+      if (call.resource === "widget")
+        return { ok: true, data: f.model, receipt: { ...f.providerReceipt, observedAt } };
+      if (call.resource === "panopto") {
+        const id = new URL(call.id).searchParams.get("id");
+        return { ok: false, data: null, reason: "PANOPTO_ACCESS_BLOCKED_OR_FAILED", receipt: {
+          resource: "PanoptoDeliveryInfo", id, targetUrl: call.id, origin: new URL(call.id).origin,
+          method: "POST", requestPath: "/Panopto/Pages/Viewer/DeliveryInfo.aspx",
+          requestForm: directPanoptoRequestFormV1(id), observedAt, status: 0, bytes: 0,
+          bodyFormat: "PARSED_SANITIZED_JSON_MODEL", originalResponseSha256: "",
+          diagnostics: { schemaVersion: 1, outcome: "CORS_OR_NETWORK", httpStatus: 0,
+            policyEventsAvailable: true, enforcedCsp: null, relatedEnforcedCsp: null },
+        } };
+      }
+    },
+  };
+  return { options, fixtures };
+}
+
+test("opening the bookmark waits for an explicit capture or access-check action", async () => {
+  const app = harness();
+  app.execute(); await turn();
+  assert.equal(app.state().state, "READY");
+  assert.equal(app.state().running, false);
+  assert.equal(app.state().diagnosing, false);
+  assert.equal(app.metrics.storeOpens, 0);
+  assert.equal(app.factories.length, 0);
+  assert.equal(app.calls.length, 0);
+  assert.equal(app.runs.size, 0);
+  assert.equal(app.downloads.length, 0);
+  app.button("Capture/resume course").click(); await app.idle();
+  assert.equal(app.state().state, "COMPLETE");
+  assert.equal(app.downloads.length, 1);
+});
+
+test("provider-only diagnostics deduplicate three targets across six native placements without capture writes or bank reads", async () => {
+  const fixture = providerDiagnosticOptions(), app = harness(fixture.options);
+  app.execute();
+  app.button("Check Panopto access").click();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Provider-only diagnostic did not finish: " + JSON.stringify(app.alerts));
+  const diagnostic = app.state().accessDiagnostic;
+  assert.equal(app.factories.length, 1);
+  assert.equal(app.factories[0].hasSanitizer, true, "native source reads require the credential sanitizer");
+  assert.equal(diagnostic.items.length, 6);
+  assert.equal(diagnostic.nativeFailures.length, 0);
+  assert.equal(new Set(diagnostic.items.map(item => item.targetUrl)).size, 3);
+  assert.equal(app.calls.filter(call => call.resource === "panopto").length, 3);
+  assert.equal(app.calls.filter(call => call.resource === "materials").length, 1);
+  assert.equal(app.calls.filter(call => call.resource === "widget").length, 6);
+  assert.equal(app.calls.filter(call => call.resource === "atom").length, 6);
+  assert.equal(app.calls.filter(call => call.resource === "relation").length, 6);
+  assert(!app.calls.some(call => ["group", "definition", "course"].includes(call.resource) || /ReadingZ|AssessmentZ/.test(call.id)));
+  assert.equal(app.metrics.storeOpens, 0);
+  assert.equal(app.metrics.writes.length + app.metrics.bodyWrites.length + app.metrics.saves.length, 0);
+  assert.equal(app.items.size + app.bodies.size + app.runs.size, 0);
+  assert.equal(app.downloads.length, 0, "the access check never downloads a course or report automatically");
+  for (const key of ["contentCompletionVerified", "sourceStabilityVerified", "bodyVerified", "playbackVerified", "launchVerified", "wholeWidgetVerified"])
+    assert.equal(diagnostic[key], false);
+  assert(diagnostic.items.every(item => item.request.data === undefined));
+  const firstPair = diagnostic.items.slice(0, 2);
+  assert.notEqual(firstPair[0].itemId, firstPair[1].itemId);
+  assert.notEqual(firstPair[0].providerId, firstPair[1].providerId);
+  assert.equal(firstPair[0].targetUrl, firstPair[1].targetUrl);
+  app.button("Download access report").click();
+  assert.equal(app.downloads.length, 1);
+  const saved = JSON.parse(await app.downloads[0].blob.text());
+  assert.equal(saved.kind, "CTI_PROVIDER_ACCESS_DIAGNOSTIC");
+  assert.equal(saved.items.length, 6);
+  assert.equal(saved.fingerprints, undefined);
+});
+
+test("a stopped provider-only diagnostic can be checked again without starting capture", async () => {
+  const fixture = providerDiagnosticOptions(), held = deferred(), app = harness(fixture.options);
+  app.control.beforeRead = async ({ resource }) => { if (resource === "materials") await held.promise; };
+  app.execute(); app.button("Check Panopto access").click();
+  await until(() => app.calls.some(call => call.resource === "materials"), "Diagnostic did not begin its outline read");
+  app.state().stop(); held.resolve();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Stopped diagnostic never settled");
+  app.control.beforeRead = undefined;
+  const before = app.factories.length;
+  app.button("Check Panopto access").click();
+  await until(() => app.factories.length > before && app.state().accessDiagnostic && !app.state().diagnosing, "Stopped diagnostic could not be retried");
+  assert.equal(app.state().accessDiagnostic.items.length, 6);
+  assert.equal(app.metrics.storeOpens, 0);
+  assert.equal(app.metrics.writes.length + app.metrics.bodyWrites.length + app.metrics.saves.length, 0);
+  assert.equal(app.downloads.length, 0);
 });
