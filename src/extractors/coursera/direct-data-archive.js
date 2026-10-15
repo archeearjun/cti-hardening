@@ -8,6 +8,7 @@ export async function createDirectDataArchiveV1(entries, options = {}) {
     metadataBytes: 128 * 1024 * 1024,
     totalBodyBytes: 512 * 1024 * 1024,
     bodyBytes: 16 * 1024 * 1024,
+    panoptoPodcastBytes: 128 * 1024 * 1024,
     entries: 20000,
     streamChunkBytes: 1024 * 1024,
   };
@@ -33,7 +34,10 @@ export async function createDirectDataArchiveV1(entries, options = {}) {
     if (!pathProperty || !("value" in pathProperty) ||
         !blobProperty || !("value" in blobProperty))
       throw Error("DIRECT_ARCHIVE_ENTRY_INVALID");
-    const path = pathProperty.value, blob = blobProperty.value;
+    const kindProperty = Object.getOwnPropertyDescriptor(entry, "kind");
+    if (kindProperty && !("value" in kindProperty)) throw Error("DIRECT_ARCHIVE_ENTRY_INVALID");
+    const path = pathProperty.value, blob = blobProperty.value,
+      kind = kindProperty?.value;
     if (typeof path !== "string" ||
         !(path === "capture.json.gz" || /^files\/[a-f0-9]{64}$/.test(path)))
       throw Error("DIRECT_ARCHIVE_PATH_INVALID");
@@ -48,7 +52,14 @@ export async function createDirectDataArchiveV1(entries, options = {}) {
       manifestCount++;
       if (size > limits.metadataBytes) throw Error("DIRECT_ARCHIVE_METADATA_BYTE_LIMIT");
     } else {
-      if (size > limits.bodyBytes) throw Error("DIRECT_ARCHIVE_BODY_BYTE_LIMIT");
+      const podcast = kind === "PANOPTO_PODCAST_RENDITION";
+      if (size > (podcast ? limits.panoptoPodcastBytes : limits.bodyBytes))
+        throw Error("DIRECT_ARCHIVE_BODY_BYTE_LIMIT");
+      if (podcast) {
+        const header = new Uint8Array(await blob.slice(0,12).arrayBuffer());
+        if (header.length < 12 || header[4] !== 102 || header[5] !== 116 || header[6] !== 121 || header[7] !== 112)
+          throw Error("DIRECT_ARCHIVE_PANOPTO_MP4_INVALID");
+      }
       totalBodies += size;
       if (totalBodies > limits.totalBodyBytes) throw Error("DIRECT_ARCHIVE_TOTAL_BODY_BYTE_LIMIT");
     }

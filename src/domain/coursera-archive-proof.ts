@@ -8,6 +8,7 @@ import {
 import {
   MAX_COURSERA_ARCHIVE_BYTES,
   MAX_COURSERA_ARCHIVE_FILE_BYTES,
+  MAX_COURSERA_ARCHIVE_PANOPTO_BYTES,
   MAX_COURSERA_ARCHIVE_ORIGINAL_BYTES,
 } from "./coursera-capture-archive.ts";
 
@@ -67,9 +68,11 @@ export function buildCourseraArchiveProof(
       !/^files\/[a-f0-9]{64}$/.test(file.path) ||
       file.path !== "files/" + file.sha256 ||
       actual.has(file.path) ||
-      !integer(file.size, MAX_COURSERA_ARCHIVE_FILE_BYTES) ||
+      !integer(file.size, file.kind === "PANOPTO_PODCAST_RENDITION" ? MAX_COURSERA_ARCHIVE_PANOPTO_BYTES : MAX_COURSERA_ARCHIVE_FILE_BYTES) ||
       !(file.bytes instanceof Uint8Array) ||
       file.bytes.byteLength !== file.size ||
+      (file.kind === "PANOPTO_PODCAST_RENDITION" && (file.bytes.length < 12 ||
+        file.bytes[4] !== 102 || file.bytes[5] !== 116 || file.bytes[6] !== 121 || file.bytes[7] !== 112)) ||
       bytesToHex(sha256(file.bytes)) !== file.sha256
     )
       throw Error(

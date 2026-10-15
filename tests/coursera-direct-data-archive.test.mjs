@@ -115,6 +115,22 @@ await check("caller overrides cannot increase the hard 16/128/512/640 MiB or ent
   await assert.rejects(createDirectDataArchiveV1(many, { entries: huge }), /DIRECT_ARCHIVE_ENTRY_LIMIT/);
 });
 
+await check("scoped podcast MP4 renditions have a separate 128 MiB cap without enlarging ordinary assets", async () => {
+  const bytes=Buffer.alloc(16*1024*1024+1);bytes.writeUInt32BE(24,0);bytes.write("ftypmp42",4,"ascii");
+  const entry={...file(bytes),kind:"PANOPTO_PODCAST_RENDITION"};
+  for(const kind of [undefined,"COURSERA_ASSET","VIEWER_STREAM"])
+    await assert.rejects(createDirectDataArchiveV1([manifest(),{...entry,kind}]),/DIRECT_ARCHIVE_BODY_BYTE_LIMIT/);
+  const archive=await createDirectDataArchiveV1([manifest(),entry]);
+  const zip=await JSZip.loadAsync(await archive.arrayBuffer(),{checkCRC32:true});
+  assert.deepEqual(await zip.file(entry.path).async("nodebuffer"),bytes);
+  await assert.rejects(createDirectDataArchiveV1([manifest(),entry],{panoptoPodcastBytes:bytes.length-1}),/DIRECT_ARCHIVE_BODY_BYTE_LIMIT/);
+  const wrong={...file(Buffer.from("<html>not a podcast MP4</html>")),kind:entry.kind};
+  await assert.rejects(createDirectDataArchiveV1([manifest(),wrong]),/DIRECT_ARCHIVE_PANOPTO_MP4_INVALID/);
+  class OversizedBlob extends Blob {get size(){return 128*1024*1024+1;}}
+  await assert.rejects(createDirectDataArchiveV1([manifest(),{...entry,blob:new OversizedBlob(["x"])}],
+    {panoptoPodcastBytes:Number.MAX_SAFE_INTEGER}),/DIRECT_ARCHIVE_BODY_BYTE_LIMIT/);
+});
+
 await check("incorrect streamed sizes, unsupported chunks and stream failures cannot create a ZIP", async () => {
   class BrokenBlob extends Blob {
     constructor(bytes, chunks) { super([bytes]); this.chunks = chunks; }

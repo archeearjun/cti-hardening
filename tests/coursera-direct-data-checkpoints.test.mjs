@@ -530,6 +530,32 @@ test("body descriptors scan cursors without collecting Blob values or whole-stor
   });
 });
 
+test("only scoped and checksum-verified MP4 podcast renditions can exceed the ordinary body bound",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),run=await store.openRun(),bytes=Buffer.alloc(16*1024*1024+1);
+    bytes.writeUInt32BE(24,0);bytes.write("ftypmp42",4,"ascii");
+    const hash=createHash("sha256").update(bytes).digest("hex"),blob=new Blob([bytes],{type:"video/mp4"}),
+      metadata={mime:"video/mp4",kind:"PANOPTO_PODCAST_RENDITION"};
+    for(const value of [{mime:"video/mp4"},{mime:"video/mp4",kind:"COURSERA_ASSET"},{mime:"image/png",kind:"PANOPTO_PODCAST_RENDITION"}])
+      await assert.rejects(store.putBody(run.runId,hash,blob,value),/Blob|MIME/i);
+    const descriptor=await store.putBody(run.runId,hash,blob,metadata);
+    assert.equal(descriptor.size,bytes.length);assert.equal(descriptor.metadata.kind,metadata.kind);
+    const retained=await store.getBody(run.runId,hash);
+    assert.equal(retained.blob.size,bytes.length);
+    assert.equal((await store.listBodyDescriptors(run.runId))[0].metadata.kind,metadata.kind);
+    const tampered=Buffer.from(bytes);tampered[tampered.length-1]=1;
+    await assert.rejects(store.putBody(run.runId,hash,new Blob([tampered],{type:"video/mp4"}),metadata),/SHA-256/);
+    const row=fake.rows("bodies")[0],key=JSON.stringify(row.key);
+    fake.stores.get("bodies").rows.set(key,{...row,metadata:{mime:"video/mp4",kind:"COURSERA_ASSET"}});
+    await assert.rejects(store.getBody(run.runId,hash),/identity/);
+    class OversizedBlob extends Blob {get size(){return 128*1024*1024+1;}}
+    await assert.rejects(store.putBody(run.runId,hash,new OversizedBlob(["x"]),metadata),/Blob/);
+    const wrong=Buffer.from("<html>not an MP4 rendition</html>"),wrongHash=createHash("sha256").update(wrong).digest("hex");
+    await assert.rejects(store.putBody(run.runId,wrongHash,new Blob([wrong],{type:"video/mp4"}),metadata),/MP4/);
+    store.close();
+  });
+});
+
 test("body keys, ownership, metadata and actual checksums fail closed without replacing retained originals",async()=>{
   await withDatabase(async fake=>{
     const store=await storeFor(),other=await storeFor(OTHER),run=await store.openRun(),foreign=await other.openRun(),body=originalBody(),wrong=originalBody("different");
@@ -1295,6 +1321,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       "v1.2.0-bound-reading-media-20261014",
       "v1.3.0-deduplicated-original-archive-20261014",
       "v1.4.0-bound-content-integrity-20261015",
+      "v1.5.0-bound-widget-configuration-20261015",
       CTI_DIRECT_DATA_BUILD_V1,
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));

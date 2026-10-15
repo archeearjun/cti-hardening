@@ -13,6 +13,8 @@ import {
   directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1,
 } from "../extractors/coursera/direct-data-widget.js";
+import { directPanoptoEvidenceStructureV1 } from "../extractors/coursera/direct-data-panopto-contracts.js";
+import { directPanoptoSourceV1 } from "../extractors/coursera/direct-data-panopto.js";
 
 export interface CourseraShellTarget {
   inputUrl: string;
@@ -421,6 +423,29 @@ function directWidgetSourcesValid(
   } catch {
     return false;
   }
+}
+
+function directPanoptoSourcesValid(payload: Record<string, any>): boolean {
+  try {
+    const raw = payload.directPanoptoEvidence,
+      targets = payload.directWidgetProviderEvidence?.targets,
+      checked = directPanoptoEvidenceStructureV1(raw, targets);
+    if (!checked.valid) return false;
+    for (const delivery of raw.deliveries) {
+      for (const observation of [delivery.initial, delivery.final]) {
+        if (observation && (directModelHash(observation.model) !== observation.modelHash ||
+            directModelHash(directPanoptoSourceV1(delivery.targetUrl, observation.model)) !== observation.sourceHash))
+          return false;
+      }
+    }
+    for (const retained of checked.historical) {
+      for (const observation of [retained.initial, retained.final])
+        if (directModelHash(observation.model) !== observation.modelHash || directModelHash(retained.source) !== observation.sourceHash) return false;
+    }
+    for (const decoded of [...checked.decoded, ...checked.historical])
+      if (decoded.bytes && bytesToHex(sha256(decoded.bytes)) !== decoded.body.sha256) return false;
+    return true;
+  } catch { return false; }
 }
 
 function directTextOnlyCmlSource(value: string): boolean {
@@ -1017,6 +1042,7 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
     // that narrower proof independently before retaining its derived targets.
     const widgetConfigurationClaim =
       payload.directWidgetProviderEvidence !== undefined ||
+      payload.directPanoptoEvidence !== undefined ||
       contract?.sourceConfigurationVerified === true;
     if (contract?.complete !== true && !widgetConfigurationClaim) continue;
     if (!contract) {
@@ -1149,6 +1175,8 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         })
       )
         reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
+      if (payload.directPanoptoEvidence !== undefined && !directPanoptoSourcesValid(payload))
+        reasons.push(`DIRECT_PANOPTO_SOURCE_INVALID:${id}`);
       if (contract?.complete !== true) continue;
     }
     const content = record(record(atom?.draft)?.content),

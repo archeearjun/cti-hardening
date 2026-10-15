@@ -9,6 +9,11 @@ import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
+import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
+  directPanoptoPodcastBindingsV1, sanitizeDirectPanoptoModelV1,
+  CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1 } from "../src/extractors/coursera/direct-data-panopto.js";
+import { directPanoptoRequestFormV1 } from "../src/extractors/coursera/direct-data-panopto-contracts.js";
+import { panoptoDeliveryFixture } from "./panopto-delivery-fixtures.mjs";
 import ts from "typescript";
 import {
   directDataCoverageSummaryV1,
@@ -122,7 +127,7 @@ function harness(options = {}) {
     id,
     type: widgetAtoms.has(id) ? "Plugin" : options.assignmentIds?.includes(id) ? "assignment" : "reading",
     typeName: widgetAtoms.has(id) ? "ungradedWidget" : options.assignmentIds?.includes(id) ? "staffGraded" : "supplement",
-    name: id,
+    name: options.itemNames?.[id] || id,
     atomId: widgetAtoms.get(id) || "Atom_" + id,
     payload: {},
     sourceIdentity: {},
@@ -339,7 +344,7 @@ function harness(options = {}) {
           storedAtomVersion: 1,
           updatedAt: 1,
           draft: {
-            name: id,
+            name: options.itemNames?.[widgetItemsByAtom.get(id)] || id,
             content: clone(
               options.readingContent?.({ factory: readerIndex, id }) ||
               (widgetItemsByAtom.has(id) ? {
@@ -351,20 +356,29 @@ function harness(options = {}) {
           },
         };
       if (resource === "widget")
-        element = { id, metadata: { updatedAt: 1 }, draft: {
-          configuration: { url: "https://widget.example.test/embed?id=" + id + "&autoplay=false" },
-          pageSrc: "https://widget.example.test/embed?id=" + id + "&autoplay=false",
-        } };
+        {
+          const target = options.widgetTarget?.({ factory: readerIndex, id }) || "https://widget.example.test/embed?id=" + id + "&autoplay=false";
+          element = { id, metadata: { updatedAt: 1 }, draft: {
+            configuration: { url: target }, pageSrc: target,
+          } };
+        }
       metrics.completed++;
       return {
         ok: true,
-        data: { elements: [element] },
+        data: resource === "panopto" ? clone(options.panoptoModel(call)) : { elements: [element] },
         receipt: {
           originalResponseSha256: "a".repeat(64),
           observedAt: new Date(now).toISOString(),
           status: 200,
           bytes: 64,
-          resource,
+          resource: resource === "panopto" ? "PanoptoDeliveryInfo" : resource,
+          ...(resource === "panopto" ? {
+            targetUrl: id, origin: new URL(id).origin,
+            method: "POST", mime: "application/json",
+            requestPath: "/Panopto/Pages/Viewer/DeliveryInfo.aspx",
+            requestForm: directPanoptoRequestFormV1(new URL(id).searchParams.get("id")),
+            bodyFormat: "PARSED_SANITIZED_JSON_MODEL",
+          } : {}),
         },
       };
     }
@@ -376,6 +390,7 @@ function harness(options = {}) {
       readGroup: (id) => read("group", id),
       readDefinition: (id) => read("definition", id),
       readWidgetProvider: (id, courseId) => read("widget", id, courseId),
+      readPanoptoDeliveryInfo: (url) => read("panopto", url),
       snapshot: () => ({ ...clone(metrics), elapsedMs: now - createdAt }),
       abort,
     };
@@ -404,11 +419,16 @@ function harness(options = {}) {
     TextEncoder,
     TextDecoder,
     Uint8Array,
+    structuredClone,
     Blob,
     CompressionStream,
     createDirectDataArchiveV1,
     decodeDirectAssetBodyV1,
     directAssetMetadataBindingV1,
+    directPanoptoAutomaticTargetV1,
+    directPanoptoSourceV1,
+    directPanoptoPodcastBindingsV1,
+    CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1,
     URL: {
       createObjectURL(blob) {
         const url = "blob:synthetic-" + (urls.size + 1);
@@ -1377,4 +1397,183 @@ test("another bookmark click cannot replace a terminal run while its export is r
   held.resolve();
   await app.idle();
   assert.equal(original.exporting, false);
+});
+
+function panoptoEntryOptions() {
+  const native = panoptoDeliveryFixture();
+  const targetUrl = native.targetUrl.replace("video.example.test", "fixture.hosted.panopto.com");
+  native.model.EmbedUrl = native.model.EmbedUrl.replace("video.example.test", "fixture.hosted.panopto.com");
+  native.model.Delivery.PodcastStreams[0].StreamUrl = native.model.Delivery.PodcastStreams[0].StreamUrl.replace("media.example.test", "fixture.cloudfront.net");
+  const model = sanitizeDirectPanoptoModelV1(native.model, targetUrl).data;
+  const candidate = directPanoptoPodcastBindingsV1(model, targetUrl)[0];
+  const mediaCalls = [], settings = [], metadataReads = new Map(), providerReads = new Map();
+  const control = { failBodyAttempt: -1, failProviderAttempt: -1, changeSourceAttempt: -1 };
+  let mediaAttempt = 0;
+  const bytes = (attempt) => Uint8Array.from([0,0,0,20,102,116,121,112,105,115,111,109,0,0,0,0,0,0,0,attempt]);
+  const sha = (attempt) => createHash("sha256").update(bytes(attempt)).digest("hex");
+  const options = {
+    ids: ["WidgetA", "WidgetB"], widgetIds: ["WidgetA", "WidgetB"],
+    itemNames: { WidgetA: "Synthetic repeated widget title", WidgetB: "Synthetic repeated widget title" },
+    widgetTarget: () => targetUrl,
+    panoptoModel(call) {
+      const count = (metadataReads.get(call.factory) || 0) + 1;
+      metadataReads.set(call.factory, count);
+      const value = clone(model);
+      if (call.factory === control.changeSourceAttempt && count >= 2)
+        value.Delivery.SessionName = "Synthetic changed source title";
+      return value;
+    },
+    beforeRead(call) {
+      if (call.resource !== "widget") return;
+      const key = call.factory + "/" + call.id;
+      const count = (providerReads.get(key) || 0) + 1;
+      providerReads.set(key, count);
+      if (call.factory === control.failProviderAttempt && call.id === "p".repeat(22) && count === 2)
+        return "WIDGET_PROVIDER_FINAL_READ_FAILED";
+    },
+    mediaReaderFactory(configuration) {
+      const attempt = mediaAttempt++, metrics = { bytes: 0, requests: 0 };
+      settings.push(clone(configuration.limits));
+      return {
+        async capture() { throw Error("Unexpected ordinary asset in Panopto entry fixture"); },
+        async capturePanoptoPodcast(initial, streamFileId, retained) {
+          mediaCalls.push({ attempt, streamFileId, retained, targetUrl: initial.receipt.targetUrl });
+          metrics.requests++;
+          const binding = { ...candidate, assetId: streamFileId };
+          if (attempt === control.failBodyAttempt)
+            return { ...binding, reason: "DIRECT_ASSET_BODY_FETCH_FAILED" };
+          const bodyBytes = bytes(attempt);
+          metrics.bytes += bodyBytes.length;
+          return { ...binding, body: {
+            kind: "PANOPTO_PODCAST_RENDITION", base64: Buffer.from(bodyBytes).toString("base64"),
+            size: bodyBytes.length, mime: "video/mp4", sha256: sha(attempt), canonicalUrl: candidate.canonicalUrl,
+            receipt: { role: "PODCAST_STREAM_RENDITION", status: 200, bytes: bodyBytes.length,
+              mime: "video/mp4", sha256: sha(attempt), canonicalUrl: candidate.canonicalUrl,
+              observedAt: initial.receipt.observedAt, bodyFormat: "ORIGINAL_BINARY_BYTES_BASE64" },
+          } };
+        },
+        snapshot: () => clone(metrics), abort() {}, release() {},
+      };
+    },
+  };
+  return { options, control, targetUrl, model, candidate, bytes, sha, mediaCalls, settings };
+}
+
+test("the entry binds repeated-title widgets separately while deduplicating a shared Panopto body within one attempt", async () => {
+  const fixture = panoptoEntryOptions(), app = harness(fixture.options);
+  app.execute(); await app.idle();
+  assert.equal(app.state().state, "INCOMPLETE");
+  assert.equal(app.state().exportError, "");
+  assert.equal(app.downloads.length, 1);
+  assert.equal(app.calls.filter(call => call.resource === "panopto").length, 4,
+    "each item retains its own initial and final metadata observations");
+  assert.equal(fixture.mediaCalls.length, 1, "one stable shared target needs one body GET per attempt");
+  assert.equal(fixture.mediaCalls[0].retained, null);
+  assert.equal(app.metrics.bodyWrites.length, 1);
+  const runId = app.state().runId, budget = app.runs.get(runId).budget;
+  assert.equal(budget.media.requests, 1);
+  assert.equal(budget.media.bytes, fixture.bytes(0).length);
+  assert.equal(budget.requests, app.calls.length);
+  assert.equal(budget.bytes, app.calls.length * 64);
+  const { capture, zip } = await exportedCapture(app.downloads[0]);
+  assert.equal(capture.fingerprints[0].name, capture.fingerprints[1].name);
+  for (const [index, fp] of capture.fingerprints.entries()) {
+    const providerId = String.fromCharCode(112 + index).repeat(22);
+    const providerReads = app.calls.map((call, position) => ({ ...call, position }))
+      .filter(call => call.resource === "widget" && call.id === providerId);
+    assert.equal(providerReads.length, 2);
+    assert(providerReads.every(call => call.courseId === COURSE));
+    assert.equal(app.calls.slice(providerReads[0].position, providerReads[1].position)
+      .filter(call => call.resource === "panopto").length, 2,
+    "the final provider read follows both external source observations");
+    const evidence = fp.payload.directPanoptoEvidence, delivery = evidence.deliveries[0];
+    assert.equal(evidence.itemId, fp.id);
+    assert.equal(evidence.providerId, providerId);
+    assert.equal(delivery.targetUrl, fixture.targetUrl);
+    assert.equal(delivery.stableSource, true);
+    assert.equal(delivery.initial.sourceHash, delivery.final.sourceHash);
+    assert.equal(delivery.podcasts[0].body.sha256, fixture.sha(0));
+    assert.equal(delivery.podcasts[0].body.kind, "PANOPTO_PODCAST_RENDITION");
+    assert.equal(evidence.wholeWidgetVerified, false);
+    assert.equal(fp.captureContract.complete, false);
+  }
+  assert.deepEqual(Object.keys(zip.files).sort(), ["capture.json.gz", "files/" + fixture.sha(0)].sort());
+  assert.deepEqual(await zip.file("files/" + fixture.sha(0)).async("nodebuffer"), Buffer.from(fixture.bytes(0)));
+});
+
+test("Panopto continuation fetches the rendition again while preserving assessment models and observation times", async () => {
+  const fixture = panoptoEntryOptions(), app = harness({ ...fixture.options,
+    ids: ["WidgetA", "WidgetB", "AssessmentZ"], assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
+  app.execute(); await app.idle();
+  const runId = app.state().runId, assessment = app.items.get(runId + "/AssessmentZ").fingerprint;
+  const observedAt = assessment.payload.directDataSources.receipts.atom.observedAt;
+  assessment.payload.assessmentApiEvidence = { questionDefinitions: [{ id: "saved-question@1", definition: "Synthetic saved native definition" }],
+    receipts: [{ observedAt }] };
+  assessment.payload.structuredAssessment = { questions: [{ id: "saved-question@1", prompt: "Synthetic saved prompt", answerKey: "Synthetic saved key" }] };
+  const originalAssessment = clone(assessment.payload), before = app.calls.length;
+  app.advance(60000);
+  app.state().resume(); await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert.equal(app.state().exportError, "");
+  assert.equal(app.downloads.length, 2);
+  assert.equal(fixture.mediaCalls.filter(call => call.attempt === 1).length, 1,
+    "a new attempt cannot reuse a previous remote rendition observation");
+  assert.equal(app.calls.slice(before).filter(call => call.resource === "panopto").length, 4);
+  assert.equal(app.calls.slice(before).filter(call => call.resource === "widget").length, 4);
+  assert(!app.calls.slice(before).some(call => call.id === "Atom_AssessmentZ" || ["group", "definition"].includes(call.resource)));
+  assert.deepEqual(app.items.get(runId + "/AssessmentZ").fingerprint.payload, originalAssessment);
+  assert.equal(fixture.settings[1].totalBytes, CTI_DIRECT_DATA_MEDIA_BYTES_V1 - fixture.bytes(0).length);
+  assert.equal(app.runs.get(runId).budget.media.requests, 2);
+  assert.equal(app.runs.get(runId).budget.media.bytes, fixture.bytes(0).length + fixture.bytes(1).length);
+  const { capture, zip } = await exportedCapture(app.downloads.at(-1));
+  assert.deepEqual(capture.fingerprints.find(fp => fp.id === "AssessmentZ").payload, originalAssessment);
+  const delivery = capture.fingerprints[0].payload.directPanoptoEvidence.deliveries[0];
+  assert.equal(delivery.podcasts[0].body.sha256, fixture.sha(1));
+  assert(Date.parse(delivery.podcasts[0].body.receipt.observedAt) > Date.parse(observedAt));
+  assert.deepEqual(await zip.file("files/" + fixture.sha(1)).async("nodebuffer"), Buffer.from(fixture.bytes(1)));
+});
+
+test("failed fresh podcast acquisition retains historical proof and its original ZIP bytes", async () => {
+  const fixture = panoptoEntryOptions(), app = harness({ ...fixture.options, ids: ["WidgetA"], widgetIds: ["WidgetA"] });
+  app.execute(); await app.idle();
+  const runId = app.state().runId;
+  const previous = clone(app.items.get(runId + "/WidgetA").fingerprint.payload.directPanoptoEvidence.deliveries[0]);
+  fixture.control.failBodyAttempt = 1;
+  app.advance(60000); app.state().resume(); await app.idle();
+  assert.equal(app.state().exportError, "");
+  assert.equal(fixture.mediaCalls.length, 2);
+  assert.equal(app.metrics.bodyWrites.length, 1);
+  const { capture, zip } = await exportedCapture(app.downloads.at(-1));
+  const fp = capture.fingerprints[0], delivery = fp.payload.directPanoptoEvidence.deliveries[0], podcast = delivery.podcasts[0];
+  assert.equal(podcast.body, undefined);
+  assert.equal(podcast.reason, "DIRECT_ASSET_BODY_FETCH_FAILED");
+  assert.equal(podcast.retainedEvidence.podcast.body.sha256, fixture.sha(0));
+  assert.deepEqual(podcast.retainedEvidence.initial, previous.initial);
+  assert.deepEqual(podcast.retainedEvidence.final, previous.final);
+  assert.equal(podcast.retainedEvidence.podcast.body.receipt.observedAt, previous.podcasts[0].body.receipt.observedAt);
+  assert.equal(fp.captureContract.complete, false);
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified, false);
+  assert.deepEqual(await zip.file("files/" + fixture.sha(0)).async("nodebuffer"), Buffer.from(fixture.bytes(0)));
+});
+
+test("a failed final provider read preserves fresh podcast bytes without seeding the next item's shared-target cache", async () => {
+  const fixture = panoptoEntryOptions(), app = harness(fixture.options);
+  app.execute(); await app.idle();
+  fixture.control.failProviderAttempt = 1;
+  app.advance(60000); app.state().resume(); await app.idle();
+  assert.equal(app.state().exportError, "");
+  assert.equal(app.downloads.length, 2);
+  assert.equal(fixture.mediaCalls.filter(call => call.attempt === 1).length, 2,
+    "a failed item's source binding must not seed the next item's byte cache");
+  const { capture, zip } = await exportedCapture(app.downloads.at(-1));
+  const first = capture.fingerprints[0], second = capture.fingerprints[1];
+  assert.equal(first.payload.directResumeRevalidation.verified, false);
+  assert.equal(first.payload.directResumeRevalidation.reason, "WIDGET_PROVIDER_FINAL_READ_FAILED");
+  assert.equal(first.captureContract.complete, false);
+  assert.equal(first.payload.directPanoptoEvidence.deliveries[0].podcasts[0].body.sha256, fixture.sha(1));
+  assert.equal(second.payload.directWidgetProviderEvidence.stableSource, true);
+  assert.equal(second.payload.directPanoptoEvidence.deliveries[0].podcasts[0].body.sha256, fixture.sha(1));
+  assert.deepEqual(await zip.file("files/" + fixture.sha(1)).async("nodebuffer"), Buffer.from(fixture.bytes(1)));
+  assert.equal(app.metrics.bodyWrites.filter(value => value.sha256 === fixture.sha(1)).length, 1,
+    "separate current reads still share content-addressed body storage");
 });
