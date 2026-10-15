@@ -13,7 +13,8 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 // until oncomplete, so rollback and early promise resolution are observable.
 function fakeIndexedDB() {
   const stores = new Map(),
-    metrics = { opens: [], transactions: [], writes: [], reads: [] };
+    metrics = { opens: [], transactions: [], writes: [], reads: [] },
+    heldWriteWaiters = new Set();
   const control = {
     holdWrites: false,
     held: [],
@@ -110,9 +111,10 @@ function fakeIndexedDB() {
       setImmediate(() => {
         scheduled = false;
         if (ended || pending) return;
-        if (mode !== "readonly" && control.holdWrites)
+        if (mode !== "readonly" && control.holdWrites) {
           control.held.push(complete);
-        else complete();
+          for (const resolve of [...heldWriteWaiters]) resolve();
+        } else complete();
       });
     }
     function request(operation, name, kind) {
@@ -354,6 +356,21 @@ function fakeIndexedDB() {
     metrics,
     control,
     rows: (name) => [...(stores.get(name)?.rows.values() || [])],
+    waitForHeldWrite() {
+      if (control.held.length) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const ready = () => {
+          clearTimeout(timer);
+          heldWriteWaiters.delete(ready);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          heldWriteWaiters.delete(ready);
+          reject(Error("The write did not reach the held commit gate within 5 seconds."));
+        }, 5000);
+        heldWriteWaiters.add(ready);
+      });
+    },
     flushWrites() {
       control.holdWrites = false;
       for (const complete of control.held.splice(0)) complete();
@@ -552,7 +569,7 @@ test("body writes acknowledge durable commit and preserve prior originals on quo
     await store.putBody(run.runId,first.sha256,first.blob);
     fake.control.holdWrites=true;let settled=false;
     const writing=store.putBody(run.runId,second.sha256,second.blob).then(value=>{settled=true;return value;});
-    for(let attempt=0;attempt<100 && !fake.control.held.length;attempt++) await new Promise(resolve=>setImmediate(resolve));
+    await fake.waitForHeldWrite();
     assert(fake.control.held.length);assert.equal(settled,false);assert.equal(fake.rows("bodies").length,1);
     fake.flushWrites();await writing;assert.equal(fake.rows("bodies").length,2);
     fake.control.failNextPutFor="bodies";
@@ -1515,8 +1532,7 @@ test("writes resolve only after transaction commit and failed commits preserve e
           settled = true;
           return value;
         });
-    for (let attempt = 0; attempt < 30 && !fake.control.held.length; attempt++)
-      await new Promise((resolve) => setImmediate(resolve));
+    await fake.waitForHeldWrite();
     assert(
       fake.control.held.length > 0,
       "the write reached a transaction whose requests have succeeded",
