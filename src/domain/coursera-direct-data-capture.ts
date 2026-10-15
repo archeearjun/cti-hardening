@@ -1,8 +1,9 @@
 import { courseraDirectDataSource } from "../generated/extractor-sources.js";
+import { encodeJavaScriptBookmarkPayload } from "./bookmark-address.js";
 
-export const COURSERA_DIRECT_DATA_CAPTURE_VERSION = "1.6.1";
+export const COURSERA_DIRECT_DATA_CAPTURE_VERSION = "1.7.0";
 export const COURSERA_DIRECT_DATA_CAPTURE_BUILD =
-  "v1.6.1-provider-access-diagnostics-20261015";
+  "v1.7.0-public-panopto-helper-20261016";
 // Chromium Bookmark Manager truncates pasted addresses beyond 500 KiB. The
 // percent-encoded address is ASCII, so its UTF-16 length equals its byte size.
 export const COURSERA_DIRECT_DATA_BOOKMARK_MAX_BYTES = 500 * 1024;
@@ -24,7 +25,7 @@ export function createCourseraDirectDataCaptureBookmark(
 ): string {
   const address =
     "javascript:" +
-    encodeURIComponent(createCourseraDirectDataCaptureScript(source));
+    encodeJavaScriptBookmarkPayload(createCourseraDirectDataCaptureScript(source));
   if (
     new TextEncoder().encode(address).byteLength >=
     COURSERA_DIRECT_DATA_BOOKMARK_MAX_BYTES

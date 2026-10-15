@@ -6,6 +6,17 @@ import {
   directProviderAccessDiagnosticTextV1,
 } from "../extractors/coursera/direct-data-provider-diagnostic.js";
 
+/** Optional service fields describe a public, cookie-free collector context;
+ * they do not authenticate the operator to Panopto or attest cryptographically. */
+export interface ProviderAccessReceipt extends Record<string, unknown> {
+  transport?: "COURSE_TAB_FETCH" | "CTI_PUBLIC_BACKEND";
+  serviceOrigin?: "https://cti-hardening.pages.dev";
+  receivedAt?: string;
+  observedAtBasis?: "UPSTREAM" | "CLIENT_ATTEMPT";
+  upstreamRequests?: number;
+  serviceStatus?: number;
+}
+
 export interface ProviderAccessDiagnostic {
   kind: "CTI_PROVIDER_ACCESS_DIAGNOSTIC";
   schemaVersion: 1;
@@ -19,7 +30,7 @@ export interface ProviderAccessDiagnostic {
     sources: { atom: unknown; relation: unknown; provider: unknown;
       hashes: { atom: string; relation: string; provider: string };
       receipts: Record<string, unknown> };
-    request: { reason: string; receipt: Record<string, unknown> | null };
+    request: { reason: string; receipt: ProviderAccessReceipt | null };
   }>;
   nativeFailures: Array<{ itemId: string; atomId: string; reason: string }>;
   notForCourseAudit: true;

@@ -1,6 +1,7 @@
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { decodeDirectAssetBodyV1, directAssetBodyKindV1 } from "./direct-data-media.js";
 import { bindDirectAuthoringDraftV1 } from "./direct-data-models.js";
+import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directWidgetProviderReceiptValidV1 } from "./direct-data-contracts.js";
 import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
@@ -13,6 +14,53 @@ import {
   directPanoptoProjectionV1,
   directPanoptoPodcastBindingsV1,
 } from "./direct-data-panopto.js";
+
+export const CTI_DIRECT_PANOPTO_SERVICE_ORIGIN_V1 = "https://cti-hardening.pages.dev";
+
+export function directPanoptoIsoTimeV1(value) {
+  if (typeof value !== "string") return false;
+  try { return new Date(value).toISOString() === value; } catch (_) { return false; }
+}
+
+/** Transport fields describe the collector's context; they are not a signed
+ * service attestation or evidence of the operator's Panopto login. */
+export function directPanoptoReceiptTransportValidV1(receipt, kind = "METADATA") {
+  if (!receipt) return false;
+  const backendKeys = ["serviceOrigin", "upstreamRequests", "observedAtBasis", "serviceStatus",
+    "validationMetadataBytes", "validationSourceHash", "validationObservedAt"];
+  if (receipt.transport === undefined || receipt.transport === "COURSE_TAB_FETCH")
+    return backendKeys.every(key => receipt[key] === undefined) &&
+      (receipt.receivedAt === undefined || (receipt.transport === "COURSE_TAB_FETCH" && directPanoptoIsoTimeV1(receipt.receivedAt)));
+  if (receipt.transport !== "CTI_PUBLIC_BACKEND" || receipt.serviceOrigin !== CTI_DIRECT_PANOPTO_SERVICE_ORIGIN_V1 ||
+      !directPanoptoIsoTimeV1(receipt.receivedAt) || !directPanoptoIsoTimeV1(receipt.observedAt) ||
+      !["UPSTREAM", "CLIENT_ATTEMPT"].includes(receipt.observedAtBasis) ||
+      !Number.isSafeInteger(receipt.status) || receipt.status < 0 || receipt.status > 599 || (receipt.status > 0 && receipt.status < 100) ||
+      !Number.isSafeInteger(receipt.upstreamRequests) ||
+      (receipt.serviceStatus !== undefined && (!Number.isSafeInteger(receipt.serviceStatus) || receipt.serviceStatus < 0 || receipt.serviceStatus > 599)) ||
+      // Allow a small difference between service and browser clocks without
+      // changing either recorded observation time.
+      Date.parse(receipt.receivedAt) + 60000 < Date.parse(receipt.observedAt)) return false;
+  if (!["DIAGNOSTIC", "PODCAST_FAILURE"].includes(kind) && receipt.serviceStatus !== undefined && receipt.serviceStatus !== 200) return false;
+  const validation = Number.isSafeInteger(receipt.validationMetadataBytes) && receipt.validationMetadataBytes > 0 &&
+    receipt.validationMetadataBytes <= CTI_DIRECT_PANOPTO_MAX_MODEL_BYTES_V1 &&
+    /^[a-f0-9]{64}$/.test(receipt.validationSourceHash || "") &&
+    directPanoptoIsoTimeV1(receipt.validationObservedAt) &&
+    Date.parse(receipt.validationObservedAt) <= Date.parse(receipt.observedAt) + 60000;
+  if (kind === "PODCAST")
+    return receipt.observedAtBasis === "UPSTREAM" && receipt.upstreamRequests === 2 && validation;
+  if (kind === "PODCAST_FAILURE")
+    return receipt.upstreamRequests >= 0 && receipt.upstreamRequests <= 2 &&
+      (receipt.observedAtBasis === "UPSTREAM" ? receipt.upstreamRequests >= 1 : receipt.status === 0) &&
+      (receipt.validationMetadataBytes === undefined || (Number.isSafeInteger(receipt.validationMetadataBytes) &&
+        receipt.validationMetadataBytes >= 0 && receipt.validationMetadataBytes <= 129 * 1024 * 1024)) &&
+      (receipt.validationSourceHash === undefined || /^[a-f0-9]{64}$/.test(receipt.validationSourceHash || "")) &&
+      (receipt.validationObservedAt === undefined || directPanoptoIsoTimeV1(receipt.validationObservedAt));
+  if (["validationMetadataBytes", "validationSourceHash", "validationObservedAt"].some(key => receipt[key] !== undefined)) return false;
+  if (kind === "DIAGNOSTIC")
+    return receipt.upstreamRequests >= 0 && receipt.upstreamRequests <= 1 &&
+      (receipt.observedAtBasis === "UPSTREAM" ? receipt.upstreamRequests === 1 : receipt.status === 0);
+  return kind === "METADATA" && receipt.observedAtBasis === "UPSTREAM" && receipt.upstreamRequests === 1;
+}
 
 export function directPanoptoRequestFormV1(deliveryPublicId) {
   return [["deliveryId", deliveryPublicId], ["isLiveNotes", "false"],
@@ -33,6 +81,7 @@ export function directPanoptoReceiptValidV1(receipt, targetUrl) {
       !Number.isSafeInteger(receipt.bytes) || receipt.bytes < 1 ||
       receipt.bytes > CTI_DIRECT_PANOPTO_MAX_MODEL_BYTES_V1 ||
       !/^application\/(?:json|[^;\s]+\+json)(?:\s*;|$)/i.test(receipt.mime || "") ||
+      !directPanoptoReceiptTransportValidV1(receipt) ||
       !Number.isFinite(Date.parse(receipt.observedAt || ""))) return false;
   try {
     const expected = directPanoptoRequestFormV1(target.deliveryPublicId), seen = new Set();
@@ -51,7 +100,11 @@ export function directPanoptoPodcastStructureV1(podcast, candidate, options = {}
   const invalid = reason => ({ valid: false, bytes: null, reason });
   if (!podcast || !candidate || ["role", "streamPublicId", "streamFileId", "canonicalUrl", "url", "mime"]
       .some(key => podcast[key] !== candidate[key])) return invalid("DIRECT_PANOPTO_PODCAST_BINDING_INVALID");
-  if (!podcast.body) return { valid: true, bytes: null, reason: "DIRECT_PANOPTO_PODCAST_BODY_MISSING" };
+  if (!podcast.body) {
+    if (podcast.receipt !== undefined && !directPanoptoReceiptTransportValidV1(podcast.receipt, "PODCAST_FAILURE"))
+      return invalid("DIRECT_PANOPTO_PODCAST_RECEIPT_INVALID");
+    return { valid: true, bytes: null, reason: "DIRECT_PANOPTO_PODCAST_BODY_MISSING" };
+  }
   const body = podcast.body, receipt = body.receipt,
     bytes = decodeDirectAssetBodyV1(body, CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1),
     awaitingArchive = options.allowMissingBodies === true && body.archivePath === "files/" + body.sha256 &&
@@ -65,8 +118,35 @@ export function directPanoptoPodcastStructureV1(podcast, candidate, options = {}
       receipt.sha256 !== body.sha256 || receipt.canonicalUrl !== candidate.canonicalUrl ||
       receipt.bodyFormat !== (body.archivePath ? "ORIGINAL_BINARY_BYTES_ARCHIVE" : "ORIGINAL_BINARY_BYTES_BASE64") ||
       !Number.isFinite(Date.parse(receipt.observedAt || "")) ||
+      !directPanoptoReceiptTransportValidV1(receipt, "PODCAST") ||
+      (receipt.transport === "CTI_PUBLIC_BACKEND" && options.expectedSourceHash !== undefined && receipt.validationSourceHash !== options.expectedSourceHash) ||
       receipt.contentRange != null) return invalid("DIRECT_PANOPTO_PODCAST_BODY_INVALID");
   return { valid: true, bytes, reason: "" };
+}
+
+/** Prior failures are bounded diagnostic history, never fresh source proof. */
+export function directPanoptoFailureHistoryValidV1(delivery) {
+  if (delivery.previousFailuresTruncated !== undefined && typeof delivery.previousFailuresTruncated !== "boolean") return false;
+  if (delivery.previousFailures === undefined) return delivery.previousFailuresTruncated !== true;
+  if (!Array.isArray(delivery.previousFailures) || delivery.previousFailures.length > 32) return false;
+  const target = directPanoptoAutomaticTargetV1(delivery.targetUrl);
+  for (const failure of delivery.previousFailures) {
+    if (!failure || !/^[A-Z0-9_]{1,96}$/.test(failure.reason || "") ||
+        Object.keys(failure).some(key => !["reason", "receipt", "streamFileId"].includes(key)) ||
+        (failure.streamFileId !== undefined && !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(failure.streamFileId))) return false;
+    const receipt = failure.receipt;
+    if (receipt == null) continue;
+    const body = receipt.role === "PODCAST_STREAM_RENDITION", clean = sanitizeCourseraCourseDataModel(receipt);
+    if (!target || clean.limitReached || clean.removedFields || clean.redactedUrls ||
+        receipt.targetUrl !== delivery.targetUrl || !Number.isFinite(Date.parse(receipt.observedAt || "")) ||
+        !directPanoptoReceiptTransportValidV1(receipt, body ? "PODCAST_FAILURE" : "DIAGNOSTIC") ||
+        !Number.isSafeInteger(receipt.status) || receipt.status < 0 || receipt.status > 599 ||
+        (!body && (receipt.resource !== "PanoptoDeliveryInfo" || receipt.id !== target.deliveryPublicId ||
+          receipt.origin !== target.origin || receipt.method !== "POST" ||
+          receipt.requestPath !== "/Panopto/Pages/Viewer/DeliveryInfo.aspx" ||
+          directCanonicalSourceTextV1(receipt.requestForm) !== directCanonicalSourceTextV1(directPanoptoRequestFormV1(target.deliveryPublicId))))) return false;
+  }
+  return true;
 }
 
 export function panoptoHistoricalPodcastV1(podcast, targetUrl, options) {
@@ -86,7 +166,7 @@ export function panoptoHistoricalPodcastV1(podcast, targetUrl, options) {
     .find(value => value.streamFileId === retained.podcast?.streamFileId);
   if (!candidate || podcast.role !== candidate.role || podcast.streamFileId !== candidate.streamFileId)
     throw Error("Foreign historical Panopto rendition.");
-  const checked = directPanoptoPodcastStructureV1(retained.podcast, candidate, options);
+  const checked = directPanoptoPodcastStructureV1(retained.podcast, candidate, { ...options, expectedSourceHash: initial.sourceHash });
   if (!checked.valid || !retained.podcast.body) throw Error("Invalid historical Panopto body.");
   return { body: retained.podcast.body, bytes: checked.bytes, source, initial, final, targetUrl, historical: true };
 }
@@ -115,6 +195,7 @@ export function directPanoptoEvidenceStructureV1(evidence, expectedTargets, opti
     const seen = new Set(); let allMetadata = true, allBodies = true;
     for (const delivery of evidence.deliveries) {
       if (!targets.has(delivery?.targetUrl) || seen.has(delivery.targetUrl)) return result;
+      if (!directPanoptoFailureHistoryValidV1(delivery)) return result;
       seen.add(delivery.targetUrl);
       for (const podcast of delivery.podcasts || []) {
         const historical = panoptoHistoricalPodcastV1(podcast, delivery.targetUrl, options);
@@ -156,7 +237,7 @@ export function directPanoptoEvidenceStructureV1(evidence, expectedTargets, opti
         }
         if (files.has(binding.streamFileId)) return result;
         files.add(binding.streamFileId);
-        const checked = directPanoptoPodcastStructureV1(podcast, binding, options);
+        const checked = directPanoptoPodcastStructureV1(podcast, binding, { ...options, expectedSourceHash: initial.sourceHash });
         if (!checked.valid) return result;
         if (!checked.bytes) allBodies = false;
         else result.decoded.push({ body: podcast.body, bytes: checked.bytes });

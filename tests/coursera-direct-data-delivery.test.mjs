@@ -20,10 +20,10 @@ test("the universal capture bookmark carries the exact standalone current progra
   const address = createCourseraDirectDataCaptureBookmark();
   assert.equal(script, "void " + courseraDirectDataSource);
   assert.equal(decode(address), script);
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.6.1");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.7.0");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.6.1-provider-access-diagnostics-20261015",
+    "v1.7.0-public-panopto-helper-20261016",
   );
   assert(
     courseraDirectDataSource.includes(COURSERA_DIRECT_DATA_CAPTURE_VERSION),
@@ -57,6 +57,23 @@ test("async bookmark programs execute once and leave an undefined completion val
   await Promise.resolve();
   assert.equal(context.executions, 1);
   assert.equal(context.finished, true);
+});
+
+test("URI-safe punctuation remains compact without creating a query or fragment", () => {
+  const literal = "Synthetic 測試 🧪 #?% ;:/@&=+$,\\\"\n\t";
+  const source = "(()=>{globalThis.observed=" + JSON.stringify(literal) +
+    ";globalThis.match=/[?#%]/.test(globalThis.observed);})()";
+  const address = createCourseraDirectDataCaptureBookmark(source);
+  const canonical = new URL(address);
+  assert.equal(canonical.href, address);
+  assert.equal(canonical.search, "");
+  assert.equal(canonical.hash, "");
+  assert.equal(decode(canonical.href), "void " + source);
+  assert(address.length < ("javascript:" + encodeURIComponent("void " + source)).length);
+  const context = vm.createContext({});
+  new vm.Script(decode(canonical.href)).runInContext(context);
+  assert.equal(context.observed, literal);
+  assert.equal(context.match, true);
 });
 
 test("large fallback addresses retain every character below the browser size bound", () => {

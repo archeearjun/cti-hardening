@@ -142,3 +142,68 @@ test("initial exact native ownership retains fresh bytes after final provider or
   widget.initial.model.elements[0].id="z".repeat(22);
   assert.deepEqual(directPanoptoArchiveBodiesV1(f.fp,f.evidence.courseId),[]);
 });
+
+function backendFixture(){
+ const f=directPanoptoFixture();
+ for(const read of [f.delivery.initial,f.delivery.final])Object.assign(read.receipt,{
+  transport:'CTI_PUBLIC_BACKEND',serviceOrigin:'https://cti-hardening.pages.dev',receivedAt:'2026-10-15T12:00:02.000Z',
+  observedAtBasis:'UPSTREAM',upstreamRequests:1,serviceStatus:200});
+ Object.assign(f.body.receipt,{transport:'CTI_PUBLIC_BACKEND',serviceOrigin:'https://cti-hardening.pages.dev',
+  receivedAt:'2026-10-15T12:00:02.000Z',observedAtBasis:'UPSTREAM',upstreamRequests:2,serviceStatus:200,
+  validationMetadataBytes:1234,validationSourceHash:f.delivery.initial.sourceHash,validationObservedAt:'2026-10-15T12:00:00.500Z',targetUrl:f.targetUrl});
+ return f;
+}
+
+test('explicit public CTI service transport retains native metadata and independently verified rendition bytes',async()=>{
+ const f=backendFixture(),result=checked(f);assert.equal(result.valid,true);assert.equal(result.podcastBodiesVerified,true);assert.equal(invalid(f),false);
+ assert.equal(f.fp.captureContract.complete,false);
+ const {capturedContent}=await import('../src/domain/content-evidence.ts');
+ const view=capturedContent(f.fp.payload,{basis:'Original extraction',itemId:f.fp.id});
+ assert.ok(view.text.includes("CTI's public service retrieved Panopto metadata and MP4 podcast rendition bytes without Panopto cookies"));
+ assert.ok(view.text.includes('not cryptographic attestation'));assert.ok(view.text.includes('bodies verified in this input: 1'));
+ assert.equal(view.textCoverage,'PARTIAL');
+});
+
+test('service origin, observation basis, timestamps and validation usage cannot replace native proof',()=>{
+ for(const mutate of [f=>f.delivery.initial.receipt.transport='UNVERIFIED_PROXY',
+  f=>f.delivery.initial.receipt.serviceOrigin='https://other.example.test',
+  f=>delete f.delivery.initial.receipt.receivedAt,f=>f.delivery.initial.receipt.receivedAt='2026',
+  f=>f.delivery.initial.receipt.receivedAt='2026-10-15T10:00:00.000Z',
+  f=>f.delivery.initial.receipt.upstreamRequests=0,f=>f.delivery.initial.receipt.observedAtBasis='CLIENT_ATTEMPT',
+  f=>f.body.receipt.upstreamRequests=1,f=>f.body.receipt.validationMetadataBytes=0,
+  f=>f.body.receipt.validationMetadataBytes=512*1024+1,f=>f.body.receipt.validationSourceHash='a'.repeat(64),
+  f=>f.body.receipt.validationObservedAt='2026-10-16T12:00:00.000Z',f=>f.body.receipt.serviceStatus=401]){
+  const f=backendFixture();mutate(f);assert.equal(checked(f).valid,false);assert.equal(invalid(f),true);
+ }
+ const legacy=directPanoptoFixture();assert.equal(checked(legacy).valid,true);
+ for(const read of [legacy.delivery.initial,legacy.delivery.final])read.receipt.transport='COURSE_TAB_FETCH';
+ legacy.body.receipt.transport='COURSE_TAB_FETCH';assert.equal(checked(legacy).valid,true);
+ legacy.body.receipt.serviceOrigin='https://cti-hardening.pages.dev';assert.equal(checked(legacy).valid,false);
+});
+
+test('failed service validation may retain an actual changed source hash without certifying a body',()=>{
+ const f=backendFixture(),pod=f.delivery.podcasts[0];pod.receipt={...f.body.receipt,validationSourceHash:'a'.repeat(64),status:0,
+  serviceStatus:409,observedAtBasis:'CLIENT_ATTEMPT'};delete pod.body;pod.reason='PANOPTO_SOURCE_CHANGED';
+ f.delivery.failures=[{reason:pod.reason,streamFileId:pod.streamFileId}];
+ assert.equal(checked(f).valid,true);assert.equal(checked(f).podcastBodiesVerified,false);assert.equal(invalid(f),false);
+});
+
+test('prior direct and service failures remain bounded same-target diagnostic history',()=>{
+ const f=backendFixture(),old=directPanoptoFixture().delivery.initial.receipt;
+ old.status=0;old.originalResponseSha256='';old.sha256='';
+ f.delivery.previousFailures=[{reason:'PANOPTO_ACCESS_BLOCKED_OR_FAILED',receipt:old}];f.delivery.previousFailuresTruncated=false;
+ assert.equal(checked(f).valid,true);assert.equal(checked(f).metadataVerified,true);
+ const receipt={...f.delivery.initial.receipt,status:0,serviceStatus:502,upstreamRequests:1,observedAtBasis:'CLIENT_ATTEMPT'};
+ f.delivery.previousFailures.push({reason:'CTI_PROVIDER_REQUEST_FAILED',receipt});assert.equal(checked(f).valid,true);
+ receipt.targetUrl=receipt.targetUrl.replace('fixture.hosted','other.hosted');assert.equal(checked(f).valid,false);
+ receipt.targetUrl=f.targetUrl;f.delivery.previousFailures=Array.from({length:33},()=>({reason:'PANOPTO_ACCESS_BLOCKED_OR_FAILED'}));
+ assert.equal(checked(f).valid,false);
+});
+
+test('failed service metadata limit retains charged overflow without manufacturing validation proof',()=>{
+ const f=backendFixture(),pod=f.delivery.podcasts[0];pod.receipt={...f.body.receipt,status:0,serviceStatus:413,
+  upstreamRequests:1,observedAtBasis:'CLIENT_ATTEMPT',validationMetadataBytes:512*1024+65536};
+ delete pod.receipt.validationSourceHash;delete pod.receipt.validationObservedAt;delete pod.body;pod.reason='PANOPTO_METADATA_BYTE_LIMIT';
+ f.delivery.failures=[{reason:pod.reason,streamFileId:pod.streamFileId}];
+ assert.equal(checked(f).valid,true);assert.equal(checked(f).podcastBodiesVerified,false);assert.equal(invalid(f),false);
+});

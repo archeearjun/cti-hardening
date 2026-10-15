@@ -197,6 +197,43 @@ text or credential values. Source binding and derived classifications are
 recomputed independently. The capture launcher and checkpoint recovery both
 accept saved v1.5 and v1.6 builds without resetting budgets or assessment dates.
 
+Version 1.7 opens one cooperating CTI helper tab synchronously from the same
+Capture/resume or access-check action. The Coursera tab retains its existing
+native source reads, local checkpoints, budgets and single archive. The helper
+performs normal CTI authentication and calls the same-origin, owner/editor
+provider endpoints; it never receives or forwards the operator's Panopto cookies.
+The endpoints accept only hosted Panopto metadata identities and declared MP4
+stream identities. A fresh metadata read must reproduce the expected stable
+source hash before a media request. Media destinations are restricted to the
+same captured tenant or the observed `d2y36twrtb17ty.cloudfront.net` CDN.
+Other providers, CDNs and unavailable public sources remain explicit gaps.
+
+The helper uses exact origins, opener identity, course identity, a random nonce
+and per-request bindings. Bounded 64 KiB messages use pull acknowledgements;
+cancellation, navigation, popup rejection and lost opener connections fail
+closed. The service applies a 30-second request deadline, 512 KiB metadata and
+128 MiB rendition bounds; the parent independently validates source identity,
+MP4 signature, byte length and SHA-256. Additional metadata validation reads are
+charged to the media request/received-byte budget, while the body hash covers
+only media bytes. These counters cover observed response bytes, not unobservable
+TCP buffering or service bytes lost when a connection terminates. The service
+independently bounds every upstream read. Receipts distinguish
+`CTI_PUBLIC_BACKEND` from direct course-tab requests
+and retain service status separately from actual upstream HTTP observations.
+They record provenance declarations, not a cryptographic attestation or provider
+login. Prior failed requests remain separately labelled history and cannot
+verify the current source. Public metadata/MP4 success never proves uploaded
+original identity, captions, HLS coverage, playback or whole-widget completion.
+
+`direct-data-provider-helper.js` contains the small parent transport;
+`web/provider-helper.*` supplies the cooperating page, and
+`server/panopto-provider.ts` supplies the fixed public reader. No arbitrary
+fetch URL, method, headers or credentials cross this API. Bookmark delivery uses
+URI-safe punctuation while escaping query/fragment markers, whitespace, percent
+signs and Unicode; decoding yields the exact linked program without eval,
+compression or a remote script loader. Generation and UI delivery enforce the
+same 500 KiB bound. Saved v1.6.1 progress remains recoverable.
+
 An item's captured Panopto target can also receive a manually copied
 `DeliveryInfo.aspx` response in its owner card. This is a separate, report-bound
 metadata supplement, not a rewritten course capture or a newly observed source

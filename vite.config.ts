@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         main: "web/index.html",
         packageRunner: "web/package-runner.html",
+        providerHelper: "web/provider-helper.html",
       },
     },
   },

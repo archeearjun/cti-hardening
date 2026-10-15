@@ -4,7 +4,7 @@ import { bindDirectAuthoringDraftV1 } from "./direct-data-models.js";
 import { directReceiptSourceValidV1, directWidgetProviderReceiptValidV1 } from "./direct-data-contracts.js";
 import { directDraftWidgetProviderV1, directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
 import { directPanoptoAutomaticTargetV1 } from "./direct-data-panopto.js";
-import { directPanoptoRequestFormV1 } from "./direct-data-panopto-contracts.js";
+import { directPanoptoRequestFormV1, directPanoptoReceiptTransportValidV1 } from "./direct-data-panopto-contracts.js";
 
 export const CTI_PROVIDER_ACCESS_DIAGNOSTIC_MAX_BYTES_V1 = 1024 * 1024;
 
@@ -12,6 +12,22 @@ export const CTI_PROVIDER_ACCESS_DIAGNOSTIC_MAX_BYTES_V1 = 1024 * 1024;
  * An enforced CSP conclusion requires the reader's exact-request policy event. */
 export function directProviderAccessOutcomeV1(receipt) {
   const d = receipt?.diagnostics, status = receipt?.status;
+  if (!directPanoptoReceiptTransportValidV1(receipt, "DIAGNOSTIC"))
+    throw Error("PROVIDER_ACCESS_DIAGNOSTIC_TRANSPORT_INVALID");
+  if (receipt.transport === "CTI_PUBLIC_BACKEND") {
+    if (!Number.isSafeInteger(status) || status < 0 || status > 599 || (status > 0 && status < 100) || d !== undefined)
+      throw Error("PROVIDER_ACCESS_DIAGNOSTIC_OUTCOME_INVALID");
+    const serviceStatus = receipt.serviceStatus || 0,
+      outcome = status ? "UPSTREAM_HTTP_OBSERVED" : serviceStatus ? "CTI_SERVICE_HTTP_OBSERVED" : "CTI_HELPER_UNAVAILABLE",
+      description = status ? "CTI's public service observed Panopto HTTP status " + status + "." :
+        serviceStatus ? "The CTI service returned HTTP status " + serviceStatus + "; no Panopto HTTP response was observed." :
+        "The CTI helper did not return an upstream HTTP result; this does not identify Panopto authentication or public access.";
+    return { outcome, description, httpStatus: status, serviceStatus,
+      transport: receipt.transport, serviceOrigin: receipt.serviceOrigin,
+      receivedAt: receipt.receivedAt, observedAtBasis: receipt.observedAtBasis,
+      upstreamRequests: receipt.upstreamRequests,
+      enforcedCsp: null, relatedEnforcedCsp: null, policyEventsAvailable: false };
+  }
   if (!d || d.schemaVersion !== 1 || typeof d.policyEventsAvailable !== "boolean" ||
       !Number.isSafeInteger(d.httpStatus) || d.httpStatus !== status || status < 0 || status > 599 ||
       !["UNKNOWN", "HTTP_OBSERVED", "ENFORCED_CSP", "CSP_REPORTED_FOR_ORIGIN", "TIMEOUT", "ABORTED", "CORS_OR_NETWORK"].includes(d.outcome))
@@ -107,17 +123,22 @@ export function directProviderAccessDiagnosticStructureV1(value) {
   } catch (_) { return invalid("PROVIDER_ACCESS_DIAGNOSTIC_UNSUPPORTED"); }
 }
 
-/** This is a browser access observation, not an extraction/completion verdict. */
+/** This is an access observation, not an extraction/completion verdict. */
 export function directProviderAccessDiagnosticTextV1(value) {
   const checked = directProviderAccessDiagnosticStructureV1(value);
   if (!checked.valid) throw Error(checked.reason);
   const lines = ["Panopto access diagnostic only", "Checked: " + value.checkedAt,
     "Course: " + value.courseId, "No course capture, media bytes, captions, playback or whole-widget completion is established by this report."];
   if (value.stopReason) lines.push("Check stopped: " + value.stopReason);
-  for (const item of checked.items)
+  if (checked.items.some(item => item.transport === "CTI_PUBLIC_BACKEND"))
+    lines.push("CTI service reads use public access without Panopto cookies. Transport declarations are recorded collector context, not cryptographic attestation or proof of your Panopto login.");
+  for (const item of checked.items) {
     lines.push("", "Item: " + item.itemId + "; provider: " + item.providerId,
-      "Configured target: " + item.targetUrl, "Request observed: " + (item.observedAt || "no request receipt"),
+      "Configured target: " + item.targetUrl,
+      (item.observedAtBasis === "CLIENT_ATTEMPT" ? "Client request attempted: " : item.transport === "CTI_PUBLIC_BACKEND" ? "Upstream observed: " : "Request observed: ") + (item.observedAt || "no request receipt"),
       item.description, "Reader result: " + (item.reason || "No additional reader error code; response content is omitted from this diagnostic."));
+    if (item.transport === "CTI_PUBLIC_BACKEND") lines.push("CTI result received: " + item.receivedAt);
+  }
   for (const failure of value.nativeFailures)
     lines.push("", "Item: " + failure.itemId + "; native source check failed: " + failure.reason + ". No provider request was authorized for this item.");
   return lines.join("\n");

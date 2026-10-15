@@ -3,6 +3,7 @@ import vm from "node:vm";
 import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 import { fileURLToPath } from "node:url";
 import { bundleConsole } from "./console-bundle.mjs";
+import { encodeJavaScriptBookmarkPayload } from "../src/domain/bookmark-address.js";
 
 // Console scripts remain standalone programs. Only their delivery strings are
 // generated; editing happens in src/extractors/<platform> feature modules.
@@ -34,7 +35,7 @@ const directDataSource = bundleConsole(
 );
 new vm.Script(directDataSource, { filename: "coursera-direct-data.js" });
 const directBookmarkBytes = Buffer.byteLength(
-  "javascript:" + encodeURIComponent("void " + directDataSource),
+  "javascript:" + encodeJavaScriptBookmarkPayload("void " + directDataSource),
 );
 if (directBookmarkBytes >= 500 * 1024)
   throw Error(
