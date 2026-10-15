@@ -666,6 +666,15 @@ test("a reading-media continuation labels retained assessments and separates bod
     original,
     "Original assessment receipts and raw observations remain unchanged",
   );
+  for (const scope of ["REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"]) {
+    capture.meta.directDataCapture.mediaEnrichment.scope = scope;
+    const before = JSON.stringify(capture),
+      inspection = inspectLocalCourseraCapture(capture, shell);
+    assert.deepEqual(inspection.directSummary.mediaContinuation, result.directSummary.mediaContinuation);
+    assert.equal(inspection.reviewSummary.capture.mediaContinuation, true);
+    assert.equal(inspection.directSummary.currentAttempt.requests, 400);
+    assert.equal(JSON.stringify(capture), before, "Recognizing widget continuation preserves saved observations");
+  }
 });
 
 test("an unrecognized continuation scope cannot imply assessments were retained", () => {
