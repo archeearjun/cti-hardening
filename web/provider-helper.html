@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>CTI provider capture</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="workspace">
+      <section class="card">
+        <h1>CTI provider capture</h1>
+        <p id="status" role="status">Checking your CTI access…</p>
+        <p>This window reads configured public Panopto sources for your Coursera capture. Keep it open until capture finishes. Your course archive is saved in the Coursera tab.</p>
+        <p>This window sends configured provider references to CTI. Your course archive stays in your browser, and CTI sign-in details are kept here.</p>
+        <p><a href="/" target="_blank" rel="noopener noreferrer">Open CTI to sign in</a></p>
+        <button id="retry" type="button">Retry access check</button>
+      </section>
+    </main>
+    <script type="module" src="./provider-helper.ts"></script>
+  </body>
+</html>

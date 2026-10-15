@@ -1323,6 +1323,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       "v1.4.0-bound-content-integrity-20261015",
       "v1.5.0-bound-widget-configuration-20261015",
       "v1.6.0-integrated-panopto-bookmark-20261015",
+      "v1.6.1-provider-access-diagnostics-20261015",
       CTI_DIRECT_DATA_BUILD_V1,
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));

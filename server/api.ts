@@ -1,4 +1,6 @@
 import { fetchSourceQuestions } from "./source-questions.ts";
+import { readPanoptoProviderMetadata, readPanoptoProviderPodcast,
+  panoptoProviderErrorResponse } from "./panopto-provider.ts";
 import { validateRecord } from "../src/domain/workspace-validation.ts";
 import {
   normalizePartnerName,
@@ -154,8 +156,38 @@ async function releasePackageIdentityClaim(
     )
     .run();
 }
+function requireWriteAccess(request: Request, user: {role: string}) {
+  if (request.method === "GET") return;
+  if (request.headers.get("Origin") !== new URL(request.url).origin)
+    fail("Cross-origin writes are not allowed.", 403);
+  if (!["admin", "editor"].includes(user.role))
+    fail("Your account has read-only access.", 403);
+}
+function panoptoProviderAction(request: Request): "metadata" | "podcast" | null {
+  const match = new URL(request.url).pathname.match(/^\/api\/provider\/panopto\/(metadata|podcast)$/);
+  return match ? match[1] as "metadata" | "podcast" : null;
+}
+async function handlePanoptoProvider(request: Request, user: {role: string},
+  action: "metadata" | "podcast", providerFetcher: typeof fetch): Promise<Response> {
+  requireWriteAccess(request, user);
+  const serviceOrigin = new URL(request.url).origin;
+  if (request.method !== "POST") return panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, serviceOrigin);
+  let input: Record<string, unknown>;
+  try {
+    const bytes = await boundedBody(request, 16384);
+    input = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw Error();
+  } catch {return panoptoProviderErrorResponse("PANOPTO_PROVIDER_INVALID_REQUEST", 400, serviceOrigin);}
+  const keys = action === "metadata" ? ["targetUrl"] : ["targetUrl", "streamFileId", "sourceHash"];
+  if (Object.keys(input).length !== keys.length || keys.some(key => typeof input[key] !== "string"))
+    return panoptoProviderErrorResponse("PANOPTO_PROVIDER_INVALID_REQUEST", 400, serviceOrigin);
+  const options = {fetcher: providerFetcher, signal: request.signal, serviceOrigin};
+  return action === "metadata" ? readPanoptoProviderMetadata(input.targetUrl as string, options)
+    : readPanoptoProviderPodcast(input as {targetUrl: string; streamFileId: string; sourceHash: string}, options);
+}
 export function createApiHandler(
   authenticate: AccessAuthenticator = authenticateAccess,
+  providerFetcher: typeof fetch = fetch,
 ) {
   return async (request: Request, env: Environment): Promise<Response> => {
     try {
@@ -166,21 +198,25 @@ export function createApiHandler(
       )
         return response({ fullCti: isCtiOwner(identity) });
       requireCtiOwner(identity);
-      if (!env.CTI_DB || !list(env.CTI_ADMINS).length)
-        fail(
-          "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",
-          503,
-        );
       const role = list(env.CTI_ADMINS).includes(identity.email)
         ? "admin"
         : list(env.CTI_EDITORS).includes(identity.email)
           ? "editor"
           : "viewer";
+      const providerAction = panoptoProviderAction(request);
+      if (providerAction)
+        return await handlePanoptoProvider(request, {role}, providerAction, providerFetcher);
+      if (!env.CTI_DB || !list(env.CTI_ADMINS).length)
+        fail(
+          "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",
+          503,
+        );
       return await handleAuthorized(
         request,
         env.CTI_DB!,
         { ...identity, role },
         env.CTI_EXTRACTOR,
+        providerFetcher,
       );
     } catch (error) {
       return response(
@@ -203,6 +239,7 @@ export async function handleAuthorized(
   db: Database,
   user: { email: string; role: string },
   extractor?: ServiceFetcher,
+  providerFetcher: typeof fetch = fetch,
 ): Promise<Response> {
   const url = new URL(request.url),
     p = url.pathname
@@ -210,12 +247,9 @@ export async function handleAuthorized(
       .split("/")
       .filter(Boolean),
     method = request.method;
-  if (method !== "GET") {
-    if (request.headers.get("Origin") !== url.origin)
-      fail("Cross-origin writes are not allowed.", 403);
-    if (!["admin", "editor"].includes(user.role))
-      fail("Your account has read-only access.", 403);
-  }
+  const providerAction = panoptoProviderAction(request);
+  if (providerAction) return handlePanoptoProvider(request, user, providerAction, providerFetcher);
+  requireWriteAccess(request, user);
   if (p[0] === "source-questions" && p.length === 1 && method === "POST") {
     const bytes = await boundedBody(request, 12000);
     let input: unknown;

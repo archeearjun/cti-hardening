@@ -15,6 +15,7 @@ import {
   directDataAttemptMetricsV1,
 } from "./direct-data-summary.js";
 import { createDirectDataReaderV1 } from "./direct-data-network.js";
+import { createDirectProviderHelperV1 } from "./direct-data-provider-helper.js";
 import { createDirectDataCheckpointStoreV1 } from "./direct-data-checkpoints.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
@@ -193,7 +194,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       materialHash = "",
       metadataReserveBytes = 256 * 1024,
       checkpointReady = false;
-    let accessReader = null;
+    let accessReader = null, providerTransport = null;
     const encoder = new TextEncoder();
     const hash = async (value) => {
       const bytes = encoder.encode(directCanonicalSourceTextV1(value));
@@ -840,6 +841,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     function ensureMediaReader() {
       if (!mediaReader)
         mediaReader = createDirectDataMediaReaderV1({
+          providerTransport,
           archiveMode: true,
           apiReader: reader,
           assertCurrent: assertContext,
@@ -907,6 +909,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const delivery = {targetUrl, initial: null, final: null,
           stableSource: false, podcasts: [], failures: []};
         const retained = previous?.payload?.directPanoptoEvidence?.deliveries?.find(value => value.targetUrl === targetUrl);
+        const previousFailures = [...(retained?.previousFailures || []), ...(retained?.failures || [])];
+        if (previousFailures.length) {
+          delivery.previousFailures = structuredClone(previousFailures.slice(-32));
+          delivery.previousFailuresTruncated = previousFailures.length > 32 || retained.previousFailuresTruncated === true;
+        }
         const retainOriginals = () => {
           for (const old of retained?.podcasts || []) {
             const proof = old.body && retained.stableSource === true && retained.initial && retained.final
@@ -955,7 +962,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               await hydrateItemBodies({payload: {directPanoptoEvidence: {deliveries: [{podcasts: [podcast]}]}}});
             } else podcast = await ensureMediaReader().capturePanoptoPodcast(initial, candidate.streamFileId, null);
             delivery.podcasts.push(podcast);
-            if (podcast.reason) delivery.failures.push({streamFileId: candidate.streamFileId, reason: podcast.reason});
+            if (podcast.reason) delivery.failures.push({streamFileId: candidate.streamFileId, reason: podcast.reason,
+              ...(podcast.receipt ? {receipt: podcast.receipt} : {})});
           }
           const final = await reader.readPanoptoDeliveryInfo(targetUrl);
           if (!final.ok) delivery.failures.push({reason: final.reason || "DIRECT_PANOPTO_FINAL_READ_FAILED",
@@ -1417,6 +1425,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       if (state.running || state.diagnosing || exporting ||
           location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
       operatorStopped = false;
+      providerTransport?.close();
+      providerTransport = createDirectProviderHelperV1({courseId,
+        onStatus: message => render(message)});
       state.diagnosing = true;
       state.accessDiagnostic = null;
       accessText.textContent = "";
@@ -1426,6 +1437,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         requests = new Map();
       let stopReason = "";
       accessReader = createDirectDataReaderV1({
+        providerTransport,
         assertCurrent: assertContext,
         sanitize: sanitizeCourseraCourseDataModel,
         limits: {concurrentRequests: 1, requests: 128, totalBytes: 16 * 1024 * 1024,
@@ -1481,6 +1493,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (accessReader.snapshot().stopped) stopReason = accessReader.snapshot().stopReason;
         accessReader.abort("PROVIDER_ACCESS_CHECK_FINISHED");
         accessReader = null;
+        providerTransport?.close();
+        providerTransport = null;
         state.diagnosing = false;
       }
       try {
@@ -1532,6 +1546,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       )
         return;
       state.running = true;
+      providerTransport?.close();
+      providerTransport = createDirectProviderHelperV1({courseId,
+        onStatus: message => render(message)});
       state.state = "RUNNING";
       state.phase = "Reading course structure";
       operatorStopped = false;
@@ -1581,6 +1598,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.4.0-bound-content-integrity-20261015",
             "v1.5.0-bound-widget-configuration-20261015",
             "v1.6.0-integrated-panopto-bookmark-20261015",
+            "v1.6.1-provider-access-diagnostics-20261015",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1650,6 +1668,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         const createReader = () =>
           createDirectDataReaderV1({
+            providerTransport,
             sanitize: sanitizeCourseraCourseDataModel,
             assertCurrent: assertContext,
             limits: remainingLimits(),
@@ -1881,6 +1900,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         mediaReader?.abort("RUN_FINISHED");
         reader?.abort("RUN_FINISHED");
+        providerTransport?.close();
+        providerTransport = null;
         clearInterval(clock);
         try {
           await saveRun(state.state, true);
@@ -1900,6 +1921,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       reader?.abort("OPERATOR_PAUSED");
       mediaReader?.abort("OPERATOR_PAUSED");
       accessReader?.abort("OPERATOR_PAUSED");
+      providerTransport?.close();
     };
     state.resume = () => void run();
     state.export = () => void download();
@@ -1917,6 +1939,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       reader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       mediaReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       accessReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
+      providerTransport?.close();
     });
     render("Choose Capture/resume course, or check only Panopto access without recapturing the course.");
   })().catch(() => {

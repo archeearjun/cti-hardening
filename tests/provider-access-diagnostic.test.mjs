@@ -91,3 +91,31 @@ test('a stopped check retains controlled reason without fabricating a request re
  assert.equal(diagnostic.items[0].request.receipt,null);
  f.item.request.reason='';assert.throws(()=>directProviderAccessDiagnosticV1(f.input));
 });
+
+function serviceFixture({status=200,serviceStatus=200,upstreamRequests=1,basis='UPSTREAM'}={}){
+ const f=fixture();const r=f.item.request.receipt;delete r.diagnostics;
+ Object.assign(r,{transport:'CTI_PUBLIC_BACKEND',serviceOrigin:'https://cti-hardening.pages.dev',
+  receivedAt:'2026-10-15T12:00:02.000Z',observedAtBasis:basis,serviceStatus,upstreamRequests,status});
+ f.item.request.reason=status===200?'':status?'PANOPTO_HTTP_'+status:'CTI_HELPER_UNAVAILABLE';return f;
+}
+
+test('service access observations distinguish upstream HTTP from CTI service authentication and helper failures',()=>{
+ const upstream=serviceFixture({status:401,serviceStatus:502}),service=serviceFixture({status:0,serviceStatus:401,upstreamRequests:0,basis:'CLIENT_ATTEMPT'}),
+  unavailable=serviceFixture({status:0,serviceStatus:0,upstreamRequests:0,basis:'CLIENT_ATTEMPT'});
+ const a=providerAccessDiagnosticText(upstream.diagnostic),b=providerAccessDiagnosticText(service.diagnostic),c=providerAccessDiagnosticText(unavailable.diagnostic);
+ assert.ok(a.includes('public service observed Panopto HTTP status 401'));assert.ok(!a.includes('browser exposed'));
+ assert.ok(b.includes('CTI service returned HTTP status 401'));assert.ok(b.includes('no Panopto HTTP response was observed'));
+ assert.ok(b.includes('Client request attempted:'));assert.ok(c.includes('CTI helper did not return an upstream HTTP result'));
+ for(const text of [a,b,c]){assert.ok(text.includes('without Panopto cookies'));assert.ok(text.includes('not cryptographic attestation'));assert.ok(!text.includes('CORS policy'));}
+ const attempted=serviceFixture({status:0,serviceStatus:502,upstreamRequests:1,basis:'CLIENT_ATTEMPT'});
+ assert.doesNotThrow(()=>validateProviderAccessDiagnostic(attempted.diagnostic));
+});
+
+test('diagnostic service context must have the approved origin, meaningful times and explicit request accounting',()=>{
+ for(const mutate of [f=>f.item.request.receipt.serviceOrigin='https://unapproved.example.test',
+  f=>f.item.request.receipt.transport='UNTRUSTED_PROXY',f=>delete f.item.request.receipt.receivedAt,
+  f=>f.item.request.receipt.upstreamRequests=2,f=>f.item.request.receipt.observedAtBasis='LOCAL',
+  f=>f.item.request.receipt.serviceStatus=-1,f=>f.item.request.receipt.diagnostics={schemaVersion:1,outcome:'ENFORCED_CSP'}]){
+  const f=serviceFixture();mutate(f);assert.equal(directProviderAccessDiagnosticStructureV1(f.diagnostic).valid,false);
+ }
+});

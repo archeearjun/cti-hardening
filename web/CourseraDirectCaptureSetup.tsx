@@ -68,8 +68,10 @@ export default function CourseraDirectCaptureSetup({
         source, CTI includes referenced images and attachments in the same file.
         It identifies supported item types automatically, including Panopto
         plugins. Accessible Panopto metadata and supported MP4 renditions are
-        read within this run and saved in the same archive. Browser access
-        restrictions, missing sources, and unsupported content stay visible as
+        read within this run and saved in the same archive. CTI opens one helper
+        tab to request supported public Panopto sources through its own service.
+        Keep that tab open and sign into CTI there if requested. Your Panopto
+        login is not sent to the service. Unavailable access, missing sources, and unsupported content stay visible as
         evidence gaps. A saved video does not establish complete widget content.
       </p>
       <ol className="local-extraction-steps">
@@ -88,7 +90,7 @@ export default function CourseraDirectCaptureSetup({
             Open the authoring course in your usual signed-in Chrome profile.
             The same bookmark works for other courses and opens no item editors.
             Choose Capture/resume course on its card, then keep the tab open
-            while it runs. Choose Check Panopto access to test only the
+            while it runs. Allow the CTI helper tab and keep it open. Choose Check Panopto access to test only the
             configured video sources without recapturing course content.
           </span>
         </li>
@@ -117,9 +119,10 @@ export default function CourseraDirectCaptureSetup({
       <p className="hint">
         If a previous Panopto error is no longer visible, use Check Panopto
         access. It keeps saved course progress unchanged and offers Copy access
-        result and Download access report. It records browser policy events
-        when available; an unclassified failure remains a combined CORS or
-        network uncertainty. This check does not verify video bytes or captions.
+        result and Download access report. It distinguishes CTI connection or
+        sign-in failures from an observed Panopto response. Public source
+        availability is checked on each attempt. This check does not download
+        video bytes or verify captions.
       </p>
       <div className="action-links">
         {!disabled && delivery.address && (

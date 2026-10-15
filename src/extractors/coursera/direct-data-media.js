@@ -1,6 +1,7 @@
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directPanoptoSourceV1, directPanoptoPodcastBindingsV1 } from "./direct-data-panopto.js";
+import { directProviderTransportReceiptV1, directProviderTransportErrorV1 } from "./direct-data-network.js";
 
 /** Only locations returned by the bound asset API are eligible for downloads. */
 export function canonicalDirectAssetUrlV1(value) {
@@ -476,7 +477,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         await response.body.cancel();
     } catch (_) {}
   }
-  async function captureBody(assetId, url, binding, controller, bodyBytes) {
+  async function captureBody(assetId, url, binding, controller, bodyBytes, providerRequest) {
     if (!jobCurrent(controller))
       return failure(assetId, jobStopReason(controller));
     if (stats.bytes >= limits.totalBytes) {
@@ -484,13 +485,17 @@ export function createDirectDataMediaReaderV1(options = {}) {
       notify();
       return failure(assetId, "DIRECT_MEDIA_BYTE_LIMIT");
     }
-    if (typeof fetchImpl !== "function")
+    if (!providerRequest && typeof fetchImpl !== "function")
       return failure(assetId, "FETCH_UNAVAILABLE");
     stats.requests++;
     notify();
-    let response;
+    let response, serviceReceipt;
+    if (providerRequest) {serviceReceipt={role:"PODCAST_STREAM_RENDITION",targetUrl:providerRequest.targetUrl,canonicalUrl:binding.canonicalUrl,bytes:0};
+      directProviderTransportReceiptV1(null,serviceReceipt);}
+    const failed=reason=>failure(assetId,reason,serviceReceipt?{receipt:{...serviceReceipt}}:{});
     try {
-      response = await fetchImpl(url, {
+      response = providerRequest ? await options.providerTransport.request("podcast",providerRequest,controller.signal) :
+        await fetchImpl(url, {
         method: "GET",
         mode: "cors",
         credentials: "omit",
@@ -505,18 +510,53 @@ export function createDirectDataMediaReaderV1(options = {}) {
       });
       if (!jobCurrent(controller)) {
         await discard(response);
-        return failure(assetId, jobStopReason(controller));
+        return failed(jobStopReason(controller));
+      }
+      if (providerRequest) {
+        const valid=directProviderTransportReceiptV1(response,serviceReceipt),
+          validationBytes=Number(response.headers.get("X-CTI-Validation-Bytes")),
+          validationSourceHash=response.headers.get("X-CTI-Validation-Source-Hash"),
+          validationObservedAt=response.headers.get("X-CTI-Validation-Observed-At");
+        if (valid) {
+          stats.requests+=Math.max(0,serviceReceipt.upstreamRequests-1);
+          if (Number.isSafeInteger(validationBytes) && validationBytes>=0 && validationBytes<=129*1024*1024) {
+            stats.bytes+=validationBytes;
+            if (validationBytes) serviceReceipt.validationMetadataBytes=validationBytes;
+          }
+          if (/^[a-f0-9]{64}$/.test(validationSourceHash || "")) serviceReceipt.validationSourceHash=validationSourceHash;
+          if (validationObservedAt && Number.isFinite(Date.parse(validationObservedAt)) &&
+              new Date(validationObservedAt).toISOString()===validationObservedAt)
+            serviceReceipt.validationObservedAt=validationObservedAt;
+          if (stats.bytes>limits.totalBytes) {
+            bodyBudgetExhausted=true;for (const activeController of controllers) activeController.abort();
+          }
+          notify();
+        }
+        if (!valid || !response.ok || serviceReceipt.status!==200 || serviceReceipt.upstreamRequests!==2) {
+          const wire=Number(response.headers.get("X-CTI-Upstream-Bytes"));
+          if (valid && Number.isSafeInteger(wire) && wire>=0 && wire<=129*1024*1024) {stats.bytes+=wire;serviceReceipt.bytes=wire;}
+          if (stats.bytes>limits.totalBytes) {bodyBudgetExhausted=true;for (const activeController of controllers) activeController.abort();notify();}
+          const reason=await directProviderTransportErrorV1(response);
+          return failed(bodyBudgetExhausted?"DIRECT_MEDIA_BYTE_LIMIT":!valid?"PROVIDER_HELPER_RECEIPT_INVALID":reason);
+        }
+        if (!Number.isSafeInteger(validationBytes) || validationBytes<1 || validationBytes>512*1024 ||
+            validationSourceHash!==providerRequest.sourceHash || !serviceReceipt.validationObservedAt ||
+            Number(response.headers.get("X-CTI-Upstream-Bytes"))!==0) {
+          await discard(response);return failed("PROVIDER_HELPER_VALIDATION_INVALID");
+        }
+        if (bodyBudgetExhausted || !jobCurrent(controller)) {
+          await discard(response);return failed(bodyBudgetExhausted?"DIRECT_MEDIA_BYTE_LIMIT":jobStopReason(controller));
+        }
       }
       if (!response.ok || response.status !== 200) {
         await discard(response);
-        return failure(
-          assetId,
+        return failed(
           "DIRECT_ASSET_BODY_HTTP_" + Number(response.status || 0),
         );
       }
       if (binding.role === "PODCAST_STREAM_RENDITION" && response.headers.get("content-range") !== null) {
         await discard(response);
-        return failure(assetId, "PANOPTO_PODCAST_PARTIAL_RESPONSE");
+        return failed("PANOPTO_PODCAST_PARTIAL_RESPONSE");
       }
       const actual = response.url || url;
       if (
@@ -525,7 +565,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         canonicalDirectAssetUrlV1(actual) !== binding.canonicalUrl
       ) {
         await discard(response);
-        return failure(assetId, "DIRECT_ASSET_BODY_REDIRECT");
+        return failed("DIRECT_ASSET_BODY_REDIRECT");
       }
       const mime = String(response.headers.get("content-type") || "")
         .split(";")[0]
@@ -533,7 +573,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         .toLowerCase();
       if (binding.role === "PODCAST_STREAM_RENDITION" && mime !== "video/mp4") {
         await discard(response);
-        return failure(assetId, "PANOPTO_PODCAST_MIME_UNSUPPORTED");
+        return failed("PANOPTO_PODCAST_MIME_UNSUPPORTED");
       }
       if (
         !/^(?:image\/(?:png|jpe?g|gif|webp)|application\/(?:pdf|zip|x-zip-compressed|octet-stream|vnd\.openxmlformats-officedocument\.(?:presentationml\.presentation|wordprocessingml\.document|spreadsheetml\.sheet))|(?:video|audio)\/mp4|audio\/(?:mpeg|mp3))$/.test(
@@ -541,17 +581,18 @@ export function createDirectDataMediaReaderV1(options = {}) {
         )
       ) {
         await discard(response);
-        return failure(assetId, "DIRECT_ASSET_BODY_MIME_UNSUPPORTED");
+        return failed("DIRECT_ASSET_BODY_MIME_UNSUPPORTED");
       }
       const advertised = Number(response.headers.get("content-length") || 0);
       if (Number.isFinite(advertised) && advertised > bodyBytes) {
         await discard(response);
-        return failure(assetId, "DIRECT_ASSET_BODY_BYTE_LIMIT");
+        return failed("DIRECT_ASSET_BODY_BYTE_LIMIT");
       }
       const chunks = [];
       let count = 0;
       function add(bytes) {
         count += bytes.byteLength;
+        if (serviceReceipt) serviceReceipt.bytes=count;
         stats.bytes += bytes.byteLength;
         notify();
         if (stats.bytes > limits.totalBytes) {
@@ -577,13 +618,12 @@ export function createDirectDataMediaReaderV1(options = {}) {
             const next = await reader.read();
             if (!jobCurrent(controller)) {
               await reader.cancel();
-              return failure(assetId, jobStopReason(controller));
+              return failed(jobStopReason(controller));
             }
             if (next.done) break;
             if (!(next.value instanceof Uint8Array) || !add(next.value)) {
               await reader.cancel();
-              return failure(
-                assetId,
+              return failed(
                 stopReason ||
                   (bodyBudgetExhausted
                     ? "DIRECT_MEDIA_BYTE_LIMIT"
@@ -593,7 +633,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
           }
           if (!jobCurrent(controller)) {
             await reader.cancel();
-            return failure(assetId, jobStopReason(controller));
+            return failed(jobStopReason(controller));
           }
         } finally {
           controller.signal.removeEventListener("abort", cancelBody);
@@ -602,16 +642,15 @@ export function createDirectDataMediaReaderV1(options = {}) {
       } else if (typeof response.arrayBuffer === "function") {
         const original = new Uint8Array(await response.arrayBuffer());
         if (!jobCurrent(controller))
-          return failure(assetId, jobStopReason(controller));
+          return failed(jobStopReason(controller));
         if (!add(original))
-          return failure(
-            assetId,
+          return failed(
             stopReason ||
               (bodyBudgetExhausted
                 ? "DIRECT_MEDIA_BYTE_LIMIT"
                 : "DIRECT_ASSET_BODY_BYTE_LIMIT"),
           );
-      } else return failure(assetId, "DIRECT_ASSET_BODY_UNAVAILABLE");
+      } else return failed("DIRECT_ASSET_BODY_UNAVAILABLE");
       const bytes = new Uint8Array(count);
       let offset = 0;
       for (const chunk of chunks) {
@@ -620,14 +659,14 @@ export function createDirectDataMediaReaderV1(options = {}) {
       }
       chunks.length = 0;
       if (!directAssetBodyKindV1(bytes, mime, binding.name))
-        return failure(assetId, "DIRECT_ASSET_BODY_MAGIC_INVALID");
+        return failed("DIRECT_ASSET_BODY_MAGIC_INVALID");
       if (!globalThis.crypto?.subtle)
-        return failure(assetId, "RESPONSE_HASH_UNAVAILABLE");
+        return failed("RESPONSE_HASH_UNAVAILABLE");
       const digest = new Uint8Array(
         await crypto.subtle.digest("SHA-256", bytes),
       );
       if (!jobCurrent(controller))
-        return failure(assetId, jobStopReason(controller));
+        return failed(jobStopReason(controller));
       const sha256 = [...digest]
         .map((value) => value.toString(16).padStart(2, "0"))
         .join("");
@@ -642,12 +681,13 @@ export function createDirectDataMediaReaderV1(options = {}) {
         canonicalUrl: binding.canonicalUrl,
         receipt: {
           ...(binding.role === "PODCAST_STREAM_RENDITION" ? {role:"PODCAST_STREAM_RENDITION"} : {}),
-          status: Number(response.status),
+          ...(serviceReceipt || {}),
+          status: serviceReceipt?.status || Number(response.status),
           bytes: count,
           mime,
           canonicalUrl: binding.canonicalUrl,
           sha256,
-          observedAt: new Date().toISOString(),
+          observedAt: serviceReceipt?.observedAt || new Date().toISOString(),
           bodyFormat: archiveMode
             ? "ORIGINAL_BINARY_BYTES_ARCHIVE"
             : "ORIGINAL_BINARY_BYTES_BASE64",
@@ -660,15 +700,15 @@ export function createDirectDataMediaReaderV1(options = {}) {
           configurable: true,
         });
       return { assetId, body };
-    } catch (_) {
-      return failure(
-        assetId,
+    } catch (error) {
+      return failed(
         stopReason ||
           (bodyBudgetExhausted
             ? "DIRECT_MEDIA_BYTE_LIMIT"
             : controller.signal.aborted
               ? jobStopReason(controller)
-              : "DIRECT_ASSET_BODY_FETCH_FAILED"),
+              : providerRequest ? (/^PROVIDER_HELPER_[A-Z0-9_]{1,64}$/.test(error?.code || "")?error.code:"PROVIDER_HELPER_REQUEST_FAILED")
+                : "DIRECT_ASSET_BODY_FETCH_FAILED"),
       );
     }
   }
@@ -680,11 +720,19 @@ export function createDirectDataMediaReaderV1(options = {}) {
       const partial = {...job.binding};
       // Old attempt bodies cannot prove the bytes currently served by a
       // mutable rendition URL. Every new attempt takes a fresh bound GET.
-      const location = typeof job.metadataRead.takePanoptoPodcastLocation === "function"
+      const helper=options.providerTransport;
+      const location = helper ? job.binding.canonicalUrl : typeof job.metadataRead.takePanoptoPodcastLocation === "function"
         ? job.metadataRead.takePanoptoPodcastLocation(assetId) : "";
       if (!location || canonicalDirectAssetUrlV1(location) !== job.binding.canonicalUrl)
         return failure(assetId, "PANOPTO_PODCAST_LOCATION_UNSUPPORTED", partial);
-      const result = await captureBody(assetId,location,job.binding,controller,job.bodyBytes);
+      let providerRequest;
+      if (helper) {
+        if (!globalThis.crypto?.subtle) return failure(assetId,"RESPONSE_HASH_UNAVAILABLE",partial);
+        const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(job.sourceCanonical));
+        providerRequest={targetUrl:job.targetUrl,streamFileId:assetId,
+          sourceHash:[...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,"0")).join("")};
+      }
+      const result = await captureBody(assetId,location,job.binding,controller,job.bodyBytes,providerRequest);
       return {...partial,...result};
     }
     if (typeof api?.readAsset !== "function")
@@ -901,13 +949,13 @@ export function createDirectDataMediaReaderV1(options = {}) {
     return true;
   }
   function capturePanoptoPodcast(metadataRead, streamFileId, retainedPodcast, captureOptions = {}) {
-    let binding;
+    let binding, sourceCanonical, targetUrl;
     try {
-      const targetUrl=metadataRead?.receipt?.targetUrl;
+      targetUrl=metadataRead?.receipt?.targetUrl;
       if (!metadataRead?.ok || metadataRead.receipt.resource!=="PanoptoDeliveryInfo" ||
           metadataRead.receipt.status!==200 || !/^[a-f0-9]{64}$/.test(metadataRead.receipt.originalResponseSha256 || ""))
         return Promise.resolve(failure(streamFileId,"PANOPTO_METADATA_INVALID"));
-      directPanoptoSourceV1(targetUrl,metadataRead.data);
+      sourceCanonical=directCanonicalSourceTextV1(directPanoptoSourceV1(targetUrl,metadataRead.data));
       const matches=directPanoptoPodcastBindingsV1(metadataRead.data,targetUrl)
         .filter(candidate=>candidate.streamFileId===streamFileId);
       if (matches.length!==1) return Promise.resolve(failure(streamFileId,"PANOPTO_PODCAST_IDENTITY_INVALID"));
@@ -918,7 +966,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
     if (!bodyBytes) return Promise.resolve(failure(streamFileId,"DIRECT_ASSET_BODY_BYTE_LIMIT",binding));
     if (!current()) return Promise.resolve(failure(streamFileId,stopReason,binding));
     return new Promise(resolve=>{
-      queue.push({kind:"PANOPTO_PODCAST",assetId:streamFileId,metadataRead,binding,bodyBytes,
+      queue.push({kind:"PANOPTO_PODCAST",assetId:streamFileId,metadataRead,binding,bodyBytes,targetUrl,sourceCanonical,
         resolve:result=>resolve({...binding,...result})});
       notify();pump();
     });

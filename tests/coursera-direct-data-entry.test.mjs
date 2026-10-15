@@ -115,6 +115,8 @@ function harness(options = {}) {
     saves: [],
     writes: [],
     bodyWrites: [],
+    helperOpens: [],
+    helperCloses: 0,
   };
   const control = {
     beforeRead: options.beforeRead,
@@ -305,6 +307,7 @@ function harness(options = {}) {
       metrics,
       policyOnly,
       hasSanitizer: typeof readerOptions.sanitize === "function",
+      providerTransport: readerOptions.providerTransport,
     };
     factories.push(factory);
     function abort(reason) {
@@ -458,6 +461,11 @@ function harness(options = {}) {
     clearTimeout() {},
     createDirectDataCheckpointStoreV1: async () => { metrics.storeOpens++; return store; },
     createDirectDataReaderV1: createReader,
+    createDirectProviderHelperV1: (settings) => {
+      metrics.helperOpens.push({courseId: settings.courseId, storeOpens: metrics.storeOpens});
+      return {ready: async () => {}, request: async () => {throw Error("UNEXPECTED_HELPER_REQUEST");},
+        close: () => {metrics.helperCloses++;}};
+    },
     createDirectDataMediaReaderV1: (settings) => {
       assert.equal(typeof options.mediaReaderFactory, "function");
       return options.mediaReaderFactory(settings);
@@ -589,6 +597,10 @@ test("the actual entry captures drafts without navigation and exports its saved 
   );
   assert.equal(app.metrics.listItemCalls, 0);
   assert.equal(app.metrics.maxActiveItemReads, 1);
+  assert.equal(app.metrics.helperOpens.length, 1);
+  assert.equal(app.metrics.helperOpens[0].storeOpens, 0, "open the helper in the capture click before awaiting storage");
+  assert(app.readers().every(factory => typeof factory.providerTransport?.request === "function"));
+  assert.equal(app.metrics.helperCloses, 1, "close the owned helper after the run");
   assert.deepEqual(app.alerts, []);
 });
 
@@ -1597,7 +1609,7 @@ test("a failed final provider read preserves fresh podcast bytes without seeding
 });
 
 test("completed v1.5 and v1.6 gap captures continue in the original run without rereading saved assessment banks", async () => {
-  for (const buildId of ["v1.5.0-bound-widget-configuration-20261015", "v1.6.0-integrated-panopto-bookmark-20261015"]) {
+  for (const buildId of ["v1.5.0-bound-widget-configuration-20261015", "v1.6.0-integrated-panopto-bookmark-20261015", "v1.6.1-provider-access-diagnostics-20261015"]) {
     const app = harness({ ids: ["WidgetA", "AssessmentZ"], widgetIds: ["WidgetA"],
       assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
     app.launch(); await app.idle();
@@ -1694,6 +1706,9 @@ test("provider-only diagnostics deduplicate three targets across six native plac
   const diagnostic = app.state().accessDiagnostic;
   assert.equal(app.factories.length, 1);
   assert.equal(app.factories[0].hasSanitizer, true, "native source reads require the credential sanitizer");
+  assert.equal(app.metrics.helperOpens[0].storeOpens, 0);
+  assert.equal(typeof app.factories[0].providerTransport?.request, "function");
+  assert.equal(app.metrics.helperCloses, 1);
   assert.equal(diagnostic.items.length, 6);
   assert.equal(diagnostic.nativeFailures.length, 0);
   assert.equal(new Set(diagnostic.items.map(item => item.targetUrl)).size, 3);

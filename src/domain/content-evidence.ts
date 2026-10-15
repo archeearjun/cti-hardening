@@ -586,6 +586,12 @@ function verifiedDirectPanoptoContent(p: Obj, itemId: string | undefined, target
       for (const previous of checked.historical)
         append(directPanoptoProjectionV1(previous.targetUrl, previous.initial.model), previous.targetUrl,
           "Historical Panopto metadata; this capture did not verify the current recording source");
+    const serviceMetadata = array(proof.deliveries).some(value => {
+      const delivery = contentObject(value);
+      return [delivery.initial, delivery.final].some(read => contentObject(contentObject(read).receipt).transport === "CTI_PUBLIC_BACKEND");
+    }), serviceBodies = [...checked.decoded, ...checked.historical].some(value => value.body?.receipt?.transport === "CTI_PUBLIC_BACKEND");
+    if (lines.length && (serviceMetadata || serviceBodies))
+      lines.push(`Source: CTI's public service retrieved ${serviceMetadata ? "Panopto metadata" : ""}${serviceMetadata && serviceBodies ? " and " : ""}${serviceBodies ? "MP4 podcast rendition bytes" : ""} without Panopto cookies. Recorded transport context is not cryptographic attestation or proof of your Panopto login.`);
     if (lines.length) lines.push(`MP4 podcast rendition bodies verified in this input: ${checked.decoded.length}. Historical rendition bodies retained: ${checked.historical.filter(value => value.bytes).length}; historical bytes do not verify the current source. Uploaded-original identity and complete viewer-stream coverage remain unverified.`);
     return { text: lines.join("\n"), references: [...new Set(references)] };
   } catch { return empty; }

@@ -5,6 +5,52 @@ import { directPanoptoAutomaticTargetV1, sanitizeDirectPanoptoModelV1,
   directPanoptoPodcastBindingsV1 } from './direct-data-panopto.js';
 import { createDirectProviderDiagnosticsV1 } from './direct-data-provider-diagnostics.js';
 
+/** A cooperating CTI service observes the upstream response; the browser only
+ * observes service delivery. Keep those clocks and HTTP statuses separate. */
+export function directProviderTransportReceiptV1(response, receipt = {}, maximumRequests = 2) {
+  Object.assign(receipt,{transport:'CTI_PUBLIC_BACKEND',serviceOrigin:'https://cti-hardening.pages.dev',
+    receivedAt:new Date().toISOString(),serviceStatus:Number(response?.status || 0),
+    observedAt:receipt.observedAt || new Date().toISOString(),observedAtBasis:'CLIENT_ATTEMPT',status:0,upstreamRequests:0});
+  const headers=response?.headers;
+  if (headers?.get('X-CTI-Provider-Transport')!=='CTI_PUBLIC_BACKEND' ||
+      headers.get('X-CTI-Provider-Origin')!==receipt.serviceOrigin) return false;
+  const integer=name=>{const value=headers.get(name);return /^(?:0|[1-9]\d*)$/.test(value || '')?Number(value):NaN;};
+  const status=integer('X-CTI-Upstream-Status'), requests=integer('X-CTI-Upstream-Requests'),
+    bytes=integer('X-CTI-Upstream-Bytes'), observedAt=headers.get('X-CTI-Upstream-Observed-At');
+  if (!Number.isSafeInteger(status) || status<0 || status>599 || !Number.isSafeInteger(requests) ||
+      requests<0 || requests>maximumRequests || !Number.isSafeInteger(bytes) || bytes<0 || bytes>129*1024*1024) return false;
+  if (status) {
+    if (status<100 || !observedAt || !Number.isFinite(Date.parse(observedAt)) ||
+        new Date(observedAt).toISOString()!==observedAt || !requests) return false;
+    receipt.status=status;receipt.observedAt=observedAt;receipt.observedAtBasis='UPSTREAM';
+  } else if (observedAt) return false;
+  receipt.upstreamRequests=requests;
+  return true;
+}
+
+/** Service errors are tiny typed JSON, never native error pages or messages. */
+export async function directProviderTransportErrorV1(response) {
+  let count=0;const chunks=[];
+  try {
+    const reader=response?.body?.getReader();
+    if (!reader) return 'PROVIDER_HELPER_REQUEST_FAILED';
+    try {
+      while (true) {
+        const next=await reader.read();if (next.done) break;
+        if (!(next.value instanceof Uint8Array) || (count+=next.value.length)>2048) {
+          await reader.cancel();return 'PROVIDER_HELPER_REQUEST_FAILED';
+        }
+        chunks.push(next.value);
+      }
+    } finally {reader.releaseLock();}
+    const bytes=new Uint8Array(count);let offset=0;
+    for (const chunk of chunks) {bytes.set(chunk,offset);offset+=chunk.length;}
+    const code=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes))?.error;
+    return /^PANOPTO_PROVIDER_[A-Z0-9_]{1,80}$/.test(code || '')
+      ? 'PROVIDER_HELPER_'+code.slice(17) : 'PROVIDER_HELPER_REQUEST_FAILED';
+  } catch {return 'PROVIDER_HELPER_REQUEST_FAILED';}
+}
+
 /** Bounded transport for the observed Coursera authoring GET resources.
  * The caller supplies source binding and credential sanitization. This module
  * never guesses a resource, enumerates a collection, or renders an editor.
@@ -117,11 +163,13 @@ export function createDirectDataReaderV1(options = {}) {
     return {resource,id,url,all};
   }
   function receiptFor(d) {
-    return {resource:d.resource, requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
+    const value={resource:d.resource, requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
       ...(d.external ? {origin:d.url.origin,id:d.id,targetUrl:d.targetUrl,method:'POST',
         requestForm:d.form.map(pair=>pair.slice()),mime:''} : {}),
       observedAt:new Date().toISOString(), status:0, bytes:0, originalResponseSha256:'',
       bodyFormat:'PARSED_SANITIZED_JSON_MODEL', credentialFieldsRemoved:0, credentialUrlsRedacted:0};
+    if (d.external && options.providerTransport) directProviderTransportReceiptV1(null,value);
+    return value;
   }
   async function discard(response) {
     try {if (response?.body && typeof response.body.cancel === 'function') await response.body.cancel();}
@@ -171,20 +219,37 @@ export function createDirectDataReaderV1(options = {}) {
     const d=job.descriptor, controller=new AbortController();
     job.controller=controller;controllers.add(controller);
     job.receipt=receiptFor(d);stats.requests++;
-    job.diagnostics=createDirectProviderDiagnosticsV1(d.url.href,options.policyDocument);
-    job.receipt.diagnostics=job.diagnostics.snapshot();
+    const helper=options.providerTransport;
+    if (!helper) {
+      job.diagnostics=createDirectProviderDiagnosticsV1(d.url.href,options.policyDocument);
+      job.receipt.diagnostics=job.diagnostics.snapshot();
+    }
     stats.byResource[d.resource]=(stats.byResource[d.resource] || 0)+1;notify();
     let response;
     function active() {return !controller.signal.aborted && current();}
     try {
-      response=await fetchImpl(d.url.href,{method:'POST',mode:'cors',credentials:'omit',redirect:'error',
+      response=helper ? await helper.request('metadata',{targetUrl:d.targetUrl},controller.signal) :
+        await fetchImpl(d.url.href,{method:'POST',mode:'cors',credentials:'omit',redirect:'error',
         headers:{Accept:'application/json','Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
         body:new URLSearchParams(d.form).toString(),signal:controller.signal});
       if (!active()) {await discard(response);return failure(job,stopReason || job.cancelReason || 'PANOPTO_REQUEST_ABORTED');}
-      job.receipt.status=Number(response.status || 0);
-      job.diagnostics.recordHttp(job.receipt.status);
-      job.receipt.diagnostics=job.diagnostics.snapshot();
-      if (!response.ok || response.status!==200) {await discard(response);return failure(job,'PANOPTO_HTTP_'+Number(response.status || 0));}
+      if (helper) {
+        const valid=directProviderTransportReceiptV1(response,job.receipt,1);
+        if (!response.ok || !valid || job.receipt.status!==200 || job.receipt.upstreamRequests!==1) {
+          const wire=Number(response.headers.get('X-CTI-Upstream-Bytes'));
+          if (valid && Number.isSafeInteger(wire) && wire>=0 && wire<=129*1024*1024) {
+            stats.bytes+=wire;job.receipt.bytes=wire;
+            if (stats.bytes>limits.totalBytes) abort('COURSE_API_BYTE_LIMIT');
+          }
+          const reason=await directProviderTransportErrorV1(response);
+          return failure(job,stopReason || (!valid?'PROVIDER_HELPER_RECEIPT_INVALID':reason));
+        }
+      } else {
+        job.receipt.status=Number(response.status || 0);
+        job.diagnostics.recordHttp(job.receipt.status);
+        job.receipt.diagnostics=job.diagnostics.snapshot();
+        if (!response.ok || response.status!==200) {await discard(response);return failure(job,'PANOPTO_HTTP_'+Number(response.status || 0));}
+      }
       if (response.redirected || (response.url || d.url.href)!==d.url.href) {
         await discard(response);return failure(job,'PANOPTO_UNEXPECTED_REDIRECT');
       }
@@ -195,6 +260,8 @@ export function createDirectDataReaderV1(options = {}) {
       job.receipt.mime=mime.split(';')[0].trim().toLowerCase();
       const body=await bodyBytes(response,job,controller);
       if (!body.ok) return failure(job,body.reason);
+      if (helper && Number(response.headers.get('X-CTI-Upstream-Bytes'))!==body.bytes.length)
+        return failure(job,'PROVIDER_HELPER_RECEIPT_INVALID');
       if (!active()) return failure(job,stopReason || job.cancelReason || 'PANOPTO_REQUEST_ABORTED');
       if (!globalThis.crypto?.subtle) return failure(job,'RESPONSE_HASH_UNAVAILABLE');
       const hash=await globalThis.crypto.subtle.digest('SHA-256',body.bytes);
@@ -216,18 +283,20 @@ export function createDirectDataReaderV1(options = {}) {
       job.receipt.credentialUrlsRedacted=Math.max(0,Number(sanitized.redactedUrls) || 0);
       job.receipt.protectedContentIdFieldsRestored=Math.max(0,Number(sanitized.protectedContentIdFieldsRestored) || 0);
       if (!active()) return failure(job,stopReason || job.cancelReason || 'PANOPTO_REQUEST_ABORTED');
-      job.receipt.diagnostics=job.diagnostics.snapshot();
+      if (job.diagnostics) job.receipt.diagnostics=job.diagnostics.snapshot();
       const result={ok:true,data:sanitized.data,receipt:{...job.receipt},reason:'',authenticationFailed:false};
       Object.defineProperty(result,'takePanoptoPodcastLocation',{enumerable:false,value:streamFileId=>{
         const location=current() ? locations.get(streamFileId) || '' : '';
         locations.delete(streamFileId);return location;
       }});
       return result;
-    } catch {
+    } catch (error) {
       // Browsers can queue the matching CSP event after rejecting fetch. One
       // bounded task turn observes that event without retrying or probing URLs.
-      if (!stopReason && !controller.signal.aborted) await new Promise(resolve=>setTimeout(resolve,0));
-      return failure(job,stopReason || job.cancelReason || (controller.signal.aborted?'PANOPTO_REQUEST_ABORTED':'PANOPTO_ACCESS_BLOCKED_OR_FAILED'));
+      if (!helper && !stopReason && !controller.signal.aborted) await new Promise(resolve=>setTimeout(resolve,0));
+      return failure(job,stopReason || job.cancelReason || (controller.signal.aborted?'PANOPTO_REQUEST_ABORTED':
+        helper ? (/^PROVIDER_HELPER_[A-Z0-9_]{1,64}$/.test(error?.code || '')?error.code:'PROVIDER_HELPER_REQUEST_FAILED') :
+          'PANOPTO_ACCESS_BLOCKED_OR_FAILED'));
     } finally {controllers.delete(controller);job.controller=null;}
   }
   async function attempt(job) {
@@ -342,7 +411,7 @@ export function createDirectDataReaderV1(options = {}) {
       cancellation.signal.addEventListener('abort',listener,{once:true});
       timer=setTimeout(()=>{
         if (job.descriptor.external && Date.now()<startedAt+limits.durationMs) {
-          job.cancelReason='PANOPTO_REQUEST_TIMEOUT';job.controller?.abort();
+          job.cancelReason=options.providerTransport?'PROVIDER_HELPER_REQUEST_TIMEOUT':'PANOPTO_REQUEST_TIMEOUT';job.controller?.abort();
           resolve(failure(job,job.cancelReason));return;
         }
         // An implementation ignoring AbortSignal can remain unresolved. Do not
@@ -380,7 +449,7 @@ export function createDirectDataReaderV1(options = {}) {
   function readPanoptoDeliveryInfo(targetUrl) {
     const target=directPanoptoAutomaticTargetV1(targetUrl);
     if (!target) return Promise.resolve(failure(null,'INVALID_PANOPTO_TARGET'));
-    if (typeof fetchImpl!=='function') return Promise.resolve(failure(null,'FETCH_UNAVAILABLE'));
+    if (!options.providerTransport && typeof fetchImpl!=='function') return Promise.resolve(failure(null,'FETCH_UNAVAILABLE'));
     if (!current()) return Promise.resolve(failure(null,stopReason));
     if (queue.length>=limits.requests) return Promise.resolve(failure(null,'API_QUEUE_LIMIT'));
     const d={resource:'PanoptoDeliveryInfo',external:true,id:target.deliveryPublicId,targetUrl,
