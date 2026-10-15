@@ -22,6 +22,7 @@ import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
   directPanoptoPodcastBindingsV1, CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1 } from "./direct-data-panopto.js";
+import { directProviderAccessDiagnosticV1, directProviderAccessDiagnosticTextV1 } from "./direct-data-provider-diagnostic.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
 import {
   bindDirectAuthoringDraftV1,
@@ -63,7 +64,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return;
     }
     const prior = window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;
-    if (prior?.courseId === match[2] && (prior?.running || prior?.exporting)) {
+    if (prior?.courseId === match[2] && (prior?.running || prior?.exporting || prior?.diagnosing)) {
       prior.focus?.();
       return;
     }
@@ -74,7 +75,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       !prior.terminal &&
       typeof prior.resume === "function"
     ) {
-      prior.resume();
+      prior.focus?.();
       return;
     }
     if (prior?.running) prior.stop?.();
@@ -115,7 +116,23 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     const resumeButton = document.createElement("button");
     resumeButton.textContent = "Resume";
     resumeButton.hidden = true;
-    for (const button of [stopButton, downloadButton, resumeButton])
+    const startButton = document.createElement("button"),
+      accessButton = document.createElement("button"),
+      copyAccessButton = document.createElement("button"),
+      downloadAccessButton = document.createElement("button"),
+      accessText = document.createElement("pre"),
+      accessFallback = document.createElement("textarea");
+    startButton.textContent = "Capture/resume course";
+    accessButton.textContent = "Check Panopto access";
+    copyAccessButton.textContent = "Copy access result";
+    downloadAccessButton.textContent = "Download access report";
+    accessText.style.cssText = "white-space:pre-wrap;font:inherit;max-height:220px;overflow:auto";
+    accessText.setAttribute("role", "status");
+    accessFallback.setAttribute("aria-label", "Access report copy fallback");
+    accessFallback.readOnly = true;
+    accessFallback.hidden = true;
+    accessFallback.style.cssText = "width:95%;height:100px";
+    for (const button of [startButton, accessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
       button.style.cssText =
         "margin:4px;padding:8px;background:#fff;border:1px solid #adc2de;border-radius:6px;color:#172b4d;cursor:pointer";
     card.append(
@@ -124,15 +141,23 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       detail,
       count,
       hint,
+      startButton,
+      accessButton,
       stopButton,
       downloadButton,
       resumeButton,
+      accessText,
+      copyAccessButton,
+      downloadAccessButton,
+      accessFallback,
     );
     document.body.append(card);
     const state = {
       running: false,
-      state: "RUNNING",
-      phase: "Preparing capture",
+      state: "READY",
+      phase: "Ready",
+      diagnosing: false,
+      accessDiagnostic: null,
       runId: "",
       courseId,
       terminal: false,
@@ -168,6 +193,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       materialHash = "",
       metadataReserveBytes = 256 * 1024,
       checkpointReady = false;
+    let accessReader = null;
     const encoder = new TextEncoder();
     const hash = async (value) => {
       const bytes = encoder.encode(directCanonicalSourceTextV1(value));
@@ -188,7 +214,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const mediaOnly = ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"].includes(
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
-      hint.textContent = mediaOnly
+      hint.textContent = state.diagnosing || state.state === "READY"
+        ? "Capture/resume reads the course. Check Panopto access only checks configured video sources; it does not reread questions, download videos, or change saved progress."
+        : mediaOnly
         ? "This attempt reads referenced files and supported external providers. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
       count.textContent =
@@ -228,11 +256,17 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           (summary.widgets.configurations || 0) +
           "/" + summary.widgets.total +
           " captured · external widget bodies unverified";
-      stopButton.disabled = !state.running;
-      downloadButton.disabled = state.running || !meta || exporting;
+      count.hidden = !meta || state.diagnosing;
+      const busy = state.running || state.diagnosing || exporting;
+      startButton.disabled = busy || state.terminal;
+      accessButton.disabled = busy;
+      stopButton.disabled = !state.running && !state.diagnosing;
+      downloadButton.disabled = busy || !meta;
       resumeButton.hidden =
         state.running || state.terminal || state.state !== "PAUSED";
-      resumeButton.disabled = exporting;
+      resumeButton.disabled = exporting || state.diagnosing;
+      copyAccessButton.hidden = downloadAccessButton.hidden = !state.accessDiagnostic;
+      copyAccessButton.disabled = downloadAccessButton.disabled = busy;
     }
     function coverageSummary() {
       return directDataCoverageSummaryV1(
@@ -895,7 +929,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         render(fp.name + " · Reading the configured video source.");
         const initial = await reader.readPanoptoDeliveryInfo(targetUrl);
         if (!initial.ok) {
-          delivery.failures.push({reason: initial.reason || "DIRECT_PANOPTO_METADATA_FAILED"});
+          delivery.failures.push({reason: initial.reason || "DIRECT_PANOPTO_METADATA_FAILED",
+            receipt: initial.receipt ? receipt(initial, directPanoptoAutomaticTargetV1(targetUrl).deliveryPublicId) : null});
           retainOriginals();
           continue;
         }
@@ -923,7 +958,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             if (podcast.reason) delivery.failures.push({streamFileId: candidate.streamFileId, reason: podcast.reason});
           }
           const final = await reader.readPanoptoDeliveryInfo(targetUrl);
-          if (!final.ok) delivery.failures.push({reason: final.reason || "DIRECT_PANOPTO_FINAL_READ_FAILED"});
+          if (!final.ok) delivery.failures.push({reason: final.reason || "DIRECT_PANOPTO_FINAL_READ_FAILED",
+            receipt: final.receipt ? receipt(final, target.deliveryPublicId) : null});
           else {
             delivery.final = {model: final.data, receipt: receipt(final, target.deliveryPublicId),
               modelHash: await hash(final.data),
@@ -1311,7 +1347,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return {blob, bodyPaths, temporaryBodies};
     }
     async function download() {
-      if (exporting || state.running) return;
+      if (exporting || state.running || state.diagnosing) return;
       exporting = true;
       state.exporting = true;
       state.exportError = "";
@@ -1377,9 +1413,118 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         render();
       }
     }
+    async function checkProviderAccess() {
+      if (state.running || state.diagnosing || exporting ||
+          location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
+      operatorStopped = false;
+      state.diagnosing = true;
+      state.accessDiagnostic = null;
+      accessText.textContent = "";
+      accessFallback.hidden = true;
+      state.phase = "Checking Panopto access";
+      const checkedAt = new Date().toISOString(), checks = [], nativeFailures = [],
+        requests = new Map();
+      let stopReason = "";
+      accessReader = createDirectDataReaderV1({
+        assertCurrent: assertContext,
+        sanitize: sanitizeCourseraCourseDataModel,
+        limits: {concurrentRequests: 1, requests: 128, totalBytes: 16 * 1024 * 1024,
+          requestMs: 10000, durationMs: 120000},
+      });
+      render("Reading the current outline and plugin settings only. Saved course progress is untouched.");
+      try {
+        const materials = await accessReader.readCourseMaterials(courseId),
+          current = await directCourseInventoryV1(requireRead(materials), courseId),
+          widgets = current.fingerprints.filter(fp => /widget|plugin/i.test(fp.typeName || fp.type));
+        for (let index = 0; index < widgets.length; index++) {
+          const fp = widgets[index];
+          if (index >= 32) {
+            nativeFailures.push({itemId: fp.id, atomId: fp.atomId, reason: "PROVIDER_ACCESS_CHECK_ITEM_LIMIT"});
+            stopReason = "PROVIDER_ACCESS_CHECK_ITEM_LIMIT";
+            break;
+          }
+          if (accessReader.snapshot().stopped) throw Error(accessReader.snapshot().stopReason);
+          try {
+            const atom = await accessReader.readAtom(fp.atomId),
+              relation = await accessReader.readRelation(fp.atomId),
+              bound = bindDirectAuthoringDraftV1(fp, courseId, slug, requireRead(atom), requireRead(relation)),
+              binding = directDraftWidgetProviderV1(bound),
+              provider = await accessReader.readWidgetProvider(binding.providerId, courseId),
+              targets = directWidgetProviderTargetsV1(bound, requireRead(provider)),
+              urls = [...new Set(targets.map(target => target.url))].filter(directPanoptoAutomaticTargetV1);
+            if (!urls.length) continue;
+            const sources = {atom: atom.data, relation: relation.data, provider: provider.data,
+              receipts: {atom: receipt(atom, fp.atomId), relation: receipt(relation, fp.atomId), provider: receipt(provider, binding.providerId)},
+              hashes: {atom: await hash(atom.data), relation: await hash(relation.data), provider: await hash(provider.data)}};
+            for (const targetUrl of urls) {
+              if (!requests.has(targetUrl)) {
+                if (requests.size >= 12) {
+                  nativeFailures.push({itemId: fp.id, atomId: fp.atomId, reason: "PROVIDER_ACCESS_CHECK_TARGET_LIMIT"});
+                  continue;
+                }
+                render("Checking configured video source " + (requests.size + 1) + " · " + fp.name);
+                const read = await accessReader.readPanoptoDeliveryInfo(targetUrl),
+                  target = directPanoptoAutomaticTargetV1(targetUrl);
+                requests.set(targetUrl, {reason: read.reason || "", receipt: read.receipt ? receipt(read, target.deliveryPublicId) : null});
+              }
+              checks.push({itemId: fp.id, atomId: fp.atomId, providerId: binding.providerId,
+                targetUrl, sources, request: requests.get(targetUrl)});
+            }
+          } catch (error) {
+            nativeFailures.push({itemId: fp.id, atomId: fp.atomId,
+              reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PROVIDER_ACCESS_SOURCE_UNAVAILABLE"});
+          }
+        }
+      } catch (error) {
+        stopReason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PROVIDER_ACCESS_CHECK_FAILED";
+      } finally {
+        if (accessReader.snapshot().stopped) stopReason = accessReader.snapshot().stopReason;
+        accessReader.abort("PROVIDER_ACCESS_CHECK_FINISHED");
+        accessReader = null;
+        state.diagnosing = false;
+      }
+      try {
+        state.accessDiagnostic = directProviderAccessDiagnosticV1({courseId, courseSlug: slug,
+          pageUrl: location.origin + initialPath, checkedAt, items: checks, nativeFailures, stopReason});
+        accessText.textContent = directProviderAccessDiagnosticTextV1(state.accessDiagnostic);
+        state.phase = "Panopto access check finished";
+        render("This is an access diagnostic, not a course capture. Copy the result or download the small report to share in this chat.");
+      } catch (_) {
+        state.accessDiagnostic = null;
+        state.phase = "Access report could not be prepared";
+        render("The diagnostic exceeded its report limit or could not validate its source binding. Saved course progress was not changed.");
+      }
+    }
+    async function copyAccessResult() {
+      if (!state.accessDiagnostic || state.running || state.diagnosing || exporting) return;
+      const text = directProviderAccessDiagnosticTextV1(state.accessDiagnostic);
+      try {
+        if (!navigator.clipboard?.writeText) throw Error("CLIPBOARD_UNAVAILABLE");
+        await navigator.clipboard.writeText(text);
+        detail.textContent = "Access result copied. Paste it into this chat.";
+      } catch (_) {
+        accessFallback.value = text;
+        accessFallback.hidden = false;
+        accessFallback.focus?.();
+        accessFallback.select?.();
+        detail.textContent = "Select and copy the access result below, or download the small access report.";
+      }
+    }
+    function downloadAccessReport() {
+      if (!state.accessDiagnostic || state.running || state.diagnosing || exporting) return;
+      const blob = new Blob([JSON.stringify(state.accessDiagnostic, null, 2)], {type: "application/json"}),
+        url = URL.createObjectURL(blob), anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "CTI_PANOPTO_ACCESS_DIAGNOSTIC_" + courseId + "_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
     async function run() {
       if (
         state.running ||
+        state.diagnosing ||
         exporting ||
         state.terminal ||
         location.origin !== "https://www.coursera.org" ||
@@ -1434,6 +1579,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.2.0-bound-reading-media-20261014",
             "v1.3.0-deduplicated-original-archive-20261014",
             "v1.4.0-bound-content-integrity-20261015",
+            "v1.5.0-bound-widget-configuration-20261015",
+            "v1.6.0-integrated-panopto-bookmark-20261015",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1752,9 +1899,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       operatorStopped = true;
       reader?.abort("OPERATOR_PAUSED");
       mediaReader?.abort("OPERATOR_PAUSED");
+      accessReader?.abort("OPERATOR_PAUSED");
     };
     state.resume = () => void run();
     state.export = () => void download();
+    state.start = () => void run();
+    state.checkProviderAccess = () => void checkProviderAccess();
+    startButton.onclick = state.start;
+    accessButton.onclick = state.checkProviderAccess;
+    copyAccessButton.onclick = () => void copyAccessResult();
+    downloadAccessButton.onclick = downloadAccessReport;
     stopButton.onclick = state.stop;
     resumeButton.onclick = state.resume;
     downloadButton.onclick = state.export;
@@ -1762,8 +1916,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       operatorStopped = true;
       reader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       mediaReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
+      accessReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
     });
-    await run();
+    render("Choose Capture/resume course, or check only Panopto access without recapturing the course.");
   })().catch(() => {
     alert(
       "CTI capture could not start. Open the course Content page and try the bookmark again.",

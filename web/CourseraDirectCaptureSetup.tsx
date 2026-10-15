@@ -87,7 +87,9 @@ export default function CourseraDirectCaptureSetup({
           <span>
             Open the authoring course in your usual signed-in Chrome profile.
             The same bookmark works for other courses and opens no item editors.
-            Keep the Coursera tab open while its progress card runs.
+            Choose Capture/resume course on its card, then keep the tab open
+            while it runs. Choose Check Panopto access to test only the
+            configured video sources without recapturing course content.
           </span>
         </li>
         <li>
@@ -98,7 +100,7 @@ export default function CourseraDirectCaptureSetup({
             The progress card offers Download saved capture if Chrome blocks the
             download. Check the file below before using it in Compare. If
             capture is interrupted, reopen the same course’s Content page and
-            click the same bookmark. CTI checks current sources before reusing
+            click the same bookmark and choose Capture/resume course. CTI checks current sources before reusing
             matching saved reads. A finished capture with evidence gaps can
             refresh plugin sources and continue file downloads without
             collecting its saved questions again.
@@ -107,10 +109,17 @@ export default function CourseraDirectCaptureSetup({
       </ol>
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
-        resuming. This version can continue saved v1.2–v1.5 progress that reached
+        resuming. This version can continue saved v1.2–v1.6 progress that reached
         its media limit or finished with evidence gaps. It rechecks the current
         course sources and preserves earlier assessment observations and their
         dates.
+      </p>
+      <p className="hint">
+        If a previous Panopto error is no longer visible, use Check Panopto
+        access. It keeps saved course progress unchanged and offers Copy access
+        result and Download access report. It records browser policy events
+        when available; an unclassified failure remains a combined CORS or
+        network uncertainty. This check does not verify video bytes or captions.
       </p>
       <div className="action-links">
         {!disabled && delivery.address && (

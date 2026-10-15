@@ -3,6 +3,7 @@ import { CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
   CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1 } from './direct-data-widget.js';
 import { directPanoptoAutomaticTargetV1, sanitizeDirectPanoptoModelV1,
   directPanoptoPodcastBindingsV1 } from './direct-data-panopto.js';
+import { createDirectProviderDiagnosticsV1 } from './direct-data-provider-diagnostics.js';
 
 /** Bounded transport for the observed Coursera authoring GET resources.
  * The caller supplies source binding and credential sanitization. This module
@@ -37,6 +38,10 @@ export function createDirectDataReaderV1(options = {}) {
     } catch {stats.statsHookFailures++;}
   }
   function failure(job, reason) {
+    if (job?.diagnostics) job.receipt.diagnostics=job.diagnostics.finish(
+      reason==='PANOPTO_REQUEST_TIMEOUT' ? 'TIMEOUT' :
+      (stopReason || /(?:ABORTED|STOPPED)$/.test(reason)) ? 'ABORTED' :
+      reason==='PANOPTO_ACCESS_BLOCKED_OR_FAILED' ? 'CORS_OR_NETWORK' : 'UNKNOWN');
     return {ok:false, data:null, reason, authenticationFailed,
       receipt:job?.receipt ? {...job.receipt,
         requestQuery:job.receipt.requestQuery.map(pair=>pair.slice()),
@@ -166,6 +171,8 @@ export function createDirectDataReaderV1(options = {}) {
     const d=job.descriptor, controller=new AbortController();
     job.controller=controller;controllers.add(controller);
     job.receipt=receiptFor(d);stats.requests++;
+    job.diagnostics=createDirectProviderDiagnosticsV1(d.url.href,options.policyDocument);
+    job.receipt.diagnostics=job.diagnostics.snapshot();
     stats.byResource[d.resource]=(stats.byResource[d.resource] || 0)+1;notify();
     let response;
     function active() {return !controller.signal.aborted && current();}
@@ -175,6 +182,8 @@ export function createDirectDataReaderV1(options = {}) {
         body:new URLSearchParams(d.form).toString(),signal:controller.signal});
       if (!active()) {await discard(response);return failure(job,stopReason || job.cancelReason || 'PANOPTO_REQUEST_ABORTED');}
       job.receipt.status=Number(response.status || 0);
+      job.diagnostics.recordHttp(job.receipt.status);
+      job.receipt.diagnostics=job.diagnostics.snapshot();
       if (!response.ok || response.status!==200) {await discard(response);return failure(job,'PANOPTO_HTTP_'+Number(response.status || 0));}
       if (response.redirected || (response.url || d.url.href)!==d.url.href) {
         await discard(response);return failure(job,'PANOPTO_UNEXPECTED_REDIRECT');
@@ -207,6 +216,7 @@ export function createDirectDataReaderV1(options = {}) {
       job.receipt.credentialUrlsRedacted=Math.max(0,Number(sanitized.redactedUrls) || 0);
       job.receipt.protectedContentIdFieldsRestored=Math.max(0,Number(sanitized.protectedContentIdFieldsRestored) || 0);
       if (!active()) return failure(job,stopReason || job.cancelReason || 'PANOPTO_REQUEST_ABORTED');
+      job.receipt.diagnostics=job.diagnostics.snapshot();
       const result={ok:true,data:sanitized.data,receipt:{...job.receipt},reason:'',authenticationFailed:false};
       Object.defineProperty(result,'takePanoptoPodcastLocation',{enumerable:false,value:streamFileId=>{
         const location=current() ? locations.get(streamFileId) || '' : '';
@@ -214,6 +224,9 @@ export function createDirectDataReaderV1(options = {}) {
       }});
       return result;
     } catch {
+      // Browsers can queue the matching CSP event after rejecting fetch. One
+      // bounded task turn observes that event without retrying or probing URLs.
+      if (!stopReason && !controller.signal.aborted) await new Promise(resolve=>setTimeout(resolve,0));
       return failure(job,stopReason || job.cancelReason || (controller.signal.aborted?'PANOPTO_REQUEST_ABORTED':'PANOPTO_ACCESS_BLOCKED_OR_FAILED'));
     } finally {controllers.delete(controller);job.controller=null;}
   }
@@ -338,7 +351,7 @@ export function createDirectDataReaderV1(options = {}) {
       },Math.max(1,job.deadline-Date.now()));
     });
     try {return await Promise.race([job.descriptor.external?attemptPanopto(job):retries(job),cancelled]);}
-    finally {clearTimeout(timer);cancellation.signal.removeEventListener('abort',listener);}
+    finally {clearTimeout(timer);cancellation.signal.removeEventListener('abort',listener);job.diagnostics?.close();}
   }
   function pump() {
     if (!current()) return;
