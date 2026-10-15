@@ -22,6 +22,10 @@ import {
   sourceBankSettings,
   sourceBankQuestionInputs,
 } from "./source-bank-summary.ts";
+import {
+  validatePanoptoDeliveryInfoCapture,
+  panoptoDeliveryInfoText,
+} from "./panopto-delivery-info.ts";
 
 export interface ItemContentView {
   source: ContentEvidence[];
@@ -104,6 +108,7 @@ export function itemContentView(
   sources: SourceQuestionCapture[] = [],
   plugins: EvidenceObject[] = [],
   linked: CourseraLinkedCapture[] = [],
+  panoptoCaptures: EvidenceObject[] = [],
 ): ItemContentView {
   validateSourceCaptureTargets(task.sourceTargets, sources);
   validateCourseraLinkedCaptures(linked, task.id);
@@ -175,6 +180,37 @@ export function itemContentView(
         editorObserved: capture.editorObserved === true,
       })
     : old;
+  const panoptoObservations: ContentEvidence[] = panoptoCaptures.map((value) => {
+    const p = validatePanoptoDeliveryInfoCapture(value);
+    if (p.itemId !== task.id)
+      throw Error("Panopto metadata belongs to another course item.");
+    const currentTarget = current.references.includes(p.targetUrl);
+    return {
+      ...capturedContent({}, {
+        basis: currentTarget
+          ? "Manually imported Panopto metadata — media bodies unverified"
+          : "Previous Panopto metadata — current course reference unverified",
+        url: p.targetUrl,
+      }),
+      text: panoptoDeliveryInfoText(p),
+      textCoverage: "PARTIAL",
+      textReason: "Provider metadata and navigation labels; video and transcript content are not captured here.",
+      references: [...new Set([
+        p.targetUrl,
+        ...p.streams.flatMap((stream) => [
+          stream.url,
+          stream.httpUrl,
+          ...stream.variants.map((variant) => variant.url),
+        ]).filter((url): url is string => typeof url === "string" && !!url),
+      ])],
+      limitations: [
+        ...p.limitations,
+        ...(currentTarget ? [] : [
+          "This target is absent from the current captured references. Its earlier metadata remains separate from current course evidence.",
+        ]),
+      ],
+    };
+  });
   return {
     source,
     courseraTargets,
@@ -182,7 +218,7 @@ export function itemContentView(
     previousLinkedCoursera,
     coursera: current,
     ...(capture ? { previousCoursera: old } : {}),
-    observations: plugins.map((p) =>
+    observations: [...plugins.map((p) =>
       capturedContent(
         {
           textSample: p.text,
@@ -195,7 +231,7 @@ export function itemContentView(
           url: p.openedUrl,
         },
       ),
-    ),
+    ), ...panoptoObservations],
   };
 }
 export function itemContentText(name: string, view: ItemContentView) {

@@ -104,6 +104,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                 updatedBy: d.review?.updatedBy,
                 hasCapture: !!d.review?.capture,
                 pluginCaptureCount: d.review?.pluginCaptures?.length || 0,
+                panoptoCaptureCount: d.review?.panoptoCaptures?.length || 0,
               },
             }
           : record.kind === "checklist"

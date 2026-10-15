@@ -18,6 +18,7 @@ import {
 import type { EvidenceObject } from "./workspace-types.ts";
 import { ownerScope, type ItemRelevance } from "./owner-scope.ts";
 import type { TimeEstimate } from "./owner-time.ts";
+import { validatePanoptoDeliveryInfoCapture } from "./panopto-delivery-info.ts";
 
 export type OwnerProgress =
   | "open"
@@ -33,6 +34,7 @@ export interface OwnerReview {
   updatedBy: string;
   capture?: EvidenceObject;
   pluginCaptures?: EvidenceObject[];
+  panoptoCaptures?: EvidenceObject[];
   sourceCounts?: ReviewedSourceCount[];
   sourceCaptures?: SourceQuestionCapture[];
   courseraLinkedCaptures?: CourseraLinkedCapture[];
@@ -304,6 +306,17 @@ export function validateOwnerReview(review: OwnerReview) {
     throw Error("Choose automatic, relevant or not relevant for this item.");
   if (review.courseraLinkedCaptures != null)
     validateCourseraLinkedCaptures(review.courseraLinkedCaptures);
+  if (review.panoptoCaptures != null) {
+    if (!Array.isArray(review.panoptoCaptures) || review.panoptoCaptures.length > 12)
+      throw Error("Invalid Panopto metadata captures.");
+    const targets = new Set<string>();
+    for (const capture of review.panoptoCaptures) {
+      const checked = validatePanoptoDeliveryInfoCapture(capture);
+      if (targets.has(checked.targetUrl))
+        throw Error("Duplicate Panopto metadata for this item.");
+      targets.add(checked.targetUrl);
+    }
+  }
   if (review.sourceCaptures != null) {
     if (
       !Array.isArray(review.sourceCaptures) ||
