@@ -19,6 +19,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run worker:check
+      - name: Verify public provider reads in the actual Workers runtime
+        run: npm run test:worker:provider
       - name: Probe public source definitions (diagnostic, no credentials)
         run: node tools/check-public-source-questions.mjs
 

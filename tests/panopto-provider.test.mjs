@@ -76,6 +76,8 @@ function optionsFor(f, changes = {}) {
     options: {
       mediaHosts: [mediaHost],
       fetcher: async (url, options) => {
+        // Workers accepts follow/manual, and this reader must never follow.
+        assert.equal(options.redirect, "manual");
         calls.push({ url: String(url), options });
         return new URL(url).pathname === metadataPath
           ? metadataResponse(url, f)
@@ -149,7 +151,7 @@ test("metadata returns exact validated wire JSON and a fixed credential-free POS
   assert.equal(call.url, "https://fixture.hosted.panopto.com" + metadataPath);
   assert.equal(call.options.method, "POST");
   assert.equal(call.options.credentials, "omit");
-  assert.equal(call.options.redirect, "error");
+  assert.equal(call.options.redirect, "manual");
   const headers = new Headers(call.options.headers);
   assert.equal(
     headers.get("content-type"),
@@ -284,6 +286,48 @@ test("metadata byte bounds reject declared and streamed overflow while cancellin
   }
 });
 
+test("manual metadata and podcast redirects are rejected without requesting their destinations", async () => {
+  const f = fixture();
+  for (const [kind, redirectStatus] of [["metadata", 302], ["podcast", 307]]) {
+    const calls = [];
+    let cancelled = 0;
+    const options = {
+      mediaHosts: [mediaHost],
+      fetcher: async (url, init) => {
+        assert.equal(init.redirect, "manual");
+        calls.push(String(url));
+        if (kind === "podcast" && calls.length === 1)
+          return metadataResponse(url, f);
+        return responseAt(url, new ReadableStream({
+          cancel() { cancelled++; },
+        }), {
+          status: redirectStatus,
+          headers: { Location: "https://unapproved.example.test/" + secret },
+        });
+      },
+    };
+    const response = kind === "metadata"
+      ? await readPanoptoProviderMetadata(f.targetUrl, options)
+      : await readPanoptoProviderPodcast(f.request, options);
+    assert.equal(response.status, 502);
+    assertHeaders(response, {
+      requests: kind === "metadata" ? 1 : 2,
+      status: redirectStatus,
+      bytes: 0,
+      validationBytes: kind === "metadata" ? 0 : Buffer.byteLength(f.raw),
+    });
+    assert.deepEqual(await response.json(), {
+      error: "PANOPTO_PROVIDER_HTTP_" + redirectStatus,
+    });
+    assert.deepEqual(calls, [
+      "https://fixture.hosted.panopto.com" + metadataPath,
+      ...(kind === "podcast" ? [f.model.Delivery.PodcastStreams[0].StreamUrl] : []),
+    ]);
+    assert.equal(cancelled, 1);
+    assert(!JSON.stringify([...response.headers]).includes(secret));
+  }
+});
+
 test("podcast performs fresh metadata validation before its exact signed media GET and streams literal bytes", async () => {
   const f = fixture(),
     { calls, options } = optionsFor(f);
@@ -295,7 +339,7 @@ test("podcast performs fresh metadata validation before its exact signed media G
   assert.equal(calls[1].url, f.model.Delivery.PodcastStreams[0].StreamUrl);
   assert.equal(calls[1].options.method, "GET");
   assert.equal(calls[1].options.credentials, "omit");
-  assert.equal(calls[1].options.redirect, "error");
+  assert.equal(calls[1].options.redirect, "manual");
   assert.equal(
     new Headers(calls[1].options.headers).get("authorization"),
     null,

@@ -234,6 +234,15 @@ signs and Unicode; decoding yields the exact linked program without eval,
 compression or a remote script loader. Generation and UI delivery enforce the
 same 500 KiB bound. Saved v1.6.1 progress remains recoverable.
 
+The server reader uses `redirect: "manual"` and rejects 3xx responses without
+following them. Cloudflare's Workers runtime does not implement the browser
+`redirect: "error"` value; Node-only fetch fixtures do not detect this runtime
+difference. `npm run test:worker:provider` bundles the maintained provider reader
+and exercises it in workerd with only in-memory outbound services and no
+listening sockets or external requests. This check is a required CI step;
+native metadata and rendition bytes, source identity and redirect rejection
+remain separate from live public provider availability.
+
 An item's captured Panopto target can also receive a manually copied
 `DeliveryInfo.aspx` response in its owner card. This is a separate, report-bound
 metadata supplement, not a rewritten course capture or a newly observed source

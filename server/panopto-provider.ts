@@ -71,7 +71,7 @@ async function upstream(url: string, init: RequestInit, usage: Usage, options: P
   scope: ReturnType<typeof requestScope>) {
   scope.controller.signal.throwIfAborted();
   usage.requests++;usage.status = 0;usage.observedAt = "";
-  const pending = (options.fetcher || fetch)(url, {...init, credentials: "omit", redirect: "error", signal: scope.controller.signal});
+  const pending = (options.fetcher || fetch)(url, {...init, credentials: "omit", redirect: "manual", signal: scope.controller.signal});
   void pending.then(response => {if (scope.controller.signal.aborted) void discard(response);}, () => {});
   const response = await scope.wait(pending);
   usage.status = Number(response.status || 0);usage.observedAt = new Date().toISOString();
