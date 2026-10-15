@@ -972,6 +972,26 @@ test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates ret
   assert.equal(app.downloads.length, 2, "Each acquisition attempt emits one ZIP file");
 });
 
+test("retained proof cannot promote an unresolved item before fresh current source reads", async () => {
+  const app = harness({ids: ["ReadingA"]});
+  app.execute(); await app.idle();
+  const runId = app.state().runId, saved = app.runs.get(runId), row = app.items.get(runId + "/ReadingA");
+  row.fingerprint.captureContract.complete = false;
+  row.fingerprint.captureContract.reasons = ["DIRECT_READING_ASSETS_UNRESOLVED"];
+  saved.state = "INCOMPLETE";
+  saved.buildId = "v1.3.0-deduplicated-original-archive-20261014";
+  Object.assign(saved.captureMeta.directDataCapture, {
+    acquisitionComplete: true, sourceStable: true, wholeCourseVerified: false,
+    stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
+  });
+  const before = app.calls.length;
+  app.execute(); await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert.equal(app.calls.slice(before).filter(call => call.resource === "atom" && call.id === "Atom_ReadingA").length, 2,
+    "Rechecking retained text cannot skip both fresh bound atom reads for an unresolved item");
+  assert.equal(app.state().state, "COMPLETE");
+});
+
 test("missing local original bodies allow a bound current media read to recover", async () => {
   const fixture = readingMediaOptions(), app = harness(fixture.options);
   app.execute(); await app.idle();

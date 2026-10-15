@@ -373,7 +373,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (!row?.fingerprint || row.fingerprint.id !== fp.id) continue;
         // Recheck retained evidence one item at a time. Source receipts and
         // capture timestamps remain the original observations.
-        const retained = row.fingerprint;
+        const retained = row.fingerprint,
+          previouslyComplete = retained.captureContract?.complete === true;
         const bodiesAvailable = await hydrateItemBodies(retained, true);
         try {
           const bound = bindDirectAuthoringDraftV1(
@@ -404,6 +405,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (!inventory.leaves.get(fp.id).structural)
             directUnsupportedContractV1(retained, "DIRECT_RETAINED_SOURCE_REVALIDATION_FAILED");
         }
+        // A current pure verifier may withdraw historical completion. It
+        // cannot replace the fresh reads needed to finish an unresolved item.
+        if (!previouslyComplete && retained.captureContract?.complete === true)
+          directUnsupportedContractV1(retained, "DIRECT_RETAINED_SOURCE_REQUIRES_CURRENT_CHECK");
         if (!bodiesAvailable || retained.payload?.directResumeRevalidation?.verified === false)
           directUnsupportedContractV1(retained, !bodiesAvailable
             ? "DIRECT_ARCHIVE_BODY_UNAVAILABLE"
