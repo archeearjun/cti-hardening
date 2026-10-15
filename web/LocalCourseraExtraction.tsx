@@ -642,6 +642,10 @@ export default function LocalCourseraExtraction({
                     " readings with media references"}
                 </li>
                 <li>
+                  Discussions: {inspection.directSummary.coverage.discussions.verified}/
+                  {inspection.directSummary.coverage.discussions.total} reported complete
+                </li>
+                <li>
                   External widgets: {inspection.directSummary.coverage.widgets.verified}/
                   {inspection.directSummary.coverage.widgets.total} reported complete
                   {" · "}{inspection.directSummary.coverage.structures.verified} empty
@@ -650,7 +654,7 @@ export default function LocalCourseraExtraction({
               </ul>
               {inspection.directSummary.mediaContinuation && (
                 <p className="hint">
-                  Reading-media continuation. Inventory counts include saved
+                  Reading and discussion media continuation. Inventory counts include saved
                   observations from the earlier capture.
                   {inspection.directSummary.mediaContinuation.retainedAssessmentObservations &&
                     " The assessment and widget observations keep their original timestamps; questions were not re-read in this attempt."}

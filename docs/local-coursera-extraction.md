@@ -1,6 +1,6 @@
 # Automatic Coursera capture in local Chrome
 
-## One bookmark click per course with the v1.3 archive
+## One bookmark click per course with the v1.4 content checks
 
 The primary local workflow is **CTI course capture** in Extract. Save this
 bookmark once, or replace the URL of an earlier saved bookmark with the current
@@ -16,11 +16,14 @@ manual unzipping is unnecessary. The archive contains a compressed
 references; binary files are not expanded into base64 in the manifest. CTI
 independently checks each original's ownership, length, MIME, signature and
 SHA-256 before it counts as verified media. Earlier JSON and `.json.gz` captures
-remain supported.
+remain supported. Version 1.4 also captures supported native discussion
+attachments and native file anchors. It compares projected text, question
+options, answer keys and feedback against retained source definitions and
+keeps unsupported content explicit.
 
 If a run is interrupted, use the same Chrome profile, reopen the same course's
 Content page and click the bookmark. Saved progress stays in IndexedDB. The
-current bookmark can also continue a finished v1.2 capture with missing media:
+current bookmark can also continue a finished v1.2 or v1.3 capture with missing media:
 when its source identity still matches, CTI keeps the saved assessment evidence
 and original observation dates and reads the unresolved media. It does not
 reread the saved question definitions. A newer source version is not silently
