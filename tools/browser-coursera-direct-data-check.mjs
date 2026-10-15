@@ -26,10 +26,11 @@ try{const policy=JSON.parse(fs.readFileSync('/etc/chromium/policies/managed/urls
 execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',path.join(scratch,'key.pem'),
   '-out',path.join(scratch,'cert.pem'),'-subj','/CN=www.coursera.org','-days','1'],{stdio:'ignore'});
 const groupResource='authoringAssignmentQuestionGroups.v1',definitionResource='authoringAssignmentMachineEvaluableQuestions.v1';
-const resources=new Set(['authoringCourseMaterials.v1','authoringCourses.v2','authoringAtoms.v2','authoringItemContentRelations.v1',groupResource,definitionResource,'assets.v1']);
+const providerResource='authoringWidgetSessionProviders.v1';
+const resources=new Set(['authoringCourseMaterials.v1','authoringCourses.v2','authoringAtoms.v2','authoringItemContentRelations.v1',groupResource,definitionResource,'assets.v1',providerResource]);
 const mediaOrigin='https://fixture-cdn.cloudfront.net';
 const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-token','fixture-asset-signed-secret'];
-const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),assets=new Map(),fileSizes=new WeakMap();
+const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),assets=new Map(),providers=new Map(),fileSizes=new WeakMap();
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 const pngBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7sAAAAAASUVORK5CYII=','base64');
 const pdfBytes=Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\ntrailer\n<< /Root 1 0 R /Size 3 >>\n%%EOF\n');
@@ -164,6 +165,18 @@ for(const row of atoms.values())if(row.courseId===sixWidgets.id&&Number(row.item
   const leaf=sixWidgets.material.material.elements[0].elements[0].elements.find(item=>item.id===row.itemId);
   leaf.content={typeName:'ungradedWidget',definition:{widgetId:'fixture-external-widget'}};
 }
+const configuredWidgets=makeCourse('Direct_widget_sources_123','large-export');
+for(const row of atoms.values())if(row.courseId===configuredWidgets.id&&['item_0002','item_0003'].includes(row.itemId)){
+  const providerId=key('provider_',Number(row.itemId.slice(5)));
+  row.atom.draft.name='Same widget title';
+  row.atom.draft.content={typeName:'widgetDraft',definition:{providerId,isGraded:false,iframeTitle:'Same widget title'}};
+  const leaf=configuredWidgets.material.material.elements[0].elements[0].elements.find(item=>item.id===row.itemId);
+  leaf.name='Same widget title';leaf.content={typeName:'widget',definition:{widgetSessionProviderId:providerId+'@1'}};
+  const url='https://video.example.test/embed?id='+row.itemId+'&autoplay=false&captions=true&interactivity=all';
+  providers.set(providerId,{courseId:row.courseId,itemId:row.itemId,value:{id:providerId,isPublished:false,metadata:{updatedAt:1000},
+    draft:{configuration:{url,opaqueSetting:'Exact source '+row.itemId},pageSrc:url,iframeTitle:'Same widget title',widgetVersionId:'synthetic-widget@1'},
+    writeAccessToken:secrets[1]}});
+}
 const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem')),cert:fs.readFileSync(path.join(scratch,'cert.pem'))},(request,response)=>{
   const url=new URL(request.url,origin);
   if(request.headers.host==='fixture-cdn.cloudfront.net'){
@@ -190,9 +203,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       ${config?.mode==='limited'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:4};':config?.mode==='budget-resume'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:40};':''}
     </script>`);return;
   }
-  const [, ,resource,...tail]=url.pathname.split('/'),reference=resource==='assets.v1'?url.searchParams.get('ids'):
+  const [, ,resource,...tail]=url.pathname.split('/'),reference=resource===providerResource?url.searchParams.get('widgetSessionProviderId'):resource==='assets.v1'?url.searchParams.get('ids'):
     decodeURIComponent(tail.join('/').replace(/\/$/,''));
-  const binding=atoms.get(reference)||groups.get(reference)||definitions.get(reference)||assets.get(reference),courseId=binding?.courseId||reference;
+  const binding=atoms.get(reference)||groups.get(reference)||definitions.get(reference)||assets.get(reference)||providers.get(reference),courseId=binding?.courseId||reference;
   const config=configs.get(courseId),inFlight=(active.get(courseId)||0)+1;
   active.set(courseId,inFlight);maximum.set(courseId,Math.max(maximum.get(courseId)||0,inFlight));
   let settled=false;const settle=()=>{if(settled)return;settled=true;active.set(courseId,(active.get(courseId)||1)-1);};
@@ -202,7 +215,15 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   response.setHeader('Content-Type','application/json; charset=utf-8');
   let value;
   if(!config||!resources.has(resource)){response.statusCode=404;response.end('{}');return;}
-  if(resource==='assets.v1'){
+  if(resource===providerResource){
+    assert.equal(url.pathname,'/api/'+providerResource+'/');
+    assert.equal(url.searchParams.get('q'),'getWithCourseId');
+    assert.equal(url.searchParams.get('courseId'),courseId);
+    assert.equal(url.searchParams.get('widgetSessionProviderId'),reference);
+    assert(!url.searchParams.has('action'));
+    value=structuredClone(binding.value);
+  }
+  else if(resource==='assets.v1'){
     const count=(config.assetGets.get(reference)||0)+1;config.assetGets.set(reference,count);
     assert.equal(url.pathname,'/api/assets.v1');assert.equal(url.searchParams.get('ids'),reference);
     assert.equal(request.headers['x-coursera-naptime-fields'],'ALL');
@@ -240,7 +261,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     value=structuredClone(definitions.get(reference)?.value);
   }
   if(!value){response.statusCode=404;response.end('{}');return;}
-  setTimeout(()=>{if(!response.destroyed)response.end(JSON.stringify({elements:[value],paging:{},linked:{}}));},config.mode==='resume'?8:1);
+  const linked=resource===providerResource?{'authoringWidgetSummaries.v1':[{id:'synthetic-widget@1',
+    configurationExamples:[{configuration:{url:'https://example.test/format-example'}}]}]}:{};
+  setTimeout(()=>{if(!response.destroyed)response.end(JSON.stringify({elements:[value],paging:{},linked}));},config.mode==='resume'?8:1);
 });
 let browser,heartbeat;
 try{
@@ -751,6 +774,47 @@ try{
     'Retaining six widget references does not verify their external implementation');
   await widgets.context.close();
 
+  const configured=await runFileCase(configuredWidgets);
+  const configuredItems=configured.capture.fingerprints.filter(fp=>fp.payload.directWidgetProviderEvidence);
+  assert.equal(configuredItems.length,2);
+  assert.equal(new Set(configuredItems.map(fp=>fp.name)).size,1,'Equal titles retain separate native identities');
+  for(const fp of configuredItems){
+    const evidence=fp.payload.directWidgetProviderEvidence;
+    assert.equal(fp.captureContract.sourceConfigurationVerified,true);
+    assert.equal(fp.captureContract.complete,false);assert.equal(fp.captureContract.externalBodyVerified,false);
+    assert.equal(evidence.itemId,fp.id);assert.equal(evidence.courseId,configuredWidgets.id);
+    assert.equal(evidence.initial.model.elements[0].id,evidence.providerId);
+    assert.equal(evidence.final.model.elements[0].id,evidence.providerId);
+    assert.equal(evidence.initial.model.elements[0].draft.configuration.opaqueSetting,'Exact source '+fp.id);
+    assert(evidence.targets.length===2&&evidence.targets.every(target=>target.url.includes('id='+fp.id)&&
+      target.url.includes('captions=true')&&target.bodyVerified===false&&target.playbackVerified===false));
+    assert(!evidence.targets.some(target=>target.url.includes('format-example')));
+  }
+  assert.equal(configured.capture.meta.directDataCapture.coverage.widgets.configurations,2);
+  assert.equal(evaluateCourseraCapture(configured.capture,configuredWidgets.id).complete,false);
+  const savedWidgetAssessments=configured.capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence);
+  for(const provider of providers.values())if(provider.courseId===configuredWidgets.id){
+    provider.value.draft.configuration.url+='&revision=2';provider.value.draft.pageSrc=provider.value.draft.configuration.url;
+    provider.value.metadata.updatedAt++;
+  }
+  await configured.page.reload();const widgetResumeStart=requests.length;
+  const widgetResumeDownload=configured.page.waitForEvent('download',{timeout:180000});void widgetResumeDownload.catch(()=>{});
+  await launch(configured.page,configured.context);const widgetResumeState=await terminal(configured.page);
+  const widgetResumed=await readFile(await widgetResumeDownload);
+  assert.equal(widgetResumeState.runId,configured.state.runId);
+  const resumedWidgetRequests=requests.slice(widgetResumeStart).filter(request=>request.courseId===configuredWidgets.id);
+  assert.equal(resumedWidgetRequests.filter(request=>request.resource===providerResource).length,4,
+    'Each distinct provider gets two current reads even when its atom is unchanged');
+  assert.equal(resumedWidgetRequests.filter(request=>request.resource===definitionResource||request.resource===groupResource).length,0,
+    'Refreshing widget configuration does not recollect saved question definitions or groups');
+  assert.deepEqual(widgetResumed.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence),savedWidgetAssessments);
+  for(const fp of widgetResumed.fingerprints.filter(fp=>fp.payload.directWidgetProviderEvidence)){
+    assert.equal(fp.captureContract.sourceConfigurationVerified,true);
+    assert(fp.payload.directWidgetProviderEvidence.targets.every(target=>target.url.includes('revision=2')));
+  }
+  assertTransport(configuredWidgets,widgetResumeStart);await assertNoEditor(configured.page,configured.destinations);
+  await configured.context.close();
+
   for(const config of [changed,changedMaterial,changedGroup,authentication,limited]){
     const target=await runFileCase(config);assert.equal(evaluateCourseraCapture(target.capture,config.id).complete,false);
     assert(target.capture.fingerprints.some(fp=>fp.captureContract?.complete!==true),'Failures remain explicit item gaps');
@@ -769,6 +833,7 @@ try{
     completeOriginalsBeyondOld64MiBCutoff:true,completedV12OriginalsMigratedIntoOneZip:true,
     interruptedMediaBodiesAndNativeDraftPreserved:true,resumedUnchangedBodiesNotDownloadedAgain:true,
     enrichmentNeverRereadsVerifiedAssessmentDefinitions:true,sixExternalWidgetsRemainUnverified:true,
+    sameTitleWidgetProvidersIsolated:true,configuredTargetsNotSummaryExamples:true,widgetSettingsRefreshWithoutAssessmentRecapture:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,
     finalDownloadsPerCompletedRun:1,noEditorNavigation:true,authenticationAndLimitsAndSourceChangesRemainGaps:true,
     scope:'Actual generated entry with synthetic authoring draft APIs; no private-course completeness or throughput claim.'}));

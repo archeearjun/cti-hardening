@@ -5,6 +5,13 @@ import {
   directMediaEvidenceStructureV1,
 } from "./direct-data-media-contracts.js";
 import { directAssetMetadataBindingV1 } from "./direct-data-media.js";
+import {
+  CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
+  CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1,
+  directDraftWidgetProviderV1,
+  directWidgetProviderSourceV1,
+  directWidgetProviderTargetsV1,
+} from "./direct-data-widget.js";
 
 export function directReceiptSourceValidV1(receipt, resource, id) {
   const hash = receipt?.originalResponseSha256 || receipt?.sha256;
@@ -1029,6 +1036,88 @@ export function directEmptyStructureContractV1(fp, bound, rawNode) {
     valid,
     valid ? [] : ["DIRECT_EMPTY_STRUCTURE_NOT_ESTABLISHED"],
   );
+}
+
+/** A finder receipt binds its exact selectors; it is not an ID-path resource. */
+export function directWidgetProviderReceiptValidV1(receipt, binding) {
+  if (
+    !binding || typeof binding.providerId !== "string" ||
+    typeof binding.courseId !== "string" ||
+    receipt?.resource !== "authoringWidgetSessionProviders.v1" ||
+    receipt.id !== binding.providerId ||
+    receipt.status !== 200 ||
+    receipt.requestPath !== "/api/authoringWidgetSessionProviders.v1/" ||
+    receipt.bodyFormat !== "PARSED_SANITIZED_JSON_MODEL" ||
+    !/^[a-f0-9]{64}$/.test(receipt.originalResponseSha256 || "") ||
+    receipt.sha256 !== receipt.originalResponseSha256 ||
+    !Array.isArray(receipt.requestQuery) ||
+    receipt.requestQuery.length !== 5
+  )
+    return false;
+  const expected = {
+    q: "getWithCourseId",
+    widgetSessionProviderId: binding.providerId,
+    courseId: binding.courseId,
+    fields: CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
+    includes: CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1,
+  };
+  const seen = new Set();
+  for (const pair of receipt.requestQuery) {
+    if (
+      !Array.isArray(pair) || pair.length !== 2 ||
+      typeof pair[0] !== "string" || typeof pair[1] !== "string" ||
+      !Object.prototype.hasOwnProperty.call(expected, pair[0]) ||
+      seen.has(pair[0]) || expected[pair[0]] !== pair[1]
+    )
+      return false;
+    seen.add(pair[0]);
+  }
+  return seen.size === 5;
+}
+
+/** Configuration source coverage is separate from the external widget body. */
+export function directWidgetEvidenceValidV1(fp, bound) {
+  if (!directSourceBindingEvidenceV1(fp, bound)) return false;
+  const raw = fp?.payload?.directWidgetProviderEvidence;
+  try {
+    const binding = directDraftWidgetProviderV1(bound);
+    if (
+      raw?.method !== "BOUND_AUTHORING_WIDGET_PROVIDER" ||
+      raw.providerId !== binding.providerId || raw.courseId !== binding.courseId ||
+      raw.itemId !== binding.itemId || raw.atomId !== binding.atomId ||
+      raw.sourceState !== "AUTHORING_DRAFT" || raw.stableSource !== true ||
+      raw.bodyVerified !== false || raw.playbackVerified !== false ||
+      raw.launchVerified !== false || raw.wholeWidgetVerified !== false ||
+      raw.binaryContentVerified === true || raw.externalBodyVerified === true ||
+      !/^[a-f0-9]{64}$/.test(raw.initial?.sourceHash || "") ||
+      raw.initial.sourceHash !== raw.final?.sourceHash ||
+      !directWidgetProviderReceiptValidV1(raw.initial.receipt, binding) ||
+      !directWidgetProviderReceiptValidV1(raw.final.receipt, binding)
+    )
+      return false;
+    const initial = directWidgetProviderSourceV1(bound, raw.initial.model),
+      final = directWidgetProviderSourceV1(bound, raw.final.model);
+    return (
+      directCanonicalSourceTextV1(initial) === directCanonicalSourceTextV1(final) &&
+      directCanonicalSourceTextV1(raw.targets) ===
+        directCanonicalSourceTextV1(directWidgetProviderTargetsV1(bound, raw.initial.model))
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+export function directWidgetContractV1(fp, bound) {
+  const evidence = directSourceBindingEvidenceV1(fp, bound);
+  if (evidence) fp.payload.directDataEvidence = evidence;
+  const valid = directWidgetEvidenceValidV1(fp, bound),
+    contract = applyDirectContractV1(
+      fp, "ACCOUNTED_EXTERNAL_TARGET_ONLY", false,
+      [valid ? "DIRECT_WIDGET_EXTERNAL_BODY_NOT_OBSERVED" : "DIRECT_WIDGET_PROVIDER_SOURCE_INVALID"],
+      false,
+    );
+  contract.sourceConfigurationVerified = valid;
+  return contract;
 }
 
 export function directUnsupportedContractV1(fp, reason, bound) {

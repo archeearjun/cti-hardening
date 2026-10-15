@@ -1,4 +1,6 @@
 import { sanitizeCourseraCourseDataModel } from './direct-data-privacy.js';
+import { CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
+  CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1 } from './direct-data-widget.js';
 
 /** Bounded transport for the observed Coursera authoring GET resources.
  * The caller supplies source binding and credential sanitization. This module
@@ -61,7 +63,7 @@ export function createDirectDataReaderV1(options = {}) {
     }
     return !stopReason;
   }
-  function descriptor(resource, id) {
+  function descriptor(resource, id, courseId) {
     if (typeof resource !== 'string' || typeof id !== 'string') return null;
     const simple = /^[A-Za-z0-9_-]{1,128}$/;
     const group = /^[A-Za-z0-9_-]{1,128}~[A-Za-z0-9_-]{1,128}$/;
@@ -82,6 +84,11 @@ export function createDirectDataReaderV1(options = {}) {
     } else if (resource === 'authoringAssignmentMachineEvaluableQuestions.v1') {
       if (!definition.test(id)) return null;
       all=true;includes='_links';fields='id,definition,validation';
+    } else if (resource === 'authoringWidgetSessionProviders.v1') {
+      if (!/^[A-Za-z0-9_-]{22}$/.test(id) || typeof courseId !== 'string' ||
+          !/^[A-Za-z0-9_-]{8,128}$/.test(courseId)) return null;
+      fields=CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1;
+      includes=CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1;collection=true;trailing=true;
     } else if (resource === 'assets.v1') {
       // This endpoint was observed in successful reading captures. Its known
       // multiGet format is used for one exact CML reference, never enumeration.
@@ -89,8 +96,12 @@ export function createDirectDataReaderV1(options = {}) {
       all=true;collection=true;
     } else return null;
     const pathKey=encodeURIComponent(id).replace(/%40/gi,'@');
-    const url=new URL('/api/'+resource+(collection?'':'/'+pathKey+(trailing?'/':'')),origin);
-    if (collection) url.searchParams.set('ids',id);
+    const url=new URL('/api/'+resource+(collection?(trailing?'/':''):'/'+pathKey+(trailing?'/':'')),origin);
+    if (resource === 'authoringWidgetSessionProviders.v1') {
+      url.searchParams.set('q','getWithCourseId');
+      url.searchParams.set('widgetSessionProviderId',id);
+      url.searchParams.set('courseId',courseId);
+    } else if (collection) url.searchParams.set('ids',id);
     if (resource === 'authoringAssignmentQuestionGroups.v1') url.searchParams.set('id',id);
     if (fields) url.searchParams.set('fields',fields);
     if (includes) url.searchParams.set('includes',includes);
@@ -195,7 +206,7 @@ export function createDirectDataReaderV1(options = {}) {
           typeof sanitized.data!=='object') return failure(job,'SANITIZER_INCOMPLETE');
       if (!Array.isArray(sanitized.data.elements) || sanitized.data.elements.length!==1 ||
           sanitized.data.elements[0]?.id!==job.descriptor.id) return failure(job,'SANITIZER_INCOMPLETE');
-      if (job.descriptor.resource === 'assets.v1') {
+      if (['assets.v1','authoringWidgetSessionProviders.v1'].includes(job.descriptor.resource)) {
         const protectedModel=sanitizeCourseraCourseDataModel(sanitized.data);
         if (protectedModel.limitReached) return failure(job,'SANITIZER_INCOMPLETE');
         sanitized={...protectedModel,removedFields:Math.max(0,Number(sanitized.removedFields) || 0)+protectedModel.removedFields,
@@ -273,7 +284,7 @@ export function createDirectDataReaderV1(options = {}) {
   }
   function read(value) {
     if (!value || typeof value!=='object' || Array.isArray(value) || value.url!==undefined) return Promise.resolve(failure(null,'INVALID_API_DESCRIPTOR'));
-    const d=descriptor(value.resource,value.id);
+    const d=descriptor(value.resource,value.id,value.courseId);
     if (!d) return Promise.resolve(failure(null,'INVALID_API_DESCRIPTOR'));
     if (typeof fetchImpl!=='function') return Promise.resolve(failure(null,'FETCH_UNAVAILABLE'));
     if (typeof options.sanitize!=='function') return Promise.resolve(failure(null,'SANITIZER_UNAVAILABLE'));
@@ -288,5 +299,6 @@ export function createDirectDataReaderV1(options = {}) {
     readRelation:id=>read({resource:'authoringItemContentRelations.v1',id}),
     readGroup:id=>read({resource:'authoringAssignmentQuestionGroups.v1',id}),
     readDefinition:id=>read({resource:'authoringAssignmentMachineEvaluableQuestions.v1',id}),
-    readAsset:id=>read({resource:'assets.v1',id})};
+    readAsset:id=>read({resource:'assets.v1',id}),
+    readWidgetProvider:(id,courseId)=>read({resource:'authoringWidgetSessionProviders.v1',id,courseId})};
 }

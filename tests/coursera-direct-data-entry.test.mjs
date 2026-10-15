@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { webcrypto, createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import JSZip from "jszip";
+import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
+  directWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
 import ts from "typescript";
@@ -113,12 +115,15 @@ function harness(options = {}) {
     materialRevision: 1,
   };
   const ids = options.ids || ["ReadingA", "ReadingB"];
+  const widgetAtoms = new Map((options.widgetIds || []).map((id, index) => [id, String.fromCharCode(75 + index).repeat(22)]));
+  const widgetProviders = new Map((options.widgetIds || []).map((id, index) => [id, String.fromCharCode(112 + index).repeat(22)]));
+  const widgetItemsByAtom = new Map([...widgetAtoms].map(([id, atom]) => [atom, id]));
   const fingerprint = (id) => ({
     id,
-    type: options.assignmentIds?.includes(id) ? "assignment" : "reading",
-    typeName: options.assignmentIds?.includes(id) ? "staffGraded" : "supplement",
+    type: widgetAtoms.has(id) ? "Plugin" : options.assignmentIds?.includes(id) ? "assignment" : "reading",
+    typeName: widgetAtoms.has(id) ? "ungradedWidget" : options.assignmentIds?.includes(id) ? "staffGraded" : "supplement",
     name: id,
-    atomId: "Atom_" + id,
+    atomId: widgetAtoms.get(id) || "Atom_" + id,
     payload: {},
     sourceIdentity: {},
   });
@@ -297,7 +302,7 @@ function harness(options = {}) {
       metrics.stopped = true;
       metrics.stopReason ||= reason;
     }
-    async function read(resource, id) {
+    async function read(resource, id, courseId) {
       if (!readerOptions.assertCurrent()) abort("CONTEXT_CHANGED");
       if (metrics.requests >= limits.requests)
         abort("COURSE_API_REQUEST_LIMIT");
@@ -312,6 +317,7 @@ function harness(options = {}) {
         factory: readerIndex,
         resource,
         id,
+        ...(courseId ? { courseId } : {}),
         at: now,
       };
       calls.push(call);
@@ -335,12 +341,20 @@ function harness(options = {}) {
           draft: {
             name: id,
             content: clone(
-              options.readingContent?.({ factory: readerIndex, id }) || {
+              options.readingContent?.({ factory: readerIndex, id }) ||
+              (widgetItemsByAtom.has(id) ? {
+                typeName: "widgetDraft", definition: { providerId: widgetProviders.get(widgetItemsByAtom.get(id)), isGraded: false },
+              } : {
                 typeName: "supplementDraft",
-              },
+              }),
             ),
           },
         };
+      if (resource === "widget")
+        element = { id, metadata: { updatedAt: 1 }, draft: {
+          configuration: { url: "https://widget.example.test/embed?id=" + id + "&autoplay=false" },
+          pageSrc: "https://widget.example.test/embed?id=" + id + "&autoplay=false",
+        } };
       metrics.completed++;
       return {
         ok: true,
@@ -361,6 +375,7 @@ function harness(options = {}) {
       readRelation: (id) => read("relation", id),
       readGroup: (id) => read("group", id),
       readDefinition: (id) => read("definition", id),
+      readWidgetProvider: (id, courseId) => read("widget", id, courseId),
       snapshot: () => ({ ...clone(metrics), elapsedMs: now - createdAt }),
       abort,
     };
@@ -424,8 +439,21 @@ function harness(options = {}) {
     }),
     bindDirectAuthoringDraftV1: (fp, courseId, slug, atomData) => ({
       atomId: fp.atomId,
+      itemId: fp.id, courseId, courseSlug: slug, contentId: fp.contentId,
+      sourceState: "AUTHORING_DRAFT",
       ...atomData.elements[0],
     }),
+    directDraftWidgetProviderV1,
+    directWidgetProviderSourceV1,
+    directWidgetProviderTargetsV1,
+    directWidgetContractV1: (fp) => {
+      const valid = fp.payload.directWidgetProviderEvidence?.stableSource === true;
+      const result = contract(fp, "DIRECT_WIDGET", false,
+        [valid ? "DIRECT_WIDGET_EXTERNAL_BODY_NOT_OBSERVED" : "DIRECT_WIDGET_PROVIDER_SOURCE_INVALID"]);
+      result.sourceConfigurationVerified = valid;
+      result.externalBodyVerified = false;
+      return result;
+    },
     directDraftReadingSourceV1: (bound) =>
       options.readingSource?.(bound) || { rawCML: "Synthetic reading" },
     directReadingPayloadV1: async (fp) => {
@@ -970,6 +998,72 @@ test("a completed v1.2 media-gap run upgrades its 64 MiB budget and migrates ret
   assert.equal(migratedDetail.name, "source-old-body.bin", "Migration uses the bound native filename for the retained original");
   assert.equal(migratedDetail.referenceName, "Old CML attachment label", "The older CML display label remains separately recorded");
   assert.equal(app.downloads.length, 2, "Each acquisition attempt emits one ZIP file");
+});
+
+test("v1.3 enrichment freshly reads widget configuration while retaining assessment evidence and its original timestamps", async () => {
+  const app = harness({ ids: ["WidgetA", "AssessmentZ"], widgetIds: ["WidgetA"],
+    assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
+  app.execute();
+  await app.idle();
+  const runId = app.state().runId, saved = app.runs.get(runId),
+    widget = app.items.get(runId + "/WidgetA");
+  assert.equal(app.state().state, "INCOMPLETE");
+  assert.equal(widget.fingerprint.payload.directWidgetProviderEvidence.stableSource, true);
+  // This saved fixture predates native provider capture. Its item was fully
+  // accounted, but no source configuration or external body was captured.
+  delete widget.fingerprint.payload.directWidgetProviderEvidence;
+  widget.fingerprint.captureContract.sourceConfigurationVerified = false;
+  widget.fingerprint.captureContract.reasons = ["DIRECT_DRAFT_TYPE_UNSUPPORTED"];
+  const originalObservedAt = "2026-10-14T12:00:00.000Z";
+  const assessment = {
+    ...app.items.get(runId + "/AssessmentZ").fingerprint,
+    captureContract: { complete: true, method: "DIRECT_ASSESSMENT", contentPartsCaptured: true, reasons: [] },
+    payload: {
+      directDataSources: {
+        atom: { elements: [{ id: "Atom_AssessmentZ", draft: { content: { typeName: "staffGradedDraft", definition: { parts: ["saved-part"] } } } }] },
+        receipts: { atom: { observedAt: originalObservedAt }, relation: { observedAt: originalObservedAt } },
+      },
+      assessmentApiEvidence: { questionDefinitions: [{ id: "saved-question@1", native: "original model" }],
+        receipts: [{ observedAt: originalObservedAt }] },
+      structuredAssessment: { questions: [{ id: "saved-question@1", prompt: "Saved question", answerKey: "Saved key" }] },
+    },
+  };
+  app.items.set(runId + "/AssessmentZ", { runId, itemId: "AssessmentZ", fingerprint: clone(assessment), state: { processed: true } });
+  saved.state = "INCOMPLETE";
+  saved.buildId = "v1.3.0-deduplicated-original-archive-20261014";
+  saved.captureMeta.buildId = saved.buildId;
+  Object.assign(saved.captureMeta.directDataCapture, {
+    acquisitionComplete: true, sourceStable: true, wholeCourseVerified: false,
+    stopReason: "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
+  });
+  const baseObservedAt = saved.captureMeta.directDataCapture.finalMaterialsReceipt.observedAt;
+  const callsBefore = app.calls.length;
+  app.advance(60_000);
+  app.execute();
+  await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert.equal(app.state().state, "INCOMPLETE", "configured targets cannot complete an external widget");
+  const currentCalls = app.calls.slice(callsBefore), providerReads = currentCalls.filter((call) => call.resource === "widget");
+  assert.equal(providerReads.length, 2, "the current provider is read twice independently of retained observations");
+  assert(providerReads.every((call) => call.id === "p".repeat(22) && call.courseId === COURSE));
+  assert.equal(currentCalls.filter((call) => call.resource === "atom" && call.id === widget.fingerprint.atomId).length, 2,
+    "fresh widget draft binding and final atom stability remain required");
+  assert(!currentCalls.some((call) => call.id === "Atom_AssessmentZ" || ["group", "definition"].includes(call.resource)),
+    "widget enrichment must not reread preserved assessment sources");
+  assert.deepEqual(app.items.get(runId + "/AssessmentZ").fingerprint.payload, assessment.payload);
+  const fresh = app.items.get(runId + "/WidgetA").fingerprint;
+  assert.equal(fresh.payload.directWidgetProviderEvidence.stableSource, true);
+  assert.equal(fresh.captureContract.sourceConfigurationVerified, true);
+  assert.equal(fresh.captureContract.externalBodyVerified, false);
+  assert.equal(fresh.captureContract.complete, false);
+  assert(Date.parse(fresh.payload.directWidgetProviderEvidence.initial.receipt.observedAt) > Date.parse(baseObservedAt));
+  const { capture } = await exportedCapture(app.downloads.at(-1));
+  const exportedAssessment = capture.fingerprints.find((fp) => fp.id === "AssessmentZ");
+  assert.deepEqual(exportedAssessment.payload, assessment.payload,
+    "new file export time must not replace saved question or receipt timestamps");
+  assert.equal(capture.meta.directDataCapture.mediaEnrichment.baseSourceCapturedAt, baseObservedAt);
+  assert.equal(capture.meta.directDataCapture.mediaEnrichment.retainedAssessmentObservations, true);
+  assert.equal(capture.meta.directDataCapture.mediaEnrichment.scope, "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES");
 });
 
 test("retained proof cannot promote an unresolved item before fresh current source reads", async () => {

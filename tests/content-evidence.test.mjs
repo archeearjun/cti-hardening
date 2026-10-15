@@ -29,6 +29,38 @@ import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
 import { directTextFixture } from "./coursera-direct-content-fixtures.mjs";
+import { widgetFixture } from "./coursera-direct-widget-fixtures.mjs";
+import { directWidgetContractV1 } from "../src/extractors/coursera/direct-data-contracts.js";
+
+test("same-title widgets expose only their own proven configuration targets without claiming body text", () => {
+  const first = widgetFixture(),
+    second = widgetFixture({itemId: "WidgetB", atomId: "b".repeat(22), providerId: "q".repeat(22),
+      url: "https://video.example.test/embed?id=second-video&autoplay=false&captions=true"});
+  for (const f of [first, second]) {
+    assert.equal(directWidgetContractV1(f.fp, f.bound).sourceConfigurationVerified, true);
+    const before = JSON.stringify(f.fp.payload),
+      content = capturedContent(f.fp.payload, {basis: "Original extraction", itemId: f.fp.id});
+    assert.deepEqual(content.references, [f.url]);
+    assert.equal(content.textCoverage, "UNVERIFIED");
+    assert.equal(content.text, "");
+    assert(content.limitations.some(value => /video files, captions and playback remain unverified/.test(value)));
+    assert(!content.references.some(value => value.includes("not-this-widget")));
+    assert.equal(JSON.stringify(f.fp.payload), before, "Viewing settings leaves the retained source unchanged");
+    assert.deepEqual(capturedContent(f.fp.payload, {basis: "Original extraction", itemId: "OtherItem"}).references, []);
+    const altered = structuredClone(f.fp.payload);
+    altered.directWidgetProviderEvidence.targets[0].url = "https://invented.example.test/";
+    assert.deepEqual(capturedContent(altered, {basis: "Original extraction", itemId: f.fp.id}).references, []);
+    const badHash = structuredClone(f.fp.payload);
+    badHash.directWidgetProviderEvidence.initial.sourceHash = "f".repeat(64);
+    badHash.directWidgetProviderEvidence.final.sourceHash = "f".repeat(64);
+    assert.deepEqual(capturedContent(badHash, {basis: "Original extraction", itemId: f.fp.id}).references, []);
+  }
+  const snapshot = buildContentSnapshot(undefined, undefined, {
+    extractedAt: "2026-10-15T12:00:00Z", fingerprints: [first.fp, second.fp],
+  });
+  validateContentSnapshot(snapshot);
+  assert.deepEqual(snapshot.coursera.map(item => item.content.references), [[first.url], [second.url]]);
+});
 const question = {
   id: "q",
   prompt: "What is 1 < 2 and 3 > 2?",

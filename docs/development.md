@@ -122,6 +122,14 @@ coverage is reported separately from missing original files. Existing saved
 observations are rechecked under these rules without changing their receipts
 or claiming a new source observation. Imported item counters are labelled as
 capture-reported; the whole-course completion gate remains independent.
+Version 1.5 also reads each widget's exact draft provider through the observed
+`authoringWidgetSessionProviders.v1` `getWithCourseId` finder. The capture retains
+sanitized provider models and receipts, checks provider stability independently
+of atom stability, and records actual draft configuration targets. Linked widget
+summary examples are not course content. Repeated titles keep their distinct
+item and provider identities. Resuming finished progress refreshes widget
+settings while retaining saved assessment timestamps. Configured external links
+do not establish archived video, captions, playback or complete widget content.
 Missing sources, unsupported notation or interactive CML, unknown models,
 variants and external widget bodies remain explicit gaps. Four shared request slots, request/time/byte bounds,
 and incremental IndexedDB transactions replace repeated editor traversal.

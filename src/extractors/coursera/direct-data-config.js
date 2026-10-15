@@ -1,5 +1,5 @@
-export const CTI_DIRECT_DATA_VERSION_V1 = "1.4.0";
-export const CTI_DIRECT_DATA_BUILD_V1 = "v1.4.0-bound-content-integrity-20261015";
+export const CTI_DIRECT_DATA_VERSION_V1 = "1.5.0";
+export const CTI_DIRECT_DATA_BUILD_V1 = "v1.5.0-bound-widget-configuration-20261015";
 export const CTI_DIRECT_DATA_EXPORT_BYTES_V1 = 128 * 1024 * 1024;
 export const CTI_DIRECT_DATA_COMPRESSED_BYTES_V1 = 128 * 1024 * 1024;
 export const CTI_DIRECT_DATA_MEDIA_BYTES_V1 = 512 * 1024 * 1024;
