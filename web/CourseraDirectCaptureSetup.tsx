@@ -66,9 +66,11 @@ export default function CourseraDirectCaptureSetup({
         This captures authoring drafts. Published versions, when returned by
         Coursera, are retained separately. Where Coursera supplies the original
         source, CTI includes referenced images and attachments in the same file.
-        Widget settings and configured links are retained separately from their
-        external content. Missing sources, unsupported content, and external
-        widget bodies keep an explicit evidence gap.
+        It identifies supported item types automatically, including Panopto
+        plugins. Accessible Panopto metadata and supported MP4 renditions are
+        read within this run and saved in the same archive. Browser access
+        restrictions, missing sources, and unsupported content stay visible as
+        evidence gaps. A saved video does not establish complete widget content.
       </p>
       <ol className="local-extraction-steps">
         <li>
@@ -98,14 +100,14 @@ export default function CourseraDirectCaptureSetup({
             capture is interrupted, reopen the same course’s Content page and
             click the same bookmark. CTI checks current sources before reusing
             matching saved reads. A finished capture with evidence gaps can
-            refresh widget settings and continue file downloads without
+            refresh plugin sources and continue file downloads without
             collecting its saved questions again.
           </span>
         </li>
       </ol>
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
-        resuming. This version can continue saved v1.2–v1.4 progress that reached
+        resuming. This version can continue saved v1.2–v1.5 progress that reached
         its media limit or finished with evidence gaps. It rechecks the current
         course sources and preserves earlier assessment observations and their
         dates.

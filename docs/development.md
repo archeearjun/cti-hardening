@@ -28,6 +28,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | One-click item refresh and local Chrome extension | `src/browser-extension/`, `src/domain/browser-item-refresh.ts`, `extension-item-script.ts`, `web/CourseraItemRefresh.tsx` | `tests/browser-item-refresh.test.mjs`; `npm run test:browser:owner`; `npm run test:browser:extension`; [installation and boundaries](browser-item-refresh.md) |
 | Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |
 | Full course bookmark and direct authoring drafts | `src/extractors/coursera/direct-data-*`, `src/domain/coursera-direct-data-capture.ts`, `web/CourseraDirectCaptureSetup.tsx` | `tests/coursera-direct-data-*.test.mjs`; `npm run test:browser:direct-data` |
+| Panopto within the course bookmark | `src/extractors/coursera/direct-data-panopto*`, `direct-data-network.js`, `direct-data-media.js`, `src/domain/coursera-capture-archive.ts` | `tests/coursera-direct-data-panopto*.test.mjs`; `npm run test:browser:direct-data` |
 | Brightspace capture | `src/extractors/brightspace/` | `npm run test:extractors` |
 | Source topic matching and source assessment definitions | `src/engine/source/brightspace-matching.js`, `brightspace-assessment.js` | `npm run test:engine` |
 | Syllabus placeholders and observed live-source wording | `src/engine/readiness/template-placeholders.js`, `src/engine/source/live-text-review.js` | `tests/syllabus-readiness.test.mjs`; `npm run test:browser:owner` |
@@ -159,6 +160,26 @@ cumulative budgets, and distinguish assessment, reading and structural coverage.
 The importer independently validates its source receipts
 and ordered inventory. Native fixture checks verify delivery separately from
 browser policy restrictions; fixtures do not certify every live private course.
+
+Version 1.6 dispatches configured hosted Panopto targets inside the same bookmark
+run. It uses the observed eight-field, read-only `DeliveryInfo.aspx` POST through
+the existing four-slot API scheduler, with normal CORS and credentials omitted.
+It binds reference-copy delivery, session and file identities independently,
+retains sanitized native metadata, and reads only supported native MP4 podcast
+renditions. Initial and final provider, delivery and atom reads remain separate
+stability checks. Two media slots and the cumulative 512 MiB wire budget are
+shared with reading originals. A Panopto rendition has a scoped 128 MiB bound;
+ordinary originals retain their 16 MiB bound. Both use the same resumable body
+store and single archive. Matching video sources share one body download within
+an attempt; later attempts fetch the bytes again, preserving saved assessment
+observations and any historical media when a current read fails. Import checks
+native ownership before attaching video bytes, then independently checks source
+hashes, MP4 signature, byte length and SHA-256. CORS, CSP, authorization and
+unsupported provider models become item gaps, with no proxy, extension or
+per-item script required. Native OCR navigation remains distinct from captions;
+an empty caption inventory applies only to that delivery. An archived podcast
+rendition does not establish uploaded-original identity, HLS completeness,
+playback, course launch or complete widget content.
 
 An item's captured Panopto target can also receive a manually copied
 `DeliveryInfo.aspx` response in its owner card. This is a separate, report-bound

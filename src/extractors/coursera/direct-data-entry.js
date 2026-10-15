@@ -20,6 +20,8 @@ import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
+import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
+  directPanoptoPodcastBindingsV1, CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1 } from "./direct-data-panopto.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
 import {
   bindDirectAuthoringDraftV1,
@@ -151,6 +153,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       meta = null;
     let itemStates = new Map(),
       retainedSizes = new Map(),
+      panoptoSources = new Map(),
       exporting = false,
       fatalReason = "";
     let budgetBase = { requests: 0, bytes: 0, elapsedMs: 0 },
@@ -186,7 +189,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
       hint.textContent = mediaOnly
-        ? "This attempt reads referenced reading and discussion media and widget settings. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
+        ? "This attempt reads referenced files and supported external providers. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
       count.textContent =
         state.counts.processed +
@@ -429,14 +432,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         "Saved progress loaded. Current drafts and question references are checked before reuse.",
       );
     }
-    function itemBodies(fp) {
-      const bodies = [];
+    function itemBodyEntries(fp) {
+      const bodies = [], add = (body, kind, maxBytes) => {
+        if (body) bodies.push({body, kind, maxBytes});
+      };
       for (const asset of fp.payload?.directAssetEvidence?.assets || []) {
-        if (asset.body) bodies.push(asset.body);
-        if (asset.retainedEvidence?.body) bodies.push(asset.retainedEvidence.body);
+        add(asset.body, "COURSERA_ASSET", 16 * 1024 * 1024);
+        add(asset.retainedEvidence?.body, "COURSERA_ASSET", 16 * 1024 * 1024);
       }
+      for (const delivery of fp.payload?.directPanoptoEvidence?.deliveries || [])
+        for (const podcast of delivery.podcasts || []) {
+          add(podcast.body, "PANOPTO_PODCAST_RENDITION", CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1);
+          add(podcast.retainedEvidence?.podcast?.body, "PANOPTO_PODCAST_RENDITION", CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1);
+        }
       return bodies;
     }
+    function itemBodies(fp) { return itemBodyEntries(fp).map(value => value.body); }
     async function hydrateItemBodies(fp, tolerateMissing = false) {
       let available = true;
       for (const body of itemBodies(fp)) {
@@ -456,10 +467,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     }
     async function archiveItemBodies(fp, temporaryBodies = null) {
       let changed = false;
-      for (const body of itemBodies(fp)) {
+      for (const {body, kind, maxBytes} of itemBodyEntries(fp)) {
         if (body.archivePath && typeof body.base64 !== "string" &&
             !(body.bytes instanceof Uint8Array)) continue;
-        const bytes = decodeDirectAssetBodyV1(body);
+        const bytes = decodeDirectAssetBodyV1(body, maxBytes);
         if (!bytes) throw Error("DIRECT_ARCHIVE_BODY_INVALID");
         const blob = new Blob([bytes], {type: body.mime});
         if (temporaryBodies) {
@@ -467,7 +478,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if ([...digest].map(byte => byte.toString(16).padStart(2, "0")).join("") !== body.sha256)
             throw Error("DIRECT_ARCHIVE_BODY_HASH_INVALID");
           temporaryBodies.set("files/" + body.sha256, blob);
-        } else await store.putBody(state.runId, body.sha256, blob, {mime: body.mime});
+        } else await store.putBody(state.runId, body.sha256, blob, {mime: body.mime, kind});
         body.archivePath = "files/" + body.sha256;
         if (body.receipt?.bodyFormat === "ORIGINAL_BINARY_BYTES_BASE64") {
           body.receipt = {...body.receipt,
@@ -792,6 +803,20 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         return null;
       }
     }
+    function ensureMediaReader() {
+      if (!mediaReader)
+        mediaReader = createDirectDataMediaReaderV1({
+          archiveMode: true,
+          apiReader: reader,
+          assertCurrent: assertContext,
+          limits: {
+            totalBytes: Math.max(0, CTI_DIRECT_DATA_MEDIA_BYTES_V1 - mediaBase.bytes),
+            durationMs: Math.max(1, remainingLimits().durationMs - (reader?.snapshot().elapsedMs || 0)),
+          },
+          onStats: () => { render(); checkpointBudget(); },
+        });
+      return mediaReader;
+    }
     async function captureCmlMedia(fp, source, previous) {
       const parsed = directCmlTextV1(source.cml);
       if (!parsed || !parsed.references.length) return;
@@ -813,24 +838,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         failures,
       };
       if (!ids.length) return;
-      if (!mediaReader)
-        mediaReader = createDirectDataMediaReaderV1({
-          archiveMode: true,
-          apiReader: reader,
-          assertCurrent: assertContext,
-          limits: {
-            totalBytes: Math.max(0, CTI_DIRECT_DATA_MEDIA_BYTES_V1 - mediaBase.bytes),
-            durationMs: Math.max(
-              1,
-              remainingLimits().durationMs -
-                (reader?.snapshot().elapsedMs || 0),
-            ),
-          },
-          onStats: () => {
-            render();
-            checkpointBudget();
-          },
-        });
+      ensureMediaReader();
       for (const id of ids) {
         if (reader.snapshot().stopped || !assertContext()) break;
         state.phase = "Reading referenced media";
@@ -853,7 +861,84 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (asset.reason) failures.push({ id, reason: asset.reason });
       }
     }
-    async function captureWidgetProvider(fp, bound) {
+    async function capturePanoptoProviders(fp, binding, targets, previous) {
+      const urls = [...new Set(targets.map(target => target.url))]
+        .filter(url => directPanoptoAutomaticTargetV1(url));
+      if (!urls.length) return;
+      const evidence = {method: "BOUND_WIDGET_PANOPTO_DELIVERY", ...binding,
+        deliveries: [], wholeWidgetVerified: false, playbackVerified: false,
+        launchVerified: false, originalUploadVerified: false};
+      fp.payload.directPanoptoEvidence = evidence;
+      for (const targetUrl of urls) {
+        const delivery = {targetUrl, initial: null, final: null,
+          stableSource: false, podcasts: [], failures: []};
+        const retained = previous?.payload?.directPanoptoEvidence?.deliveries?.find(value => value.targetUrl === targetUrl);
+        const retainOriginals = () => {
+          for (const old of retained?.podcasts || []) {
+            const proof = old.body && retained.stableSource === true && retained.initial && retained.final
+              ? {targetUrl, initial: retained.initial, final: retained.final, stableSource: true, podcast: old}
+              : old.retainedEvidence;
+            if (!proof?.podcast?.body) continue;
+            const original = proof.podcast;
+            let current = delivery.podcasts.find(value => value.streamFileId === original.streamFileId);
+            if (current?.body) continue;
+            if (!current) {
+              current = {...original, body: undefined, reason: "DIRECT_PANOPTO_PREVIOUS_BODY_ONLY"};
+              delete current.retainedEvidence;
+              delivery.podcasts.push(current);
+            }
+            current.retainedEvidence = proof;
+          }
+        };
+        evidence.deliveries.push(delivery);
+        state.phase = "Reading Panopto content";
+        render(fp.name + " · Reading the configured video source.");
+        const initial = await reader.readPanoptoDeliveryInfo(targetUrl);
+        if (!initial.ok) {
+          delivery.failures.push({reason: initial.reason || "DIRECT_PANOPTO_METADATA_FAILED"});
+          retainOriginals();
+          continue;
+        }
+        try {
+          const target = directPanoptoAutomaticTargetV1(targetUrl);
+          delivery.initial = {model: initial.data, receipt: receipt(initial, target.deliveryPublicId),
+            modelHash: await hash(initial.data),
+            sourceHash: await hash(directPanoptoSourceV1(targetUrl, initial.data))};
+          const cached = panoptoSources.get(targetUrl);
+          for (const candidate of directPanoptoPodcastBindingsV1(initial.data, targetUrl)) {
+            const reused = cached?.stableSource === true &&
+              cached.initial.sourceHash === delivery.initial.sourceHash &&
+              cached.podcasts.find(podcast => podcast.body &&
+                podcast.streamFileId === candidate.streamFileId &&
+                podcast.streamPublicId === candidate.streamPublicId &&
+                podcast.canonicalUrl === candidate.canonicalUrl);
+            let podcast;
+            if (reused) {
+              // This cache lasts one attempt only. Later attempts GET the media
+              // again: an unchanged URL does not prove unchanged remote bytes.
+              podcast = structuredClone(reused);
+              await hydrateItemBodies({payload: {directPanoptoEvidence: {deliveries: [{podcasts: [podcast]}]}}});
+            } else podcast = await ensureMediaReader().capturePanoptoPodcast(initial, candidate.streamFileId, null);
+            delivery.podcasts.push(podcast);
+            if (podcast.reason) delivery.failures.push({streamFileId: candidate.streamFileId, reason: podcast.reason});
+          }
+          const final = await reader.readPanoptoDeliveryInfo(targetUrl);
+          if (!final.ok) delivery.failures.push({reason: final.reason || "DIRECT_PANOPTO_FINAL_READ_FAILED"});
+          else {
+            delivery.final = {model: final.data, receipt: receipt(final, target.deliveryPublicId),
+              modelHash: await hash(final.data),
+              sourceHash: await hash(directPanoptoSourceV1(targetUrl, final.data))};
+            delivery.stableSource = delivery.initial.sourceHash === delivery.final.sourceHash;
+            if (!delivery.stableSource) delivery.failures.push({reason: "DIRECT_PANOPTO_SOURCE_CHANGED"});
+          }
+        } catch (error) {
+          delivery.failures.push({reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
+            ? error.message : "DIRECT_PANOPTO_SOURCE_UNSUPPORTED"});
+        }
+        retainOriginals();
+      }
+    }
+    async function captureWidgetProvider(fp, bound, previous) {
       let binding;
       try { binding = directDraftWidgetProviderV1(bound); }
       catch (_) {
@@ -876,6 +961,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const initialSource = directWidgetProviderSourceV1(bound, requireRead(initial));
       evidence.initial.sourceHash = await hash(initialSource);
       evidence.targets = directWidgetProviderTargetsV1(bound, initial.data);
+      await capturePanoptoProviders(fp, binding, evidence.targets, previous);
       const final = await reader.readWidgetProvider(binding.providerId, courseId);
       evidence.final = {model: final.data, receipt: receipt(final, binding.providerId), sourceHash: ""};
       evidence.final.sourceHash = await hash(directWidgetProviderSourceV1(bound, requireRead(final)));
@@ -985,7 +1071,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           fp.payload.directDraftCml = cmlSource.rawCML;
           await captureCmlMedia(fp, cmlSource, previous);
         } else if (bound.draft.content.typeName === "widgetDraft")
-          await captureWidgetProvider(fp, bound);
+          await captureWidgetProvider(fp, bound, previous);
         else
           directUnsupportedContractV1(
             fp,
@@ -1063,7 +1149,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 directAssetEvidence: fp.payload.directAssetEvidence,
               }
             : null;
-        if (previous?.payload && previousQuestions >= currentQuestions) {
+        if (previous?.payload && previousQuestions >= currentQuestions && !fp.payload.directPanoptoEvidence) {
           // A failed resumed read must not replace saved observations with an
           // empty body. Retain them, with an explicit failed current check and
           // an incomplete contract; they are not certified as current content.
@@ -1093,8 +1179,15 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         processed = !reader.snapshot().stopped;
       }
       await persist(fp, processed);
+      // Publish the attempt cache only after the body and item checkpoints
+      // commit. A failed final source read must never cache an unpersisted file.
+      if (!fp.payload.directResumeRevalidation)
+        for (const delivery of fp.payload.directPanoptoEvidence?.deliveries || [])
+          if (delivery.stableSource) panoptoSources.set(delivery.targetUrl, delivery);
       for (const asset of fp.payload.directAssetEvidence?.assets || [])
         mediaReader?.release?.(asset.assetId);
+      for (const delivery of fp.payload.directPanoptoEvidence?.deliveries || [])
+        for (const podcast of delivery.podcasts || []) mediaReader?.release?.(podcast.assetId);
     }
     async function prepareResult() {
       if (!meta) throw Error("DIRECT_INVENTORY_NOT_AVAILABLE");
@@ -1128,15 +1221,15 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ]);
         }
         summaries.push({ id: fp.id, type: fp.type, ...fp.captureContract });
-        for (const body of itemBodies(fp)) {
+        for (const {body, kind, maxBytes} of itemBodyEntries(fp)) {
           if (body.archivePath !== "files/" + body.sha256 ||
               !Number.isSafeInteger(body.size) || body.size < 1 ||
-              body.size > 16 * 1024 * 1024)
+              body.size > maxBytes)
             throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
-          const previousSize = bodyPaths.get(body.archivePath);
-          if (previousSize !== undefined && previousSize !== body.size)
+          const previousBody = bodyPaths.get(body.archivePath);
+          if (previousBody !== undefined && previousBody.size !== body.size)
             throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
-          bodyPaths.set(body.archivePath, body.size);
+          bodyPaths.set(body.archivePath, {size: body.size, kind});
         }
         // Each item becomes an immutable byte-backed Blob before the next
         // IDB read. Never retain the full file as UTF-16 JSON strings.
@@ -1178,7 +1271,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         originalFilesLimitBytes: CTI_DIRECT_DATA_MEDIA_BYTES_V1,
         archiveLimitBytes: CTI_DIRECT_DATA_ARCHIVE_BYTES_V1,
         uniqueOriginalFiles: bodyPaths.size,
-        uniqueOriginalBytes: [...bodyPaths.values()].reduce((sum, size) => sum + size, 0),
+        uniqueOriginalBytes: [...bodyPaths.values()].reduce((sum, value) => sum + value.size, 0),
       };
       captureMeta.exportFileName =
         "CTI__COURSERA__COURSE_" +
@@ -1251,17 +1344,17 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           blob = new Blob(pieces, { type: "application/gzip" });
         }
         const entries = [{path: "capture.json.gz", blob}];
-        for (const [path, size] of prepared.bodyPaths) {
+        for (const [path, {size, kind}] of prepared.bodyPaths) {
           const temporary = prepared.temporaryBodies.get(path);
           if (temporary) {
             if (temporary.size !== size) throw Error("DIRECT_ARCHIVE_BODY_IDENTITY_INVALID");
-            entries.push({path, blob: temporary});
+            entries.push({path, blob: temporary, kind});
             continue;
           }
           const original = await store.getBody(state.runId, path.slice(6));
           if (!original?.blob || original.size !== size)
             throw Error("DIRECT_ARCHIVE_BODY_UNAVAILABLE");
-          entries.push({path, blob: original.blob});
+          entries.push({path, blob: original.blob, kind});
         }
         blob = await createDirectDataArchiveV1(entries);
         const url = URL.createObjectURL(blob),
@@ -1309,6 +1402,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       materialHash = "";
       checkpointReady = false;
       mediaReader = null;
+      panoptoSources = new Map();
       mediaBase = { bytes: 0, requests: 0 };
       frozenMediaStats = null;
       state.counts = { processed: 0, complete: 0, questions: 0, total: 0 };
@@ -1519,6 +1613,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           partsPerAssessment: CTI_DIRECT_DATA_MAX_PARTS_V1,
           mediaBytes: CTI_DIRECT_DATA_MEDIA_BYTES_V1,
           mediaBodyBytes: 16 * 1024 * 1024,
+          panoptoPodcastBodyBytes: CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1,
         };
         metadataReserveBytes =
           encoder.encode(JSON.stringify(meta)).byteLength +

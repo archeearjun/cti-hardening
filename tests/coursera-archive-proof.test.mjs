@@ -113,3 +113,18 @@ test("proof descriptors independently bind actual bytes and reject duplicate or 
     /size|checksum/,
   );
 });
+
+test("large archive proofs remain scoped to verified MP4 rendition bytes with ordinary file bounds unchanged", () => {
+  const f=fixture(),bytes=Buffer.alloc(16*1024*1024+1);bytes.writeUInt32BE(24,0);bytes.write("ftypmp42",4,"ascii");
+  const sha256=hash(bytes),file={path:"files/"+sha256,sha256,size:bytes.length,bytes,kind:"PANOPTO_PODCAST_RENDITION"},
+    transport={...f.transport,bytes:bytes.length+300,originalBodyBytes:bytes.length,
+      files:[{path:file.path,sha256,size:bytes.length}]};
+  const proof=buildCourseraArchiveProof(hash(f.metadata),f.metadata.length,transport,[file]);
+  assert.equal(proof.originalBodyBytes,bytes.length);
+  assert.deepEqual(proof.files,[{path:file.path,sha256,size:bytes.length}]);
+  assert.throws(()=>buildCourseraArchiveProof(hash(f.metadata),f.metadata.length,transport,[{...file,kind:undefined}]),/invalid.*size|checksum/);
+  assert.throws(()=>buildCourseraArchiveProof(hash(f.metadata),f.metadata.length,transport,[{...file,size:128*1024*1024+1}]),/invalid.*size|checksum/);
+  const html=Buffer.from("<html>not an MP4 rendition</html>"),fakeHash=hash(html),fake={...file,size:html.length,bytes:html,sha256:fakeHash,path:"files/"+fakeHash};
+  assert.throws(()=>buildCourseraArchiveProof(hash(f.metadata),f.metadata.length,
+    {...transport,originalBodyBytes:html.length,files:[{path:fake.path,sha256:fakeHash,size:html.length}]},[fake]),/invalid.*bytes|checksum/);
+});

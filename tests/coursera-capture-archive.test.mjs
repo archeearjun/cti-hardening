@@ -9,6 +9,7 @@ import {
   readCourseraCaptureFileJson,
   attachCourseraArchiveFileBytes,
 } from "../src/domain/coursera-capture-file.ts";
+import { directPanoptoFixture } from "./coursera-direct-panopto-fixtures.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const body = (bytes) => ({
@@ -162,13 +163,75 @@ test("the native bookmark ZIP writer imports through the independent range parse
     },
     {
       path: "files/" + hash(original),
-      blob: new Blob([Buffer.from("different original bytes")]),
+      blob: new Blob([Buffer.alloc(original.length,0x78)]),
     },
   ]);
   await assert.rejects(
     readCourseraCaptureFileBytes(new File([corrupt], "corrupt-native.cti.zip")),
     /SHA-256/,
   );
+});
+
+function podcastArchive(bytes) {
+  const f = directPanoptoFixture(), reference = {
+    ...f.body, archivePath: "files/" + hash(bytes), sha256: hash(bytes), size: bytes.length,
+    kind: "PANOPTO_PODCAST_RENDITION",
+    receipt: { ...f.body.receipt, bytes: bytes.length, sha256: hash(bytes),
+      bodyFormat: "ORIGINAL_BINARY_BYTES_ARCHIVE", role: "PODCAST_STREAM_RENDITION" },
+  };
+  delete reference.base64;
+  f.delivery.podcasts[0].body = reference;
+  f.capture.meta.directDataCapture.exportTransport = { format: "ZIP_GZIP_JSON_V1" };
+  return { ...f, reference };
+}
+
+test("one archive retains a native-bound large podcast rendition and ordinary originals with independent checksums", async () => {
+  const bytes=Buffer.alloc(16*1024*1024+1);bytes.writeUInt32BE(24,0);bytes.write("ftypmp42",4,"ascii");
+  const f=podcastArchive(bytes), ordinary=Buffer.from("synthetic ordinary original");
+  f.fp.payload.directAssetEvidence={assets:[{body:body(ordinary)}]};
+  const archive=await createDirectDataArchiveV1([
+    {path:"capture.json.gz",blob:new Blob([gzipSync(Buffer.from(JSON.stringify(f.capture)))])},
+    {path:f.reference.archivePath,blob:new Blob([bytes],{type:"video/mp4"}),kind:"PANOPTO_PODCAST_RENDITION"},
+    {path:body(ordinary).archivePath,blob:new Blob([ordinary])},
+  ]), imported=await readCourseraCaptureFileBytes(new File([archive],"podcast.cti.zip")),
+    hydrated=attachCourseraArchiveFileBytes(JSON.parse(new TextDecoder().decode(imported.bytes)),imported.archiveFiles);
+  assert.equal(imported.archiveFiles.length,2);
+  assert.equal(imported.transport.originalBodyBytes,bytes.length+ordinary.length);
+  assert.equal(imported.archiveFiles.find(file=>file.sha256===hash(bytes)).kind,"PANOPTO_PODCAST_RENDITION");
+  const retained=hydrated.fingerprints[0].payload.directPanoptoEvidence.deliveries[0].podcasts[0].body;
+  assert.deepEqual(Buffer.from(retained.bytes),bytes);
+  assert(!Object.keys(retained).includes("bytes"));
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(imported.bytes)),f.capture,"Metadata identity excludes hydrated byte views");
+});
+
+test("large podcast exceptions require native delivery and exact rendition ownership rather than a supplied kind flag", async () => {
+  const bytes=Buffer.alloc(16*1024*1024+1);bytes.writeUInt32BE(24,0);bytes.write("ftypmp42",4,"ascii");
+  for(const mutate of [
+    f=>{f.delivery.podcasts[0].role="VIEWER_STREAM";},
+    f=>{f.reference.canonicalUrl="https://media.example.test/unrelated.mp4";},
+    f=>{f.delivery.initial.receipt.method="GET";},
+    f=>{f.fp.payload.directPanoptoEvidence.itemId="another-item";},
+    f=>{f.fp.payload.directAssetEvidence={assets:[{body:f.reference}]};delete f.fp.payload.directPanoptoEvidence;},
+  ]) {
+    const f=podcastArchive(bytes);mutate(f);
+    await assert.rejects(readCourseraCaptureFileBytes(selected(await pack(f.capture,[{bytes}]))),/binding|16 MiB/);
+  }
+  const f=podcastArchive(bytes), file={path:f.reference.archivePath,sha256:hash(bytes),size:bytes.length,bytes,kind:"PANOPTO_PODCAST_RENDITION"};
+  assert.throws(()=>attachCourseraArchiveFileBytes(capture([{body:f.reference}]),[file]),/16 MiB/);
+  const wrong=Buffer.from("<html>not an MP4 rendition</html>"), invalid=podcastArchive(wrong);
+  await assert.rejects(readCourseraCaptureFileBytes(selected(await pack(invalid.capture,[{bytes:wrong}]))),/MP4/);
+});
+
+test("historical native podcast bodies survive failed current reads without becoming current captured media", async () => {
+  const bytes=Buffer.from([0,0,0,20,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109]),f=podcastArchive(bytes),podcast=f.delivery.podcasts[0];
+  podcast.retainedEvidence={targetUrl:f.delivery.targetUrl,initial:structuredClone(f.delivery.initial),
+    final:structuredClone(f.delivery.final),stableSource:true,podcast:{...f.candidate,body:podcast.body}};
+  delete podcast.body;podcast.reason="DIRECT_PANOPTO_BODY_READ_FAILED";
+  const imported=await readCourseraCaptureFileJson(selected(await pack(f.capture,[{bytes}]))),
+    saved=imported.fingerprints[0].payload.directPanoptoEvidence.deliveries[0].podcasts[0];
+  assert.equal(saved.body,undefined);
+  assert.equal(saved.reason,"DIRECT_PANOPTO_BODY_READ_FAILED");
+  assert.deepEqual(Buffer.from(saved.retainedEvidence.podcast.body.bytes),bytes);
 });
 
 test("ZIP path, inventory, compression and encryption claims cannot substitute unrelated original files", async () => {

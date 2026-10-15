@@ -1,5 +1,6 @@
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
+import { directPanoptoSourceV1, directPanoptoPodcastBindingsV1 } from "./direct-data-panopto.js";
 
 /** Only locations returned by the bound asset API are eligible for downloads. */
 export function canonicalDirectAssetUrlV1(value) {
@@ -348,6 +349,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
   const defaults = {
     concurrentRequests: 2,
     bodyBytes: 16 * 1024 * 1024,
+    podcastBodyBytes: 128 * 1024 * 1024,
     totalBytes: (archiveMode ? 512 : 64) * 1024 * 1024,
     requestMs: 30000,
     durationMs: 60 * 60 * 1000,
@@ -490,12 +492,15 @@ export function createDirectDataMediaReaderV1(options = {}) {
     try {
       response = await fetchImpl(url, {
         method: "GET",
+        mode: "cors",
         credentials: "omit",
         redirect: "error",
         signal: controller.signal,
         headers: {
           Accept:
-            "image/*,application/pdf,application/zip,application/octet-stream,*/*;q=0.1",
+            binding.role === "PODCAST_STREAM_RENDITION"
+              ? "video/mp4"
+              : "image/*,application/pdf,application/zip,application/octet-stream,*/*;q=0.1",
         },
       });
       if (!jobCurrent(controller)) {
@@ -508,6 +513,10 @@ export function createDirectDataMediaReaderV1(options = {}) {
           assetId,
           "DIRECT_ASSET_BODY_HTTP_" + Number(response.status || 0),
         );
+      }
+      if (binding.role === "PODCAST_STREAM_RENDITION" && response.headers.get("content-range") !== null) {
+        await discard(response);
+        return failure(assetId, "PANOPTO_PODCAST_PARTIAL_RESPONSE");
       }
       const actual = response.url || url;
       if (
@@ -522,6 +531,10 @@ export function createDirectDataMediaReaderV1(options = {}) {
         .split(";")[0]
         .trim()
         .toLowerCase();
+      if (binding.role === "PODCAST_STREAM_RENDITION" && mime !== "video/mp4") {
+        await discard(response);
+        return failure(assetId, "PANOPTO_PODCAST_MIME_UNSUPPORTED");
+      }
       if (
         !/^(?:image\/(?:png|jpe?g|gif|webp)|application\/(?:pdf|zip|x-zip-compressed|octet-stream|vnd\.openxmlformats-officedocument\.(?:presentationml\.presentation|wordprocessingml\.document|spreadsheetml\.sheet))|(?:video|audio)\/mp4|audio\/(?:mpeg|mp3))$/.test(
           mime,
@@ -619,6 +632,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         .map((value) => value.toString(16).padStart(2, "0"))
         .join("");
       const body = {
+        ...(binding.role === "PODCAST_STREAM_RENDITION" ? {kind:"PANOPTO_PODCAST_RENDITION"} : {}),
         ...(archiveMode
           ? { archivePath: "files/" + sha256 }
           : { base64: encodeDirectAssetBodyV1(bytes) }),
@@ -627,6 +641,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         mime,
         canonicalUrl: binding.canonicalUrl,
         receipt: {
+          ...(binding.role === "PODCAST_STREAM_RENDITION" ? {role:"PODCAST_STREAM_RENDITION"} : {}),
           status: Number(response.status),
           bytes: count,
           mime,
@@ -661,6 +676,17 @@ export function createDirectDataMediaReaderV1(options = {}) {
     const assetId = job.assetId;
     if (!jobCurrent(controller))
       return failure(assetId, jobStopReason(controller));
+    if (job.kind === "PANOPTO_PODCAST") {
+      const partial = {...job.binding};
+      // Old attempt bodies cannot prove the bytes currently served by a
+      // mutable rendition URL. Every new attempt takes a fresh bound GET.
+      const location = typeof job.metadataRead.takePanoptoPodcastLocation === "function"
+        ? job.metadataRead.takePanoptoPodcastLocation(assetId) : "";
+      if (!location || canonicalDirectAssetUrlV1(location) !== job.binding.canonicalUrl)
+        return failure(assetId, "PANOPTO_PODCAST_LOCATION_UNSUPPORTED", partial);
+      const result = await captureBody(assetId,location,job.binding,controller,job.bodyBytes);
+      return {...partial,...result};
+    }
     if (typeof api?.readAsset !== "function")
       return failure(assetId, "ASSET_API_READER_UNAVAILABLE");
     const retained = await directRetainedAssetBodyV1(
@@ -874,5 +900,28 @@ export function createDirectDataMediaReaderV1(options = {}) {
     pending.delete(assetId);
     return true;
   }
-  return { capture, snapshot, abort, release };
+  function capturePanoptoPodcast(metadataRead, streamFileId, retainedPodcast, captureOptions = {}) {
+    let binding;
+    try {
+      const targetUrl=metadataRead?.receipt?.targetUrl;
+      if (!metadataRead?.ok || metadataRead.receipt.resource!=="PanoptoDeliveryInfo" ||
+          metadataRead.receipt.status!==200 || !/^[a-f0-9]{64}$/.test(metadataRead.receipt.originalResponseSha256 || ""))
+        return Promise.resolve(failure(streamFileId,"PANOPTO_METADATA_INVALID"));
+      directPanoptoSourceV1(targetUrl,metadataRead.data);
+      const matches=directPanoptoPodcastBindingsV1(metadataRead.data,targetUrl)
+        .filter(candidate=>candidate.streamFileId===streamFileId);
+      if (matches.length!==1) return Promise.resolve(failure(streamFileId,"PANOPTO_PODCAST_IDENTITY_INVALID"));
+      binding=matches[0];
+    } catch (_) {return Promise.resolve(failure(streamFileId,"PANOPTO_METADATA_INVALID"));}
+    const requested=Number(captureOptions?.bodyBytes), bodyBytes=Number.isFinite(requested) && requested>=0
+      ? Math.min(limits.podcastBodyBytes,Math.floor(requested)) : limits.podcastBodyBytes;
+    if (!bodyBytes) return Promise.resolve(failure(streamFileId,"DIRECT_ASSET_BODY_BYTE_LIMIT",binding));
+    if (!current()) return Promise.resolve(failure(streamFileId,stopReason,binding));
+    return new Promise(resolve=>{
+      queue.push({kind:"PANOPTO_PODCAST",assetId:streamFileId,metadataRead,binding,bodyBytes,
+        resolve:result=>resolve({...binding,...result})});
+      notify();pump();
+    });
+  }
+  return { capture, capturePanoptoPodcast, snapshot, abort, release };
 }

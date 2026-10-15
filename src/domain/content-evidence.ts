@@ -7,6 +7,8 @@ import { directCmlMediaInventoryV1 } from "../extractors/coursera/direct-data-me
 import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
 import { directWidgetEvidenceValidV1 } from "../extractors/coursera/direct-data-contracts.js";
 import { directWidgetProviderSourceV1 } from "../extractors/coursera/direct-data-widget.js";
+import { directPanoptoEvidenceStructureV1 } from "../extractors/coursera/direct-data-panopto-contracts.js";
+import { directPanoptoSourceV1, directPanoptoProjectionV1 } from "../extractors/coursera/direct-data-panopto.js";
 import { workerXml } from "../adapters/worker-xml.ts";
 import {
   capturedTime,
@@ -533,6 +535,62 @@ function verifiedDirectWidgetTargets(p: Obj, itemId?: string): string[] {
   }
 }
 
+/** Native metadata is recomputed independently of capture-reported counters.
+ * A manifest can expose verified metadata while absent binary bytes remain a gap. */
+function verifiedDirectPanoptoContent(p: Obj, itemId: string | undefined, targets: string[]) {
+  const empty = { text: "", references: [] as string[] };
+  if (!itemId || !targets.length || !p.directPanoptoEvidence) return empty;
+  try {
+    const proof = contentObject(p.directPanoptoEvidence),
+      rawTargets = contentObject(p.directWidgetProviderEvidence).targets,
+      checked = directPanoptoEvidenceStructureV1(proof, rawTargets, { allowMissingBodies: true }),
+      hash = (value: unknown) => bytesToHex(sha256(new TextEncoder().encode(directCanonicalSourceTextV1(value))));
+    if (!checked.valid) return empty;
+    for (const value of array(proof.deliveries)) {
+      const delivery = contentObject(value);
+      for (const raw of [delivery.initial, delivery.final]) {
+        if (!raw) continue;
+        const observation = contentObject(raw);
+        if (hash(observation.model) !== observation.modelHash ||
+            hash(directPanoptoSourceV1(string(delivery.targetUrl), observation.model)) !== observation.sourceHash)
+          return empty;
+      }
+    }
+    for (const previous of checked.historical)
+      for (const observation of [previous.initial, previous.final])
+        if (hash(observation.model) !== observation.modelHash || hash(previous.source) !== observation.sourceHash) return empty;
+    for (const decoded of [...checked.decoded, ...checked.historical])
+      if (decoded.bytes && bytesToHex(sha256(decoded.bytes)) !== decoded.body.sha256) return empty;
+    const lines: string[] = [], references: string[] = [];
+    const append = (projection: ReturnType<typeof directPanoptoProjectionV1>, targetUrl: string, label: string) => {
+      lines.push(label, `Configured target: ${targetUrl}`, `Native title: ${projection.title}`,
+        `Duration: ${projection.durationSeconds ?? "not supplied"} seconds`,
+        `Delivery public ID: ${projection.identity.deliveryPublicId}`,
+        `Underlying session public ID: ${projection.identity.sessionPublicId}`,
+        `Session file ID: ${projection.identity.sessionFileId}`,
+        `Caption inventory: ${projection.captions.status}`);
+      for (const stream of projection.streams) {
+        lines.push(`${stream.role}: ${stream.name ?? "unnamed"}; format: ${stream.viewerMediaFileTypeName ?? "not supplied"}`);
+        for (const url of [stream.url, stream.httpUrl, ...stream.variants.map(variant => variant.url)])
+          if (url) references.push(url);
+      }
+      for (const entry of projection.navigation)
+        lines.push(`Native timestamp ${entry.timeSeconds ?? "unknown"}s [${entry.eventType ?? "unclassified"}]: ${entry.text ?? ""}`);
+      lines.push("OCR/navigation labels are not speech captions or a transcript. Recorded stream links do not establish an uploaded original, playback, course launch or complete widget content.");
+    };
+    for (const delivery of checked.deliveries) {
+      if (delivery.projection) append(delivery.projection, delivery.targetUrl,
+        checked.metadataVerified ? "Captured native Panopto delivery metadata" : "Partial native Panopto delivery metadata; current stability is unverified");
+    }
+    if (!checked.metadataVerified)
+      for (const previous of checked.historical)
+        append(directPanoptoProjectionV1(previous.targetUrl, previous.initial.model), previous.targetUrl,
+          "Historical Panopto metadata; this capture did not verify the current recording source");
+    if (lines.length) lines.push(`MP4 podcast rendition bodies verified in this input: ${checked.decoded.length}. Historical rendition bodies retained: ${checked.historical.filter(value => value.bytes).length}; historical bytes do not verify the current source. Uploaded-original identity and complete viewer-stream coverage remain unverified.`);
+    return { text: lines.join("\n"), references: [...new Set(references)] };
+  } catch { return empty; }
+}
+
 export function capturedContent(
   payload: unknown,
   options: {
@@ -591,7 +649,9 @@ export function capturedContent(
       : questions.length
         ? "PARTIAL"
         : "UNVERIFIED";
-  const full = string(p.textSample ?? p.text),
+  const widgetTargets = options.source ? [] : verifiedDirectWidgetTargets(p, options.itemId),
+    panopto = options.source ? { text: "", references: [] } : verifiedDirectPanoptoContent(p, options.itemId, widgetTargets),
+    full = [string(p.textSample ?? p.text), panopto.text].filter(Boolean).join("\n\n"),
     receipt = contentObject(p.textCaptureEvidence);
   const truncated =
     p.textCaptureTruncated === true ||
@@ -626,11 +686,11 @@ export function capturedContent(
     : (exact || directFull) && !truncated
       ? "EMPTY"
       : "UNVERIFIED";
-  const widgetTargets = options.source ? [] : verifiedDirectWidgetTargets(p, options.itemId);
   const references = [
     ...new Set(
       [
         ...widgetTargets,
+        ...panopto.references,
         ...array(p.links),
         ...array(p.embeddedRefs),
         ...array(contentObject(p.readingEditorEvidence).frames).map(
@@ -645,7 +705,9 @@ export function capturedContent(
   ];
   if (widgetTargets.length)
     limitations.push(
-      "Configured widget links were captured from this item's authoring draft. External page content, video files, captions and playback remain unverified.",
+      panopto.text
+        ? "Configured widget links were captured from this item's authoring draft. Panopto metadata and MP4 podcast byte coverage are described above; HLS viewer bodies, caption bodies, playback, course launch and complete widget content remain unverified."
+        : "Configured widget links were captured from this item's authoring draft. External page content, video files, captions and playback remain unverified.",
     );
   const unreadFrames = array(
     contentObject(p.readingEditorEvidence).frames,
@@ -656,7 +718,9 @@ export function capturedContent(
     );
   if (references.length || questions.some((q) => q.media.length))
     limitations.push(
-      "References are listed; linked files, images, embedded screens and learner interactions are not verified by the text view.",
+      panopto.text
+        ? "Recorded stream references include unarchived HLS variants; byte verification applies only to the explicitly counted MP4 podcast renditions. Embedded screens and learner interactions remain unverified."
+        : "References are listed; linked files, images, embedded screens and learner interactions are not verified by the text view.",
     );
   return {
     basis: options.basis,
@@ -665,7 +729,9 @@ export function capturedContent(
     url: safeWebUrl(options.url),
     text: full.slice(0, 300000),
     textCoverage,
-    textReason: options.excerpt
+    textReason: panopto.text
+      ? "Captured native Panopto metadata; media bytes, source stability and whole-widget coverage are reported separately."
+      : options.excerpt
       ? "Only an excerpt was retained in this older report. Import its original extraction or capture this item again."
       : truncated
         ? "The capture or display limit cut this text. The available excerpt is shown."

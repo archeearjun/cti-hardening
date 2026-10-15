@@ -522,6 +522,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         row.buildId === "v1.2.0-bound-reading-media-20261014" ||
         row.buildId === "v1.3.0-deduplicated-original-archive-20261014" ||
         row.buildId === "v1.4.0-bound-content-integrity-20261015" ||
+        row.buildId === "v1.5.0-bound-widget-configuration-20261015" ||
         row.buildId === CTI_DIRECT_DATA_BUILD_V1) &&
         capture &&
         capture.mode === "BOUND_AUTHORING_DRAFT_API" &&
@@ -691,9 +692,11 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
       throw Error("Invalid direct-data body SHA-256 identifier.");
     return value;
   }
-  function validBodyBlob(blob) {
+  function validBodyBlob(blob, value) {
+    const limit = value?.kind === "PANOPTO_PODCAST_RENDITION" && value?.mime === "video/mp4"
+      ? 128 * 1024 * 1024 : 16 * 1024 * 1024;
     return typeof Blob === "function" && blob instanceof Blob &&
-      Number.isSafeInteger(blob.size) && blob.size > 0 && blob.size <= 16 * 1024 * 1024;
+      Number.isSafeInteger(blob.size) && blob.size > 0 && blob.size <= limit;
   }
   function bodyDescriptor(row) {
     return {schemaVersion:row.schemaVersion,courseId:row.courseId,runId:row.runId,
@@ -703,15 +706,22 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
   function bodyBound(row, id, hash) {
     return !!row && row.schemaVersion===2 && row.courseId===courseId && row.runId===id &&
       Array.isArray(row.key) && row.key.length===3 && row.key[0]===courseId && row.key[1]===id && row.key[2]===hash &&
-      row.sha256===hash && row.archivePath==="files/"+hash && validBodyBlob(row.blob) && row.blob.size===row.size &&
+      row.sha256===hash && row.archivePath==="files/"+hash && validBodyBlob(row.blob,row.metadata) && row.blob.size===row.size &&
+      (row.metadata?.kind !== "PANOPTO_PODCAST_RENDITION" || row.mime === "video/mp4") &&
       typeof row.mime==="string" && row.mime.length<=127 && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(row.mime) &&
       Number.isFinite(row.createdAt) && Number.isFinite(row.updatedAt);
   }
-  async function verifiedBody(blob, hash) {
-    if (!validBodyBlob(blob)) throw Error("Invalid or oversized direct-data original body Blob.");
+  async function verifiedBody(blob, hash, value) {
+    if (!validBodyBlob(blob,value)) throw Error("Invalid or oversized direct-data original body Blob.");
     if (!globalThis.crypto?.subtle) throw Error("Direct-data body checksum verification is unavailable.");
     const bytes=await blob.arrayBuffer();
     if (bytes.byteLength!==blob.size) throw Error("Direct-data original body size changed.");
+    if (value?.kind === "PANOPTO_PODCAST_RENDITION") {
+      const header = new Uint8Array(bytes,0,Math.min(bytes.byteLength,12));
+      if (value.mime !== "video/mp4" || header.length < 12 ||
+          header[4] !== 102 || header[5] !== 116 || header[6] !== 121 || header[7] !== 112)
+        throw Error("Direct-data Panopto podcast body is not an MP4 rendition.");
+    }
     const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));
     const actual=[...digest].map(value=>value.toString(16).padStart(2,"0")).join("");
     if (actual!==hash) throw Error("Direct-data original body does not match its SHA-256 identifier.");
@@ -728,6 +738,8 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
     const mime=String(supplied.mime || blob.type || "application/octet-stream").toLowerCase();
     if (mime.length>127 || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(mime))
       throw Error("Invalid direct-data original body MIME type.");
+    if (supplied.kind === "PANOPTO_PODCAST_RENDITION" && mime !== "video/mp4")
+      throw Error("Invalid direct-data Panopto podcast body MIME type.");
     return {value:JSON.parse(serialized),mime};
   }
   store.getBody = async (id, hash) => {
@@ -744,16 +756,16 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         });
       });
     });
-    if (row) await verifiedBody(row.blob,hash);
+    if (row) await verifiedBody(row.blob,hash,row.metadata);
     return row;
   };
   store.putBody = async (id, hash, blob, value) => {
     ensureAvailable();id=runId(id);hash=bodyHash(hash);
-    if (!validBodyBlob(blob)) throw Error("Invalid or oversized direct-data original body Blob.");
+    if (!validBodyBlob(blob,value)) throw Error("Invalid or oversized direct-data original body Blob.");
     const supplied=bodyMetadata(value,id,hash,blob), owner=await read("runs",[courseId,id]);
     if (!sameRun(owner,id) || owner.updatedAt<Date.now()-ttlMs)
       throw Error("Direct-data checkpoint run was not found or has expired for this course.");
-    await verifiedBody(blob,hash);
+    await verifiedBody(blob,hash,supplied.value);
     // Existing originals are also checksum checked before deduplication. A
     // damaged row is never silently replaced by a later observation.
     await store.getBody(id,hash);
