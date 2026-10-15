@@ -565,7 +565,16 @@ async function checkPanoptoMetadata(page, tab, shots) {
   const text = fs.readFileSync(await (await textDownload).path(), "utf8");
   assert(text.includes(fileModel.Delivery.SessionName));
   assert.match(text, /Caption inventory: REPORTED_NONE/);
-  assert.match(text, /Navigation 0s \[SmartOcrToc\]/);
+  const exportedLines = text.split("\n");
+  for (const entry of fileModel.Delivery.Timestamps)
+    assert(
+      exportedLines.some((line) =>
+        line.endsWith(
+          `${entry.Time}s [${entry.EventTargetType}]: ${entry.Caption}`,
+        ),
+      ),
+      `Retain the literal time, event type and text for native timestamp ${entry.ID}`,
+    );
   assert.match(
     text,
     /OCR\/navigation labels are not speech captions or a transcript/,
