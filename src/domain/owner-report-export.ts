@@ -34,6 +34,7 @@ import type { WorkspaceStore } from "./workspace-store.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
 import { ownerScope } from "./owner-scope.ts";
 import { moduleTimes, moduleTimesText } from "./owner-time.ts";
+import { validatePanoptoDeliveryInfoCapture } from "./panopto-delivery-info.ts";
 
 export interface ExportedOwnerReview {
   relevance?: OwnerReview["relevance"];
@@ -45,6 +46,7 @@ export interface ExportedOwnerReview {
   updatedAt: string;
   capture?: EvidenceObject;
   pluginCaptures: EvidenceObject[];
+  panoptoCaptures: EvidenceObject[];
   sourceCounts: ReviewedSourceCount[];
   sourceCaptures: SourceQuestionCapture[];
   courseraLinkedCaptures: CourseraLinkedCapture[];
@@ -178,6 +180,29 @@ export async function prepareOwnerReportExport(
           binaryContentVerified: false,
         };
       });
+      const panoptoCaptures = (review.panoptoCaptures || []).map((p) => {
+        const expectedCourse = location?.courseId || capture?.courseId;
+        if (
+          !task?.id ||
+          p.auditId !== auditId ||
+          p.itemId !== task.id ||
+          (expectedCourse && p.courseId !== expectedCourse)
+        )
+          throw new Error(
+            "Saved Panopto metadata does not match this report. No report was exported.",
+          );
+        // Recompute metadata and its projection rather than trusting saved
+        // verification flags. Historical exact-item evidence survives removal
+        // of its reference; itemContentView labels it separately as previous.
+        return validatePanoptoDeliveryInfoCapture(p, {
+          auditId,
+          itemId: task.id,
+          courseId: expectedCourse || p.courseId,
+          url: task.url,
+          name: task.name,
+          checks: task.checks,
+        });
+      });
       const sourceCounts = review.sourceCounts || [];
       const sourceCaptures = review.sourceCaptures || [];
       const courseraLinkedCaptures = review.courseraLinkedCaptures || [];
@@ -205,6 +230,7 @@ export async function prepareOwnerReportExport(
         updatedAt: review.updatedAt,
         ...(capture ? { capture } : {}),
         pluginCaptures,
+        panoptoCaptures,
       });
     }
   }
@@ -246,6 +272,7 @@ export async function prepareOwnerReportExport(
         reviews.find((r) => r.itemKey === task.key)?.sourceCaptures,
         reviews.find((r) => r.itemKey === task.key)?.pluginCaptures,
         reviews.find((r) => r.itemKey === task.key)?.courseraLinkedCaptures,
+        reviews.find((r) => r.itemKey === task.key)?.panoptoCaptures,
       ),
     })),
     questionComparisons,
@@ -303,7 +330,7 @@ export async function prepareOwnerReportExport(
   const lines = [
     "SAVED FOLLOW-UP EVIDENCE",
     `Saved report: ${line(auditId)} | exported: ${followUp.exportedAt}`,
-    `Saved item reviews: ${reviews.length} | focused item checks: ${reviews.filter((r) => r.capture).length} | plugin-page checks: ${reviews.reduce((n, r) => n + r.pluginCaptures.length, 0)}`,
+    `Saved item reviews: ${reviews.length} | focused item checks: ${reviews.filter((r) => r.capture).length} | plugin-page checks: ${reviews.reduce((n, r) => n + r.pluginCaptures.length, 0)} | Panopto metadata imports: ${reviews.reduce((n, r) => n + r.panoptoCaptures.length, 0)}`,
     "These later observations and manual notes supplement the original audit below. Its scores, findings and ingestion status are unchanged. No finding is automatically cleared; this is not publication approval.",
     "Only work saved against this exact report is included. Unsaved notes and checks attached to other reports are not included.",
     "CHECKLIST SCOPE: Instructor/instructional resources, archives and owner-excluded items are reference only. Their original findings below are retained history, not publishing tasks.",
@@ -366,6 +393,11 @@ export async function prepareOwnerReportExport(
       lines.push(
         `  Plugin-page capture: ${line(p.targetUrl)} | captured: ${line(p.finishedAt)} | status: ${line(p.status)}`,
         `    Captured text characters: ${typeof p.text === "string" ? p.text.length : 0}. Visible-screen evidence only; hidden screens, interaction, course launch and binary content remain unverified.`,
+      );
+    for (const p of r.panoptoCaptures)
+      lines.push(
+        `  Manually imported Panopto metadata: ${line(p.targetUrl)} | imported: ${line(p.importedAt)}`,
+        "    Import time is not a new player observation. Retained metadata does not verify video or caption bodies, original uploaded files, course launch, playback, or complete widget content. No finding is automatically cleared.",
       );
   }
   lines.push("", questionComparisonsText(questionComparisons));

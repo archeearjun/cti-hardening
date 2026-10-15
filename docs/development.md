@@ -24,6 +24,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Owner tasks, manual review | `src/domain/owner-actions.ts`, `web/OwnerActionCard.tsx` | `npm run test:navigation` |
 | Owner explanations, source-template readiness, relevant question controls | `src/domain/owner-guidance.ts`, `web/OwnerAssessment.tsx` | `tests/owner-guidance.test.mjs`; `npm run test:browser:owner` |
 | Focused item/plugin checks | `src/domain/item-check.ts`, `plugin-check.ts` | `npm run test:navigation` |
+| Panopto response metadata attached to an exact captured item | `src/domain/panopto-delivery-info.ts`, `web/PanoptoEvidencePanel.tsx`, `owner-content.ts`, `owner-report-export.ts` | `tests/panopto-delivery-info.test.mjs`; `tests/panopto-owner-evidence.test.mjs`; `npm run test:browser:owner` |
 | One-click item refresh and local Chrome extension | `src/browser-extension/`, `src/domain/browser-item-refresh.ts`, `extension-item-script.ts`, `web/CourseraItemRefresh.tsx` | `tests/browser-item-refresh.test.mjs`; `npm run test:browser:owner`; `npm run test:browser:extension`; [installation and boundaries](browser-item-refresh.md) |
 | Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |
 | Full course bookmark and direct authoring drafts | `src/extractors/coursera/direct-data-*`, `src/domain/coursera-direct-data-capture.ts`, `web/CourseraDirectCaptureSetup.tsx` | `tests/coursera-direct-data-*.test.mjs`; `npm run test:browser:direct-data` |
@@ -158,6 +159,26 @@ cumulative budgets, and distinguish assessment, reading and structural coverage.
 The importer independently validates its source receipts
 and ordered inventory. Native fixture checks verify delivery separately from
 browser policy restrictions; fixtures do not certify every live private course.
+
+An item's captured Panopto target can also receive a manually copied
+`DeliveryInfo.aspx` response in its owner card. This is a separate, report-bound
+metadata supplement, not a rewritten course capture or a newly observed source
+timestamp. The importer checks the configured delivery ID independently of the
+underlying session and file IDs used by reference copies. It preserves native
+viewer/podcast stream roles, variants, duration and navigation labels. OCR table
+of contents labels do not become a transcript. An explicit empty caption
+inventory is reported for that delivery only; unknown caption models remain
+unresolved. Copied-text and sanitized-model hashes identify retained evidence,
+not original HTTP wire bytes. Video bytes, uploaded-original identity, playback,
+course launch and complete widget content remain unverified. Import, persistence
+and report export recompute the metadata projections and keep previous targets
+separate when the current captured reference changes.
+The card can copy a bounded metadata reader for the exact standalone Panopto
+page. It uses the observed same-origin form POST with live/editing and auth-cookie
+refresh disabled, retains sanitized native JSON, and stops on page changes,
+wrong identities, redirects, unsupported responses or size/time limits. It does
+not request media files or synthesize captions. The returned file uses the same
+manual metadata-import path and does not gain an authenticated-source claim.
 The direct bundle preserves the text of reachable native declarations using
 TypeScript's lexical symbol bindings. It excludes unrelated editor helpers,
 while the legacy bundle retains its original linking behavior. Delivery must

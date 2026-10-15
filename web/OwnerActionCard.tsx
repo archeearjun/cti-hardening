@@ -53,6 +53,8 @@ import type {
 import EvidenceDetails from "./EvidenceDetails";
 import SourceRepairEvidence from "./SourceRepairEvidence";
 import PluginEvidencePanel from "./PluginEvidencePanel";
+import PanoptoEvidencePanel from "./PanoptoEvidencePanel";
+import type { importPanoptoDeliveryInfo } from "../src/domain/panopto-delivery-info";
 import { download } from "./workspace-ui";
 import { ownerScope, type ItemRelevance } from "../src/domain/owner-scope";
 import { formatMinutes, taskTimes } from "../src/domain/owner-time";
@@ -113,6 +115,9 @@ export default function OwnerActionCard({
   >([]);
   const fetchLock = useRef(false);
   const [pluginCaptures, setPluginCaptures] = useState<EvidenceObject[]>([]);
+  const [panoptoCaptures, setPanoptoCaptures] = useState<
+    Awaited<ReturnType<typeof importPanoptoDeliveryInfo>>[]
+  >([]);
   const editable = !!store && store.role !== "viewer" && !!auditId && !!course;
   useEffect(() => {
     if (!open || !saved || !store) return;
@@ -128,6 +133,7 @@ export default function OwnerActionCard({
         setNote(r.data.review.note);
         setCapture(r.data.review.capture);
         setPluginCaptures(r.data.review.pluginCaptures || []);
+        setPanoptoCaptures(r.data.review.panoptoCaptures || []);
         setSourceCounts(r.data.review.sourceCounts || []);
         setSourceCaptures(r.data.review.sourceCaptures || []);
         setCourseraLinkedCaptures(r.data.review.courseraLinkedCaptures || []);
@@ -306,6 +312,7 @@ export default function OwnerActionCard({
     nextSourceCounts = sourceCounts,
     nextSourceCaptures = sourceCaptures,
     nextCourseraLinkedCaptures = courseraLinkedCaptures,
+    nextPanoptoCaptures = panoptoCaptures,
   ) {
     if (!editable || !store || !course || !loaded)
       throw Error(
@@ -322,6 +329,7 @@ export default function OwnerActionCard({
       sourceCounts: nextSourceCounts,
       sourceCaptures: nextSourceCaptures,
       courseraLinkedCaptures: nextCourseraLinkedCaptures,
+      panoptoCaptures: nextPanoptoCaptures,
     };
     validateOwnerReview(review);
     const id = `item-review-${await digest(new TextEncoder().encode(JSON.stringify([auditId, task.key])))}`;
@@ -336,6 +344,7 @@ export default function OwnerActionCard({
     setRecord(next);
     setCapture(nextCapture);
     setPluginCaptures(nextPlugins);
+    setPanoptoCaptures(nextPanoptoCaptures);
     setSourceCounts(nextSourceCounts);
     setSourceCaptures(nextSourceCaptures);
     setCourseraLinkedCaptures(nextCourseraLinkedCaptures);
@@ -384,6 +393,7 @@ export default function OwnerActionCard({
         sourceCaptures,
         pluginCaptures,
         courseraLinkedCaptures,
+        panoptoCaptures,
       );
     } catch (e) {
       contentError = e instanceof Error ? e.message : String(e);
@@ -446,6 +456,7 @@ export default function OwnerActionCard({
                 !!capture ||
                 !!sourceCaptures.length ||
                 !!pluginCaptures.length ||
+                !!panoptoCaptures.length ||
                 !!courseraLinkedCaptures.length
               }
             />
@@ -891,6 +902,32 @@ export default function OwnerActionCard({
                     status === "checked" ? "in_progress" : status,
                     next,
                   );
+                }}
+              />
+              <PanoptoEvidencePanel
+                spec={spec}
+                targets={contentView?.coursera.references || []}
+                captures={panoptoCaptures}
+                editable={editable && loaded && !busy}
+                onCapture={async (value) => {
+                  const next = [
+                    ...panoptoCaptures.filter(
+                      (previous) => previous.targetUrl !== value.targetUrl,
+                    ),
+                    value,
+                  ].slice(-12);
+                  setBusy("Saving Panopto metadata…");
+                  try {
+                    await persist(
+                      capture,
+                      status === "checked" ? "in_progress" : status,
+                      pluginCaptures,
+                      sourceCounts,
+                      sourceCaptures,
+                      courseraLinkedCaptures,
+                      next,
+                    );
+                  } finally { setBusy(""); }
                 }}
               />
             </section>

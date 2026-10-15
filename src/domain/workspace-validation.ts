@@ -44,6 +44,14 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
       throw new Error("Invalid item review.");
     validateOwnerReview(record.data.review);
     if (
+      record.data.review.panoptoCaptures?.some(
+        (c: { itemId: string; auditId: string }) =>
+          record.data.itemKey !== `item:${c.itemId}` ||
+          record.data.auditId !== c.auditId,
+      )
+    )
+      throw Error("Panopto metadata belongs to a different report or item.");
+    if (
       record.data.review.courseraLinkedCaptures?.some(
         (c: { itemId: string }) => record.data.itemKey !== `item:${c.itemId}`,
       )

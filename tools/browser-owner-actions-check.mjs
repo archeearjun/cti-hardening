@@ -12,7 +12,15 @@ import {
   buildOwnerContext,
 } from "../src/domain/owner-actions.ts";
 import { chromium } from "playwright";
-import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
+import { comparisonFixture, encode } from "../tests/workflow-fixtures.mjs";
+import { writeWorkbook } from "../src/adapters/workbook.ts";
+import {
+  widgetFixture,
+  WIDGET_COURSE,
+  WIDGET_SLUG,
+} from "../tests/coursera-direct-widget-fixtures.mjs";
+import { directWidgetContractV1 } from "../src/extractors/coursera/direct-data-contracts.js";
+import { panoptoDeliveryFixture } from "../tests/panopto-delivery-fixtures.mjs";
 import { directTextFixture } from "../tests/coursera-direct-content-fixtures.mjs";
 import { contactTemplateFixture } from "../tests/owner-guidance-fixtures.mjs";
 import { syllabusFixture } from "../tests/syllabus-readiness-fixtures.mjs";
@@ -218,6 +226,368 @@ const capture = {
     ],
   },
 };
+
+async function checkPanoptoMetadata(page, tab, shots) {
+  const fixture = panoptoDeliveryFixture();
+  const first = widgetFixture({ url: fixture.targetUrl });
+  const secondTarget = fixture.targetUrl.replace(fixture.ids.A, fixture.ids.B);
+  const second = widgetFixture({
+    itemId: "WidgetB",
+    atomId: "b".repeat(22),
+    providerId: "q".repeat(22),
+    url: secondTarget,
+  });
+  const source = comparisonFixture();
+  const fingerprints = [first, second].map((value, index) => {
+    directWidgetContractV1(value.fp, value.bound);
+    return { ...value.fp, path: `Module ${index + 1}`, lesson: "Lesson 1" };
+  });
+  source.excel.bytes = writeWorkbook({
+    name: "Synthetic widgets",
+    sheets: {
+      "FOR IMPORT": {
+        values: fingerprints.flatMap((fp) => [
+          ["Module"],
+          ["***Name", fp.path],
+          ["Lesson"],
+          ["***Name", fp.lesson],
+          ["Ungraded Plugin", fp.name, "", "", "", "", "", fp.id],
+        ]),
+      },
+    },
+  });
+  source.json.bytes = encode({
+    schemaVersion: 34,
+    page: {
+      title: "Synthetic widget course",
+      url: `https://www.coursera.org/teach/${WIDGET_SLUG}/${WIDGET_COURSE}/content/edit`,
+    },
+    meta: { buildId: "synthetic-test-only" },
+    fingerprints,
+  });
+  const report = createWorkflows(workerXml).compare(source);
+  assert.deepEqual(
+    report.contentEvidence.coursera.map((item) => item.content.references),
+    [[fixture.targetUrl], [secondTarget]],
+    "Same-title widgets must start with independently bound captured targets",
+  );
+  const savedAudit = {
+    ...source.course,
+    id: "panopto-metadata-audit",
+    kind: "audit",
+    packageId: source.course.id,
+    title: "Panopto metadata evidence",
+    data: report,
+  };
+  await tab("Setup");
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "panopto-workspace.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        kind: "CTI_BROWSER_WORKSPACE",
+        schemaVersion: 1,
+        records: [source.course, savedAudit],
+      }),
+    ),
+  });
+  await page
+    .getByRole("button", { name: "Import prepared records", exact: true })
+    .click();
+  await page.getByText("Imported 2 records;", { exact: false }).waitFor();
+  const openReport = async () => {
+    await page
+      .getByRole("combobox", { name: "Selected source course", exact: true })
+      .selectOption(source.course.id);
+    await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+    await tab("History");
+    await page
+      .getByRole("button", { name: savedAudit.title, exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Coursera content view", exact: true })
+      .waitFor();
+  };
+  await openReport();
+  const card = page.locator(
+    '.action-card:has(a[href$="/item/plugin/WidgetA"])',
+  );
+  const otherCard = page.locator(
+    '.action-card:has(a[href$="/item/plugin/WidgetB"])',
+  );
+  await card.locator(":scope > summary").click();
+  await otherCard.locator(":scope > summary").click();
+  const panel = card.getByRole("region", {
+    name: "Panopto media metadata",
+    exact: true,
+  });
+  const otherPanel = otherCard.getByRole("region", {
+    name: "Panopto media metadata",
+    exact: true,
+  });
+  assert.equal(
+    await panel.getByLabel("Captured Panopto target").inputValue(),
+    fixture.targetUrl,
+  );
+  assert.equal(
+    await otherPanel.getByLabel("Captured Panopto target").inputValue(),
+    secondTarget,
+  );
+  await otherPanel
+    .getByLabel("Paste Panopto response JSON")
+    .fill(fixture.responseText);
+  await otherPanel
+    .getByRole("button", { name: "Save Panopto metadata", exact: true })
+    .click();
+  await otherPanel
+    .getByRole("status")
+    .filter({ hasText: "does not identify the selected Panopto recording" })
+    .waitFor();
+  assert.equal(
+    await otherPanel
+      .getByText("Imported Panopto metadata ·", { exact: false })
+      .count(),
+    0,
+  );
+  await otherCard.locator(":scope > summary").click();
+  await panel
+    .getByLabel("Paste Panopto response JSON")
+    .fill(fixture.responseText);
+  await panel
+    .getByRole("button", { name: "Save Panopto metadata", exact: true })
+    .click();
+  await panel
+    .getByRole("status")
+    .filter({ hasText: "Panopto metadata saved with this item." })
+    .waitFor();
+  await panel
+    .getByText(
+      `Imported Panopto metadata · ${fixture.model.Delivery.SessionName}`,
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal(
+    await panel.getByLabel("Paste Panopto response JSON").inputValue(),
+    "",
+  );
+
+  // File import replaces the same target rather than duplicating it. A failed
+  // refresh must leave this successful native response available after reload.
+  const fileModel = structuredClone(fixture.model);
+  fileModel.UnknownMetadata += " — file import";
+  fileModel.Delivery.SessionName += " — file import";
+  await panel.getByLabel("Upload Panopto response JSON or text").setInputFiles({
+    name: "delivery-response.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from(JSON.stringify(fileModel)),
+  });
+  const imported = panel.getByText(
+    `Imported Panopto metadata · ${fileModel.Delivery.SessionName}`,
+    { exact: true },
+  );
+  await imported.waitFor();
+  await panel.getByLabel("Upload Panopto response JSON or text").setInputFiles({
+    name: "wrong-recording.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        ...fileModel,
+        Delivery: { ...fileModel.Delivery, PublicID: fixture.ids.B },
+      }),
+    ),
+  });
+  await panel
+    .getByRole("status")
+    .filter({ hasText: "does not identify the selected Panopto recording" })
+    .waitFor();
+  await imported.click();
+  await panel
+    .getByText(
+      "No caption tracks reported in the imported response. Caption absence has not been independently verified.",
+      { exact: true },
+    )
+    .waitFor();
+  await panel
+    .getByRole("heading", {
+      name: "Reported navigation and OCR labels",
+      exact: true,
+    })
+    .waitFor();
+  await panel
+    .getByText(
+      "These are the response’s navigation records. They do not establish caption or transcript coverage.",
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal(
+    await panel.locator("pre.evidence-json").count(),
+    fileModel.Delivery.Timestamps.length,
+  );
+  assert.equal(
+    await panel.locator("pre.evidence-json").first().innerText(),
+    fileModel.Delivery.Timestamps[0].Caption,
+  );
+  assert.equal(
+    await panel.locator("markup,literal").count(),
+    0,
+    "Provider text must be rendered literally",
+  );
+  assert.equal(
+    await panel
+      .getByRole("link", {
+        name: "Open reported viewer stream ↗",
+        exact: true,
+      })
+      .getAttribute("href"),
+    fileModel.Delivery.Streams[0].StreamUrl,
+  );
+  assert.equal(
+    await panel
+      .getByRole("link", {
+        name: "Open reported podcast stream ↗",
+        exact: true,
+      })
+      .getAttribute("href"),
+    fileModel.Delivery.PodcastStreams[0].StreamUrl,
+  );
+  assert.equal(
+    await panel
+      .getByRole("link", {
+        name: "Open reported stream variant ↗",
+        exact: true,
+      })
+      .count(),
+    3,
+  );
+  assert.equal(
+    await panel
+      .getByRole("button", {
+        name: "Download saved Panopto metadata",
+        exact: true,
+      })
+      .count(),
+    1,
+  );
+  const metadataDownload = page.waitForEvent("download");
+  await panel
+    .getByRole("button", {
+      name: "Download saved Panopto metadata",
+      exact: true,
+    })
+    .click();
+  const savedMetadata = JSON.parse(
+    fs.readFileSync(await (await metadataDownload).path(), "utf8"),
+  );
+  assert.deepEqual(
+    savedMetadata.nativeModel,
+    fileModel,
+    "Retain the complete sanitized native model, including unknown text",
+  );
+  assert.equal(savedMetadata.targetUrl, fixture.targetUrl);
+  assert.equal(savedMetadata.auditId, savedAudit.id);
+  assert.equal(savedMetadata.courseId, WIDGET_COURSE);
+  assert.equal(savedMetadata.itemId, first.fp.id);
+  assert.equal(savedMetadata.captions.status, "REPORTED_NONE");
+  assert.equal(savedMetadata.navigation[0].eventType, "SmartOcrToc");
+  for (const key of [
+    "bodyVerified",
+    "binaryContentVerified",
+    "captionsVerified",
+    "playbackVerified",
+    "courseLaunchVerified",
+    "wholeWidgetVerified",
+    "automatedResolution",
+  ])
+    assert.equal(
+      savedMetadata[key],
+      false,
+      `${key} must not be promoted by metadata import`,
+    );
+  await card.getByLabel("Item outcome").selectOption("in_progress");
+  await card
+    .getByLabel("What did you check or change?")
+    .fill(
+      "Retained the provider metadata; video and caption files remain unverified.",
+    );
+  await card
+    .getByRole("button", { name: "Save item outcome", exact: true })
+    .click();
+  await card
+    .getByRole("status")
+    .filter({ hasText: "Item work saved." })
+    .waitFor();
+  await page.reload();
+  await openReport();
+  await card.locator(":scope > summary").click();
+  await imported.waitFor();
+  assert.equal(
+    await card.getByLabel("Item outcome").inputValue(),
+    "in_progress",
+  );
+  assert.match(
+    await card.getByLabel("What did you check or change?").inputValue(),
+    /video and caption files remain unverified/,
+  );
+  await imported.click();
+  const reloadedDownload = page.waitForEvent("download");
+  await panel
+    .getByRole("button", {
+      name: "Download saved Panopto metadata",
+      exact: true,
+    })
+    .click();
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(await (await reloadedDownload).path(), "utf8")),
+    savedMetadata,
+    "A normal review save and reload must preserve imported metadata exactly",
+  );
+  const evidenceDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download full evidence", exact: true })
+    .click();
+  const evidence = JSON.parse(
+    fs.readFileSync(await (await evidenceDownload).path(), "utf8"),
+  );
+  assert.deepEqual(
+    evidence.result,
+    report.result,
+    "Panopto metadata must not rewrite or resolve the original audit",
+  );
+  assert.equal(evidence.followUp.reviews.length, 1);
+  assert.deepEqual(evidence.followUp.reviews[0].panoptoCaptures, [
+    savedMetadata,
+  ]);
+  assert.equal(evidence.followUp.automatedResolution, false);
+  const textDownload = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download complete report", exact: true })
+    .click();
+  const text = fs.readFileSync(await (await textDownload).path(), "utf8");
+  assert(text.includes(fileModel.Delivery.SessionName));
+  assert.match(text, /Caption inventory: REPORTED_NONE/);
+  assert.match(text, /Navigation 0s \[SmartOcrToc\]/);
+  assert.match(
+    text,
+    /OCR\/navigation labels are not speech captions or a transcript/,
+  );
+  assert(text.includes(fileModel.Delivery.Streams[0].Variants[2].Url));
+  assert.match(
+    text,
+    /Video bytes, original uploads, caption bodies, playback and course launch remain unverified/,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await panel.scrollIntoViewIfNeeded();
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    "Panopto metadata mobile overflow",
+  );
+  await page.screenshot({
+    path: path.join(shots, "panopto-metadata-mobile.png"),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+}
 const shots = process.env.CTI_OWNER_SCREENSHOTS || "/tmp/cti-owner-actions";
 fs.mkdirSync(shots, { recursive: true });
 try {
@@ -1333,6 +1703,7 @@ try {
     }
   }
   await checkOwnerScope(page, tab, shots);
+  await checkPanoptoMetadata(page, tab, shots);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -1357,6 +1728,7 @@ try {
           "390px layout",
           "contact template: passed text vs inherited readiness, actionable guidance first, no irrelevant question warnings, keyboard expansion and 390px layout",
           "hidden matched syllabus is discoverable without clearing search; template/live-source review remains visible in Needs attention",
+          "Panopto response paste/file import, same-title wrong-recording rejection, failed refresh preservation, literal OCR/navigation labels, reported-only caption absence, review/reload persistence, complete metadata exports and unchanged audit at desktop and 390px",
         ],
         screenshots: shots,
       },
