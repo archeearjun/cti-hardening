@@ -345,25 +345,17 @@ function directSingleSource(
 }
 
 function directTextOnlyCmlSource(value: string): boolean {
-  // A retained URL does not prove the body of a media resource or attachment.
-  // Check the actual source independently of the exported asset counters.
-  return (
-    !/<!DOCTYPE|<!ENTITY|<\s*(?:[A-Za-z_][\w.-]*:)?(?:asset|img|image|iframe|frame|object|embed|script|style|link|source|video|audio)\b/i.test(
-      value,
-    ) &&
-    !/<\s*(?:[A-Za-z_][\w.-]*:)?a\b[^>]*(?:\bdownload\s*(?:=|\s|>)|\bhref\s*=\s*["'][^"']*\.(?:pdf|docx?|pptx?|xlsx?|zip|csv|png|jpe?g|gif|webp)(?:[?#][^"']*)?["'])/i.test(
-      value,
-    )
-  );
+  const parsed = directCmlMediaInventoryV1(value);
+  return parsed.valid && parsed.references.length === 0;
 }
 
-function directReadingMediaSourcesValid(
+function directCmlMediaSourcesValid(
   payload: Record<string, any>,
   evidence: Record<string, any>,
   value: string,
 ): boolean {
   const inventory = directCmlMediaInventoryV1(value);
-  if (!inventory.valid) return false;
+  if (!inventory.valid || payload.textSample !== inventory.text) return false;
   const media = directMediaEvidenceStructureV1(
     payload.directAssetEvidence,
     inventory.references,
@@ -413,7 +405,8 @@ function directAssessmentSourcesValid(
 ): boolean {
   const parts = definition?.parts,
     raw = record(payload.assessmentApiEvidence),
-    assessment = record(payload.structuredAssessment);
+    assessment = record(payload.structuredAssessment),
+    inventory = record(payload.directAssessmentInventory);
   const coverage = record(assessment?.captureCompleteness),
     questions = assessment?.questions;
   if (
@@ -424,6 +417,13 @@ function directAssessmentSourcesValid(
     raw.courseId !== courseId ||
     raw.itemId !== item.id ||
     raw.assignmentId !== atomId ||
+    !Array.isArray(raw.rawParts) ||
+    directModelHash(raw.rawParts) !== directModelHash(parts) ||
+    !Array.isArray(raw.unsupportedParts) ||
+    raw.unsupportedParts.length !== 0 ||
+    !Array.isArray(raw.failures) ||
+    raw.failures.length !== 0 ||
+    !inventory ||
     !Array.isArray(raw.groups) ||
     raw.groups.length !== parts.length ||
     !Array.isArray(raw.groupStability) ||
@@ -498,9 +498,57 @@ function directAssessmentSourcesValid(
       typeof body?.value !== "string" ||
       (requireText && !body.value.trim())
     )
-      return false;
-    return directTextOnlyCmlSource(body.value);
+      return null;
+    const parsed = directCmlMediaInventoryV1(body.value);
+    return parsed.valid &&
+      !parsed.references.length &&
+      (!requireText || parsed.text)
+      ? parsed
+      : null;
   };
+  if (
+    (definition?.configuration !== undefined &&
+      !record(definition.configuration)) ||
+    (definition?.passingFraction !== undefined &&
+      (typeof definition.passingFraction !== "number" ||
+        !Number.isFinite(definition.passingFraction) ||
+        definition.passingFraction < 0 ||
+        definition.passingFraction > 1)) ||
+    (definition?.assignmentLevelRubrics !== undefined &&
+      (!Array.isArray(definition.assignmentLevelRubrics) ||
+        definition.assignmentLevelRubrics.length !== 0))
+  )
+    return false;
+  for (const field of ["introduction", "reviewCriteria"]) {
+    const value = definition?.[field];
+    if (
+      value !== undefined &&
+      !(Array.isArray(value) && !value.length) &&
+      !cml(value, false)
+    )
+      return false;
+  }
+  for (const field of [
+    "configuration",
+    "introduction",
+    "reviewCriteria",
+    "passingFraction",
+    "assignmentLevelRubrics",
+  ]) {
+    const value = definition?.[field];
+    if (value === undefined) {
+      if (assessment[field] !== undefined || inventory[field] !== undefined)
+        return false;
+    } else {
+      const expected = directModelHash(value);
+      if (
+        !expected ||
+        expected !== directModelHash(assessment[field]) ||
+        expected !== directModelHash(inventory[field])
+      )
+        return false;
+    }
+  }
   for (let index = 0; index < parts.length; index++) {
     const part = record(parts[index]),
       localId = record(part?.definition)?.id;
@@ -539,6 +587,7 @@ function directAssessmentSourcesValid(
       wrapper = record(source?.definition);
     const native = record(wrapper?.definition),
       kind = wrapper?.typeName;
+    const prompt = cml(native?.prompt);
     const correct =
       kind === "mcq"
         ? [native?.correctOption]
@@ -553,7 +602,7 @@ function directAssessmentSourcesValid(
       !sourceReceipts.has(
         "authoringAssignmentMachineEvaluableQuestions.v1/" + sourceId,
       ) ||
-      !cml(native?.prompt) ||
+      !prompt ||
       !Array.isArray(native?.options) ||
       native.options.length < 2 ||
       native.options.length > 100 ||
@@ -572,8 +621,18 @@ function directAssessmentSourcesValid(
         (kind === "mcq" ? "single-select" : "multiple-select") ||
       question.answerTextReliable !== true ||
       question.optionTextReliable !== true ||
-      typeof question.prompt !== "string" ||
-      !question.prompt.trim() ||
+      question.textFormat !== "PLAIN_TEXT" ||
+      question.prompt !== prompt.text ||
+      question.feedback !== "" ||
+      question.shuffleOptions !==
+        (typeof native.shuffleOptions === "boolean"
+          ? native.shuffleOptions
+          : null) ||
+      (kind === "checkbox" &&
+        question.allowPartialScoring !==
+          (typeof native.allowPartialScoring === "boolean"
+            ? native.allowPartialScoring
+            : null)) ||
       !Array.isArray(question.options) ||
       question.options.length !== native.options.length ||
       !Array.isArray(question.correctAnswers)
@@ -583,18 +642,24 @@ function directAssessmentSourcesValid(
     for (let position = 0; position < native.options.length; position++) {
       const sourceOption = record(native.options[position]),
         option = record(question.options[position]);
+      const display = cml(sourceOption?.display),
+        feedback =
+          sourceOption?.feedback == null
+            ? { text: "" }
+            : cml(sourceOption.feedback, false);
       if (
         typeof sourceOption?.id !== "string" ||
         !sourceOption.id ||
         sourceIds.has(sourceOption.id) ||
-        !cml(sourceOption.display) ||
-        (sourceOption.feedback != null && !cml(sourceOption.feedback, false)) ||
+        !display ||
+        !feedback ||
         !option ||
         option.id !== sourceOption.id ||
         option.sourceOptionId !== sourceOption.id ||
         option.correct !== correct.includes(sourceOption.id) ||
-        typeof option.text !== "string" ||
-        !option.text.trim()
+        option.text !== display.text ||
+        option.label !== display.text ||
+        option.feedback !== feedback.text
       )
         return false;
       sourceIds.add(sourceOption.id);
@@ -611,9 +676,7 @@ function directAssessmentSourcesValid(
           key.correctOption !== correct[0])) ||
       (kind === "checkbox" &&
         (key?.method !== "EXACT_CORRECT_OPTION_ID_SET" ||
-          !Array.isArray(key.correctOptions) ||
-          key.correctOptions.length !== correct.length ||
-          key.correctOptions.some((id: any) => !correct.includes(id))))
+          JSON.stringify(key.correctOptions) !== JSON.stringify(correct)))
     )
       return false;
     seen.add(groupId);
@@ -732,6 +795,7 @@ function directDiscussionSourcesValid(
     raw = record(promptType?.definition),
     cml = record(raw?.prompt),
     body = record(cml?.definition);
+  const parsed = directCmlMediaInventoryV1(body?.value);
   let retained = false;
   try {
     retained =
@@ -752,7 +816,8 @@ function directDiscussionSourcesValid(
       cml?.typeName === "cml" &&
       body?.dtdId === "discussion/1" &&
       typeof body.value === "string" &&
-      directTextOnlyCmlSource(body.value) &&
+      parsed.valid &&
+      directCmlMediaSourcesValid(payload, evidence, body.value) &&
       retained &&
       payload.discussionTitle === raw.title &&
       evidence.discussionPromptType === "questionPerSession" &&
@@ -762,16 +827,13 @@ function directDiscussionSourcesValid(
       evidence.rawCmlSha256 ===
         bytesToHex(sha256(new TextEncoder().encode(body.value))) &&
       typeof payload.textSample === "string" &&
+      payload.textSample === parsed.text &&
       evidence.plainTextLength === payload.textSample.length &&
       payload.textLength === payload.textSample.length &&
       payload.textScopeKind === "bound-authoring-draft-discussion-cml" &&
       directHash(payload.textSha256) &&
       payload.textSha256 ===
         bytesToHex(sha256(new TextEncoder().encode(payload.textSample))) &&
-      evidence.assetReferenceCount === 0 &&
-      evidence.assetsBodyVerified === true &&
-      Array.isArray(evidence.unresolvedAssetReferences) &&
-      evidence.unresolvedAssetReferences.length === 0 &&
       payload.textCaptureTruncated === false &&
       payload.textCaptureEvidence == null,
   );
@@ -881,6 +943,7 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
       stability = record(receipts?.stability);
     const commonValid =
       !!slug &&
+      record(payload.directResumeRevalidation)?.verified !== false &&
       evidence?.method === "BOUND_AUTHORING_DRAFT_API" &&
       evidence.courseId === courseId &&
       evidence.itemId === item.id &&
@@ -992,11 +1055,7 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         cml?.typeName !== "cml" ||
         cmlDefinition?.dtdId !== "supplement/1" ||
         typeof cmlDefinition?.value !== "string" ||
-        !directReadingMediaSourcesValid(
-          payload,
-          evidence,
-          cmlDefinition.value,
-        ) ||
+        !directCmlMediaSourcesValid(payload, evidence, cmlDefinition.value) ||
         JSON.stringify(payload.directDraftCml) !== JSON.stringify(cml) ||
         evidence.dtdId !== cmlDefinition.dtdId ||
         evidence.assetId !== definition?.assetId ||

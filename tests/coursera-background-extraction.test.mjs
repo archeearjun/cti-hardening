@@ -835,6 +835,8 @@ function directAssessmentCapture() {
       id: option.id,
       sourceOptionId: option.id,
       text: option.id,
+      label: option.id,
+      feedback: "feedback " + option.id,
       correct: correct.includes(option.id),
     }));
     return {
@@ -846,6 +848,10 @@ function directAssessmentCapture() {
       observationMethod: "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION",
       type: index ? "multiple-select" : "single-select",
       prompt: "Original question " + (index + 1),
+      textFormat: "PLAIN_TEXT",
+      feedback: "",
+      shuffleOptions: null,
+      ...(index ? { allowPartialScoring: null } : {}),
       answerTextReliable: true,
       optionTextReliable: true,
       options,
@@ -890,6 +896,9 @@ function directAssessmentCapture() {
     courseId: directCourseId,
     itemId: item.id,
     assignmentId: directAtomId,
+    rawParts: parts,
+    unsupportedParts: [],
+    failures: [],
     inventory: groups.map((group, index) => ({
       id: group.id,
       ordinal: index + 1,
@@ -927,6 +936,7 @@ function directAssessmentCapture() {
       missingRequiredAnswerOrdinals: [],
     },
   };
+  payload.directAssessmentInventory = { complete: true, rawParts: parts };
   delete payload.directDraftCml;
   return attachMaterials(capture, {
     id: item.id,
@@ -954,6 +964,112 @@ test("direct assessments require native source order, exact versioned definition
       .elements[0].content.definition.assignmentId,
     "The retained published assignment reference is not used to infer draft question ownership",
   );
+});
+
+test("direct assessment importer recomputes projected learner text and exact checkbox key sets", () => {
+  for (const mutate of [
+    (p) => {
+      p.structuredAssessment.questions[0].prompt = "Unrelated prompt";
+    },
+    (p) => {
+      const q = p.structuredAssessment.questions[0];
+      q.options[1].text = q.options[1].label = "Other answer";
+      q.correctAnswers = ["Other answer"];
+    },
+    (p) => {
+      delete p.structuredAssessment.questions[0].options[0].feedback;
+    },
+    (p) => {
+      p.structuredAssessment.questions[0].options[0].feedback =
+        "Other feedback";
+    },
+    (p) => {
+      p.structuredAssessment.questions[0].shuffleOptions = true;
+    },
+    (p) => {
+      delete p.structuredAssessment.questions[0].textFormat;
+    },
+    (p) => {
+      p.structuredAssessment.questions[1].answerKeyEvidence.correctOptions = [
+        "alpha",
+        "alpha",
+      ];
+    },
+    (p) => {
+      p.assessmentApiEvidence.questionDefinitions[0].definition.definition.prompt.definition.value =
+        "<co-content><p>Malformed</co-content>";
+    },
+  ]) {
+    const capture = directAssessmentCapture();
+    mutate(capture.fingerprints[0].payload);
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(verdict.complete, false, String(mutate));
+    assert(
+      verdict.reasons.some((reason) =>
+        reason.startsWith("DIRECT_DRAFT_ASSESSMENT_SOURCE_INVALID:"),
+      ),
+    );
+  }
+});
+
+test("nonempty assessment import checks retained instructions, settings, criteria and unsupported rubric bodies", () => {
+  for (const mode of [
+    "valid",
+    "settings",
+    "missingIntroduction",
+    "introductionMedia",
+    "criteriaMedia",
+    "rubric",
+  ]) {
+    const capture = directAssessmentCapture(),
+      payload = capture.fingerprints[0].payload,
+      definition = structuredClone(
+        payload.directDataSources.atom.elements[0].draft.content.definition,
+      ),
+      cml = (value) => ({
+        typeName: "cml",
+        definition: {
+          dtdId: "staffGraded/1",
+          value: "<co-content><p>" + value + "</p></co-content>",
+        },
+      });
+    Object.assign(definition, {
+      configuration: { isGraded: true },
+      introduction: cml("Instructions"),
+      reviewCriteria: cml("Criteria"),
+      passingFraction: 0.8,
+      assignmentLevelRubrics: [],
+    });
+    if (mode === "introductionMedia" || mode === "criteriaMedia")
+      definition[
+        mode === "introductionMedia" ? "introduction" : "reviewCriteria"
+      ] = cml('<img assetId="' + "m".repeat(22) + '"/>');
+    if (mode === "rubric")
+      definition.assignmentLevelRubrics.push({ unknown: "Original rubric" });
+    replaceDirectFixtureDraft(capture, {
+      content: { typeName: "staffGradedDraft", definition },
+    });
+    for (const field of [
+      "configuration",
+      "introduction",
+      "reviewCriteria",
+      "passingFraction",
+      "assignmentLevelRubrics",
+    ])
+      payload.structuredAssessment[field] = payload.directAssessmentInventory[
+        field
+      ] = structuredClone(definition[field]);
+    if (mode === "settings")
+      payload.structuredAssessment.configuration.isGraded = false;
+    if (mode === "missingIntroduction")
+      delete payload.structuredAssessment.introduction;
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(
+      verdict.complete,
+      mode === "valid",
+      mode + " " + verdict.reasons.join("\n"),
+    );
+  }
 });
 
 test("raw native source and ordered questions cannot silently disagree in a direct assessment", () => {
@@ -1214,6 +1330,111 @@ test("direct discussion importer verifies observed draft prompt, permissions and
   const verdict = evaluateCourseraCapture(capture, directCourseId);
   assert.equal(verdict.complete, true, verdict.reasons.join("\n"));
   assert.equal(JSON.stringify(capture), before);
+});
+
+test("discussion import independently verifies original image bodies without relaxing prompt or permission binding", () => {
+  const makeCapture = () => {
+    const capture = directDiscussionCapture(),
+      payload = capture.fingerprints[0].payload,
+      image = directNativeImageCapture().fingerprints[0].payload,
+      draft = structuredClone(payload.directDataSources.atom.elements[0].draft);
+    draft.content.definition.promptType.definition.prompt.definition.value =
+      image.directDraftCml.definition.value;
+    replaceDirectFixtureDraft(capture, draft);
+    payload.directDraftDiscussion =
+      draft.content.definition.promptType.definition;
+    payload.directDraftCml = payload.directDraftDiscussion.prompt;
+    for (const field of [
+      "textSample",
+      "textLength",
+      "textSha256",
+      "directAssetEvidence",
+      "assetDetails",
+    ])
+      payload[field] = image[field];
+    for (const field of [
+      "rawCmlLength",
+      "rawCmlSha256",
+      "plainTextLength",
+      "assetReferenceCount",
+      "assetsBodyVerified",
+      "unresolvedAssetReferences",
+    ])
+      payload.directDataEvidence[field] = image.directDataEvidence[field];
+    return capture;
+  };
+  const capture = makeCapture(),
+    verdict = evaluateCourseraCapture(capture, directCourseId);
+  assert.equal(verdict.complete, true, verdict.reasons.join("\n"));
+  for (const mutate of [
+    (p) => {
+      delete p.directAssetEvidence;
+    },
+    (p) => {
+      p.assetDetails[0].sha256 = "f".repeat(64);
+    },
+    (p) => {
+      const asset = p.directAssetEvidence.assets[0];
+      asset.body.sha256 =
+        asset.body.receipt.sha256 =
+        p.assetDetails[0].sha256 =
+          "f".repeat(64);
+    },
+    (p) => {
+      p.discussionPromptPermissions = { viewAnswersBeforeReplying: true };
+    },
+  ]) {
+    const changed = makeCapture();
+    mutate(changed.fingerprints[0].payload);
+    assert.equal(
+      evaluateCourseraCapture(changed, directCourseId).complete,
+      false,
+      String(mutate),
+    );
+  }
+});
+
+test("direct reading and discussion cannot certify coordinated empty or unrelated text projections", () => {
+  for (const createCapture of [directReadingCapture, directDiscussionCapture]) {
+    for (const text of ["", "A self-consistent but unrelated projection"]) {
+      const capture = createCapture(),
+        payload = capture.fingerprints[0].payload;
+      payload.textSample = text;
+      payload.textLength = payload.directDataEvidence.plainTextLength =
+        text.length;
+      payload.textSha256 = sourceHash(text);
+      const verdict = evaluateCourseraCapture(capture, directCourseId);
+      assert.equal(verdict.complete, false, createCapture.name + ": " + text);
+      assert(
+        verdict.reasons.some((reason) =>
+          /DIRECT_DRAFT_(?:READING|DISCUSSION)_SOURCE_INVALID:/.test(reason),
+        ),
+      );
+    }
+  }
+});
+
+test("failed current resume revalidation overrides historical stable source receipts at import", () => {
+  for (const createCapture of [
+    directReadingCapture,
+    directAssessmentCapture,
+    directDiscussionCapture,
+  ]) {
+    const capture = createCapture(),
+      payload = capture.fingerprints[0].payload;
+    payload.directResumeRevalidation = {
+      verified: false,
+      reason: "DIRECT_REQUEST_HTTP_403",
+    };
+    assert.equal(payload.directDataSources.receipts.stability.stable, true);
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(verdict.complete, false, createCapture.name);
+    assert(
+      verdict.reasons.some((reason) =>
+        reason.startsWith("DIRECT_DRAFT_SOURCE_BINDING_INVALID:"),
+      ),
+    );
+  }
 });
 
 test("discussion source tampering, hidden media and unrelated editor receipts never pass the direct gate", () => {

@@ -67,7 +67,7 @@ function makeCourse(id,mode,large=false){
           validation:{typeName:'multipleChoiceValidation',definition:{isReadyForPublish:true}},writeAccessToken:secrets[1]}});
       }
       draftContent={typeName:'staffGradedDraft',definition:{name:'Draft '+itemId,parts,configuration:{shuffleQuestions:false},
-        introduction:cml('Synthetic introduction'),passingFraction:0.8,reviewCriteria:[],assignmentLevelRubrics:[]}};
+        introduction:cml('Synthetic introduction'),passingFraction:0.8,reviewCriteria:cml('Synthetic review criteria'),assignmentLevelRubrics:[]}};
     }else if(type==='supplement')draftContent={typeName:'supplementDraft',definition:{name:'Draft '+itemId,
       content:cml(config.mode==='large-export'?'Bound large reading '+itemId+' '+'x'.repeat(1400000):
         'Bound reading body '+itemId+' café 日本語','supplement/1'),assetId:key('r'+courseIndex+'_',index)+'@2'}};
@@ -97,9 +97,20 @@ function makeMediaCourse(id,mode='media-success'){
     assets.set(assetId,{courseId:id,name,mime,body,url,value:{id:assetId,name,typeName:index===0?'image':'file',url:{url},writeAccessToken:secrets[1]}});
   }
   const references=mode==='media-pointer-missing'?'<img src="https://unfetched.example.invalid/missing.png"/>':
-    '<img assetId="'+config.mediaIds[0]+'"/><asset id="'+config.mediaIds[1]+'" name="reference.pdf"/><asset id="'+config.mediaIds[2]+'" name="lesson.pptx"/>';
+    '<img assetId="'+config.mediaIds[0]+'"/><a assetId="'+config.mediaIds[1]+'">Original reference</a><asset id="'+config.mediaIds[2]+'" name="lesson.pptx"/>';
   reading.atom.draft.content.definition.content={typeName:'cml',definition:{dtdId:'supplement/1',
     value:'<co-content><p>Original media bodies must be retained, including café 日本語.</p>'+references+'</co-content>'}};
+  return config;
+}
+function makeDiscussionMediaCourse(id,mode='media-success'){
+  const config=makeMediaCourse(id,mode),row=[...atoms.values()].find(row=>row.courseId===id&&row.itemId==='item_0002');
+  const markup=row.atom.draft.content.definition.content.definition.value;
+  row.atom.draft.content={typeName:'discussionPromptDraft',definition:{promptType:{typeName:'questionPerSession',definition:{
+    title:'Discussion with original media',promptPermissions:{viewAnswersBeforeReplying:false},
+    prompt:{typeName:'cml',definition:{dtdId:'discussion/1',value:markup}}
+  }}}};
+  const leaf=config.material.material.elements[0].elements[0].elements.find(item=>item.id===row.itemId);
+  leaf.content={typeName:'discussionPrompt',definition:{discussionPromptId:key('discussion_',configs.size)+'@1'}};
   return config;
 }
 function makeLargeMediaCourse(id){
@@ -122,6 +133,12 @@ function makeLargeMediaCourse(id){
 }
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
+for(const row of definitions.values())if(row.courseId===complete.id){
+  const native=row.value.definition.definition;
+  native.prompt.definition.value='<co-content><p>Keep &lt;div&gt; &amp; literal</p><p>Second paragraph 日本語</p></co-content>';
+  native.options[0].display.definition.value='<co-content><p>&lt;answer&gt;</p></co-content>';
+  native.options[0].feedback.definition.value='<co-content><p>Feedback &lt;code&gt;</p><p>Second paragraph</p></co-content>';
+}
 const interrupted=makeCourse('Direct_resume_fixture_123','resume');
 const oldCutoff=makeCourse('Direct_old_cutoff_fixture_123','resume');
 const budgetResume=makeCourse('Direct_budget_resume_123','budget-resume');
@@ -135,7 +152,8 @@ const limited=makeCourse('Direct_limit_fixture_123','limited');
 const largeExport=makeCourse('Direct_large_export_123','large-export');
 const mediaSuccess=makeMediaCourse('Direct_media_complete_123');
 const mediaEnrichment=makeMediaCourse('Direct_media_enrichment_123','media-legacy-gap');
-const mediaCheckpoint=makeMediaCourse('Direct_media_checkpoint_123','media-legacy-gap');
+const mediaCheckpoint=makeDiscussionMediaCourse('Direct_media_checkpoint_123','media-legacy-gap');
+const discussionMedia=makeDiscussionMediaCourse('Direct_discussion_media_123');
 const mediaLegacyV12=makeMediaCourse('Direct_media_v12_archive_123');
 const largeMedia=makeLargeMediaCourse('Direct_media_beyond64_123');
 const mediaFailures=['media-pointer-missing','media-metadata-404','media-metadata-auth','media-body-403','media-body-cors',
@@ -200,6 +218,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   }else if(resource==='authoringCourses.v2')value={id:courseId,name:'Synthetic course'};
   else if(resource==='authoringAtoms.v2'){
     const count=(config.atomGets.get(reference)||0)+1;config.atomGets.set(reference,count);value=structuredClone(binding.atom);
+    if(config.mode==='media-first-atom-failed'&&binding.itemId==='item_0002'){
+      response.statusCode=503;response.end('{"error":"current atom read failed before media acquisition"}');return;
+    }
     if(config.mode==='media-final-atom-failed'&&binding.itemId==='item_0002'&&count>1){
       response.statusCode=503;response.end('{"error":"final atom consistency read interrupted"}');return;
     }
@@ -404,6 +425,15 @@ try{
 
   const success=await runFileCase(complete);assert.equal(success.state.state,'COMPLETE');
   const verdict=evaluateCourseraCapture(success.capture,complete.id);assert.equal(verdict.complete,true,JSON.stringify(verdict.reasons));
+  for(const fp of success.capture.fingerprints.filter(fp=>fp.typeName==='staffGraded')){
+    const question=fp.payload.structuredAssessment.questions[0];
+    assert.equal(question.textFormat,'PLAIN_TEXT');
+    assert.equal(question.prompt,'Keep <div> & literal Second paragraph 日本語');
+    assert.equal(question.options[0].text,'<answer>');
+    assert.equal(question.options[0].feedback,'Feedback <code> Second paragraph');
+    assert(question.correctAnswers.includes('<answer>'));
+    assert.equal(fp.payload.structuredAssessment.reviewCriteria.definition.value,'<co-content><p>Synthetic review criteria</p></co-content>');
+  }
   await success.context.close();
 
   const scaled=await runFileCase(largeExport),scaledSize=fileSizes.get(scaled.capture);
@@ -526,6 +556,14 @@ try{
   }
   const boundMedia=await runFileCase(mediaSuccess);assert.equal(boundMedia.state.state,'COMPLETE');
   assertOriginalMedia(mediaSuccess,boundMedia.capture);await boundMedia.context.close();
+  const boundDiscussion=await runFileCase(discussionMedia);
+  assert.equal(boundDiscussion.state.state,'COMPLETE');assertOriginalMedia(discussionMedia,boundDiscussion.capture);
+  const discussion=boundDiscussion.capture.fingerprints.find(fp=>fp.id==='item_0002');
+  assert.equal(discussion.captureContract.status,'COMPLETE_BOUND_DRAFT_DISCUSSION');
+  assert.equal(discussion.payload.discussionPromptPermissions.viewAnswersBeforeReplying,false);
+  assert.equal(discussion.payload.responses,undefined);
+  await boundDiscussion.context.close();
+
 
   const largeOriginals=await runFileCase(largeMedia);
   assert.equal(largeOriginals.state.state,'COMPLETE');assertOriginalMedia(largeMedia,largeOriginals.capture);
@@ -636,6 +674,18 @@ try{
   assert.equal(retainedMediaBodies(checkpointedMedia.capture).size,0,
     'A previous reading checkpoint exists before its missing original media becomes available');
   const previousReadingRunId=checkpointedMedia.state.runId;
+  mediaCheckpoint.mode='media-first-atom-failed';mediaCheckpoint.atomGets.clear();
+  await checkpointedMedia.page.reload();
+  const failedCurrentDownload=checkpointedMedia.page.waitForEvent('download',{timeout:180000});void failedCurrentDownload.catch(()=>{});
+  await launch(checkpointedMedia.page,checkpointedMedia.context);
+  const failedCurrentState=await terminal(checkpointedMedia.page),failedCurrentCapture=await readFile(await failedCurrentDownload);
+  const historicalPrompt=failedCurrentCapture.fingerprints.find(fp=>fp.id==='item_0002');
+  assert.equal(failedCurrentState.runId,previousReadingRunId);
+  assert.equal(historicalPrompt.payload.directResumeRevalidation.verified,false);
+  assert.equal(historicalPrompt.payload.directDataSources.receipts.stability.stable,true,
+    'The failed current read preserves the older stable source proof as historical evidence');
+  assert.equal(historicalPrompt.captureContract.complete,false);
+  assert.equal(evaluateCourseraCapture(failedCurrentCapture,mediaCheckpoint.id).complete,false);
   mediaCheckpoint.mode='media-final-atom-failed';mediaCheckpoint.atomGets.clear();mediaCheckpoint.assetGets.clear();
   await checkpointedMedia.page.reload();
   const interruptedDownloading=checkpointedMedia.page.waitForEvent('download',{timeout:180000});void interruptedDownloading.catch(()=>{});
@@ -663,7 +713,7 @@ try{
   await launch(checkpointedMedia.page,checkpointedMedia.context);
   const checkpointFinal=await terminal(checkpointedMedia.page),checkpointCapture=await readFile(await checkpointDownloading);
   assert.equal(checkpointFinal.runId,checkpointedMedia.state.runId,'Interrupted media revalidation resumes its existing run');
-  assert.equal(checkpointedMedia.downloads.length,3,'Each of the saved-gap, interrupted-media, and successful-resume attempts downloads one final capture');
+  assert.equal(checkpointedMedia.downloads.length,4,'Each saved-gap, failed-current-read, interrupted-media and successful-resume attempt downloads one final capture');
   assert.equal(checkpointFinal.state,'COMPLETE');assertOriginalMedia(mediaCheckpoint,checkpointCapture);
   const resumedBodies=retainedMediaBodies(checkpointCapture);
   for(const assetId of mediaCheckpoint.mediaIds){

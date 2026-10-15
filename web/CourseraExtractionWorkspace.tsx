@@ -479,19 +479,19 @@ export default function CourseraExtractionWorkspace({
               <div className="metric-grid portfolio-counts">
                 <div>
                   <strong>{extractionJob.capture.inventoryCount}</strong>
-                  <span>Inventory items</span>
+                  <span>Capture-reported inventory items</span>
                 </div>
                 <div>
                   <strong>{extractionJob.capture.completeCount}</strong>
-                  <span>Fully complete</span>
+                  <span>Capture-reported complete</span>
                 </div>
                 <div>
                   <strong>{extractionJob.capture.unresolvedCount}</strong>
-                  <span>Unresolved</span>
+                  <span>Capture-reported unresolved</span>
                 </div>
                 <div>
                   <strong>{extractionJob.capture.unvisitedCount}</strong>
-                  <span>Unvisited</span>
+                  <span>Capture-reported unvisited</span>
                 </div>
               </div>
             )}
@@ -626,7 +626,7 @@ export default function CourseraExtractionWorkspace({
                         <td>{dateLabel(job.startedAt || job.createdAt)}</td>
                         <td>
                           {job.capture
-                            ? `${job.capture.completeCount}/${job.capture.inventoryCount} complete · ${job.capture.unresolvedCount} unresolved`
+                            ? `${job.capture.completeCount}/${job.capture.inventoryCount} capture-reported complete · ${job.capture.unresolvedCount} reported unresolved`
                             : job.phase || "Pending"}
                         </td>
                         <td>

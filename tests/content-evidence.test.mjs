@@ -28,6 +28,7 @@ import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-fil
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
+import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
 const question = {
   id: "q",
   prompt: "What is 1 < 2 and 3 > 2?",
@@ -46,6 +47,122 @@ const payload = {
     captureCompleteness: { declared: 1, questionCoverageComplete: true },
   },
 };
+
+function directTextFixture({ discussion = false, empty = false } = {}) {
+  const courseId = "Direct_content_course_123",
+    itemId = "direct-item",
+    atomId = "a".repeat(22),
+    contentId = "atom~" + atomId,
+    text = empty ? "" : "Draft <div> &amp; text",
+    cml = {
+      typeName: "cml",
+      definition: {
+        dtdId: discussion ? "discussion/1" : "supplement/1",
+        value: empty
+          ? "<co-content><p></p></co-content>"
+          : "<co-content><p>Draft &lt;div&gt; &amp;amp; text</p></co-content>",
+      },
+    },
+    content = discussion
+      ? {
+          typeName: "discussionPromptDraft",
+          definition: {
+            promptType: {
+              typeName: "questionPerSession",
+              definition: {
+                title: "Discussion",
+                prompt: cml,
+                promptPermissions: { viewAnswersBeforeReplying: false },
+              },
+            },
+          },
+        }
+      : {
+          typeName: "supplementDraft",
+          definition: { assetId: "r".repeat(22) + "@1", content: cml },
+        },
+    atom = {
+      id: atomId,
+      contentId,
+      storedAtomVersion: 1,
+      metadata: { updatedAt: 123 },
+      status: { typeName: "draftAtomStatus" },
+      draft: { content },
+    },
+    hash = (value) => createHash("sha256").update(value).digest("hex"),
+    draftHash = hash(directCanonicalSourceTextV1(atom.draft)),
+    receipt = (resource) => ({
+      resource,
+      id: atomId,
+      status: 200,
+      bodyFormat: "PARSED_SANITIZED_JSON_MODEL",
+      sha256: "b".repeat(64),
+      originalResponseSha256: "b".repeat(64),
+      requestPath: "/api/" + resource + "/" + atomId,
+    });
+  return {
+    itemId,
+    payload: {
+      textSample: text,
+      textLength: text.length,
+      textSha256: hash(text),
+      textCaptureTruncated: false,
+      textScopeKind: discussion
+        ? "bound-authoring-draft-discussion-cml"
+        : "bound-authoring-draft-cml",
+      directDraftCml: structuredClone(cml),
+      directDataEvidence: {
+        method: "BOUND_AUTHORING_DRAFT_API",
+        courseId,
+        itemId,
+        atomId,
+        contentId,
+        sourceState: "AUTHORING_DRAFT",
+        stableSource: true,
+        draftHash,
+        storedAtomVersion: 1,
+        updatedAt: 123,
+        dtdId: cml.definition.dtdId,
+        rawCmlLength: cml.definition.value.length,
+        rawCmlSha256: hash(cml.definition.value),
+        plainTextLength: text.length,
+        ...(discussion
+          ? { discussionPromptType: "questionPerSession" }
+          : { assetId: content.definition.assetId }),
+      },
+      directDataSources: {
+        atom: { elements: [atom] },
+        relation: {
+          elements: [
+            {
+              id: atomId,
+              atomId,
+              branchRelationMap: {
+                [courseId + "~" + itemId]: {
+                  courseId,
+                  itemId,
+                  courseSlug: "fixture-course",
+                },
+              },
+            },
+          ],
+        },
+        receipts: {
+          atom: receipt("authoringAtoms.v2"),
+          relation: receipt("authoringItemContentRelations.v1"),
+          stability: {
+            stable: true,
+            draftHash,
+            storedAtomVersion: 1,
+            updatedAt: 123,
+            atom: { elements: [structuredClone(atom)] },
+            receipt: receipt("authoringAtoms.v2"),
+          },
+        },
+      },
+    },
+  };
+}
 
 test("original archive supplements verify bodies and archive identity while saving compact proofs only", async () => {
   const input = comparisonFixture();
@@ -384,6 +501,162 @@ test("all retained text is displayed, explicit field receipts govern complete an
   );
   assert.equal(contentText("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2");
   assert.match(contentEvidenceText(complete), /Long reading/);
+  const limited = capturedContent(
+    { ...p, textSample: "x".repeat(300001), textLength: 300001 },
+    { basis: "display-bound", itemId: "i" },
+  );
+  assert.equal(limited.text.length, 300000);
+  assert.equal(limited.textCoverage, "PARTIAL");
+  assert.match(limited.textReason, /available excerpt/);
+});
+test("direct definition plain text preserves literal tags, entities and answer keys without a second HTML decode", () => {
+  const direct = {
+    ...question,
+    textFormat: "PLAIN_TEXT",
+    observationMethod: "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION",
+    prompt: "Which <div> contains literal &lt;p&gt;?",
+    options: [
+      { id: "a", text: "<div>" },
+      { id: "b", text: "&lt;p&gt;" },
+    ],
+    correctAnswers: ["<div>"],
+    feedback: "Keep <span> and &amp; literally.",
+    answerTextReliable: true,
+  };
+  const view = capturedContent(
+    {
+      structuredAssessment: {
+        ...payload.structuredAssessment,
+        questions: [direct],
+      },
+    },
+    { basis: "direct" },
+  ).questions[0];
+  assert.equal(view.prompt, direct.prompt);
+  assert.deepEqual(
+    view.options.map((option) => option.text),
+    ["<div>", "&lt;p&gt;"],
+  );
+  assert.deepEqual(view.answers, ["<div>"]);
+  assert.equal(view.feedback, direct.feedback);
+  assert.equal(view.answerKeyReliable, true);
+  for (const unproven of [
+    { ...direct, observationMethod: "EDITOR" },
+    { ...direct, textFormat: undefined },
+  ]) {
+    const legacy = capturedContent(
+      { structuredAssessment: { questions: [unproven] } },
+      { basis: "legacy" },
+    ).questions[0];
+    assert.deepEqual(
+      legacy.answers,
+      [],
+      "Unproven fields keep the existing HTML projection",
+    );
+    assert.notEqual(legacy.prompt, direct.prompt);
+  }
+});
+test("bound draft reading and discussion text is verified separately from unresolved media", () => {
+  for (const discussion of [false, true]) {
+    const fixture = directTextFixture({ discussion });
+    fixture.payload.captureContract = {
+      complete: false,
+      status: "UNRESOLVED_DIRECT_READING",
+    };
+    fixture.payload.directDataEvidence.assetsBodyVerified = false;
+    fixture.payload.directDataEvidence.unresolvedAssetReferences = [
+      { id: "missing-media" },
+    ];
+    const result = capturedContent(fixture.payload, {
+      basis: "direct",
+      itemId: fixture.itemId,
+    });
+    assert.equal(result.textCoverage, "COMPLETE");
+    assert.equal(result.text, "Draft <div> &amp; text");
+    assert.match(result.textReason, /media coverage is separate/);
+    const empty = directTextFixture({ discussion, empty: true });
+    const emptyResult = capturedContent(empty.payload, {
+      basis: "direct",
+      itemId: empty.itemId,
+    });
+    assert.equal(emptyResult.textCoverage, "EMPTY");
+    assert.match(
+      emptyResult.textReason,
+      /bound authoring draft text was empty/,
+    );
+    const snapshot = buildContentSnapshot(
+      encode({
+        fingerprints: [{ id: fixture.itemId, payload: fixture.payload }],
+      }),
+    );
+    assert.equal(snapshot.coursera[0].content.textCoverage, "COMPLETE");
+    validateContentSnapshot(snapshot);
+  }
+});
+test("direct text coverage recomputes raw CML, source stability and text hashes instead of trusting flags", () => {
+  const hash = (value) => createHash("sha256").update(value).digest("hex");
+  const mutations = [
+    (p) => {
+      p.textSample = "Changed text";
+      p.textLength = p.textSample.length;
+      p.textSha256 = hash(p.textSample);
+      p.directDataEvidence.plainTextLength = p.textSample.length;
+    },
+    (p) => {
+      p.directDraftCml.definition.value =
+        "<co-content><p>Changed</p></co-content>";
+      p.directDataEvidence.rawCmlLength =
+        p.directDraftCml.definition.value.length;
+      p.directDataEvidence.rawCmlSha256 = hash(
+        p.directDraftCml.definition.value,
+      );
+    },
+    (p) => {
+      p.directDataSources.atom.elements[0].draft.content.definition.content.definition.value +=
+        " ";
+    },
+    (p) => {
+      p.directDataSources.receipts.stability.atom.elements[0].draft.content.definition.content.definition.value +=
+        " ";
+    },
+    (p) => {
+      p.directDataSources.receipts.stability.draftHash = "0".repeat(64);
+    },
+    (p) => {
+      p.directDataSources.receipts.atom.requestPath += "wrong";
+    },
+    (p) => {
+      p.directDataEvidence.itemId = "wrong-item";
+    },
+    (p) => {
+      p.textCaptureTruncated = true;
+    },
+    (p) => {
+      delete p.directDraftCml;
+    },
+  ];
+  for (const mutate of mutations) {
+    const fixture = directTextFixture();
+    mutate(fixture.payload);
+    const result = capturedContent(fixture.payload, {
+      basis: "direct",
+      itemId: fixture.itemId,
+    });
+    assert.equal(result.textCoverage, "PARTIAL", String(mutate));
+  }
+  const fixture = directTextFixture();
+  assert.equal(
+    capturedContent(fixture.payload, { basis: "direct", itemId: "wrong-item" })
+      .textCoverage,
+    "PARTIAL",
+  );
+  const empty = directTextFixture({ empty: true });
+  empty.payload.textSha256 = "0".repeat(64);
+  assert.equal(
+    capturedContent(empty.payload, { basis: "direct", itemId: empty.itemId })
+      .textCoverage,
+    "UNVERIFIED",
+  );
 });
 test("new comparisons retain original Coursera content and later partial checks do not erase the previous observation", () => {
   const input = comparisonFixture(),

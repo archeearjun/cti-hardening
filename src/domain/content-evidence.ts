@@ -1,5 +1,9 @@
 import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
 import { supportedMathText } from "./supported-math-text.ts";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
+import { directCmlMediaInventoryV1 } from "../extractors/coursera/direct-data-media-contracts.js";
 import {
   capturedTime,
   validateTimeEstimate,
@@ -184,7 +188,13 @@ export function contentText(value: unknown): string {
 export function contentQuestion(value: unknown, index = 0): ContentQuestion {
   const q = contentObject(value),
     limitations: string[] = [];
-  const full = supportedMathText(contentText(q.prompt ?? q.text)),
+  // Direct definition projection has already decoded the CML. Treating its
+  // literal text as HTML again would erase authored examples such as <div>.
+  const plainText =
+    q.textFormat === "PLAIN_TEXT" &&
+    q.observationMethod === "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION";
+  const fieldText = plainText ? string : contentText;
+  const full = supportedMathText(fieldText(q.prompt ?? q.text)),
     options = array(q.options);
   if (
     q.mathNotationRisk === true ||
@@ -200,9 +210,10 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
     ].some(
       (v) =>
         typeof v === "string" &&
-        /<(?:sup|sub|math|svg|img)\b|\\\(|\\\[|\$\$/i.test(
-          supportedMathText(v),
-        ),
+        (plainText
+          ? /\\\(|\\\[|\$\$/
+          : /<(?:sup|sub|math|svg|img)\b|\\\(|\\\[|\$\$/i
+        ).test(supportedMathText(v)),
     )
   )
     limitations.push(
@@ -246,7 +257,7 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
     prompt: full.slice(0, 100000),
     options: options.slice(0, 200).map((v, i) => {
       const o = contentObject(v);
-      const t = contentText(
+      const t = fieldText(
         typeof v === "string" ? v : (o.text ?? o.label ?? o.description),
       );
       if (t.length > 100000) limitations.push("Choice text is truncated.");
@@ -254,7 +265,7 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
     }),
     answers: array(q.correctAnswers)
       .map((v) =>
-        contentText(
+        fieldText(
           typeof v === "string"
             ? v
             : typeof v === "number" || typeof v === "boolean"
@@ -263,7 +274,7 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
         ),
       )
       .filter(Boolean),
-    feedback: contentText(q.feedback),
+    feedback: fieldText(q.feedback),
     media: [
       ...new Set(
         [...array(q.mediaRefs), ...array(q.images)]
@@ -293,6 +304,135 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
       : {}),
   };
 }
+/** Certify the retained text field independently of unresolved media bodies.
+ * Exported flags alone cannot upgrade a partial or altered draft to complete. */
+function verifiedDirectDraftText(p: Obj, itemId: string | undefined): boolean {
+  if (!itemId) return false;
+  try {
+    const evidence = contentObject(p.directDataEvidence),
+      sources = contentObject(p.directDataSources),
+      receipts = contentObject(sources.receipts),
+      stability = contentObject(receipts.stability),
+      atoms = array(contentObject(sources.atom).elements),
+      relations = array(contentObject(sources.relation).elements),
+      freshAtoms = array(contentObject(stability.atom).elements),
+      atom = contentObject(atoms[0]),
+      relation = contentObject(relations[0]),
+      fresh = contentObject(freshAtoms[0]),
+      atomId = string(evidence.atomId),
+      courseId = string(evidence.courseId),
+      branch = contentObject(
+        contentObject(relation.branchRelationMap)[courseId + "~" + itemId],
+      ),
+      draft = contentObject(atom.draft),
+      content = contentObject(draft.content),
+      definition = contentObject(content.definition);
+    const discussion =
+      p.textScopeKind === "bound-authoring-draft-discussion-cml";
+    if (
+      evidence.method !== "BOUND_AUTHORING_DRAFT_API" ||
+      evidence.itemId !== itemId ||
+      !courseId ||
+      evidence.sourceState !== "AUTHORING_DRAFT" ||
+      evidence.stableSource !== true ||
+      stability.stable !== true ||
+      !/^[A-Za-z0-9_-]{22}$/.test(atomId) ||
+      evidence.contentId !== "atom~" + atomId ||
+      atoms.length !== 1 ||
+      relations.length !== 1 ||
+      freshAtoms.length !== 1 ||
+      atom.id !== atomId ||
+      atom.contentId !== evidence.contentId ||
+      relation.id !== atomId ||
+      relation.atomId !== atomId ||
+      branch.courseId !== courseId ||
+      branch.itemId !== itemId ||
+      !string(branch.courseSlug) ||
+      fresh.id !== atomId ||
+      fresh.contentId !== atom.contentId ||
+      contentObject(atom.status).typeName !== "draftAtomStatus" ||
+      contentObject(fresh.status).typeName !== "draftAtomStatus" ||
+      integer(atom.storedAtomVersion) === null ||
+      evidence.storedAtomVersion !== atom.storedAtomVersion ||
+      stability.storedAtomVersion !== atom.storedAtomVersion ||
+      fresh.storedAtomVersion !== atom.storedAtomVersion ||
+      typeof contentObject(atom.metadata).updatedAt !== "number" ||
+      !Number.isFinite(contentObject(atom.metadata).updatedAt) ||
+      evidence.updatedAt !== contentObject(atom.metadata).updatedAt ||
+      stability.updatedAt !== evidence.updatedAt ||
+      contentObject(fresh.metadata).updatedAt !== evidence.updatedAt ||
+      (!discussion && p.textScopeKind !== "bound-authoring-draft-cml") ||
+      content.typeName !==
+        (discussion ? "discussionPromptDraft" : "supplementDraft")
+    )
+      return false;
+    const receiptValid = (value: unknown, resource: string) => {
+      const receipt = contentObject(value);
+      return (
+        receipt.resource === resource &&
+        receipt.id === atomId &&
+        receipt.status === 200 &&
+        receipt.bodyFormat === "PARSED_SANITIZED_JSON_MODEL" &&
+        /^[a-f0-9]{64}$/.test(string(receipt.sha256)) &&
+        receipt.sha256 === receipt.originalResponseSha256 &&
+        receipt.requestPath === "/api/" + resource + "/" + atomId
+      );
+    };
+    if (
+      !receiptValid(receipts.atom, "authoringAtoms.v2") ||
+      !receiptValid(receipts.relation, "authoringItemContentRelations.v1") ||
+      !receiptValid(stability.receipt, "authoringAtoms.v2")
+    )
+      return false;
+    const hashText = (value: string) =>
+        bytesToHex(sha256(new TextEncoder().encode(value))),
+      canonical = directCanonicalSourceTextV1,
+      draftHash = hashText(canonical(draft));
+    if (
+      evidence.draftHash !== draftHash ||
+      stability.draftHash !== draftHash ||
+      hashText(canonical(fresh.draft)) !== draftHash
+    )
+      return false;
+    const promptType = contentObject(definition.promptType),
+      sourceCml = discussion
+        ? contentObject(contentObject(promptType.definition).prompt)
+        : contentObject(definition.content),
+      cml = contentObject(p.directDraftCml),
+      body = contentObject(cml.definition),
+      value = body.value;
+    if (
+      (discussion && promptType.typeName !== "questionPerSession") ||
+      (discussion && evidence.discussionPromptType !== promptType.typeName) ||
+      (!discussion &&
+        (evidence.assetId !== definition.assetId ||
+          !/^[A-Za-z0-9_-]{22}@\d+$/.test(string(definition.assetId)))) ||
+      cml.typeName !== "cml" ||
+      body.dtdId !== (discussion ? "discussion/1" : "supplement/1") ||
+      evidence.dtdId !== body.dtdId ||
+      canonical(cml) !== canonical(sourceCml) ||
+      typeof value !== "string" ||
+      evidence.rawCmlLength !== value.length ||
+      evidence.rawCmlSha256 !== hashText(value) ||
+      typeof p.textSample !== "string" ||
+      evidence.plainTextLength !== p.textSample.length ||
+      p.textLength !== p.textSample.length ||
+      p.textSha256 !== hashText(p.textSample) ||
+      p.textCaptureTruncated !== false ||
+      p.textCaptureEvidence != null
+    )
+      return false;
+    const parsed = directCmlMediaInventoryV1(value);
+    return (
+      parsed.valid &&
+      typeof parsed.text === "string" &&
+      parsed.text === p.textSample
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function capturedContent(
   payload: unknown,
   options: {
@@ -373,14 +513,16 @@ export function capturedContent(
     p.evidenceTruncated === false &&
     integer(p.textLength) === full.length &&
     p.textNormalizationStatus === "NORMALIZED";
+  const directFull =
+    !options.source && verifiedDirectDraftText(p, options.itemId);
   const textCoverage: ContentCoverage = full
     ? !options.excerpt &&
       !truncated &&
       options.editorObserved !== false &&
-      (exact || sourceFull)
+      (exact || sourceFull || directFull)
       ? "COMPLETE"
       : "PARTIAL"
-    : exact && !truncated
+    : (exact || directFull) && !truncated
       ? "EMPTY"
       : "UNVERIFIED";
   const references = [
@@ -419,15 +561,19 @@ export function capturedContent(
     textReason: options.excerpt
       ? "Only an excerpt was retained in this older report. Import its original extraction or capture this item again."
       : truncated
-        ? "The capture or display limit cut this text. All retained text is shown."
+        ? "The capture or display limit cut this text. The available excerpt is shown."
         : textCoverage === "COMPLETE"
-          ? "Complete captured text field; external resources are separate."
+          ? directFull
+            ? "Complete captured authoring draft text; media coverage is separate."
+            : "Complete captured text field; external resources are separate."
           : full
             ? "Captured text is shown in full, but whole-field coverage was not established."
             : textCoverage === "EMPTY"
-              ? unreadFrames
-                ? "The editor text field was empty, but embedded page content could not be read. The lesson is not confirmed empty."
-                : "The exact text field was observed empty."
+              ? directFull
+                ? "The bound authoring draft text was empty; media coverage is separate."
+                : unreadFrames
+                  ? "The editor text field was empty, but embedded page content could not be read. The lesson is not confirmed empty."
+                  : "The exact text field was observed empty."
               : "Text was not captured. This does not establish an empty source or destination.",
     questions,
     questionCoverage,

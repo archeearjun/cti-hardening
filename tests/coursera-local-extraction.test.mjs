@@ -372,6 +372,49 @@ test("direct draft-API provenance does not imply current editor version or Proto
   );
 });
 
+test("reported complete counts remain distinct from rejected direct source proof", () => {
+  const capture = completeCapture();
+  capture.page.url = shell;
+  capture.meta.directDataCapture = {
+    mode: "BOUND_AUTHORING_DRAFT_API",
+    acquisitionComplete: true,
+    wholeCourseVerified: true,
+    sourceStable: true,
+  };
+  capture.fingerprints[0].captureContract.status =
+    "COMPLETE_BOUND_DRAFT_READING";
+  capture.fingerprints[0].payload = {
+    textSample: "Retained reading text",
+    directDataSources: { atom: {} },
+    directDataEvidence: {
+      method: "BOUND_AUTHORING_DRAFT_API",
+      courseId,
+      itemId: "reading-1",
+      sourceState: "AUTHORING_DRAFT",
+      stableSource: true,
+    },
+  };
+  const before = JSON.stringify(capture),
+    inspection = inspectLocalCourseraCapture(capture, shell);
+  assert.equal(inspection.verdict.complete, false);
+  assert(
+    inspection.verdict.reasons.includes(
+      "DIRECT_DRAFT_SOURCE_BINDING_INVALID:reading-1",
+    ),
+    "Claimed completion cannot replace the missing source stability proof",
+  );
+  assert.equal(inspection.verdict.completeCount, 1);
+  assert.equal(inspection.directSummary.completenessScope, "CAPTURE_REPORTED");
+  assert.deepEqual(inspection.directSummary.coverage.readings, {
+    total: 1,
+    read: 1,
+    verified: 1,
+  });
+  assert.equal(inspection.reviewSummary.completenessScope, "CAPTURE_REPORTED");
+  assert.equal(inspection.reviewSummary.coverage.readings.verified, 1);
+  assert.equal(JSON.stringify(capture), before);
+});
+
 test("non-direct captures retain legacy provenance and resume decisions", () => {
   const capture = completeCapture();
   const result = inspectLocalCourseraCapture(capture, shell);

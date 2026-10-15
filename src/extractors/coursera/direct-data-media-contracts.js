@@ -6,22 +6,43 @@ import {
   directAssetBodyKindV1,
 } from "./direct-data-media.js";
 
-/** Derive native media ownership from the original XML in runtimes without a
- * DOM. This bounded lexer never mounts markup or resolves entities/resources. */
+/** Derive native media ownership and plain text from the original XML without a
+ * DOM. This bounded lexer never mounts markup or resolves external resources.
+ * @returns {{valid: boolean, references: Array<{tag: string, id: string, url: string, name: string, locationResolved: boolean, bodyVerified: boolean}>, reason: string, text: string}}
+ */
 export function directCmlMediaInventoryV1(value) {
   const fail = (reason = "DIRECT_CML_NOT_SUPPORTED") => ({
     valid: false,
     references: [],
     reason,
+    text: "",
   });
-  if (typeof value !== "string" || value.length > 4000000) return fail();
+  if (
+    typeof value !== "string" ||
+    value.length > 4000000 ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(
+      value,
+    )
+  )
+    return fail();
   const references = [],
-    stack = [];
+    stack = [],
+    namespaceScopes = [],
+    text = [];
+  const xmlNamespace = "http://www.w3.org/XML/1998/namespace",
+    xmlnsNamespace = "http://www.w3.org/2000/xmlns/",
+    initialNamespace = Object.assign(Object.create(null), {
+      xml: xmlNamespace,
+    });
+  const validName = (name) =>
+    /^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/.test(name);
   let index = 0,
     count = 0,
     roots = 0;
-  const decode = (text) =>
-    text.replace(/&([^;\s]+);/g, (_, entity) => {
+  const decode = (source) => {
+    if (/&(?!(?:[A-Za-z]+|#\d+|#x[0-9a-f]+);)/i.test(source))
+      throw new Error("DIRECT_CML_ENTITY_UNSUPPORTED");
+    return source.replace(/&([^;\s]+);/g, (_, entity) => {
       const named = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">" };
       if (Object.hasOwn(named, entity)) return named[entity];
       const code = /^#x[0-9a-f]+$/i.test(entity)
@@ -31,29 +52,46 @@ export function directCmlMediaInventoryV1(value) {
           : 0;
       if (
         !Number.isSafeInteger(code) ||
-        code < 1 ||
+        (code < 0x20 && code !== 9 && code !== 10 && code !== 13) ||
         code > 0x10ffff ||
-        (code >= 0xd800 && code <= 0xdfff)
+        (code >= 0xd800 && code <= 0xdfff) ||
+        code === 0xfffe ||
+        code === 0xffff
       )
         throw new Error("DIRECT_CML_ENTITY_UNSUPPORTED");
       return String.fromCodePoint(code);
     });
+  };
+  const block = (tag) =>
+    /^(?:text|p|div|section|article|header|footer|h[1-6]|li|ul|ol|blockquote|pre|table|thead|tbody|tfoot|tr|td|th|caption|br|hr)$/.test(
+      tag,
+    );
   try {
     while (index < value.length) {
       const opening = value.indexOf("<", index);
       const endText = opening < 0 ? value.length : opening;
-      if (!stack.length && value.slice(index, endText).trim()) return fail();
+      const plain = value.slice(index, endText);
+      if (
+        !stack.length &&
+        /[^\x20\t\r\n]/.test(index === 0 ? plain.replace(/^\ufeff/, "") : plain)
+      )
+        return fail();
+      if (plain.includes("]]>")) return fail();
+      text.push(decode(plain));
       if (opening < 0) break;
       if (++count > 100000) return fail();
       if (value.startsWith("<!--", opening)) {
         const end = value.indexOf("-->", opening + 4);
         if (end < 0) return fail();
+        const comment = value.slice(opening + 4, end);
+        if (comment.includes("--") || comment.endsWith("-")) return fail();
         index = end + 3;
         continue;
       }
       if (value.startsWith("<![CDATA[", opening)) {
         const end = value.indexOf("]]>", opening + 9);
         if (end < 0 || !stack.length) return fail();
+        text.push(value.slice(opening + 9, end));
         index = end + 3;
         continue;
       }
@@ -72,21 +110,32 @@ export function directCmlMediaInventoryV1(value) {
       if (end === value.length || quote) return fail();
       const token = value.slice(opening + 1, end),
         closing = token.startsWith("/"),
-        selfClosing = /\/\s*$/.test(token),
+        selfClosing = token.endsWith("/"),
         body = closing ? token.slice(1) : token,
         name = /^([A-Za-z_][\w.:-]*)/.exec(body);
-      if (!name) return fail();
+      if (!name || !validName(name[1])) return fail();
       const qualified = name[1],
         tag = qualified.split(":").at(-1).toLowerCase();
       if (closing) {
         if (body.slice(qualified.length).trim() || stack.pop() !== qualified)
           return fail();
+        namespaceScopes.pop();
+        if (block(tag)) text.push(" ");
         index = end + 1;
         continue;
       }
-      if (!stack.length && (++roots !== 1 || tag !== "co-content"))
+      if (
+        !stack.length &&
+        (++roots !== 1 || qualified.split(":").at(-1) !== "co-content")
+      )
         return fail();
-      if (/^(?:script|style|link)$/.test(tag)) return fail();
+      if (
+        /^(?:script|style|link|input|select|option|textarea|button|form|canvas|svg|math|equation|latex|formula|template|noscript|base|meta)$/.test(
+          tag,
+        )
+      )
+        return fail();
+      if (block(tag)) text.push(" ");
       const attributes = Object.create(null);
       let remainder = body.slice(qualified.length);
       if (selfClosing) remainder = remainder.replace(/\/\s*$/, "");
@@ -95,7 +144,11 @@ export function directCmlMediaInventoryV1(value) {
           /^\s+([A-Za-z_][\w.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(
             remainder,
           );
-        if (!attribute || Object.hasOwn(attributes, attribute[1]))
+        if (
+          !attribute ||
+          !validName(attribute[1]) ||
+          Object.hasOwn(attributes, attribute[1])
+        )
           return fail();
         const raw = attribute[2] ?? attribute[3];
         if (
@@ -106,16 +159,59 @@ export function directCmlMediaInventoryV1(value) {
         attributes[attribute[1]] = decode(raw);
         remainder = remainder.slice(attribute[0].length);
       }
+      // Resolve declarations before checking either element or attribute names;
+      // declaration order in an XML start tag carries no semantic meaning.
+      const namespace = Object.create(
+        namespaceScopes.at(-1) || initialNamespace,
+      );
+      for (const [attribute, uri] of Object.entries(attributes)) {
+        if (attribute !== "xmlns" && !attribute.startsWith("xmlns:")) continue;
+        const prefix = attribute === "xmlns" ? "" : attribute.slice(6);
+        if (
+          prefix === "xmlns" ||
+          uri === xmlnsNamespace ||
+          (prefix === "xml" ? uri !== xmlNamespace : uri === xmlNamespace) ||
+          (prefix && !uri) ||
+          /\s/.test(uri)
+        )
+          return fail();
+        namespace[prefix] = uri;
+      }
+      const elementPrefix = qualified.includes(":")
+        ? qualified.split(":")[0]
+        : "";
+      if (elementPrefix && !namespace[elementPrefix]) return fail();
+      const expandedAttributes = new Set();
+      for (const attribute of Object.keys(attributes)) {
+        if (attribute === "xmlns" || attribute.startsWith("xmlns:")) continue;
+        const parts = attribute.split(":"),
+          prefix = parts.length === 2 ? parts[0] : "",
+          local = parts.at(-1);
+        if (prefix && !namespace[prefix]) return fail();
+        const expanded = (prefix ? namespace[prefix] : "") + "~" + local;
+        if (expandedAttributes.has(expanded)) return fail();
+        expandedAttributes.add(expanded);
+      }
       const href = attributes.href || "",
+        nativeAsset =
+          Object.hasOwn(attributes, "assetId") ||
+          Object.hasOwn(attributes, "assetid"),
         attachment =
           tag === "a" &&
-          (Object.hasOwn(attributes, "download") ||
+          (nativeAsset ||
+            Object.hasOwn(attributes, "download") ||
             /\.(?:pdf|docx?|pptx?|xlsx?|zip|csv|png|jpe?g|gif|webp)(?:[?#]|$)/i.test(
               href,
             ));
       if (
+        Object.hasOwn(attributes, "assetId") &&
+        Object.hasOwn(attributes, "assetid") &&
+        attributes.assetId !== attributes.assetid
+      )
+        return fail();
+      if (
         attachment ||
-        /^(?:asset|img|image|iframe|frame|video|audio|source|embed|object)$/.test(
+        /^(?:asset|img|image|iframe|frame|video|audio|source|track|embed|object)$/.test(
           tag,
         )
       ) {
@@ -123,7 +219,12 @@ export function directCmlMediaInventoryV1(value) {
           href || attributes.src || attributes.url || attributes.data || "";
         references.push({
           tag,
-          id: attributes.assetId || attributes.assetid || attributes.id || "",
+          // An anchor's DOM id identifies its navigation target, not a native
+          // file. Only an explicit source asset field can bind its body.
+          id:
+            attributes.assetId ||
+            attributes.assetid ||
+            (tag === "a" ? "" : attributes.id || ""),
           url,
           name:
             attributes.filename || attributes.name || attributes.title || "",
@@ -135,12 +236,22 @@ export function directCmlMediaInventoryV1(value) {
       }
       if (!selfClosing) {
         stack.push(qualified);
+        namespaceScopes.push(namespace);
         if (stack.length > 128) return fail();
       }
       index = end + 1;
     }
     if (stack.length || roots !== 1) return fail();
-    return { valid: true, references, reason: "" };
+    return {
+      valid: true,
+      references,
+      reason: "",
+      text: text
+        .join("")
+        .replace(/[\u200b-\u200d\ufeff]/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    };
   } catch (_) {
     return fail();
   }
@@ -205,7 +316,9 @@ export function directMediaEvidenceStructureV1(media, references) {
     };
   }
   if (
-    references.some((reference) => !/^(?:asset|img|image)$/.test(reference.tag))
+    references.some(
+      (reference) => !/^(?:asset|img|image|a)$/.test(reference.tag),
+    )
   )
     return fail("DIRECT_CML_MEDIA_REFERENCE_UNSUPPORTED");
   if (

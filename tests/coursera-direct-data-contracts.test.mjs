@@ -11,6 +11,7 @@ import {
   parseCourseraCheckboxDefinitionDirectV1,
   directCmlTextV1,
   directDiscussionPayloadV1,
+  directAssessmentQuestionProjectionV1,
 } from "../src/extractors/coursera/direct-data-contracts.js";
 import {
   directDraftDiscussionSourceV1,
@@ -639,6 +640,7 @@ function assessmentFixture(kind = "mcq") {
         ? parseCourseraMcqDefinitionV61524
         : parseCourseraCheckboxDefinitionDirectV1;
   const question = parser(definition, candidate);
+  Object.assign(question, directAssessmentQuestionProjectionV1(definition));
   question.observationMethod = "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION";
   const coverage = assessmentCaptureCoverageV613(
     [question],
@@ -657,6 +659,9 @@ function assessmentFixture(kind = "mcq") {
     courseId,
     itemId: f.fp.id,
     assignmentId: atomId,
+    rawParts: f.bound.draft.content.definition.parts,
+    unsupportedParts: [],
+    failures: [],
     inventory: [candidate],
     groups: [{ id: candidate.id, questions: [definition.id] }],
     groupStability: [
@@ -730,6 +735,168 @@ test("native MCQ and checkbox keys complete only with exact ordered root/group/v
       f.fp.payload.directDataEvidence.sourceState,
       "AUTHORING_DRAFT",
     );
+  }
+});
+
+test("a failed current resume check cannot promote historical stable sources back to complete", async () => {
+  const reading = fixture(),
+    assessment = assessmentFixture(),
+    discussion = discussionFixture();
+  for (const f of [reading, assessment, discussion])
+    f.fp.payload.directResumeRevalidation = {
+      verified: false,
+      reason: "DIRECT_REQUEST_HTTP_403",
+    };
+  assert.equal(
+    (await directReadingPayloadV1(reading.fp, reading.bound, reading.source))
+      .complete,
+    false,
+  );
+  assert.equal(
+    directAssessmentContractV1(
+      assessment.fp,
+      assessment.assessment,
+      assessment.inventory,
+      assessment.bound,
+    ).complete,
+    false,
+  );
+  assert.equal(
+    (
+      await directDiscussionPayloadV1(
+        discussion.fp,
+        discussion.bound,
+        directDraftDiscussionSourceV1(discussion.bound),
+      )
+    ).complete,
+    false,
+  );
+  for (const f of [reading, assessment, discussion])
+    assert.equal(
+      f.sources.receipts.stability.stable,
+      true,
+      "The older source receipt stays intact",
+    );
+});
+
+test("direct question projections preserve literal markup and verify every learner text field", () => {
+  const definition = nativeDefinition();
+  definition.definition.definition.prompt = cml(
+    "First</p><p>Use &lt;div&gt; literally",
+  );
+  const projected = directAssessmentQuestionProjectionV1(definition);
+  assert.equal(projected.textFormat, "PLAIN_TEXT");
+  assert.equal(projected.prompt, "First Use <div> literally");
+  assert.equal(projected.options[0].feedback, "Feedback");
+  for (const mutate of [
+    (q) => {
+      q.prompt = "Different prompt";
+    },
+    (q) => {
+      q.options[0].text = "Different answer";
+      q.correctAnswers = ["Different answer"];
+    },
+    (q) => {
+      q.options[0].label = "Different label";
+    },
+    (q) => {
+      delete q.options[0].feedback;
+    },
+    (q) => {
+      q.feedback = "Invented feedback";
+    },
+    (q) => {
+      q.shuffleOptions = true;
+    },
+    (q) => {
+      delete q.textFormat;
+    },
+  ]) {
+    const f = assessmentFixture();
+    mutate(f.assessment.questions[0]);
+    assert.equal(
+      directAssessmentContractV1(f.fp, f.assessment, f.inventory, f.bound)
+        .complete,
+      false,
+      String(mutate),
+    );
+  }
+  const f = assessmentFixture();
+  f.fp.payload.assessmentApiEvidence.questionDefinitions[0].definition.definition.prompt.definition.value =
+    "<co-content><p>Malformed source</co-content>";
+  assert.equal(
+    directAssessmentContractV1(f.fp, f.assessment, f.inventory, f.bound)
+      .complete,
+    false,
+  );
+});
+
+test("nonempty assessments retain observed settings and block unfetched instruction media and unknown rubrics", () => {
+  for (const mode of [
+    "valid",
+    "settings",
+    "missingIntroduction",
+    "introductionMedia",
+    "criteriaMedia",
+    "rubric",
+  ]) {
+    const f = assessmentFixture(),
+      definition = f.bound.draft.content.definition;
+    Object.assign(definition, {
+      configuration: { isGraded: true },
+      introduction: cml("Introduction"),
+      reviewCriteria: cml("Criteria"),
+      passingFraction: 0.8,
+      assignmentLevelRubrics: [],
+    });
+    if (mode === "introductionMedia" || mode === "criteriaMedia")
+      definition[
+        mode === "introductionMedia" ? "introduction" : "reviewCriteria"
+      ] = cml('<img assetId="' + "m".repeat(22) + '"/>');
+    if (mode === "rubric")
+      definition.assignmentLevelRubrics.push({
+        unknown: "Original rubric model",
+      });
+    for (const field of [
+      "configuration",
+      "introduction",
+      "reviewCriteria",
+      "passingFraction",
+      "assignmentLevelRubrics",
+    ])
+      f.assessment[field] = f.inventory[field] = structuredClone(
+        definition[field],
+      );
+    f.sources.receipts.stability.atom.elements[0].draft = structuredClone(
+      f.bound.draft,
+    );
+    if (mode === "settings") f.assessment.configuration.isGraded = false;
+    if (mode === "missingIntroduction") delete f.assessment.introduction;
+    const original = JSON.stringify(definition),
+      contract = directAssessmentContractV1(
+        f.fp,
+        f.assessment,
+        f.inventory,
+        f.bound,
+      );
+    assert.equal(contract.complete, mode === "valid", mode);
+    assert.equal(
+      JSON.stringify(definition),
+      original,
+      "Original source remains unchanged",
+    );
+    if (/Media$/.test(mode)) {
+      assert(contract.reasons.includes("DIRECT_ASSESSMENT_MEDIA_UNRESOLVED"));
+      assert.equal(
+        f.fp.payload.directDataEvidence.unresolvedAssessmentMediaReferences
+          .length,
+        1,
+      );
+    }
+    if (mode === "rubric")
+      assert(
+        contract.reasons.includes("DIRECT_ASSESSMENT_RUBRIC_MODEL_UNSUPPORTED"),
+      );
   }
 });
 
@@ -924,6 +1091,52 @@ test("bound discussions capture exact authoring prompt and permissions without r
   assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, true);
   assert.equal(f.fp.payload.textCaptureEvidence, undefined);
   assert.equal(f.fp.payload.responses, undefined);
+});
+
+test("bound discussion image and attachment bodies use the same original-byte proof as readings", async () => {
+  for (const kind of ["image", "attachment"]) {
+    const asset =
+        kind === "image" ? capturedNativePng() : await capturedNativePptx(),
+      markup =
+        kind === "image"
+          ? '<img assetId="' + asset.assetId + '"/>'
+          : '<a assetId="' +
+            asset.assetId +
+            '" href="' +
+            asset.body.canonicalUrl +
+            '">Slides</a>';
+    const f = discussionFixture(
+      "<co-content><text>Discuss the original</text>" +
+        markup +
+        "</co-content>",
+    );
+    f.fp.payload.directAssetEvidence = {
+      method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+      assets: [asset],
+      missingPointers: [],
+      failures: [],
+    };
+    const source = directDraftDiscussionSourceV1(f.bound),
+      result = await directDiscussionPayloadV1(f.fp, f.bound, source);
+    assert.equal(result.complete, true, kind + " " + result.reasons.join(","));
+    assert.equal(f.fp.payload.directDataEvidence.assetReferenceCount, 1);
+    assert.equal(f.fp.payload.assetDetails[0].bodyVerified, true);
+    assert.equal(f.fp.payload.assetDetails[0].sha256, asset.body.sha256);
+    assert.equal(f.fp.payload.files[0], asset.body.canonicalUrl);
+    assert.equal(f.fp.payload.images.length, kind === "image" ? 1 : 0);
+    assert.strictEqual(
+      f.fp.payload.directDraftDiscussion,
+      source.rawDefinition,
+    );
+    assert.equal(
+      f.fp.payload.discussionPromptPermissions.viewAnswersBeforeReplying,
+      false,
+    );
+    asset.body.sha256 = asset.body.receipt.sha256 = "f".repeat(64);
+    const corrupted = await directDiscussionPayloadV1(f.fp, f.bound, source);
+    assert.equal(corrupted.complete, false);
+    assert(corrupted.reasons.includes("DIRECT_DISCUSSION_ASSETS_UNRESOLVED"));
+  }
 });
 
 test("discussion media, changed permissions and foreign source bindings stay incomplete", async () => {

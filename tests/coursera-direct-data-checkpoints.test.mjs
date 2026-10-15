@@ -1276,6 +1276,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       "v1.1.0-compressed-resumable-drafts-20261014",
       "v1.2.0-bound-reading-media-20261014",
       "v1.3.0-deduplicated-original-archive-20261014",
+      "v1.4.0-bound-content-integrity-20261015",
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));
       assert.equal(

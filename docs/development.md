@@ -103,7 +103,8 @@ Direct capture retains authoring drafts and published snapshots separately.
 Draft parts supply ordered group identities; exact versioned definitions supply
 supported MCQ/checkbox keys. Fresh atom and group reads and a final material
 read check source stability. Bound source IDs permit retaining original referenced
-image and attachment bodies in the same capture. Exact `assets.v1` metadata is
+image and attachment bodies in the same capture, including native file anchors
+and supported discussion prompts. Exact `assets.v1` metadata is
 checked again after downloading supported original bytes; the importer checks
 their IDs, receipts, MIME, signature, length and SHA-256 independently. Media
 uses two download slots, a 16 MiB per-file bound and a 512 MiB cumulative
@@ -113,7 +114,15 @@ original files; duplicate SHA-256 bodies occupy one entry.
 Completed captures with gaps can continue media acquisition while preserving
 assessment observations and their original timestamps; this scoped continuation
 does not reread question definitions or present them as newly observed.
-Missing sources, unknown models,
+Version 1.4 verifies projected question prompts, options, keys and feedback
+against their retained native definitions, and checks observed assignment-level
+metadata. Plain-text projections retain escaped code and paragraph boundaries.
+Reading and discussion text is independently recomputed from raw CML; text
+coverage is reported separately from missing original files. Existing saved
+observations are rechecked under these rules without changing their receipts
+or claiming a new source observation. Imported item counters are labelled as
+capture-reported; the whole-course completion gate remains independent.
+Missing sources, unsupported notation or interactive CML, unknown models,
 variants and external widget bodies remain explicit gaps. Four shared request slots, request/time/byte bounds,
 and incremental IndexedDB transactions replace repeated editor traversal.
 The dedicated `cti-coursera-direct-data-v1` database isolates runs and courses
