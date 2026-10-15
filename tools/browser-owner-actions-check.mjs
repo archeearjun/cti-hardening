@@ -13,6 +13,7 @@ import {
 } from "../src/domain/owner-actions.ts";
 import { chromium } from "playwright";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
+import { directTextFixture } from "../tests/coursera-direct-content-fixtures.mjs";
 import { contactTemplateFixture } from "../tests/owner-guidance-fixtures.mjs";
 import { syllabusFixture } from "../tests/syllabus-readiness-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
@@ -171,6 +172,7 @@ const openAudit = async () => {
     .waitFor();
 };
 const choiceFeedback = "Keep literal <span> &amp; choice feedback.";
+const imageAltText = "Keep literal <span> &amp; alt text.";
 const capture = {
   kind: "CTI_COURSERA_ITEM_CHECK",
   schemaVersion: 1,
@@ -187,7 +189,13 @@ const capture = {
   finishedAt: new Date().toISOString(),
   editorObserved: true,
   payload: {
-    textSample: "Fresh reading content",
+    ...directTextFixture({
+      itemId: "reading",
+      courseId: "course",
+      courseSlug: "synthetic",
+      textSample: "Fresh reading content",
+      cmlValue: '<co-content><p>Fresh reading content</p><img alt=""/><img alt="Keep literal &lt;span&gt; &amp;amp; alt text."/></co-content>',
+    }).payload,
     structuredAssessment: {
       questions: [
         {
@@ -595,6 +603,17 @@ try {
   await destinationContent
     .getByText("First question", { exact: true })
     .waitFor();
+  assert.equal(await sourceContent.getByText("Authored image alt text", { exact: true }).count(), 0,
+    "Legacy content without authored alt values adds no disclosure");
+  await destinationContent.getByText("Authored image alt text", { exact: true }).click();
+  const displayedImageAlt = destinationContent.getByText(imageAltText, { exact: true });
+  await displayedImageAlt.waitFor();
+  assert.equal(await displayedImageAlt.locator("span").count(), 0,
+    "Literal image alt markup stays text");
+  const imageAltDisclosure = displayedImageAlt.locator("..").locator("..");
+  assert.equal(await imageAltDisclosure.getByText("Source image 2", { exact: true }).count(), 1);
+  assert.equal(await imageAltDisclosure.getByText("Source image 1", { exact: true }).count(), 0,
+    "Empty authored alt values do not invent a visible label");
   const firstQuestion = destinationContent.locator(".captured-questions > li").first(),
     displayedChoiceFeedback = firstQuestion.getByText(
       "Captured feedback: " + choiceFeedback,
@@ -949,6 +968,11 @@ try {
     data.followUp.contentComparisons[0].view.coursera.questions[0].prompt,
     "First question",
   );
+  assert.deepEqual(
+    data.followUp.contentComparisons[0].view.coursera.imageAltText,
+    [{ imageOrdinal: 1, text: "" }, { imageOrdinal: 2, text: imageAltText }],
+    "Authored image alt values retain exact source ordinals and text in saved exports",
+  );
   assert.equal(
     data.followUp.contentComparisons[0].view.source.find((c) =>
       c.basis.startsWith("Fetched external"),
@@ -987,6 +1011,7 @@ try {
   assert.match(exportedText, /Automatic source capture:/);
   assert.match(exportedText, /Source question 10/);
   assert.match(exportedText, /First question/);
+  assert(exportedText.includes(imageAltText));
   assert.match(exportedText, /CONTENT COMPARISON/);
   assert.match(exportedText, /8 fewer native question positions/);
   assert(exportedText.endsWith(output.report));

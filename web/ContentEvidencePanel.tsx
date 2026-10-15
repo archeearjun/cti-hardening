@@ -25,6 +25,9 @@ function Evidence({
 }) {
   const [limit, setLimit] = useState(50);
   const [copyStatus, setCopyStatus] = useState("");
+  const imageAltText = (content.imageAltText || []).filter(
+    (image) => image.text !== "",
+  );
   const filtered = content.questions.filter(
     (q) =>
       !query.trim() ||
@@ -229,6 +232,17 @@ function Evidence({
           <div className="captured-text reading-text">{content.text}</div>
         )}
       </details>
+      {!!imageAltText.length && (
+        <details>
+          <summary>Authored image alt text</summary>
+          {imageAltText.map((image) => (
+            <div key={image.imageOrdinal}>
+              <p className="hint">Source image {image.imageOrdinal}</p>
+              <div className="captured-text">{image.text}</div>
+            </div>
+          ))}
+        </details>
+      )}
       {!!content.references.length && (
         <details>
           <summary>
