@@ -28,7 +28,7 @@ import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-fil
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
-import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
+import { directTextFixture } from "./coursera-direct-content-fixtures.mjs";
 const question = {
   id: "q",
   prompt: "What is 1 < 2 and 3 > 2?",
@@ -72,122 +72,6 @@ function nativeFeedbackQuestions() {
     answerTextReliable: true,
     optionTextReliable: true,
   }));
-}
-
-function directTextFixture({ discussion = false, empty = false } = {}) {
-  const courseId = "Direct_content_course_123",
-    itemId = "direct-item",
-    atomId = "a".repeat(22),
-    contentId = "atom~" + atomId,
-    text = empty ? "" : "Draft <div> &amp; text",
-    cml = {
-      typeName: "cml",
-      definition: {
-        dtdId: discussion ? "discussion/1" : "supplement/1",
-        value: empty
-          ? "<co-content><p></p></co-content>"
-          : "<co-content><p>Draft &lt;div&gt; &amp;amp; text</p></co-content>",
-      },
-    },
-    content = discussion
-      ? {
-          typeName: "discussionPromptDraft",
-          definition: {
-            promptType: {
-              typeName: "questionPerSession",
-              definition: {
-                title: "Discussion",
-                prompt: cml,
-                promptPermissions: { viewAnswersBeforeReplying: false },
-              },
-            },
-          },
-        }
-      : {
-          typeName: "supplementDraft",
-          definition: { assetId: "r".repeat(22) + "@1", content: cml },
-        },
-    atom = {
-      id: atomId,
-      contentId,
-      storedAtomVersion: 1,
-      metadata: { updatedAt: 123 },
-      status: { typeName: "draftAtomStatus" },
-      draft: { content },
-    },
-    hash = (value) => createHash("sha256").update(value).digest("hex"),
-    draftHash = hash(directCanonicalSourceTextV1(atom.draft)),
-    receipt = (resource) => ({
-      resource,
-      id: atomId,
-      status: 200,
-      bodyFormat: "PARSED_SANITIZED_JSON_MODEL",
-      sha256: "b".repeat(64),
-      originalResponseSha256: "b".repeat(64),
-      requestPath: "/api/" + resource + "/" + atomId,
-    });
-  return {
-    itemId,
-    payload: {
-      textSample: text,
-      textLength: text.length,
-      textSha256: hash(text),
-      textCaptureTruncated: false,
-      textScopeKind: discussion
-        ? "bound-authoring-draft-discussion-cml"
-        : "bound-authoring-draft-cml",
-      directDraftCml: structuredClone(cml),
-      directDataEvidence: {
-        method: "BOUND_AUTHORING_DRAFT_API",
-        courseId,
-        itemId,
-        atomId,
-        contentId,
-        sourceState: "AUTHORING_DRAFT",
-        stableSource: true,
-        draftHash,
-        storedAtomVersion: 1,
-        updatedAt: 123,
-        dtdId: cml.definition.dtdId,
-        rawCmlLength: cml.definition.value.length,
-        rawCmlSha256: hash(cml.definition.value),
-        plainTextLength: text.length,
-        ...(discussion
-          ? { discussionPromptType: "questionPerSession" }
-          : { assetId: content.definition.assetId }),
-      },
-      directDataSources: {
-        atom: { elements: [atom] },
-        relation: {
-          elements: [
-            {
-              id: atomId,
-              atomId,
-              branchRelationMap: {
-                [courseId + "~" + itemId]: {
-                  courseId,
-                  itemId,
-                  courseSlug: "fixture-course",
-                },
-              },
-            },
-          ],
-        },
-        receipts: {
-          atom: receipt("authoringAtoms.v2"),
-          relation: receipt("authoringItemContentRelations.v1"),
-          stability: {
-            stable: true,
-            draftHash,
-            storedAtomVersion: 1,
-            updatedAt: 123,
-            atom: { elements: [structuredClone(atom)] },
-            receipt: receipt("authoringAtoms.v2"),
-          },
-        },
-      },
-    },
-  };
 }
 
 test("original archive supplements verify bodies and archive identity while saving compact proofs only", async () => {
@@ -688,6 +572,123 @@ test("bound draft reading and discussion text is verified separately from unreso
     assert.equal(snapshot.coursera[0].content.textCoverage, "COMPLETE");
     validateContentSnapshot(snapshot);
   }
+});
+test("authored image alt text stays separate, source-bound and exact through snapshots and exports", () => {
+  const fixture = directTextFixture({
+    cmlValue:
+      '<co-content><p>Bound reading.</p><img alt=""/><img title="Not authored alt" name="Not alt"/><image alt="Keep &lt;span&gt; &amp;amp; &#x1F4D0; exactly."/></co-content>',
+    textSample: "Bound reading.",
+  });
+  fixture.payload.captureContract = {
+    complete: false,
+    status: "UNRESOLVED_DIRECT_READING",
+  };
+  const before = structuredClone(fixture.payload),
+    content = capturedContent(fixture.payload, {
+      basis: "direct",
+      itemId: fixture.itemId,
+    });
+  assert.deepEqual(content.imageAltText, [
+    { imageOrdinal: 1, text: "" },
+    { imageOrdinal: 3, text: "Keep <span> &amp; 📐 exactly." },
+  ]);
+  assert.equal(content.text, "Bound reading.");
+  assert.equal(
+    content.textCoverage,
+    "COMPLETE",
+    "Alt metadata cannot change text-field coverage",
+  );
+  assert.deepEqual(
+    fixture.payload,
+    before,
+    "Raw CML, text hashes, source proofs and capture status remain unchanged",
+  );
+  const snapshot = buildContentSnapshot(
+      encode({
+        fingerprints: [{ id: fixture.itemId, payload: fixture.payload }],
+      }),
+    ),
+    saved = JSON.parse(JSON.stringify(snapshot));
+  validateContentSnapshot(saved);
+  assert.deepEqual(
+    saved.coursera[0].content.imageAltText,
+    content.imageAltText,
+  );
+  const exported = contentEvidenceText(saved.coursera[0].content);
+  assert(
+    exported.includes(
+      "Authored image alt text (source image 3): Keep <span> &amp; 📐 exactly.",
+    ),
+  );
+  assert(!exported.includes("Authored image alt text (source image 1)"));
+  assert(
+    !exported.includes("Not authored alt"),
+    "Titles and names never substitute for alt text",
+  );
+  const older = structuredClone(saved);
+  delete older.coursera[0].content.imageAltText;
+  validateContentSnapshot(older);
+  for (const invalid of [
+    [{ imageOrdinal: 0, text: "bad" }],
+    [{ imageOrdinal: 1, text: false }],
+    [
+      { imageOrdinal: 1, text: "one" },
+      { imageOrdinal: 1, text: "duplicate" },
+    ],
+  ]) {
+    const bad = structuredClone(saved);
+    bad.coursera[0].content.imageAltText = invalid;
+    assert.throws(
+      () => validateContentSnapshot(bad),
+      /Invalid saved image alt text/,
+    );
+  }
+});
+test("empty, missing and unbound image alt text cannot create invented source labels", () => {
+  const empty = directTextFixture({
+      cmlValue: '<co-content><img alt=""/></co-content>',
+      textSample: "",
+    }),
+    emptyContent = capturedContent(empty.payload, {
+      basis: "direct",
+      itemId: empty.itemId,
+    });
+  assert.deepEqual(emptyContent.imageAltText, [{ imageOrdinal: 1, text: "" }]);
+  assert(
+    !contentEvidenceText(emptyContent).includes("Authored image alt text"),
+  );
+  const missing = directTextFixture({
+    cmlValue:
+      '<co-content><img title="A filename cannot supply alt"/></co-content>',
+    textSample: "",
+  });
+  assert.equal(
+    capturedContent(missing.payload, {
+      basis: "direct",
+      itemId: missing.itemId,
+    }).imageAltText,
+    undefined,
+  );
+  const changed = directTextFixture();
+  changed.payload.directDraftCml.definition.value =
+    '<co-content><img alt="Unbound label"/></co-content>';
+  assert.equal(
+    capturedContent(changed.payload, {
+      basis: "unbound",
+      itemId: changed.itemId,
+    }).imageAltText,
+    undefined,
+  );
+  assert.equal(
+    capturedContent(
+      {
+        directDraftCml: changed.payload.directDraftCml,
+        imageAltText: [{ imageOrdinal: 1, text: "Unproven" }],
+      },
+      { basis: "unproven" },
+    ).imageAltText,
+    undefined,
+  );
 });
 test("direct text coverage recomputes raw CML, source stability and text hashes instead of trusting flags", () => {
   const hash = (value) => createHash("sha256").update(value).digest("hex");

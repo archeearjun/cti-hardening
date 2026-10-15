@@ -4,6 +4,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import { directCmlMediaInventoryV1 } from "../extractors/coursera/direct-data-media-contracts.js";
+import { workerXml } from "../adapters/worker-xml.ts";
 import {
   capturedTime,
   validateTimeEstimate,
@@ -54,6 +55,7 @@ export interface ContentEvidence {
   expectedQuestions: number | null;
   questionReason: string;
   references: string[];
+  imageAltText?: { imageOrdinal: number; text: string }[];
   limitations: string[];
 }
 export interface ContentItem {
@@ -116,6 +118,27 @@ export function validateContentSnapshot(
         (c.questionCoverage === "EMPTY" && c.questions.length)
       )
         throw Error("Content count contradicts its coverage label.");
+      if (c.imageAltText !== undefined) {
+        if (!Array.isArray(c.imageAltText) || c.imageAltText.length > 100000)
+          throw Error("Invalid saved image alt text.");
+        let previousOrdinal = 0,
+          characters = 0;
+        for (const value of c.imageAltText) {
+          const label = contentObject(value),
+            ordinal = integer(label.imageOrdinal);
+          if (
+            ordinal === null ||
+            ordinal <= previousOrdinal ||
+            ordinal > 100000 ||
+            typeof label.text !== "string"
+          )
+            throw Error("Invalid saved image alt text.");
+          previousOrdinal = ordinal;
+          characters += label.text.length;
+          if (characters > 4000000)
+            throw Error("Saved image alt text exceeds the source limit.");
+        }
+      }
       for (const value of c.questions) {
         const q = contentObject(value);
         if (
@@ -446,6 +469,37 @@ function verifiedDirectDraftText(p: Obj, itemId: string | undefined): boolean {
   }
 }
 
+/** Read attributes only after the retained CML has passed its bound source proof.
+ * XML parsing stays inert, works in workers and decodes authored entities once. */
+function authoredImageAltText(
+  p: Obj,
+): NonNullable<ContentEvidence["imageAltText"]> {
+  try {
+    const value = contentObject(
+      contentObject(p.directDraftCml).definition,
+    ).value;
+    if (typeof value !== "string" || !directCmlMediaInventoryV1(value).valid)
+      return [];
+    const pending = [workerXml.parse(value).getRootElement()],
+      labels: NonNullable<ContentEvidence["imageAltText"]> = [];
+    let imageOrdinal = 0;
+    while (pending.length) {
+      const element = pending.pop()!;
+      if (/^(?:img|image)$/.test(element.getName().toLowerCase())) {
+        imageOrdinal++;
+        const alt = element.getAttribute("alt");
+        if (alt) labels.push({ imageOrdinal, text: alt.getValue() });
+      }
+      const children = element.getChildren();
+      for (let index = children.length - 1; index >= 0; index--)
+        pending.push(children[index]);
+    }
+    return labels;
+  } catch {
+    return [];
+  }
+}
+
 export function capturedContent(
   payload: unknown,
   options: {
@@ -528,6 +582,7 @@ export function capturedContent(
     p.textNormalizationStatus === "NORMALIZED";
   const directFull =
     !options.source && verifiedDirectDraftText(p, options.itemId);
+  const imageAltText = directFull ? authoredImageAltText(p) : [];
   const textCoverage: ContentCoverage = full
     ? !options.excerpt &&
       !truncated &&
@@ -599,6 +654,7 @@ export function capturedContent(
           ? "These captured question positions are available; total coverage remains incomplete or unverified."
           : "No question definitions captured; absence from this evidence is not proof that questions are absent.",
     references,
+    ...(imageAltText.length ? { imageAltText } : {}),
     limitations,
   };
 }
@@ -747,6 +803,12 @@ export function contentEvidenceText(content: ContentEvidence): string {
   for (const q of content.questions) out.push(contentQuestionText(q));
   out.push(
     ...content.references.map((r) => `Reference: ${r}`),
+    ...(content.imageAltText || [])
+      .filter((label) => label.text !== "")
+      .map(
+        (label) =>
+          `Authored image alt text (source image ${label.imageOrdinal}): ${label.text}`,
+      ),
     ...content.limitations,
   );
   return out.filter(Boolean).join("\n");
