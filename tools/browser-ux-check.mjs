@@ -779,7 +779,7 @@ try {
     mimeType: "application/json",
     buffer: Buffer.from(input.json.bytes),
   };
-  await page.getByLabel("Coursera XLSX (required)").setInputFiles(file);
+  await page.getByLabel(/^Coursera XLSX/).setInputFiles(file);
   for (const label of [
     "Coursera full capture JSON",
     "Brightspace source JSON",
@@ -797,7 +797,7 @@ try {
   await waitIdle();
   assert.equal(
     await page
-      .getByLabel("Coursera XLSX (required)")
+      .getByLabel(/^Coursera XLSX/)
       .evaluate((e) => e.files.length),
     0,
   );

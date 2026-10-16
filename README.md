@@ -104,15 +104,26 @@ Follow [shared workspace setup](docs/shared-workspace-setup.md) for Cloudflare
 Access identity, D1, roles and data import. Public source code does not make
 course records public. Local IndexedDB records are not team-shared records.
 
+## Assignment owner workflow
+
+The [unified Assignment workspace](docs/unified-assignment-workspace.md) provides
+one course inbox, source exploration, item lifecycle/history, source-linked draft
+deliverables and locally evaluated advisory learning. It preserves original evidence
+and exposes unresolved scope instead of inventing content. Source Markdown/text
+can form an explicitly limited document baseline. Verified native direct-capture
+inventories can supply structure without an independent XLSX; legacy captures
+still require the workbook. Applying changes in an LMS remains an external action
+that must be recaptured and verified.
+
 ## Workflows and evidence limits
 
 The app supports source package scanning and Explore, full source/Brightspace/
 Coursera comparisons, ordered owner review, immutable before/after audits,
 planner/catalog-driven work queues, operational state, duplicate reconciliation,
 runtime inventories, Macmillan workbook validation, and portfolio diagnostics.
-Course/specialization outline and content-map **state tracking** is restored; CTI
-does not claim to author partner content artifacts that were external to the
-evidence workflow.
+Course/specialization outlines and content maps have source-linked structural
+drafts, version history and owner decisions. Narrative partner artifacts and
+actual LMS changes remain separate from these retained-evidence drafts.
 
 The owner checklist excludes instructor resources and archives by default, with
 per-item relevance choices and a separate retained reference view. It follows

@@ -1,6 +1,10 @@
 import SearchableSelect, { matchesSearch } from "./SearchableSelect";
 import OwnerEvidence from "./OwnerEvidence";
 import AssignmentPlanView from "./AssignmentPlan";
+import AssignmentWorkspace from "./AssignmentWorkspace";
+import type { EvidenceStage } from "../src/domain/evidence-intake";
+import { inspectEvidenceInput } from "../src/domain/evidence-intake";
+import { sourceDocumentScan } from "../src/domain/source-documents";
 import SourceExplorer from "./SourceExplorer";
 import EvidenceDetails from "./EvidenceDetails";
 import ReportOverview from "./ReportOverview";
@@ -73,6 +77,8 @@ const statuses = [
   "Completed",
 ];
 const descriptions: Record<string, string> = {
+  "Assignment workspace":
+    "Add course evidence, resolve item exceptions, and prepare traceable deliverables in one place.",
   Overview:
     "See what needs attention, resume the selected course, and jump into the next evidence task.",
   "Assignment plan":
@@ -100,7 +106,13 @@ const descriptions: Record<string, string> = {
 const navGroups = [
   {
     label: "Workspace",
-    tabs: ["Overview", "Assignment plan", "Catalogue", "Work queue"],
+    tabs: [
+      "Assignment workspace",
+      "Overview",
+      "Assignment plan",
+      "Catalogue",
+      "Work queue",
+    ],
   },
   {
     label: "Course evidence",
@@ -112,6 +124,7 @@ const navGroups = [
   },
 ] as const;
 const navGlyphs: Record<string, string> = {
+  "Assignment workspace": "→",
   Overview: "⌂",
   Catalogue: "⌕",
   "Assignment plan": "→",
@@ -138,7 +151,7 @@ export default function FullWorkspace({
 }) {
   const [store, setStore] = useState<WorkspaceStore | null>(null),
     [records, setRecords] = useState<WorkspaceRecord[]>([]);
-  const [tab, setTab] = useState("Overview"),
+  const [tab, setTab] = useState("Assignment workspace"),
     [courseId, setCourseId] = useState(""),
     [course, setCourse] = useState<WorkspaceRecord | null>(null);
   const [busy, setBusy] = useState(""),
@@ -185,6 +198,11 @@ export default function FullWorkspace({
   const [scan, setScan] = useState<PackageScan | null>(null),
     [rescan, setRescan] = useState(false),
     [checklist, setChecklist] = useState<WorkspaceRecord | null>(null);
+  const [documentBaselineFile, setDocumentBaselineFile] = useState<File | null>(
+    null,
+  );
+  const [documentPlatform, setDocumentPlatform] = useState("Brightspace");
+  const [documentConfirmed, setDocumentConfirmed] = useState(false);
   const [ingestionCapabilityStatus, setIngestionCapabilityStatus] = useState<
     "UNKNOWN" | "LATEST_APPLIED" | "LEGACY_OR_OUTDATED"
   >("UNKNOWN");
@@ -194,6 +212,10 @@ export default function FullWorkspace({
   > | null>(null);
   const [acceptMigrationGaps, setAcceptMigrationGaps] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  const courseSelectionEpoch = useRef(0);
+  // A first document is inspected against the same prepared assignment ID that
+  // is saved after metadata confirmation. It is not a discarded fake course.
+  const preparedSourceCourse = useRef<WorkspaceRecord | null>(null);
   const reportHeading = useRef<HTMLHeadingElement | null>(null);
   useLayoutEffect(() => {
     if (!report) return;
@@ -353,6 +375,8 @@ export default function FullWorkspace({
       );
   }
   function resetCourseInputs() {
+    courseSelectionEpoch.current++;
+    preparedSourceCourse.current = null;
     setComparedFiles([]);
     setExcel(null);
     setCapture(null);
@@ -362,6 +386,8 @@ export default function FullWorkspace({
     setIngestionCapabilityStatus("UNKNOWN");
     setRescan(false);
     setScan(null);
+    setDocumentBaselineFile(null);
+    setDocumentConfirmed(false);
     setGeneration(0);
     setReport(null);
     setReportId("");
@@ -382,7 +408,7 @@ export default function FullWorkspace({
     setStatusFilter("");
     setQuery("");
   }
-  async function openCourse(id: string, destination = "Explore") {
+  async function openCourse(id: string, destination = "Assignment workspace") {
     await selectCourse(id);
     setTab(destination);
   }
@@ -496,7 +522,9 @@ export default function FullWorkspace({
   async function saveCourseScan() {
     if (!store || !scan) return;
     await act("Saving source scan", async () => {
-      const metadata = (rescan && course ? validateStoredCourseMetadata : validateCourseMetadata)({
+      const metadata = (
+        rescan && course ? validateStoredCourseMetadata : validateCourseMetadata
+      )({
         partner,
         owner,
         status:
@@ -513,10 +541,16 @@ export default function FullWorkspace({
       const record =
         rescan && course
           ? { ...course, data: { ...course.data, ...metadata, scan } }
-          : newRecord("package", scan.fileName, {
-              scan,
-              ...metadata,
-            });
+          : preparedSourceCourse.current
+            ? {
+                ...preparedSourceCourse.current,
+                title: scan.fileName,
+                data: { scan, ...metadata },
+              }
+            : newRecord("package", scan.fileName, {
+                scan,
+                ...metadata,
+              });
       const saved = await store.save(record);
       await refresh();
       resetCourseInputs();
@@ -549,12 +583,66 @@ export default function FullWorkspace({
             .map((r) => Number(r.data.generation) || 0),
         ),
       );
-      setTab("Explore");
+      setTab("Assignment workspace");
       setNotice("Source scan saved. Previous saved versions are retained.");
     });
   }
-  async function compare() {
-    if (!store || !course || !excel) return;
+  async function stageAssignmentEvidence(stage: EvidenceStage) {
+    if (!store || store.role === "viewer")
+      throw Error("An editor is required to stage assignment evidence.");
+    const epoch = courseSelectionEpoch.current;
+    setBusy("Staging assignment evidence");
+    try {
+      // Inbox inspection is completed before this callback. Save a source update
+      // against its current version, keeping the stable course and audit lineage.
+      if (stage.package) {
+        if (!course) {
+          setScan(stage.package.scan);
+          setRescan(false);
+          setTab("Scan");
+          return;
+        }
+        const current = await store.get(course.id);
+        if (epoch !== courseSelectionEpoch.current)
+          throw Error(
+            "The selected course changed. Stage evidence again in its intended assignment.",
+          );
+        if (current.version !== course.version)
+          throw Error(
+            "The selected course changed. Reload it before staging a new source baseline.",
+          );
+        assertUniquePackageIdentity(
+          String(current.data.partner || ""),
+          stage.package.scan.fileName,
+          current.id,
+        );
+        const saved = await store.save({
+          ...current,
+          data: { ...current.data, scan: stage.package.scan },
+        });
+        if (epoch !== courseSelectionEpoch.current)
+          throw Error(
+            "The source baseline was saved to its original course. Select that course again before staging its comparison inputs.",
+          );
+        setCourse(saved);
+      }
+      if (epoch !== courseSelectionEpoch.current)
+        throw Error(
+          "The selected course changed. Stage evidence again in its intended assignment.",
+        );
+      if (stage.excel) setExcel(stage.excel);
+      if (stage.capture) setCapture(stage.capture);
+      if (stage.source) setSource(stage.source);
+      await refresh();
+      setNotice(
+        "Evidence staged for this course. Run the comparison to save its findings; earlier audits remain unchanged.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+  async function compare(openSavedReport = false) {
+    if (!store || !course || (!excel && !capture)) return;
     await act("Comparing full source and Coursera evidence", async () => {
       setImportProgress("Loading saved audit history");
       const history = await Promise.all(audits.map((a) => store.get(a.id)));
@@ -571,7 +659,7 @@ export default function FullWorkspace({
       setImportProgress("Reading the selected evidence files");
       const input = {
         course,
-        excel: (await inputFile(excel))!,
+        excel: await inputFile(excel),
         json: await inputFile(capture, { courseraCapture: true }),
         brightspace: await inputFile(source),
         recovery: await inputFile(recovery),
@@ -599,6 +687,7 @@ export default function FullWorkspace({
       setReportId(saved.id);
       setComparedFiles(comparisonFiles);
       await refresh();
+      if (openSavedReport) setTab("History");
       setNotice(
         `Full report saved (${saved.id}). Open an item below to start its review.`,
       );
@@ -707,6 +796,7 @@ export default function FullWorkspace({
               </small>
               <div className="context-actions">
                 {[
+                  "Assignment workspace",
                   "Assignment plan",
                   "Explore",
                   "Compare",
@@ -767,6 +857,33 @@ export default function FullWorkspace({
           <p role="status" className="success-notice">
             {notice}
           </p>
+        )}
+        {tab === "Assignment workspace" && (
+          <AssignmentWorkspace
+            key={courseId}
+            course={course}
+            records={records}
+            store={store}
+            disabled={!!busy}
+            pending={pendingEvidence}
+            onStage={stageAssignmentEvidence}
+            onCompare={() => compare(true)}
+            onNavigate={setTab}
+            onRescan={() => {
+              setRescan(!!course);
+              setTab("Scan");
+            }}
+            onSaved={async (saved) => {
+              if (saved?.kind === "package" && saved.id === courseId)
+                setCourse(saved);
+              await refresh();
+            }}
+            onAudit={(audit) => {
+              setReport(audit.data);
+              setReportId(audit.id);
+              setTab("History");
+            }}
+          />
         )}
         {tab === "Assignment plan" && (
           <AssignmentPlanView
@@ -1250,19 +1367,22 @@ export default function FullWorkspace({
                     disabled={!editable || !!busy}
                     onClick={() =>
                       void act("Saving metadata", async () => {
-                        const metadata = validateCourseMetadataUpdate({
-                          partner,
-                          owner,
-                          status: status as
-                            | "In Queue"
-                            | "In Progress"
-                            | "QA Review"
-                            | "Blocked"
-                            | "Completed",
-                          assignedDate,
-                          deadline,
-                          driveLink,
-                        }, course.data);
+                        const metadata = validateCourseMetadataUpdate(
+                          {
+                            partner,
+                            owner,
+                            status: status as
+                              | "In Queue"
+                              | "In Progress"
+                              | "QA Review"
+                              | "Blocked"
+                              | "Completed",
+                            assignedDate,
+                            deadline,
+                            driveLink,
+                          },
+                          course.data,
+                        );
                         assertUniquePackageIdentity(
                           metadata.partner,
                           course.data.scan?.fileName || course.title,
@@ -1372,8 +1492,93 @@ export default function FullWorkspace({
             fileInputId="workspace-package-file"
             catalogueMode
             onBusyChange={(b) => setBusy(b ? "Inspecting source package" : "")}
-            onResult={setScan}
+            onResult={(result) => {
+              preparedSourceCourse.current = null;
+              setScan(result);
+            }}
           />
+          <section className="card">
+            <h2>Use an extracted source document</h2>
+            <p>
+              If your source is Brightspace Markdown or another LMS text export,
+              retain that document as the source baseline. Only its supplied
+              text and headings are established; missing media, assessments and
+              whole-course coverage remain unknown.
+            </p>
+            <fieldset disabled={!!busy || !editable}>
+              <legend className="sr-only">Source document baseline</legend>
+              <FileField
+                label="Source document (Markdown or text)"
+                accept=".md,.markdown,.txt"
+                file={documentBaselineFile}
+                onChange={(file) => {
+                  setDocumentBaselineFile(file);
+                  setDocumentConfirmed(false);
+                  setScan(null);
+                  preparedSourceCourse.current = null;
+                }}
+              />
+              <label>
+                Source LMS name
+                <input
+                  value={documentPlatform}
+                  maxLength={120}
+                  onChange={(event) => setDocumentPlatform(event.target.value)}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={documentConfirmed}
+                  onChange={(event) =>
+                    setDocumentConfirmed(event.target.checked)
+                  }
+                />{" "}
+                I confirm this document is the intended source baseline
+                {rescan && course
+                  ? ` for ${course.title}`
+                  : " for the new assignment"}
+                .
+              </label>
+              <button
+                disabled={
+                  !documentBaselineFile ||
+                  !documentConfirmed ||
+                  !documentPlatform.trim()
+                }
+                onClick={() =>
+                  void act("Inspecting source document", async () => {
+                    if (!documentBaselineFile) return;
+                    const identity =
+                      (rescan && course) ||
+                      (preparedSourceCourse.current ||= newRecord(
+                        "package",
+                        documentBaselineFile.name,
+                        { partner, owner, status: "In Queue" },
+                      ));
+                    const inspected = await inspectEvidenceInput(
+                      documentBaselineFile,
+                      identity,
+                      {
+                        signal: controller.current?.signal,
+                        documentPlatform: documentPlatform.trim(),
+                      },
+                    );
+                    if (inspected.data.role !== "source-document")
+                      throw Error(
+                        "Choose a Markdown or plain text source document.",
+                      );
+                    setScan(sourceDocumentScan(inspected.data));
+                    setNotice(
+                      "Source document inspected. Confirm the partner and owner below, then save this text-only baseline.",
+                    );
+                  })
+                }
+              >
+                Inspect source document
+              </button>
+            </fieldset>
+          </section>
           {scan && (
             <section className="card">
               <h3>Save this source scan</h3>
@@ -1447,7 +1652,7 @@ export default function FullWorkspace({
                 setCapture(file);
                 setTab("Compare");
                 setNotice(
-                  "Local Coursera capture loaded into Compare. Add the matching Coursera XLSX before running the source comparison.",
+                  "Coursera capture loaded into Compare. A validated direct capture can supply its native inventory; add a matching XLSX for an independent structural export.",
                 );
               }}
             />
@@ -1457,9 +1662,10 @@ export default function FullWorkspace({
           <section className="card">
             <h2>Full source → Coursera comparison</h2>
             <p>
-              XLSX supplies structure, titles and placement. Captures enrich it
-              with observed content. The selected source scan is the comparison
-              baseline.
+              A validated direct capture supplies its native item inventory and
+              observed content. A matching XLSX adds an independent structural
+              export and is required for older captures. The selected source
+              scan is the comparison baseline.
             </p>
             {!course && (
               <p className="empty-state">
@@ -1480,7 +1686,7 @@ export default function FullWorkspace({
               <legend className="sr-only">Comparison inputs</legend>
               <div className="settings">
                 <FileField
-                  label="Coursera XLSX (required)"
+                  label="Coursera XLSX (optional for direct capture)"
                   accept=".xlsx"
                   file={excel}
                   onChange={setExcel}
@@ -1495,15 +1701,15 @@ export default function FullWorkspace({
               <p className="hint">
                 Use files from the selected course and the same capture stage.
                 Without a Coursera capture, content evidence will be limited.
-                Select .cti.zip, JSON or .json.gz directly; CTI reads the archive
-                and its original files without manual unzipping.
+                Select .cti.zip, JSON or .json.gz directly; CTI reads the
+                archive and its original files without manual unzipping.
               </p>
               {capture && (
                 <p className="hint" data-testid="selected-coursera-capture">
                   Selected Coursera capture: <strong>{capture.name}</strong>.
                   The saved report is anchored to the extractor build embedded
-                  in this exact capture; the current available extractor is shown
-                  separately and never rewrites historical evidence.
+                  in this exact capture; the current available extractor is
+                  shown separately and never rewrites historical evidence.
                 </p>
               )}
               <h3>2. Add source and supplemental evidence</h3>
@@ -1584,7 +1790,9 @@ export default function FullWorkspace({
               </p>
               <button
                 className="primary"
-                disabled={!course || !excel || !editable || !!busy}
+                disabled={
+                  !course || (!excel && !capture) || !editable || !!busy
+                }
                 onClick={() => void compare()}
               >
                 Run and save full comparison
@@ -1592,7 +1800,9 @@ export default function FullWorkspace({
             </fieldset>
             {course && !excel && (
               <p className="hint">
-                Add the Coursera XLSX to enable the comparison.
+                Without XLSX, CTI must validate a supported direct capture
+                before using its native inventory. This does not establish an
+                independent XLSX comparison.
               </p>
             )}
             {!editable && (

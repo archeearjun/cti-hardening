@@ -24,9 +24,31 @@ jobs:
       - name: Probe public source definitions (diagnostic, no credentials)
         run: node tools/check-public-source-questions.mjs
 
+  assignment-workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Verify unified intake, item history, deliverables and advisory UX
+        run: npm run test:browser:assignment
+      - name: Preserve assignment screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cti-assignment-workspace-screenshots
+          if-no-files-found: ignore
+          path: /tmp/cti-assignment-workspace
+
   publish-pages-branch:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [deterministic, browser, access-configuration]
+    needs: [deterministic, browser, assignment-workspace, access-configuration]
     runs-on: ubuntu-latest
     permissions:
       contents: write

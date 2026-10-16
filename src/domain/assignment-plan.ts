@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildOwnerTasks, needsOwnerAction } from "./owner-actions.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
-import { sourceIdentityMessage } from "./assignment-evidence.ts";
+import { sourceIdentityMessage, hasVerifiedComparisonStructure, externalApplicationNeedsCapture } from "./assignment-evidence.ts";
 import { ownerScope } from "./owner-scope.ts";
 import { moduleTimes, moduleTimesText } from "./owner-time.ts";
 import { loadReportContent } from "./report-content-store.ts";
@@ -178,6 +178,7 @@ export function reconciliationCurrent(
     latest?.id === audit.id &&
     latest.version === audit.version &&
     !!plan.reconciliation &&
+    !externalApplicationNeedsCapture(course.id, audit, records) &&
     !!course.data.scan?.fileSha256 &&
     audit.data.sourceScanSha256 === course.data.scan.fileSha256 &&
     plan.reconciliation.basis === assignmentBasis(course, audit, records)
@@ -223,6 +224,8 @@ export function evaluateAssignment(
     (t) => reviewFor(t.key)?.status === "changed",
   );
   const blockers: string[] = [];
+  if (externalApplicationNeedsCapture(course.id, audit, records))
+    blockers.push("An external application was recorded. Capture and compare the changed Coursera shell before reusing reconciliation or approval.");
   if (!audit)
     blockers.push(
       "Import or inspect the Coursera shell, capture it, then save a source-to-Coursera comparison.",
@@ -244,7 +247,7 @@ export function evaluateAssignment(
       blockers.push(
         "This report has no complete, actionable item inventory. Save a full comparison.",
       );
-    if (result?.inputCoherence?.status !== "PASS")
+    if (!hasVerifiedComparisonStructure(audit))
       blockers.push(
         "Source/destination input identity requires review before handoff.",
       );
@@ -299,6 +302,7 @@ export function evaluateAssignment(
     mapApproved,
     missingLinks,
     outlineReady,
+    applicationNeedsCapture: externalApplicationNeedsCapture(course.id, audit, records),
     canRecordReview: !!audit && !blockers.length,
     captureStatus: result?.captureReadiness?.status || "Not recorded",
     sourceStatus: result?.liveSourceGroundTruth?.status || "Not captured",

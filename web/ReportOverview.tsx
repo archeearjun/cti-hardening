@@ -15,6 +15,7 @@ export default function ReportOverview({ result }: { result: EvidenceObject }) {
       </p>
     );
   const policy = summary.operationalPolicy || result.operationalPolicy;
+  const documentScoped = !!result.documentComparisonScope;
   return (
     <section className="report-overview" aria-label="Report summary">
       <p className="eyebrow">RECORDED AUDIT RESULT</p>
@@ -25,13 +26,13 @@ export default function ReportOverview({ result }: { result: EvidenceObject }) {
       </h3>
       <div className="metric-grid report-metrics">
         <div>
-          <strong>{metric(summary.observedFidelity, "%")}</strong>
-          <span>Observed fidelity</span>
+          <strong>{documentScoped ? "Not established" : metric(summary.observedFidelity, "%")}</strong>
+          <span>{documentScoped ? "Full source-course fidelity" : "Observed fidelity"}</span>
           <small>Agreement within the evidence assessed</small>
         </div>
         <div>
-          <strong>{metric(summary.evidenceCoverage, "%")}</strong>
-          <span>Evidence coverage</span>
+          <strong>{documentScoped ? "Not established" : metric(summary.evidenceCoverage, "%")}</strong>
+          <span>{documentScoped ? "Full source-course coverage" : "Evidence coverage"}</span>
           <small>Coverage reported by the comparison engine</small>
         </div>
         <div>

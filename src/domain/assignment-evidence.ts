@@ -4,6 +4,8 @@ import type { evaluateAssignment } from "./assignment-plan.ts";
 
 export function sourceBaseline(scan?: Partial<PackageScan> | null) {
   if (!scan) return { status: "missing", label: "IMSCC not scanned" } as const;
+  if (scan.sourceEvidence?.kind === "CTI_SOURCE_DOCUMENT_BASELINE")
+    return { status: "document", label: "Source document saved — text-only scope" } as const;
   if (scan.sourceEvidence?.manifestOnly)
     return {
       status: "manifest",
@@ -23,6 +25,30 @@ export function sourceIdentityMessage(sourceHash?: string, auditHash?: string) {
   if (!auditHash)
     return "This report has no source file identity. Compare again against the saved IMSCC to establish the match.";
   return "The source package differs from this audit. Compare against the current source.";
+}
+
+/** Structure can come from an independent workbook or a separately verified
+ * retained native material inventory. Neither certifies complete content. */
+export function hasVerifiedComparisonStructure(audit: WorkspaceRecord | null) {
+  const result = audit?.data.result;
+  if (result?.inputCoherence?.status === "PASS") return true;
+  const proof = result?.structuralInventoryBasis;
+  return result?.inputCoherence?.status === "VERIFIED_CAPTURE_INVENTORY" &&
+    proof?.kind === "VERIFIED_NATIVE_CAPTURE_INVENTORY" && proof.independentWorkbook === false &&
+    proof.completeContent === false && /^[a-f0-9]{64}$/.test(proof.materialHash || "") &&
+    /^[a-f0-9]{64}$/.test(audit?.data.hashes?.json || "") &&
+    /^[a-f0-9]{64}$/.test(audit?.data.hashes?.derivedStructure || "") &&
+    !audit?.data.hashes?.excel && proof.courseId === result?.stats?.extractorMeta?.page?.courseId;
+}
+
+/** An external application receipt is a declared change, never verification. */
+export function externalApplicationNeedsCapture(courseId: string, audit: WorkspaceRecord | null, records: WorkspaceRecord[]) {
+  const changes = records.filter(r => r.kind === "operations" && r.packageId === courseId &&
+    r.data.type === "assignment-deliverable" && r.data.event === "external-application-recorded");
+  if (!changes.length) return false;
+  const latest = Math.max(...changes.map(r => Date.parse(r.updatedAt || r.data.createdAt || "")));
+  const capturedAt = Date.parse(audit?.data.result?.stats?.extractorMeta?.capturedAt || "");
+  return !Number.isFinite(latest) || !Number.isFinite(capturedAt) || capturedAt <= latest;
 }
 
 export interface PendingAssignmentEvidence {
@@ -46,7 +72,7 @@ export function nextAssignmentStep(
   e: ReturnType<typeof evaluateAssignment>,
   pending: PendingAssignmentEvidence,
 ): { action: AssignmentAction; title: string; detail: string; button: string } {
-  if (sourceBaseline(course.data.scan).status !== "scanned")
+  if (!["scanned", "document"].includes(sourceBaseline(course.data.scan).status))
     return {
       action: "scan",
       title: "Inspect the original IMSCC",
@@ -54,7 +80,7 @@ export function nextAssignmentStep(
         "Save a full package scan before relying on the source comparison. Opening saved evidence does not run a new scan.",
       button: "Scan original IMSCC",
     };
-  if (!e.reconciled && !pending.source && !audit?.data.hashes?.brightspace)
+  if (!e.reconciled && !pending.source && !audit?.data.hashes?.brightspace && sourceBaseline(course.data.scan).status !== "document")
     return {
       action: "source",
       title: "Capture the matching Brightspace course",
@@ -70,6 +96,10 @@ export function nextAssignmentStep(
         "Import the IMSCC if a shell does not exist. Otherwise use the existing shell. Capture it and export its XLSX before manual corrections.",
       button: "Extract Coursera shell",
     };
+  if (e.applicationNeedsCapture)
+    return { action: "coursera", title: "Verify the externally changed shell",
+      detail: "An external application is recorded. Capture the changed shell and compare it before reusing reconciliation or approval.",
+      button: "Capture changed Coursera shell" };
   const capturedAt = audit?.data.result?.stats?.extractorMeta?.capturedAt;
   if (
     e.plan.shellChangedAt &&
@@ -90,7 +120,7 @@ export function nextAssignmentStep(
     !audit ||
     audit.data.sourceScanSha256 !== course.data.scan?.fileSha256 ||
     !audit.data.hashes?.json ||
-    audit.data.result?.inputCoherence?.status !== "PASS" ||
+    !hasVerifiedComparisonStructure(audit) ||
     audit.data.result?.success !== true ||
     !e.tasks.length
   )
@@ -98,7 +128,7 @@ export function nextAssignmentStep(
       action: "compare",
       title: "Run the source-to-Coursera comparison",
       detail:
-        "Use the matching Coursera XLSX and full JSON, plus Brightspace JSON when available. Selected files are not saved comparison evidence until the report is successfully saved.",
+        "Use the full Coursera capture and available source evidence. Direct captures with verified native inventories can supply structure; older captures require a matching XLSX. Files become comparison evidence only after the report is saved.",
       button: "Prepare and run comparison",
     };
   if (e.attention.length > e.checked.length)

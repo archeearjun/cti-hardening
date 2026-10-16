@@ -943,6 +943,36 @@ function directDiscussionSourcesValid(
   );
 }
 
+/** Independently verify the ordered material inventory without requiring every
+ * content body to be complete. This narrower proof cannot certify the course. */
+export function verifiedCourseraCaptureInventory(value: unknown) {
+  const capture = record(value), mode = record(capture?.meta?.directDataCapture);
+  if (!capture || !mode || mode.mode !== "BOUND_AUTHORING_DRAFT_API" || mode.version !== 1 || mode.sourceStable !== true)
+    throw Error("A stable native authoring-material inventory is required when XLSX is absent.");
+  const courseId = String(capture.page?.courseId || "");
+  const initial = parseCourseraCourseMaterialsRelations(mode.materials, courseId);
+  const final = parseCourseraCourseMaterialsRelations(mode.finalMaterials, courseId);
+  const fingerprints = array(capture.fingerprints);
+  if (!directHash(mode.initialMaterialHash) || mode.initialMaterialHash !== mode.finalMaterialHash ||
+      mode.initialMaterialHash !== directModelHash(mode.materials.elements[0]) ||
+      mode.finalMaterialHash !== directModelHash(mode.finalMaterials.elements[0]) ||
+      !Number.isSafeInteger(mode.materialVersion) || mode.materialVersion < 0 ||
+      !Number.isSafeInteger(mode.courseBranchVersion) || mode.courseBranchVersion < 0 ||
+      initial.materialVersion !== mode.materialVersion || initial.courseBranchVersion !== mode.courseBranchVersion ||
+      final.materialVersion !== initial.materialVersion || final.courseBranchVersion !== initial.courseBranchVersion ||
+      JSON.stringify(initial.inventory) !== JSON.stringify(final.inventory) ||
+      initial.inventoryCount !== fingerprints.length || capture.meta?.baseFingerprintCount !== initial.inventoryCount ||
+      !directReceiptValid(mode.materialsReceipt, "authoringCourseMaterials.v1", courseId) ||
+      !directReceiptValid(mode.finalMaterialsReceipt, "authoringCourseMaterials.v1", courseId) ||
+      initial.inventory.some((leaf, i) => {
+        const item = record(fingerprints[i]);
+        return item?.id !== leaf.itemId || (leaf.contentBearing ? item.atomId !== leaf.atomId ||
+          item.contentId !== leaf.sourceContentId || !leaf.atomReferenceBound : !!item.atomId || !!item.contentId);
+      })) throw Error("The retained native material inventory is incomplete, unstable or contradictory.");
+  return { courseId, material: mode.materials.elements[0].material, inventory: initial.inventory,
+    materialHash: mode.initialMaterialHash as string, completeContent: false as const };
+}
+
 function directDraftCaptureReasons(capture: Record<string, any>): string[] {
   const meta = record(capture.meta) || {},
     mode = record(meta.directDataCapture) || {};

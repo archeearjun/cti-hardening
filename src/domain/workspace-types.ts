@@ -32,7 +32,7 @@ export interface CourseData {
 }
 export interface ComparisonInput {
   course: WorkspaceRecord;
-  excel: { name: string; bytes: Uint8Array };
+  excel?: { name: string; bytes: Uint8Array };
   json?: {
     name: string;
     bytes: Uint8Array;

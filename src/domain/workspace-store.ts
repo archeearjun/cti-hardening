@@ -1,9 +1,10 @@
-import { validateRecord } from "./workspace-validation.ts";
-import { reviewTime } from "./owner-time.ts";
 import {
-  normalizePartnerName,
-  packageSemanticKey,
-} from "./operations.ts";
+  validateRecord,
+  validateWorkspaceTransition,
+  validateOperationalReferences,
+} from "./workspace-validation.ts";
+import { reviewTime } from "./owner-time.ts";
+import { normalizePartnerName, packageSemanticKey } from "./operations.ts";
 import {
   workspaceRequest as request,
   type TransferOptions,
@@ -122,23 +123,51 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                   platform: d.platform,
                   sourceHash: d.sourceHash,
                   toGeneration: d.toGeneration,
+                  schemaVersion: d.schemaVersion,
+                  courseId: d.courseId,
+                  eventCount: Array.isArray(d.events) ? d.events.length : 0,
+                  mappingReviewCount: Array.isArray(d.events)
+                    ? d.events.filter((e: any) =>
+                        ["mapping-confirmed", "mapping-rejected"].includes(
+                          e.kind,
+                        ),
+                      ).length
+                    : 0,
+                  lastEventAt: d.events?.at(-1)?.recordedAt,
+                  role: d.role,
+                  nativeCourseId: d.nativeCourseId,
+                  capturedAt: d.capturedAt,
+                  confirmedCourseId: d.confirmedCourseId,
+                  retention: d.original?.retention,
+                  deliverableId: d.deliverableId,
+                  deliverableKind: d.deliverableKind,
+                  revision: d.revision,
+                  previousRecordId: d.previousRecordId,
+                  event: d.event,
+                  basisHash: d.basisHash,
+                  auditId: d.auditId,
+                  auditVersion: d.auditVersion,
+                  createdAt: d.createdAt,
+                  datasetFingerprint: d.datasetFingerprint,
+                  modelStatus: d.modelStatus,
+                  exampleCount: d.exampleCount,
                 }
-            : record.kind === "legacy-backup" &&
-                d.kind === "CTI_MIGRATION_RECOVERY_CASE"
-              ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
               : record.kind === "legacy-backup" &&
-                  d.kind === "CTI_LEGACY_ACCESS_POLICY"
-                ? {
-                    kind: d.kind,
-                    authorizedDomain: d.authorizedDomain,
-                    authorizedEmailCount: Array.isArray(d.authorizedEmails)
-                      ? d.authorizedEmails.length
-                      : 0,
-                    editorEmailCount: Array.isArray(d.editorEmails)
-                      ? d.editorEmails.length
-                      : 0,
-                  }
-                : {};
+                  d.kind === "CTI_MIGRATION_RECOVERY_CASE"
+                ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
+                : record.kind === "legacy-backup" &&
+                    d.kind === "CTI_LEGACY_ACCESS_POLICY"
+                  ? {
+                      kind: d.kind,
+                      authorizedDomain: d.authorizedDomain,
+                      authorizedEmailCount: Array.isArray(d.authorizedEmails)
+                        ? d.authorizedEmails.length
+                        : 0,
+                      editorEmailCount: Array.isArray(d.editorEmails)
+                        ? d.editorEmails.length
+                        : 0,
+                    }
+                  : {};
   return { ...record, data };
 }
 export function newRecord(
@@ -206,6 +235,40 @@ export function localStore(): WorkspaceStore {
     async save(record, options = {}) {
       validateRecord(record);
       const d = await db;
+      let validatedReferences: WorkspaceRecord[] | undefined;
+      const validatedLookups = new Map<string, number | null>();
+      if (
+        record.kind === "operations" &&
+        [
+          "item-lifecycle",
+          "evidence-input",
+          "assignment-deliverable",
+          "advisory-model",
+        ].includes(record.data.type)
+      ) {
+        // Complete asynchronous validation before opening the write transaction.
+        // IndexedDB may commit an idle transaction while awaited work continues.
+        const snapshot = (await read("records")) as WorkspaceRecord[];
+        const byId = new Map(snapshot.map((row) => [row.id, row]));
+        const prior = byId.get(record.id);
+        validateWorkspaceTransition(prior, record);
+        await validateOperationalReferences(
+          record,
+          async (id) => {
+            const row = byId.get(id);
+            validatedLookups.set(id, row?.version ?? null);
+            return row;
+          },
+          prior,
+          snapshot,
+        );
+        // All potentially consulted records, including a previously absent
+        // supplement/review/revision, must still be identical at the write.
+        validatedReferences = snapshot.filter(
+          (row) =>
+            row.id === record.packageId || row.packageId === record.packageId,
+        );
+      }
       return new Promise((resolve, reject) => {
         const tx = d.transaction(["records", "versions"], "readwrite");
         const table = tx.objectStore("records");
@@ -234,17 +297,68 @@ export function localStore(): WorkspaceStore {
               stop("Record type cannot change.");
               return;
             }
-            saved = {
-              ...record,
-              version: record.version + 1,
-              updatedAt: new Date().toISOString(),
-              updatedBy: "This browser",
+            const persist = () => {
+              saved = {
+                ...record,
+                version: record.version + 1,
+                updatedAt: new Date().toISOString(),
+                updatedBy: "This browser",
+              };
+              table.put(saved);
+              tx.objectStore("versions").put({
+                ...saved,
+                key: `${record.id}:${saved.version}`,
+              });
             };
-            table.put(saved);
-            tx.objectStore("versions").put({
-              ...saved,
-              key: `${record.id}:${saved.version}`,
-            });
+            try {
+              validateWorkspaceTransition(prior, record);
+            } catch (error) {
+              stop(
+                error instanceof Error
+                  ? error.message
+                  : "Invalid record transition.",
+              );
+              return;
+            }
+            if (validatedReferences) {
+              const references = table.getAll();
+              references.onerror = () =>
+                stop("Referenced course evidence could not be checked.");
+              references.onsuccess = () => {
+                const byId = new Map(
+                  (references.result as WorkspaceRecord[]).map((row) => [
+                    row.id,
+                    row,
+                  ]),
+                );
+                const current = (references.result as WorkspaceRecord[]).filter(
+                  (row) =>
+                    row.id === record.packageId ||
+                    row.packageId === record.packageId,
+                );
+                const versions = (rows: WorkspaceRecord[]) =>
+                  JSON.stringify(
+                    rows
+                      .map((row) => [row.id, row.version])
+                      .sort(([a], [b]) => String(a).localeCompare(String(b))),
+                  );
+                if (
+                  versions(current) !== versions(validatedReferences!) ||
+                  [...validatedLookups].some(
+                    ([id, version]) =>
+                      (byId.get(id)?.version ?? null) !== version,
+                  )
+                ) {
+                  stop(
+                    "Course evidence changed during validation. Refresh before retrying.",
+                  );
+                  return;
+                }
+                // No awaited work follows this IDB request callback: validation
+                // and writes are joined by the atomic snapshot predicate above.
+                persist();
+              };
+            } else persist();
           };
         };
 
@@ -416,8 +530,7 @@ export async function teamStore(): Promise<WorkspaceStore> {
         {
           method: "POST",
           body: JSON.stringify({
-            allowSemanticDuplicate:
-              options.allowSemanticDuplicate === true,
+            allowSemanticDuplicate: options.allowSemanticDuplicate === true,
           }),
         },
         { ...options, context: `Finalizing ${label}` },
