@@ -38,13 +38,24 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Verify unified intake, item history, deliverables and advisory UX
         run: npm run test:browser:assignment
+      - name: Verify package scanning in Chromium
+        run: npm run test:browser:package
+      - name: Verify workspace workflow in Chromium
+        run: npm run test:browser:workspace
+      - name: Verify full responsive UX in Chromium
+        run: npm run test:browser:ux
+      - name: Verify owner actions in Chromium
+        run: npm run test:browser:owner
       - name: Preserve assignment screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cti-assignment-workspace-screenshots
           if-no-files-found: ignore
-          path: /tmp/cti-assignment-workspace
+          path: |
+            /tmp/cti-assignment-workspace
+            /tmp/cti-ux-screenshots
+            /tmp/cti-owner-actions
 
   publish-pages-branch:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -126,18 +137,10 @@ jobs:
         run: npm run test:browser:scale-capture
       - name: Large mixed quiz API evidence with interrupted editor-key recovery
         run: npm run test:browser:mixed-bank
-      - name: Verify package scanning in Chromium
-        run: npm run test:browser:package
-      - name: Verify workspace workflow in Chromium
-        run: npm run test:browser:workspace
-      - name: Verify full responsive UX in Chromium
-        run: npm run test:browser:ux
       - name: Verify automatic Coursera continuation and final download in Chromium
         run: npm run test:browser:extraction
       - name: Verify actual extension item refresh in Chromium
         run: npm run test:browser:extension
-      - name: Verify owner actions in Chromium
-        run: npm run test:browser:owner
       - name: Verify assessment choice layout in Chromium
         run: npm run test:browser:choices
       - name: Verify interrupted assessment question capture in Chromium

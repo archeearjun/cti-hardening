@@ -359,6 +359,14 @@ try {
   await waitLoaded();
   await page.getByLabel("Show items", { exact: true }).selectOption("all");
   await reading().waitFor({ state: "visible" });
+  const workSearch = page.getByLabel("Find a work item", { exact: true });
+  await workSearch.fill("unmatched synthetic native identity");
+  await page
+    .getByText("No items match this filter.", { exact: false })
+    .waitFor();
+  assert.equal(await page.locator(".assignment-item").count(), 0);
+  await workSearch.clear();
+  await reading().waitFor({ state: "visible" });
   assert.equal(
     await reading().count(),
     1,
