@@ -522,12 +522,14 @@ export default function AssignmentWorkspace({
                 </div>
                 <div className="context-actions">
                   <button
+                    className="secondary"
                     disabled={readonly}
                     onClick={() => setSection("Evidence inbox")}
                   >
                     Add evidence
                   </button>
                   <button
+                    className="secondary"
                     disabled={!!disabled}
                     onClick={() => onNavigate("Extract")}
                   >
@@ -535,6 +537,7 @@ export default function AssignmentWorkspace({
                   </button>
                   {audit && (
                     <button
+                      className="secondary"
                       disabled={!!disabled || loading}
                       onClick={() => onAudit(audit)}
                     >
@@ -548,6 +551,7 @@ export default function AssignmentWorkspace({
                   New files are staged. Save a comparison to evaluate them; the
                   worklist still reflects the saved evidence.{" "}
                   <button
+                    className="secondary"
                     disabled={readonly || (!pending.excel && !pending.coursera)}
                     onClick={() => void onCompare()}
                   >
@@ -661,6 +665,7 @@ export default function AssignmentWorkspace({
                     </p>
                   </div>
                   <button
+                    className="secondary"
                     onClick={() => {
                       setSelected("");
                       setNote("");
@@ -705,7 +710,11 @@ export default function AssignmentWorkspace({
                   <p>No automated correction is established for this item.</p>
                 )}
                 {audit && (
-                  <button disabled={!!disabled} onClick={() => onAudit(audit)}>
+                  <button
+                    className="secondary"
+                    disabled={!!disabled}
+                    onClick={() => onAudit(audit)}
+                  >
                     Inspect original content and findings
                   </button>
                 )}
@@ -757,18 +766,21 @@ export default function AssignmentWorkspace({
                 </div>
                 <div className="context-actions">
                   <button
+                    className="secondary"
                     disabled={itemReadonly || !note.trim()}
                     onClick={() => void save("stage")}
                   >
                     Record stage
                   </button>
                   <button
+                    className="primary"
                     disabled={itemReadonly || !note.trim()}
                     onClick={() => void save("decision")}
                   >
                     Record decision
                   </button>
                   <button
+                    className="secondary"
                     disabled={itemReadonly || !note.trim()}
                     onClick={() => void save("transformation")}
                   >
@@ -827,12 +839,14 @@ export default function AssignmentWorkspace({
                   </div>
                   <div className="context-actions">
                     <button
+                      className="secondary"
                       disabled={itemReadonly || !note.trim()}
                       onClick={() => void save("mapping-confirmed")}
                     >
                       Confirm relationship
                     </button>
                     <button
+                      className="secondary"
                       disabled={itemReadonly || !note.trim()}
                       onClick={() => void save("mapping-rejected")}
                     >
