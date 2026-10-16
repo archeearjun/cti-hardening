@@ -25,7 +25,10 @@ The default owner view follows six evidence-based stages:
    not silently repair it or invent a replacement.
 5. **Recapture and verify.** A recorded LMS edit requires capture after the edit
    and a new saved comparison. A later checked decision cannot make an old
-   capture current. Changes to Brightspace or the source package require fresh
+   capture current. The older report's item-outcome screen retains the same
+   durable edit declaration through later checks and evidence imports; local
+   storage and the shared API reject clearing, backdating or rebinding it.
+   Changes to Brightspace or the source package require fresh
    evidence for that source, not only a new Coursera capture.
 6. **Prepare the deliverable.** Reconciliation, content maps, outlines and owner
    approval use the current evidence basis. Historic findings and decisions

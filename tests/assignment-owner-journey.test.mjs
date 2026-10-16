@@ -17,6 +17,11 @@ import {
 } from "../src/domain/item-lifecycle.ts";
 import { recordSummary } from "../src/domain/workspace-store.ts";
 import { comparisonFixture } from "./workflow-fixtures.mjs";
+import {
+  ownerReviewChangeDeclaration,
+  validateOwnerReview,
+} from "../src/domain/owner-actions.ts";
+import { validateWorkspaceTransition } from "../src/domain/workspace-validation.ts";
 
 const pending = {
   source: "",
@@ -405,5 +410,167 @@ test("loadAssignmentEvidence obtains full edit history for legacy shared listing
   assert.equal(
     Object.hasOwn(f.audit.data, "assignmentLifecycleEvidence"),
     false,
+  );
+});
+
+function outcome(f, status = "changed", date = day(3)) {
+  return {
+    id: "legacy-item-review",
+    kind: "item-review",
+    packageId: f.course.id,
+    title: "Original item outcome",
+    version: 1,
+    updatedAt: date,
+    updatedBy: "Fixture owner",
+    data: {
+      auditId: f.audit.id,
+      itemKey: "item:reading",
+      review: {
+        status,
+        note: "Recorded the exact owner observation for this item.",
+        updatedAt: date,
+        updatedBy: "Fixture owner",
+        ...(status === "changed" ? { changeDeclaredAt: date } : {}),
+      },
+    },
+  };
+}
+
+test("legacy owner report changed then checked retains a recapture barrier across saved report identities", () => {
+  const f = setup();
+  const changed = outcome(f);
+  const checked = structuredClone(changed);
+  checked.data.review.status = "checked";
+  checked.data.review.updatedAt = day(4);
+  checked.data.review.changeDeclaredAt = ownerReviewChangeDeclaration(
+    changed,
+    "checked",
+    day(4),
+  );
+  checked.updatedAt = day(4);
+  validateWorkspaceTransition(changed, checked);
+  for (const value of [checked, recordSummary(checked)]) {
+    assert.equal(
+      assignmentChangeFreshness(f.course.id, f.audit, [f.audit, value])
+        .needsRecapture,
+      true,
+    );
+    assert.equal(f.journey(f.audit, [value]).nextAction.action, "coursera");
+    const fresh = f.after();
+    assert.equal(
+      assignmentChangeFreshness(f.course.id, fresh, [f.audit, fresh, value])
+        .needsRecapture,
+      false,
+    );
+    fresh.data.result.stats.extractorMeta.capturedAt = day(2);
+    assert.equal(
+      assignmentChangeFreshness(f.course.id, fresh, [f.audit, fresh, value])
+        .needsRecapture,
+      true,
+    );
+  }
+});
+
+test("legacy checked-only reviews do not imply edits while sticky edit receipts cannot be removed or rebound", () => {
+  const f = setup();
+  const checkedOnly = outcome(f, "checked");
+  assert.equal(
+    ownerReviewChangeDeclaration(checkedOnly, "checked", day(4)),
+    undefined,
+  );
+  assert.equal(
+    assignmentChangeFreshness(f.course.id, f.audit, [checkedOnly])
+      .needsRecapture,
+    false,
+  );
+  const changed = outcome(f);
+  for (const mutation of [
+    (next) => delete next.data.review.changeDeclaredAt,
+    (next) => {
+      next.data.review.changeDeclaredAt = day(2);
+    },
+    (next) => {
+      next.data.auditId = "other-audit";
+    },
+    (next) => {
+      next.data.itemKey = "item:other";
+    },
+    (next) => {
+      next.packageId = "other-course";
+    },
+  ]) {
+    const next = structuredClone(changed);
+    next.data.review.status = "checked";
+    mutation(next);
+    assert.throws(
+      () => validateWorkspaceTransition(changed, next),
+      /declaration|identity/,
+    );
+  }
+  const injected = structuredClone(checkedOnly);
+  injected.data.review.changeDeclaredAt = day(1);
+  assert.throws(
+    () => validateWorkspaceTransition(checkedOnly, injected),
+    /exact edit declaration/,
+  );
+  assert.throws(
+    () =>
+      validateOwnerReview({
+        ...checkedOnly.data.review,
+        changeDeclaredAt: "not-a-date",
+      }),
+    /edit declaration date/,
+  );
+});
+
+test("historical changed outcomes gain their saved service date when checked and keep it through import/fetch saves", () => {
+  const f = setup();
+  const legacy = outcome(f);
+  delete legacy.data.review.changeDeclaredAt;
+  legacy.data.review.updatedAt = day(1);
+  legacy.updatedAt = day(3);
+  const declaration = ownerReviewChangeDeclaration(legacy, "checked", day(4));
+  assert.equal(declaration, day(3));
+  const checked = structuredClone(legacy);
+  checked.data.review.status = "checked";
+  checked.data.review.changeDeclaredAt = declaration;
+  checked.data.review.updatedAt = day(4);
+  validateWorkspaceTransition(legacy, checked);
+  for (const status of ["checked", "in_progress", "blocked", "open"]) {
+    assert.equal(
+      ownerReviewChangeDeclaration(checked, status, day(5)),
+      declaration,
+    );
+    const next = structuredClone(checked);
+    next.data.review.status = status;
+    validateWorkspaceTransition(checked, next);
+  }
+  assert.equal(
+    ownerReviewChangeDeclaration(checked, "changed", day(5)),
+    day(5),
+  );
+});
+
+test("a backdated owner declaration cannot precede the service receipt when changed becomes checked", () => {
+  const f = setup();
+  const changed = outcome(f);
+  changed.data.review.changeDeclaredAt = day(1);
+  changed.data.review.updatedAt = day(1);
+  changed.updatedAt = day(4);
+  assert.equal(
+    ownerReviewChangeDeclaration(changed, "checked", day(5)),
+    day(4),
+  );
+  const next = structuredClone(changed);
+  next.data.review.status = "checked";
+  assert.throws(() => validateWorkspaceTransition(changed, next), /backdated/);
+  next.data.review.changeDeclaredAt = day(4);
+  validateWorkspaceTransition(changed, next);
+  const fresh = f.after();
+  fresh.data.result.stats.extractorMeta.capturedAt = day(3);
+  assert.equal(
+    assignmentChangeFreshness(f.course.id, fresh, [f.audit, next])
+      .needsRecapture,
+    true,
   );
 });

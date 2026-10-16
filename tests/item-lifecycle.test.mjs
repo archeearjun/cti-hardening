@@ -24,6 +24,7 @@ import {
   localStore,
   recordSummary,
 } from "../src/domain/workspace-store.ts";
+import { ownerReviewChangeDeclaration } from "../src/domain/owner-actions.ts";
 import {
   assignmentDeliverableRecordId,
   deliverableArtifactHash,
@@ -952,6 +953,150 @@ function strictIndexedDb(initial, beforeWrite = () => {}) {
     },
   };
 }
+test("local item outcome writes preserve changed declarations and reject stale checked saves that erase them", async () => {
+  const previous = globalThis.indexedDB;
+  try {
+    const { course, audit } = fixture();
+    const changed = {
+      id: "owner-outcome-local",
+      kind: "item-review",
+      title: "Owner outcome",
+      packageId: course.id,
+      version: 1,
+      updatedAt: "2026-10-03T00:00:00.000Z",
+      updatedBy: "Owner",
+      data: {
+        auditId: audit.id,
+        itemKey: "item:a",
+        review: {
+          status: "changed",
+          note: "Edited this exact Coursera item in the source shell.",
+          updatedAt: "2026-10-03T00:00:00.000Z",
+          updatedBy: "Owner",
+          changeDeclaredAt: "2026-10-03T00:00:00.000Z",
+        },
+      },
+    };
+    const fake = strictIndexedDb([course, audit, changed]);
+    globalThis.indexedDB = fake;
+    const store = localStore();
+    const erased = structuredClone(changed);
+    erased.data.review.status = "checked";
+    delete erased.data.review.changeDeclaredAt;
+    await assert.rejects(store.save(erased), /declaration cannot be cleared/);
+    assert.equal(fake.tables.get("records").get(changed.id).version, 1);
+    const checked = structuredClone(changed);
+    checked.data.review.status = "checked";
+    checked.data.review.changeDeclaredAt = ownerReviewChangeDeclaration(
+      changed,
+      "checked",
+      new Date().toISOString(),
+    );
+    const saved = await store.save(checked);
+    assert.equal(saved.version, 2);
+    assert.equal(
+      saved.data.review.changeDeclaredAt,
+      changed.data.review.changeDeclaredAt,
+    );
+    assert.equal((await store.versions(changed.id)).length, 1);
+  } finally {
+    globalThis.indexedDB = previous;
+  }
+});
+
+test("shared item outcome commits reject erased edit receipts and recompute untrusted listing summaries", async () => {
+  const { course, audit } = fixture();
+  const api = apiFixture();
+  try {
+    for (const record of [course, audit]) {
+      const response = await api.save({ ...record, version: 0 });
+      assert.equal(response.status, 200, await response.text());
+    }
+    const changed = {
+      id: "owner-outcome-api",
+      kind: "item-review",
+      title: "Owner outcome",
+      packageId: course.id,
+      version: 0,
+      updatedAt: "",
+      updatedBy: "Owner",
+      data: {
+        auditId: audit.id,
+        itemKey: "item:a",
+        review: {
+          status: "changed",
+          note: "Edited this exact Coursera item in the source shell.",
+          updatedAt: "2026-10-03T00:00:00.000Z",
+          updatedBy: "Owner",
+          changeDeclaredAt: "2026-10-03T00:00:00.000Z",
+        },
+      },
+    };
+    const initialResponse = await api.save(changed);
+    assert.equal(
+      initialResponse.status,
+      200,
+      await initialResponse.clone().text(),
+    );
+    const service = (await initialResponse.json()).record;
+    const original = {
+      ...changed,
+      version: service.version,
+      updatedAt: service.updatedAt,
+    };
+    const erased = structuredClone(original);
+    erased.data.review.status = "checked";
+    delete erased.data.review.changeDeclaredAt;
+    const rejected = await api.save(erased);
+    assert.equal(rejected.status, 400);
+    assert.match(await rejected.text(), /declaration cannot be cleared/);
+    const checked = structuredClone(original);
+    checked.data.review.status = "checked";
+    checked.data.review.changeDeclaredAt = ownerReviewChangeDeclaration(
+      original,
+      "checked",
+      new Date().toISOString(),
+    );
+    const bytes = new TextEncoder().encode(JSON.stringify(checked.data));
+    const forgedSummary = recordSummary(checked);
+    delete forgedSummary.data.review.changeDeclaredAt;
+    const prepared = await api.call(
+      "uploads",
+      "POST",
+      JSON.stringify({
+        record: forgedSummary,
+        bytes: bytes.length,
+        parts: 1,
+        sha256: await digest(bytes),
+      }),
+    );
+    assert.equal(prepared.status, 200);
+    const { id } = await prepared.json();
+    assert.equal(
+      (await api.call("uploads/" + id + "/chunks/0", "PUT", bytes)).status,
+      200,
+    );
+    const committed = await api.call("uploads/" + id + "/commit", "POST", "{}");
+    assert.equal(committed.status, 200, await committed.clone().text());
+    const listing = JSON.parse(
+      api.sql
+        .prepare("SELECT summary FROM documents WHERE id=?")
+        .get(changed.id).summary,
+    );
+    assert.equal(
+      listing.review.changeDeclaredAt,
+      checked.data.review.changeDeclaredAt,
+    );
+    const rebound = structuredClone(checked);
+    rebound.version = 2;
+    rebound.data.itemKey = "item:another";
+    const reboundResponse = await api.save(rebound);
+    assert.equal(reboundResponse.status, 400);
+    assert.match(await reboundResponse.text(), /item identity/);
+  } finally {
+    api.sql.close();
+  }
+});
 test("local lifecycle validation finishes before the write transaction and rechecks concurrent references", async () => {
   const previous = globalThis.indexedDB;
   try {

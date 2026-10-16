@@ -32,6 +32,7 @@ import {
   courseraLocation,
   resolveSourceTopic,
   validateOwnerReview,
+  ownerReviewChangeDeclaration,
   type OwnerTask,
   type OwnerProgress,
   type OwnerReview,
@@ -318,12 +319,15 @@ export default function OwnerActionCard({
       throw Error(
         "Item evidence is not ready to save. Reopen this item and retry; previous evidence has been preserved.",
       );
+    const now = new Date().toISOString();
+    const changeDeclaredAt = ownerReviewChangeDeclaration(record || saved, nextStatus, now);
     const review: OwnerReview = {
       relevance,
       status: nextStatus,
       note,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
       updatedBy: store.email,
+      ...(changeDeclaredAt ? { changeDeclaredAt } : {}),
       ...(nextCapture ? { capture: nextCapture } : {}),
       pluginCaptures: nextPlugins,
       sourceCounts: nextSourceCounts,
@@ -979,9 +983,13 @@ export default function OwnerActionCard({
             )}
             {status === "changed" && (
               <p className="hint">
-                The edit is recorded, but still needs verification. Check the
-                changed item, then record the result.
+                The edit is recorded. Capture the changed Coursera shell and
+                save a new comparison to verify it. A later checked outcome
+                retains this edit declaration.
               </p>
+            )}
+            {status !== "changed" && (record?.data.review?.changeDeclaredAt || saved?.data.review?.changeDeclaredAt) && (
+              <p className="hint">This item has a recorded edit. Its checked outcome does not replace a fresh course capture and comparison.</p>
             )}
           </section>
           </>}

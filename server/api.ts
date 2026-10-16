@@ -20,6 +20,7 @@ import {
   type AccessAuthenticator,
 } from "./access.ts";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
+import { recordSummary } from "../src/domain/workspace-store.ts";
 interface Statement {
   bind(...values: unknown[]): Statement;
   first<T = any>(): Promise<T | null>;
@@ -705,6 +706,8 @@ export async function handleAuthorized(
           : {};
         const next = { ...r, data: fullData as Record<string, any> };
         if (
+          next.kind === "item-review" ||
+          current?.kind === "item-review" ||
           (r.kind === "operations" &&
             protectedTypes.includes(next.data.type)) ||
           (current?.kind === "operations" &&
@@ -718,6 +721,9 @@ export async function handleAuthorized(
           };
           const previous = current ? await lookup(r.id) : undefined;
           validateWorkspaceTransition(previous, next);
+          // Listing edit receipts must come from the checksummed full payload,
+          // never from an independently supplied prepare-envelope summary.
+          if (next.kind === "item-review") r.data = recordSummary(next).data;
           const { results: summaries } =
             next.data.type === "assignment-deliverable"
               ? await db

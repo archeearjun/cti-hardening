@@ -104,6 +104,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                 note: d.review?.note,
                 updatedAt: d.review?.updatedAt,
                 updatedBy: d.review?.updatedBy,
+                changeDeclaredAt: d.review?.changeDeclaredAt,
                 hasCapture: !!d.review?.capture,
                 pluginCaptureCount: d.review?.pluginCaptures?.length || 0,
                 panoptoCaptureCount: d.review?.panoptoCaptures?.length || 0,

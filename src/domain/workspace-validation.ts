@@ -1,6 +1,9 @@
 import type { WorkspaceRecord } from "./workspace-types.ts";
 import { normalizeAssignmentPlan } from "./assignment-plan.ts";
-import { validateOwnerReview } from "./owner-actions.ts";
+import {
+  validateOwnerReview,
+  validateOwnerReviewTransition,
+} from "./owner-actions.ts";
 import { validateContentSnapshot } from "./content-evidence.ts";
 import { validateStoredCourseMetadata } from "./operations.ts";
 import {
@@ -233,6 +236,7 @@ export function validateWorkspaceTransition(
   prior: WorkspaceRecord | undefined,
   next: WorkspaceRecord,
 ): void {
+  validateOwnerReviewTransition(prior, next);
   if (!prior) return;
   if (
     (protectedOperation(prior) || protectedOperation(next)) &&

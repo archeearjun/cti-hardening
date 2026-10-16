@@ -9,6 +9,8 @@ export interface DeclaredAssignmentChange {
   eventId: string;
   platform: LifecycleEvent["platform"];
   nativeId: string;
+  referenceKind?: "owner-review";
+  itemKey?: string;
   recordedAt: string;
   observedAt: string;
   auditId: string;
@@ -152,58 +154,118 @@ export function assignmentChangeFreshness(
     return blocked(
       "Multiple item histories exist for this assignment. Resolve their identity before recording reconciliation.",
     );
-  if (!ledgers.length)
-    return {
-      status: "current" as const,
-      declarationCount: 0,
-      latest: [] as DeclaredAssignmentChange[],
-      pending: [] as DeclaredAssignmentChange[],
-      needsRecapture: false,
-      blockers: [] as string[],
-    };
-  const record = ledgers[0];
-  if (
-    record.id !== itemLifecycleRecordId(courseId) ||
-    record.data.courseId !== courseId
-  )
-    return blocked(
-      "The item history has a different course identity. Reload the current assignment history.",
-    );
-  let summary: AssignmentChangesSummary;
-  if (Array.isArray(record.data.events))
-    summary = summarizeAssignmentChanges(record.data);
-  else if (validSummary(record.data.declaredChanges))
-    summary = record.data.declaredChanges;
-  else {
-    // Old shared listing rows predate the bounded declaration summary. A loaded
-    // full ledger can supply it only while the exact listed version still agrees.
-    const loaded = audit?.data.assignmentLifecycleEvidence as
-      | WorkspaceRecord
-      | null
-      | undefined;
+  let summary: AssignmentChangesSummary = {
+    schemaVersion: 1,
+    status: "available",
+    eventCount: 0,
+    declarationCount: 0,
+    latest: [],
+  };
+  if (ledgers.length) {
+    const record = ledgers[0];
     if (
-      !loaded ||
-      loaded.id !== record.id ||
-      loaded.version !== record.version ||
-      loaded.packageId !== courseId ||
-      loaded.data.courseId !== courseId ||
-      !Array.isArray(loaded.data.events)
+      record.id !== itemLifecycleRecordId(courseId) ||
+      record.data.courseId !== courseId
     )
       return blocked(
-        "Load the full item history before recording reconciliation. Its edit declarations are not present in this saved listing.",
+        "The item history has a different course identity. Reload the current assignment history.",
       );
-    summary = summarizeAssignmentChanges(loaded.data);
+    if (Array.isArray(record.data.events))
+      summary = summarizeAssignmentChanges(record.data);
+    else if (validSummary(record.data.declaredChanges))
+      summary = record.data.declaredChanges;
+    else {
+      // Old shared listing rows predate the bounded declaration summary. A loaded
+      // full ledger can supply it only while the exact listed version still agrees.
+      const loaded = audit?.data.assignmentLifecycleEvidence as
+        | WorkspaceRecord
+        | null
+        | undefined;
+      if (
+        !loaded ||
+        loaded.id !== record.id ||
+        loaded.version !== record.version ||
+        loaded.packageId !== courseId ||
+        loaded.data.courseId !== courseId ||
+        !Array.isArray(loaded.data.events)
+      )
+        return blocked(
+          "Load the full item history before recording reconciliation. Its edit declarations are not present in this saved listing.",
+        );
+      summary = summarizeAssignmentChanges(loaded.data);
+    }
+    if (
+      !validSummary(summary) ||
+      (Number.isSafeInteger(record.data.eventCount) &&
+        summary.eventCount !== record.data.eventCount)
+    )
+      return blocked(
+        "The item edit history could not be verified. Reload the current assignment history before handoff.",
+      );
   }
-  if (
-    !validSummary(summary) ||
-    (Number.isSafeInteger(record.data.eventCount) &&
-      summary.eventCount !== record.data.eventCount)
-  )
-    return blocked(
-      "The item edit history could not be verified. Reload the current assignment history before handoff.",
+  const latest = new Map(
+    summary.latest.map((change) => [change.platform, change]),
+  );
+  let declarationCount = summary.declarationCount;
+  // Legacy owner report outcomes remain bound to their original report. Their
+  // sticky edit receipt survives checked/fetch/import saves and new reports.
+  for (const reviewRecord of records.filter(
+    (record) => record.kind === "item-review" && record.packageId === courseId,
+  )) {
+    const review = reviewRecord.data.review;
+    if (!review?.changeDeclaredAt && review?.status !== "changed") continue;
+    const dates = [
+      review.changeDeclaredAt,
+      ...(review.status === "changed"
+        ? [reviewRecord.updatedAt, review.updatedAt]
+        : []),
+    ].filter(
+      (value) => typeof value === "string" && Number.isFinite(timestamp(value)),
     );
+    const changedAt = dates.length
+      ? Math.max(...dates.map(timestamp))
+      : Number.NaN;
+    if (
+      !Number.isFinite(changedAt) ||
+      !reviewRecord.data.auditId ||
+      !reviewRecord.data.itemKey
+    )
+      return blocked(
+        "A recorded item edit has no usable date or report identity. Review its original item outcome before handoff.",
+      );
+    const original = records.find(
+      (record) =>
+        record.kind === "audit" &&
+        record.id === reviewRecord.data.auditId &&
+        record.packageId === courseId,
+    );
+    const change: DeclaredAssignmentChange = {
+      eventId: "review:" + reviewRecord.id,
+      platform: "coursera",
+      nativeId: "",
+      referenceKind: "owner-review",
+      itemKey: reviewRecord.data.itemKey,
+      recordedAt: new Date(changedAt).toISOString(),
+      observedAt: new Date(changedAt).toISOString(),
+      auditId: reviewRecord.data.auditId,
+      auditVersion: original?.version || 1,
+      sourceScanSha256: original?.data.sourceScanSha256 || "",
+      inputHashes: Object.fromEntries(
+        Object.entries(original?.data.hashes || {}).filter(([, value]) =>
+          hash(value),
+        ),
+      ) as Record<string, string>,
+    };
+    declarationCount++;
+    const previous = latest.get("coursera");
+    if (!previous || changedAt >= changeTime(previous))
+      latest.set("coursera", change);
+  }
+  const latestChanges = [...latest.values()].sort((a, b) =>
+    a.platform.localeCompare(b.platform),
+  );
   const reportTime = timestamp(audit?.updatedAt);
-  const pending = summary.latest.filter((change) => {
+  const pending = latestChanges.filter((change) => {
     const changedAt = changeTime(change);
     if (
       !audit ||
@@ -246,8 +308,8 @@ export function assignmentChangeFreshness(
     status: pending.length
       ? ("recapture-required" as const)
       : ("current" as const),
-    declarationCount: summary.declarationCount,
-    latest: summary.latest,
+    declarationCount,
+    latest: latestChanges,
     pending,
     needsRecapture: pending.length > 0,
     blockers: pending.map((change) =>
