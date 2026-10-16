@@ -177,29 +177,28 @@ export default function App() {
       </header>
       <main id="main" tabIndex={-1}>
         <section
-          className="card activity-gateway"
+          className="owner-workspace-intro"
           aria-labelledby="gateway-title"
         >
           <div>
-            <span className="badge">Activity designer · Preview</span>
-            <h1 id="gateway-title">Role Play &amp; Dialogue</h1>
-            <p>
-              Bring course evidence, review useful activity ideas, and get exact
-              placements and copyable Coursera fields through your approved AI
-              chat.
-            </p>
-            <a className="primary" href="/activity-designer/index.html">
-              Open Role Play &amp; Dialogue
-            </a>
-          </div>
-          <div>
-            <h2>The larger CTI workflow</h2>
-            <p>The complete workflow will be operational very soon.</p>
-            <p className="muted">
-              Existing inspection and reconciliation tools remain available
-              below. The activity designer can be used independently.
+            <h1 id="gateway-title">
+              {workspace === "full"
+                ? "CTI assignment workspace"
+                : workspace === "capture"
+                  ? "Review course evidence"
+                  : "Inspect source evidence"}
+            </h1>
+            <p className="hint">
+              {workspace === "full"
+                ? "Add course evidence, review item exceptions, and prepare traceable deliverables."
+                : workspace === "capture"
+                  ? "Inspect captured content and retain its evidence gaps before comparing courses."
+                  : "Explore package structure and retained source content before ingestion."}
             </p>
           </div>
+          <a className="secondary" href="/activity-designer/index.html">
+            Open Role Play &amp; Dialogue
+          </a>
         </section>
         <nav className="workspace-tabs" aria-label="Choose a workspace">
           <button
