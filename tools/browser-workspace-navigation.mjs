@@ -16,12 +16,20 @@ export async function workspaceNav(page, name) {
   await clickDisclosedControl(
     page
       .getByRole("navigation", { name: "CTI workflows" })
-      .getByRole("button", { name, exact: true, includeHidden: true }),
+      .locator("button")
+      .filter({ hasText: exactControlText(name) }),
   );
+}
+
+// Native closed <details> excludes descendants from accessible-name lookup,
+// even when hidden roles are requested. Locate the literal button text first,
+// then exercise the visible summary before clicking it. Nav glyphs precede it.
+function exactControlText(name) {
+  return new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$");
 }
 
 export async function ownerTool(page, name) {
   await clickDisclosedControl(
-    page.getByRole("button", { name, exact: true, includeHidden: true }),
+    page.locator("button").filter({ hasText: exactControlText(name) }),
   );
 }
