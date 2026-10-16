@@ -154,8 +154,10 @@ into Compare. The Cloudflare Browser Run path remains optional for deployments
 that intentionally provision enough remote-browser quota; it is not required for
 the normal workflow. Comparisons/workbook checks run in cancellable workers.
 
-Package inspection is bounded to 250 MiB archives and a 24 MiB content-read budget;
-XLSX inspection to 25 MiB and two million cells; shared records to 32 MiB.
+Package inspection accepts source archives up to 640 MiB using bounded file ranges
+and 2 MiB fingerprint chunks, with a 24 MiB limit on each content read. Larger
+media remain listed with explicit evidence gaps instead of blocking the package.
+XLSX inspection is bounded to 25 MiB and two million cells; shared records to 32 MiB.
 Uncaptured or inaccessible content stays an evidence gap. Navigation is separate
 from fidelity, and plugin diagnostic captures cannot certify a full course.
 
