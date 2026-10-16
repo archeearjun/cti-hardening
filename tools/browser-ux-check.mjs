@@ -379,6 +379,9 @@ try {
     .getByRole("button", { name: courses[0].title, exact: true })
     .click();
   await waitIdle();
+  await page.getByRole("heading", { name: "Your next decision, with its evidence", exact: true }).waitFor();
+  assert.equal(await courseSelect.inputValue(), courses[0].id, "Catalogue opens the selected assignment in its owner workspace");
+  await page.getByRole("tab", { name: "Package explorer", exact: true }).click();
   await page.getByRole("heading", { name: "Explore what is inside" }).waitFor();
   await page.getByLabel("Find source content").fill("Reading");
   assert.equal(
@@ -407,6 +410,9 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot("source-desktop");
 
+  // The owner workspace is the new course landing. Keep the legacy source
+  // handoff covered by entering its explicit Explore view before continuing.
+  await tab("Explore");
   await page
     .getByRole("button", {
       name: "Next: capture Brightspace source",
