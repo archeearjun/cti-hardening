@@ -40,6 +40,8 @@ jobs:
         run: npm run test:browser:assignment
       - name: Verify Brightspace bookmark, original content and resumable capture
         run: npm run test:browser:brightspace-bookmark
+      - name: Verify shared course capture in Role Play and Dialogue preparation
+        run: npm run test:browser:activities
       - name: Verify package scanning in Chromium
         run: npm run test:browser:package
       - name: Verify workspace workflow in Chromium
