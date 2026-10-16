@@ -825,6 +825,113 @@ test("a new concurrent item review cannot commit a deliverable from an obsolete 
   api.sql.close();
 });
 
+for (const change of ["insert", "edit"]) {
+  test(`a concurrent historical item review ${change} cannot approve a pre-edit assignment basis`, async () => {
+    const { course, audit } = fixture();
+    audit.id = "audit-current";
+    audit.data.result.ownerView.items = audit.data.result.ownerView.items.filter(
+      (item) => item.id,
+    );
+    const historicalAudit = { ...structuredClone(audit), id: "audit-before" };
+    const review = {
+      id: "historical-owner-review",
+      kind: "item-review",
+      title: "Earlier report outcome",
+      packageId: course.id,
+      version: 0,
+      updatedAt: "",
+      updatedBy: "owner",
+      data: {
+        auditId: historicalAudit.id,
+        itemKey: "item:a",
+        review: {
+          status: "checked",
+          note: "Checked this item in the earlier comparison.",
+          updatedAt: "2026-10-01T00:00:00Z",
+          updatedBy: "owner",
+        },
+      },
+    };
+    const api = apiFixture();
+    try {
+      for (const record of [course, historicalAudit, audit]) {
+        const response = await api.save({ ...record, version: 0 });
+        assert.equal(response.status, 200, await response.text());
+      }
+      if (change === "edit") {
+        const response = await api.save(review);
+        assert.equal(response.status, 200, await response.text());
+      }
+      const artifact = generateAssignmentDeliverable(
+        course,
+        audit,
+        [course, historicalAudit, audit, ...(change === "edit" ? [review] : [])],
+        "content-map",
+      );
+      const draftData = makeAssignmentDeliverableData(
+        artifact,
+        [],
+        "draft",
+        "",
+        "owner",
+      );
+      const draft = {
+        id: assignmentDeliverableRecordId(draftData.deliverableId, 1),
+        kind: "operations",
+        title: "Content map",
+        packageId: course.id,
+        data: draftData,
+        version: 0,
+        updatedAt: "",
+        updatedBy: "owner",
+      };
+      const draftResponse = await api.save(draft);
+      assert.equal(draftResponse.status, 200, await draftResponse.text());
+      const approvalData = makeAssignmentDeliverableData(
+        artifact,
+        [draft],
+        "approved",
+        "Approved this exact map against its saved comparison.",
+        "owner",
+      );
+      const approval = {
+        ...draft,
+        id: assignmentDeliverableRecordId(approvalData.deliverableId, 2),
+        data: approvalData,
+      };
+      const changedReview = structuredClone(review);
+      changedReview.data.review.status = "changed";
+      changedReview.data.review.changeDeclaredAt = new Date().toISOString();
+      api.setBeforeBatch(() => {
+        if (change === "insert") insertConcurrentSummary(api, changedReview);
+        else
+          api.sql
+            .prepare(
+              "UPDATE documents SET version=version+1,summary=? WHERE id=?",
+            )
+            .run(JSON.stringify(recordSummary(changedReview).data), review.id);
+      });
+      const response = await api.save(approval);
+      assert.equal(response.status, 409, await response.text());
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(approval.id).count,
+        0,
+      );
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(draft.id).count,
+        1,
+        "the previously saved draft remains intact",
+      );
+    } finally {
+      api.sql.close();
+    }
+  });
+}
+
 test("a new concurrent report-content record cannot commit a deliverable from an obsolete supplement basis", async () => {
   const { course, audit } = fixture(),
     api = apiFixture();

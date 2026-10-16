@@ -22,6 +22,11 @@ import {
   validateOwnerReview,
 } from "../src/domain/owner-actions.ts";
 import { validateWorkspaceTransition } from "../src/domain/workspace-validation.ts";
+import { courseraContentObservedAt } from "../src/domain/coursera-observation-time.ts";
+import {
+  externalApplicationNeedsCapture,
+  nextAssignmentStep,
+} from "../src/domain/assignment-evidence.ts";
 
 const pending = {
   source: "",
@@ -572,5 +577,127 @@ test("a backdated owner declaration cannot precede the service receipt when chan
     assignmentChangeFreshness(f.course.id, fresh, [f.audit, next])
       .needsRecapture,
     true,
+  );
+});
+
+test("media-only exports keep the original source observation barrier for recorded assessment edits", () => {
+  const f = setup();
+  const media = f.after();
+  media.data.result.stats.extractorMeta.directDataCapture = {
+    mediaEnrichment: {
+      scope: "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES",
+      retainedAssessmentObservations: true,
+      baseSourceCapturedAt: day(1),
+    },
+  };
+  assert.equal(courseraContentObservedAt(media), day(1));
+  assert.equal(
+    media.data.result.stats.extractorMeta.capturedAt,
+    day(4),
+    "export date remains recorded unchanged",
+  );
+  const changed = outcome(f);
+  changed.data.review.status = "checked";
+  for (const history of [f.ledger(), changed, recordSummary(changed)]) {
+    assert.equal(
+      assignmentChangeFreshness(f.course.id, media, [f.audit, media, history])
+        .needsRecapture,
+      true,
+      "new media bytes, export date and audit cannot refresh retained definitions",
+    );
+    assert.equal(f.journey(media, [history]).nextAction.action, "coursera");
+  }
+  delete media.data.result.stats.extractorMeta.directDataCapture
+    .mediaEnrichment;
+  assert.equal(
+    assignmentChangeFreshness(f.course.id, media, [f.audit, media, changed])
+      .needsRecapture,
+    false,
+    "a new full capture after the edit can clear the old edit declaration",
+  );
+});
+
+test("missing or invalid retained-base dates remain unknown and cannot fall back to the latest export", () => {
+  const f = setup();
+  const media = f.after();
+  for (const base of [undefined, "", "unknown", null, 123]) {
+    media.data.result.stats.extractorMeta.directDataCapture = {
+      mediaEnrichment: {
+        retainedAssessmentObservations: true,
+        baseSourceCapturedAt: base,
+      },
+    };
+    assert.equal(courseraContentObservedAt(media), "");
+    assert.equal(
+      assignmentChangeFreshness(f.course.id, media, [f.ledger()])
+        .needsRecapture,
+      true,
+    );
+  }
+  media.data.result.stats.extractorMeta.directDataCapture.mediaEnrichment = {
+    scope: "REFERENCED_READING_MEDIA_ONLY",
+    baseSourceCapturedAt: day(1),
+  };
+  assert.equal(
+    courseraContentObservedAt(media),
+    day(1),
+    "historical enrichment scope alone retains its base barrier",
+  );
+  media.data.result.stats.extractorMeta.directDataCapture.mediaEnrichment.baseSourceCapturedAt =
+    day(7);
+  assert.equal(
+    courseraContentObservedAt(media),
+    day(4),
+    "a future base cannot promote the observed export date",
+  );
+});
+
+test("media continuations cannot bypass declared shell edits or external application recapture", () => {
+  const f = setup();
+  const media = f.after();
+  media.data.result.stats.extractorMeta.directDataCapture = {
+    mediaEnrichment: {
+      scope: "REFERENCED_CML_MEDIA_ONLY",
+      baseSourceCapturedAt: day(1),
+    },
+  };
+  f.course.data.assignmentPlan = { route: "COURSE", shellChangedAt: day(3) };
+  const records = [f.course, media];
+  let e = evaluateAssignment(f.course, media, records);
+  assert.equal(e.canRecordReview, false);
+  assert(e.blockers.some((blocker) => /shell was changed after/.test(blocker)));
+  assert.equal(
+    nextAssignmentStep(f.course, media, e, pending).action,
+    "coursera",
+  );
+  assert.equal(f.journey(media).recaptureRequired, true);
+  const external = {
+    id: "external-change",
+    kind: "operations",
+    packageId: f.course.id,
+    updatedAt: day(3),
+    data: {
+      type: "assignment-deliverable",
+      event: "external-application-recorded",
+    },
+  };
+  assert.equal(
+    externalApplicationNeedsCapture(f.course.id, media, [...records, external]),
+    true,
+  );
+  delete media.data.result.stats.extractorMeta.directDataCapture
+    .mediaEnrichment;
+  assert.equal(
+    externalApplicationNeedsCapture(f.course.id, media, [...records, external]),
+    false,
+  );
+  e = evaluateAssignment(f.course, media, records);
+  assert.equal(
+    e.blockers.some((blocker) => /shell was changed after/.test(blocker)),
+    false,
+  );
+  assert.equal(
+    nextAssignmentStep(f.course, media, e, pending).action,
+    "worklist",
   );
 });

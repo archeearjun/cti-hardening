@@ -310,6 +310,16 @@ while the legacy bundle retains its original linking behavior. Delivery must
 fit the stricter [500 KiB Bookmark Manager input limit](https://github.com/chromium/chromium/blob/main/chrome/browser/resources/bookmarks/constants.ts#L109),
 so neither the saved URL nor the full copy fallback is silently truncated.
 
+Version 1.7.1 adds **Start a fresh course capture** for verification after edits.
+This explicit action opens a separate scoped run and rereads native content;
+previous runs, their source observations and their cumulative budgets stay
+unchanged within normal checkpoint retention. **Capture/resume course** retains
+its existing recovery and media-enrichment behavior, including saved question
+timestamps. Both controls wait for an operator click. Assignment reconciliation
+uses the retained base-content date for enrichment captures, so a later export
+date alone cannot verify an edit. Role Play & Dialogue receive the same complete
+bookmark source and use the same original capture file.
+
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct
 capture file.

@@ -28,6 +28,10 @@ The default owner view follows six evidence-based stages:
    capture current. The older report's item-outcome screen retains the same
    durable edit declaration through later checks and evidence imports; local
    storage and the shared API reject clearing, backdating or rebinding it.
+   After Coursera edits, choose **Start a fresh course capture** in the saved
+   bookmark. It rereads the course in a separate run and preserves previous
+   checkpoints. **Capture/resume course** continues saved progress and may only
+   enrich media on a finished run; it does not refresh retained questions.
    Changes to Brightspace or the source package require fresh
    evidence for that source, not only a new Coursera capture.
 6. **Prepare the deliverable.** Reconciliation, content maps, outlines and owner
@@ -108,6 +112,12 @@ freshness are separate. A changed evidence basis invalidates current approval
 without deleting its historical receipt. Mapping and transformation events can
 record one-to-many or many-to-one intent; recording intent does not rewrite an
 extraction or certify a comparison.
+
+An owner edit declaration remains pending after a later checked outcome until
+a fresh source observation and new comparison verify it. Coursera media/provider
+continuations preserve earlier assessment and reading observations: their later
+export date cannot clear an edit. Reconciliation uses the earlier retained-base
+observation date, and remains unverified when that date is unavailable.
 
 Local saves validate before opening the write transaction, then atomically
 recheck the validated reference snapshot. Shared commits check exact versions,

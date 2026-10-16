@@ -7,6 +7,7 @@ import {
 } from "./assignment-evidence.ts";
 import type { evaluateAssignment } from "./assignment-plan.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
+import { courseraContentObservedAt } from "./coursera-observation-time.ts";
 
 export type OwnerJourneyStage =
   | "understand"
@@ -53,9 +54,7 @@ export function assignmentOwnerJourney(
   const freshness = evaluation.changeFreshness;
   const lifecycleRecapture = freshness?.needsRecapture === true;
   const legacyRecapture = evaluation.changed.length > 0;
-  const capturedAt = Date.parse(
-    audit?.data.result?.stats?.extractorMeta?.capturedAt || "",
-  );
+  const capturedAt = Date.parse(courseraContentObservedAt(audit));
   const shellCaptureStale =
     !!evaluation.plan.shellChangedAt &&
     (!Number.isFinite(capturedAt) ||

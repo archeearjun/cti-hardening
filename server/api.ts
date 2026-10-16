@@ -748,11 +748,12 @@ export async function handleAuthorized(
             version: row?.version ?? null,
           }));
           if (next.data.type === "assignment-deliverable") {
+            // Edit receipts on earlier reports also affect this assignment's
+            // basis. Pin their versions and guard newly inserted reviews.
             deliverableReviewCount = records.filter(
               (row) =>
                 row.kind === "item-review" &&
-                row.packageId === next.packageId &&
-                row.data.auditId === next.data.auditId,
+                row.packageId === next.packageId,
             ).length;
             deliverableSupplementCount = records.filter(
               (row) =>
@@ -766,8 +767,7 @@ export async function handleAuthorized(
                 .filter(
                   (row) =>
                     row.packageId === next.packageId &&
-                    ((row.kind === "item-review" &&
-                      row.data.auditId === next.data.auditId) ||
+                    (row.kind === "item-review" ||
                       (row.kind === "operations" &&
                         row.data.type === "report-content" &&
                         row.data.runId === next.data.auditId)),
@@ -902,7 +902,7 @@ export async function handleAuthorized(
         : "";
       const reviewPredicate =
         deliverableReviewCount !== undefined
-          ? " AND (SELECT COUNT(*) FROM documents WHERE kind='item-review' AND package_id=? AND json_extract(summary,'$.auditId')=?)=?"
+          ? " AND (SELECT COUNT(*) FROM documents WHERE kind='item-review' AND package_id=?)=?"
           : "";
       const supplementPredicate =
         deliverableSupplementCount !== undefined
@@ -916,11 +916,7 @@ export async function handleAuthorized(
           ? [r.packageId, latestDeliverableAuditId]
           : []),
         ...(deliverableReviewCount !== undefined
-          ? [
-              r.packageId,
-              (fullData as Record<string, any>).auditId,
-              deliverableReviewCount,
-            ]
+          ? [r.packageId, deliverableReviewCount]
           : []),
         ...(deliverableSupplementCount !== undefined
           ? [

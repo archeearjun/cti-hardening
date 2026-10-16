@@ -89,7 +89,8 @@ export default function CourseraDirectCaptureSetup({
           <span>
             Open the authoring course in your usual signed-in Chrome profile.
             The same bookmark works for other courses and opens no item editors.
-            Choose Capture/resume course on its card, then keep the tab open
+            Choose Start a fresh course capture after editing Coursera, or
+            Capture/resume course to continue saved progress. Keep the tab open
             while it runs. Allow the CTI helper tab and keep it open. Choose Check Panopto access to test only the
             configured video sources without recapturing course content.
           </span>
@@ -111,10 +112,11 @@ export default function CourseraDirectCaptureSetup({
       </ol>
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
-        resuming. This version can continue saved v1.2–v1.6 progress that reached
+        resuming. This version can continue saved v1.2–v1.7.0 progress that reached
         its media limit or finished with evidence gaps. It rechecks the current
         course sources and preserves earlier assessment observations and their
-        dates.
+        dates. After edits, Start a fresh course capture rereads the course in a
+        separate run while keeping prior checkpoints within normal retention.
       </p>
       <p className="hint">
         If a previous Panopto error is no longer visible, use Check Panopto

@@ -4,6 +4,7 @@ import {
   type LifecycleEvent,
 } from "./item-lifecycle.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
+import { courseraContentObservedAt } from "./coursera-observation-time.ts";
 
 export interface DeclaredAssignmentChange {
   eventId: string;
@@ -277,9 +278,7 @@ export function assignmentChangeFreshness(
     )
       return true;
     if (change.platform === "coursera") {
-      const capturedAt = timestamp(
-        audit.data.result?.stats?.extractorMeta?.capturedAt,
-      );
+      const capturedAt = timestamp(courseraContentObservedAt(audit));
       return (
         !Number.isFinite(capturedAt) ||
         capturedAt <= changedAt ||

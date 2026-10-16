@@ -13,6 +13,7 @@ import { loadReportContent } from "./report-content-store.ts";
 import type { WorkspaceStore } from "./workspace-store.ts";
 import { loadItemLifecycle } from "./item-lifecycle.ts";
 import { assignmentChangeFreshness } from "./assignment-change-freshness.ts";
+import { courseraContentObservedAt } from "./coursera-observation-time.ts";
 import {
   assignmentDeliverableRecordId,
   deliverableIdentity,
@@ -323,7 +324,7 @@ export function evaluateAssignment(
       blockers.push(
         "Add the full Coursera capture; an XLSX alone does not verify content.",
       );
-    const capturedAt = result?.stats?.extractorMeta?.capturedAt;
+    const capturedAt = courseraContentObservedAt(audit);
     if (
       plan.shellChangedAt &&
       (!date(capturedAt) ||
