@@ -522,21 +522,34 @@ export default function AssignmentPlanView({
                 <div>
                   <p>
                     Approval recorded:{" "}
-                    <a
-                      href={e.plan.mapApproval!.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Approved content map ↗
-                    </a>
+                    {e.approvedMapRecordId ? (
+                      <span>CTI content-map version {e.approvedMapRecordId}</span>
+                    ) : (
+                      <a href={e.plan.mapApproval!.url} target="_blank" rel="noopener noreferrer">
+                        Approved content map ↗
+                      </a>
+                    )}
                   </p>
-                  <p>{e.plan.mapApproval?.note}</p>
+                  {!e.approvedMapRecordId && <p>{e.plan.mapApproval?.note}</p>}
                   <button
                     className="secondary"
-                    disabled={readonly}
-                    onClick={() => void save("withdraw")}
+                    disabled={!e.approvedMapRecordId && readonly}
+                    onClick={() => e.approvedMapRecordId ? onNavigate("Assignment workspace") : void save("withdraw")}
                   >
-                    Withdraw content map approval
+                    {e.approvedMapRecordId ? "Review content-map versions in assignment workspace" : "Withdraw content map approval"}
+                  </button>
+                </div>
+              ) : e.hasIntegratedMapHistory ? (
+                <div>
+                  <p>
+                    The latest content-map version needs approval against the current evidence.
+                    Open Deliverables in the assignment workspace to review it.
+                  </p>
+                  <button
+                    className="secondary"
+                    onClick={() => onNavigate("Assignment workspace")}
+                  >
+                    Review content-map versions in assignment workspace
                   </button>
                 </div>
               ) : (

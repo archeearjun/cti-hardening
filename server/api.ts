@@ -684,6 +684,7 @@ export async function handleAuthorized(
       let operationDependencies: { id: string; version: number | null }[] = [];
       let latestDeliverableAuditId = "";
       let deliverableReviewCount: number | undefined;
+      let deliverableSupplementCount: number | undefined;
       try {
         validateRecord({ ...r, data: fullData as Record<string, unknown> });
         const protectedTypes = [
@@ -747,13 +748,23 @@ export async function handleAuthorized(
                 row.packageId === next.packageId &&
                 row.data.auditId === next.data.auditId,
             ).length;
+            deliverableSupplementCount = records.filter(
+              (row) =>
+                row.kind === "operations" &&
+                row.packageId === next.packageId &&
+                row.data.type === "report-content" &&
+                row.data.runId === next.data.auditId,
+            ).length;
             operationDependencies.push(
               ...records
                 .filter(
                   (row) =>
-                    row.kind === "item-review" &&
                     row.packageId === next.packageId &&
-                    row.data.auditId === next.data.auditId,
+                    ((row.kind === "item-review" &&
+                      row.data.auditId === next.data.auditId) ||
+                      (row.kind === "operations" &&
+                        row.data.type === "report-content" &&
+                        row.data.runId === next.data.auditId)),
                 )
                 .map((row) => ({ id: row.id, version: row.version })),
             );
@@ -887,6 +898,10 @@ export async function handleAuthorized(
         deliverableReviewCount !== undefined
           ? " AND (SELECT COUNT(*) FROM documents WHERE kind='item-review' AND package_id=? AND json_extract(summary,'$.auditId')=?)=?"
           : "";
+      const supplementPredicate =
+        deliverableSupplementCount !== undefined
+          ? " AND (SELECT COUNT(*) FROM documents WHERE kind='operations' AND package_id=? AND json_extract(summary,'$.type')='report-content' AND json_extract(summary,'$.runId')=?)=?"
+          : "";
       const dependencyBindings: unknown[] = [
         ...(operationDependencies.length
           ? [JSON.stringify(operationDependencies)]
@@ -901,6 +916,13 @@ export async function handleAuthorized(
               deliverableReviewCount,
             ]
           : []),
+        ...(deliverableSupplementCount !== undefined
+          ? [
+              r.packageId,
+              (fullData as Record<string, any>).auditId,
+              deliverableSupplementCount,
+            ]
+          : []),
       ];
       let q: Statement;
       if (u.expected_version === 0)
@@ -910,6 +932,7 @@ export async function handleAuthorized(
               referencePredicate +
               latestPredicate +
               reviewPredicate +
+              supplementPredicate +
               " ON CONFLICT(id) DO NOTHING",
           )
           .bind(
@@ -929,7 +952,8 @@ export async function handleAuthorized(
             "UPDATE documents SET title=?,package_id=?,version=version+1,revision=?,updated_at=?,updated_by=?,summary=? WHERE id=? AND version=? AND kind=? AND kind<>'audit'" +
               referencePredicate +
               latestPredicate +
-              reviewPredicate,
+              reviewPredicate +
+              supplementPredicate,
           )
           .bind(
             r.title,

@@ -302,6 +302,7 @@ export default function AssignmentWorkspace({
       if (pending.excel || pending.coursera) void onCompare();
       else setSection("Evidence inbox");
     } else if (next.action === "worklist") setSection("Worklist");
+    else if (next.action === "deliverable") setSection("Deliverables");
     else onNavigate("Assignment plan");
   }
   async function reloadCurrent() {
@@ -567,6 +568,7 @@ export default function AssignmentWorkspace({
                 <label>
                   Show items
                   <select
+                    aria-label="Show items"
                     value={filter}
                     onChange={(event) => setFilter(event.target.value)}
                   >
@@ -711,6 +713,7 @@ export default function AssignmentWorkspace({
                   <label>
                     Work stage
                     <select
+                      aria-label="Work stage"
                       disabled={itemReadonly}
                       value={stage}
                       onChange={(event) =>
@@ -727,6 +730,7 @@ export default function AssignmentWorkspace({
                   <label>
                     Owner decision
                     <select
+                      aria-label="Owner decision"
                       disabled={itemReadonly}
                       value={decision}
                       onChange={(event) =>
@@ -801,6 +805,7 @@ export default function AssignmentWorkspace({
                     <label>
                       Relationship
                       <select
+                        aria-label="Relationship"
                         disabled={itemReadonly}
                         value={relation}
                         onChange={(event) =>

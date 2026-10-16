@@ -9,6 +9,11 @@ on:
       - "src/extractors/coursera/**"
       - "src/domain/coursera-background-extraction.ts"
       - "src/domain/coursera-extraction-http.ts"
+      # Assignment UI/API releases must verify the final Pages service binding too.
+      - "src/domain/assignment-*.ts"
+      - "web/**"
+      - "server/**"
+      - "functions/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy-coursera-extractor.yml"

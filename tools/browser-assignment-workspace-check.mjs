@@ -358,6 +358,7 @@ try {
   await nav("Assignment workspace");
   await waitLoaded();
   await page.getByLabel("Show items", { exact: true }).selectOption("all");
+  await reading().waitFor({ state: "visible" });
   assert.equal(
     await reading().count(),
     1,
@@ -395,6 +396,12 @@ try {
   await coursePicker().selectOption(input.course.id);
   await waitLoaded();
   await page.getByLabel("Show items", { exact: true }).selectOption("all");
+  await reading().waitFor({ state: "visible" });
+  assert.equal(
+    await reading().count(),
+    1,
+    "Reload retains exactly one native Coursera reading placement",
+  );
   await reading().click();
   await page
     .getByText(
@@ -660,6 +667,53 @@ try {
         liveExtractionCertified: false,
       }),
   );
+} catch (error) {
+  // Capture the rendered failure before closing Chromium. A failing selector
+  // should leave evidence of the actual UI, not require another blind CI run.
+  await Promise.allSettled([
+    page.screenshot({
+      path: path.join(screenshotDirectory, "failure.png"),
+      fullPage: true,
+      timeout: 10000,
+    }),
+    (async () => {
+      fs.writeFileSync(
+        path.join(screenshotDirectory, "failure.html"),
+        await page.content(),
+      );
+    })(),
+    (async () => {
+      const visible = await page.evaluate(() => ({
+        headings: [...document.querySelectorAll("h1, h2, h3")].map(
+          (element) => element.textContent,
+        ),
+        alerts: [...document.querySelectorAll('[role="alert"]')].map(
+          (element) => element.textContent,
+        ),
+        selectedTabs: [
+          ...document.querySelectorAll('[role="tab"][aria-selected="true"]'),
+        ].map((element) => element.textContent),
+        selectedCourse: document.querySelector(
+          'select[aria-label="Selected source course"]',
+        )?.value,
+        controls: [...document.querySelectorAll("label")].map((label) => ({
+          label: label.textContent,
+          control: label.control?.tagName,
+          ariaLabel: label.control?.getAttribute("aria-label"),
+        })),
+      }));
+      fs.writeFileSync(
+        path.join(screenshotDirectory, "failure.json"),
+        JSON.stringify(
+          { error: String(error), pageErrors: errors, visible },
+          null,
+          2,
+        ),
+      );
+    })(),
+  ]);
+  console.error("Assignment browser failure artifacts: " + screenshotDirectory);
+  throw error;
 } finally {
   await context.close();
   await browser.close();
