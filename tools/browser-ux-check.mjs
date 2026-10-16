@@ -758,7 +758,10 @@ try {
     .getByRole("button", { name: "Use this capture in Compare" })
     .click();
   await page
-    .getByText("Local Coursera capture loaded into Compare.", { exact: false })
+    .getByText(
+      "Coursera capture loaded into Compare. A validated direct capture can supply its native inventory; add a matching XLSX for an independent structural export.",
+      { exact: true },
+    )
     .waitFor();
   // Browsers do not permit application code to populate another native
   // <input type=file>. CTI carries the validated File in React state and shows
