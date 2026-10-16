@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import SourceTree from "./SourceTree";
+import {
+  MAX_SOURCE_PACKAGE_BYTES,
+  formatSourcePackageSize,
+  validateSourcePackageFile,
+} from "../src/domain/source-package-file.ts";
 import type {
   PackageMessage,
   PackageProgress,
@@ -52,6 +57,13 @@ export default function PackageWorkspace({
     onResult?.(null);
     setError("");
     setSeconds(0);
+    try {
+      validateSourcePackageFile(file);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setProgress({ phase: "Scan stopped" });
+      return;
+    }
     setBusy(true);
     onBusyChange(true);
     setProgress({ phase: "Starting package scanner" });
@@ -114,7 +126,8 @@ export default function PackageWorkspace({
       <div className="card">
         <h2>Inspect a source package</h2>
         <p>
-          Choose an IMSCC or ZIP up to 250 MiB. XML is accepted for
+          Choose an IMSCC or ZIP up to{" "}
+          {MAX_SOURCE_PACKAGE_BYTES / (1024 * 1024)} MiB. XML is accepted for
           structure-only inspection. Files are processed on this computer.
         </p>
         <label className="file-picker" htmlFor={fileInputId}>
@@ -138,6 +151,12 @@ export default function PackageWorkspace({
             setProgress({ phase: "" });
           }}
         />
+        {file && (
+          <p className="hint" data-testid="selected-package-file">
+            Selected source package: <strong>{file.name}</strong> ·{" "}
+            {formatSourcePackageSize(file.size)}.
+          </p>
+        )}
         <button className="primary" disabled={!file || busy} onClick={start}>
           Inspect package →
         </button>

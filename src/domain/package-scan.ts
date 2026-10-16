@@ -1,5 +1,15 @@
 import { readSourceHierarchy } from "./source-hierarchy.ts";
-import JSZip from "jszip";
+import {
+  openSourcePackageZip,
+  MAX_SOURCE_PACKAGE_ENTRY_BYTES,
+} from "../adapters/source-package-zip.ts";
+import {
+  hashSourcePackageFile,
+  validateSourcePackageFile,
+  MAX_SOURCE_MANIFEST_BYTES,
+  MAX_SOURCE_PACKAGE_BYTES,
+  SOURCE_PACKAGE_HASH_CHUNK_BYTES,
+} from "./source-package-file.ts";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import { createSourceScanner } from "../source/scanner.js";
@@ -17,95 +27,88 @@ const engine = createEngine({
   ...createBrowserServices(),
   XmlService: browserXml,
 });
-const MAX_PACKAGE_BYTES = 250 * 1024 * 1024;
 
 export async function scanPackage(
   file: File,
   progress: (p: PackageProgress) => void,
 ): Promise<PackageScan> {
-  if (!/\.(imscc|zip|xml)$/i.test(file.name))
-    throw new Error("Choose an IMSCC package, ZIP or imsmanifest.xml.");
-  if (!file.size || file.size > MAX_PACKAGE_BYTES)
-    throw new Error("Choose a non-empty package no larger than 250 MiB.");
+  validateSourcePackageFile(file);
   progress({
     phase: "Open package",
     detail: "Reading the selected file locally.",
   });
-  const bytes = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const fileSha256 = Array.from(new Uint8Array(digest), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
+  const fileSha256 = await hashSourcePackageFile(file, (completed, total) => {
+    progress({
+      phase: "Fingerprint package",
+      detail: `Reading ${Math.round(completed / 1048576)} of ${Math.ceil(total / 1048576)} MiB in bounded chunks.`,
+    });
+  });
   let xml: string;
   let sourceEvidence: PackageScan["sourceEvidence"];
   const warnings: string[] = [];
   if (/\.xml$/i.test(file.name)) {
-    if (file.size > 12000000)
-      throw new Error("The manifest exceeds the 12 MB limit.");
-    xml = new TextDecoder().decode(bytes);
+    xml = new TextDecoder().decode(await file.arrayBuffer());
     sourceEvidence = { schemaVersion: 8, manifestOnly: true, resources: {} };
     warnings.push(
       "Manifest only: file presence, content, hashes and question definitions have not been inspected. Choose the original IMSCC for content evidence.",
     );
   } else {
-    const zip = await JSZip.loadAsync(bytes);
-    const paths = Object.keys(zip.files);
-    if (paths.length > 50000)
-      throw new Error(
-        "This archive exceeds the 50,000-entry inspection limit.",
+    const zip = await openSourcePackageZip(file);
+    try {
+      const paths = Object.keys(zip.files);
+      if (paths.length > 50000)
+        throw new Error(
+          "This archive exceeds the 50,000-entry inspection limit.",
+        );
+      // Prefer the cartridge root over any embedded SCORM manifest. Ambiguous
+      // packages must be selected explicitly, never resolved by ZIP ordering.
+      const manifests = paths.filter(
+        (p) => !zip.files[p].dir && /(^|\/)imsmanifest\.xml$/i.test(p),
       );
-    // Prefer the cartridge root over any embedded SCORM manifest. Ambiguous
-    // packages must be selected explicitly, never resolved by ZIP ordering.
-    const manifests = paths.filter(
-      (p) => !zip.files[p].dir && /(^|\/)imsmanifest\.xml$/i.test(p),
-    );
-    const roots = manifests.filter((p) => !p.includes("/"));
-    const candidates = roots.length ? roots : manifests;
-    if (candidates.length !== 1)
-      throw new Error(
-        candidates.length
-          ? "Multiple package manifests found. Provide an archive containing one cartridge, or choose its manifest XML for structure-only inspection."
-          : "imsmanifest.xml was not found in this archive.",
+      const roots = manifests.filter((p) => !p.includes("/"));
+      const candidates = roots.length ? roots : manifests;
+      if (candidates.length !== 1)
+        throw new Error(
+          candidates.length
+            ? "Multiple package manifests found. Provide an archive containing one cartridge, or choose its manifest XML for structure-only inspection."
+            : "imsmanifest.xml was not found in this archive.",
+        );
+      if (
+        zip.files[candidates[0]]._data.uncompressedSize >
+        MAX_SOURCE_MANIFEST_BYTES
+      )
+        throw new Error("The manifest exceeds the 12 MB limit.");
+      xml = await zip.files[candidates[0]].async("string");
+      if (xml.length > MAX_SOURCE_MANIFEST_BYTES)
+        throw new Error("The manifest exceeds the 12 MB limit.");
+      if (/<!DOCTYPE|<!ENTITY/i.test(xml))
+        throw new Error("Manifest XML declarations are unsupported.");
+      const preflight = scanner.parseXmlCompat_(xml);
+      if (!preflight.doc)
+        throw Error("The manifest hierarchy could not be parsed.");
+      readSourceHierarchy(preflight.doc);
+      progress({
+        phase: "Read content",
+        detail:
+          "Reading source files, questions, attachments and dependencies.",
+      });
+      sourceEvidence = await scanner.buildSourceEvidenceFromZip_(
+        zip,
+        xml,
+        candidates[0],
+        progress,
       );
-    // The scanner bounds text, hashes and PDF pages. Guard reads
-    // that historically lacked an entry-size bound (notably orphan QTI rescue).
-    for (const entry of Object.values(zip.files)) {
-      const size = Number(
-        (entry as unknown as { _data?: { uncompressedSize?: number } })._data
-          ?.uncompressedSize || 0,
-      );
-      if (size > 24 * 1024 * 1024) {
-        entry.async = (() =>
-          Promise.reject(
-            new Error(
-              "Entry exceeds the 24 MiB content-read limit; presence remains recorded.",
-            ),
-          )) as typeof entry.async;
-      }
+      sourceEvidence.environment = {
+        host: "CTI browser package inspector",
+        pdfParser: `pdfjs-${pdfjsLib.version}`,
+        packageReadLimitBytes: MAX_SOURCE_PACKAGE_ENTRY_BYTES,
+        packageArchiveLimitBytes: MAX_SOURCE_PACKAGE_BYTES,
+        packageHashChunkBytes: SOURCE_PACKAGE_HASH_CHUNK_BYTES,
+        packageReadMode: "BLOB_RANGES",
+      };
+    } finally {
+      await zip.close();
     }
-    xml = await zip.files[candidates[0]].async("string");
-    if (xml.length > 12000000)
-      throw new Error("The manifest exceeds the 12 MB limit.");
-    if (/<!DOCTYPE|<!ENTITY/i.test(xml))
-      throw new Error("Manifest XML declarations are unsupported.");
-    const preflight = scanner.parseXmlCompat_(xml);
-    if (!preflight.doc) throw Error("The manifest hierarchy could not be parsed.");
-    readSourceHierarchy(preflight.doc);
-    progress({
-      phase: "Read content",
-      detail: "Reading source files, questions, attachments and dependencies.",
-    });
-    sourceEvidence = await scanner.buildSourceEvidenceFromZip_(
-      zip,
-      xml,
-      candidates[0],
-      progress,
-    );
-    sourceEvidence.environment = {
-      host: "CTI browser package inspector",
-      pdfParser: `pdfjs-${pdfjsLib.version}`,
-      packageReadLimitBytes: 24 * 1024 * 1024,
-    };
   }
   if (/<!DOCTYPE|<!ENTITY/i.test(xml))
     throw new Error("Manifest XML declarations are unsupported.");
@@ -163,9 +166,13 @@ export async function scanPackage(
       `${reads} file evidence record(s) contain text/PDF read limitations. Details are retained on the file records.`,
     );
   if (sourceEvidence.qtiDiagnostics?.incompleteQuestionResources?.length)
-    warnings.push(`${sourceEvidence.qtiDiagnostics.incompleteQuestionResources.length} assessment resource(s) have incomplete question capture. Declared and captured counts are retained separately.`);
+    warnings.push(
+      `${sourceEvidence.qtiDiagnostics.incompleteQuestionResources.length} assessment resource(s) have incomplete question capture. Declared and captured counts are retained separately.`,
+    );
   if (sourceEvidence.qtiDiagnostics?.orphanSearchIncomplete)
-    warnings.push("Unreferenced QTI search could not finish within read limits. No orphan assessment was assigned on incomplete evidence.");
+    warnings.push(
+      "Unreferenced QTI search could not finish within read limits. No orphan assessment was assigned on incomplete evidence.",
+    );
   if (hashGaps)
     warnings.push(
       `${hashGaps} present file evidence record(s) have no SHA-256 fingerprint, including files beyond scanner budgets.`,

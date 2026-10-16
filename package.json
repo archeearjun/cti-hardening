@@ -55,6 +55,7 @@
   "dependencies": {
     "@noble/hashes": "2.4.0",
     "@xmldom/xmldom": "0.9.12",
+    "@zip.js/zip.js": "2.23.0",
     "jose": "6.1.0",
     "jszip": "3.10.2",
     "pdfjs-dist": "6.3.289",
