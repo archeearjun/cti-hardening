@@ -2,18 +2,37 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildOwnerTasks, needsOwnerAction } from "./owner-actions.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
-import { sourceIdentityMessage, hasVerifiedComparisonStructure, externalApplicationNeedsCapture } from "./assignment-evidence.ts";
+import {
+  sourceIdentityMessage,
+  hasVerifiedComparisonStructure,
+  externalApplicationNeedsCapture,
+} from "./assignment-evidence.ts";
 import { ownerScope } from "./owner-scope.ts";
 import { moduleTimes, moduleTimesText } from "./owner-time.ts";
 import { loadReportContent } from "./report-content-store.ts";
 import type { WorkspaceStore } from "./workspace-store.ts";
+import {
+  assignmentDeliverableRecordId,
+  deliverableIdentity,
+} from "./assignment-deliverables.ts";
 
 /** Read-only projection for the plan/handoff, including exact-input supplements.
  * The saved audit and its version/hash identity are never rewritten. */
-export async function loadAssignmentEvidence(auditId: string, store: Pick<WorkspaceStore, "get" | "list">, records?: WorkspaceRecord[]) {
+export async function loadAssignmentEvidence(
+  auditId: string,
+  store: Pick<WorkspaceStore, "get" | "list">,
+  records?: WorkspaceRecord[],
+) {
   const audit = await store.get(auditId);
-  if (audit.kind !== "audit") throw Error("Assignment evidence must be a saved audit.");
-  const contentEvidence = await loadReportContent(audit.data, audit.id, audit.packageId, store, records);
+  if (audit.kind !== "audit")
+    throw Error("Assignment evidence must be a saved audit.");
+  const contentEvidence = await loadReportContent(
+    audit.data,
+    audit.id,
+    audit.packageId,
+    store,
+    records,
+  );
   return { ...audit, data: { ...audit.data, contentEvidence } };
 }
 
@@ -136,6 +155,22 @@ export function assignmentBasis(
   records: WorkspaceRecord[],
 ) {
   const plan = normalizeAssignmentPlan(course.data.assignmentPlan);
+  const supplements = records
+    .filter(
+      (record) =>
+        record.kind === "operations" &&
+        record.packageId === course.id &&
+        record.data.type === "report-content" &&
+        record.data.runId === audit.id,
+    )
+    .map((record) => [
+      record.id,
+      record.version,
+      record.updatedAt,
+      record.data.platform,
+      record.data.sourceHash,
+    ])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   return bytesToHex(
     sha256(
       new TextEncoder().encode(
@@ -161,6 +196,9 @@ export function assignmentBasis(
               r.data.review?.relevance,
             ])
             .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+          // Keep historical no-supplement bases stable. A newly loaded or
+          // revised exact-input projection still requires a fresh owner review.
+          ...(supplements.length ? [["report-content", supplements]] : []),
         ]),
       ),
     ),
@@ -209,9 +247,15 @@ export function evaluateAssignment(
     const matches = reviews.filter((r) => r.data.itemKey === key);
     return matches.length === 1 ? matches[0].data.review : undefined;
   };
-  const included = tasks.filter(t => ownerScope(t, reviewFor(t.key)).included);
-  const excluded = tasks.filter(t => !ownerScope(t, reviewFor(t.key)).included);
-  const attention = included.filter(t => needsOwnerAction(t, reviewFor(t.key)));
+  const included = tasks.filter(
+    (t) => ownerScope(t, reviewFor(t.key)).included,
+  );
+  const excluded = tasks.filter(
+    (t) => !ownerScope(t, reviewFor(t.key)).included,
+  );
+  const attention = included.filter((t) =>
+    needsOwnerAction(t, reviewFor(t.key)),
+  );
   const checked = attention.filter((t) => {
     const r = reviewFor(t.key);
     return (
@@ -225,7 +269,9 @@ export function evaluateAssignment(
   );
   const blockers: string[] = [];
   if (externalApplicationNeedsCapture(course.id, audit, records))
-    blockers.push("An external application was recorded. Capture and compare the changed Coursera shell before reusing reconciliation or approval.");
+    blockers.push(
+      "An external application was recorded. Capture and compare the changed Coursera shell before reusing reconciliation or approval.",
+    );
   if (!audit)
     blockers.push(
       "Import or inspect the Coursera shell, capture it, then save a source-to-Coursera comparison.",
@@ -276,7 +322,43 @@ export function evaluateAssignment(
   const basis = audit ? assignmentBasis(course, audit, records) : "";
   const reconciled =
     !blockers.length && reconciliationCurrent(course, audit, records);
-  const mapApproved = reconciled && plan.mapApproval?.basis === basis;
+  // A new revision supersedes all earlier decisions, even if it belongs to an
+  // obsolete basis or is still a draft. Never search backwards for an approval.
+  const mapRecords = records
+    .filter(
+      (record) =>
+        record.kind === "operations" &&
+        record.packageId === course.id &&
+        record.data.type === "assignment-deliverable" &&
+        record.data.deliverableKind === "content-map",
+    )
+    .sort((a, b) => Number(b.data.revision) - Number(a.data.revision));
+  const savedMap = mapRecords[0];
+  const approvedMap =
+    savedMap &&
+    mapRecords.filter(
+      (record) => record.data.revision === savedMap.data.revision,
+    ).length === 1 &&
+    savedMap.version >= 1 &&
+    savedMap.data.courseId === course.id &&
+    savedMap.data.deliverableId ===
+      deliverableIdentity(course.id, "content-map") &&
+    Number.isSafeInteger(savedMap.data.revision) &&
+    savedMap.data.revision >= 1 &&
+    savedMap.id ===
+      assignmentDeliverableRecordId(
+        savedMap.data.deliverableId,
+        savedMap.data.revision,
+      ) &&
+    savedMap.data.event === "approved" &&
+    savedMap.data.auditId === audit?.id &&
+    savedMap.data.auditVersion === audit?.version &&
+    savedMap.data.basisHash === basis;
+  const mapApproved =
+    reconciled &&
+    (mapRecords.length ? !!approvedMap : plan.mapApproval?.basis === basis);
+  const approvedMapRecordId =
+    reconciled && approvedMap ? savedMap.id : undefined;
   const outlineLinks = included.filter((t) => !t.sourceOnly);
   const missingLinks = outlineLinks.filter(
     (t) => !t.url || !/\/content\/item\/[^/]+\/[^/?#]+/.test(t.url),
@@ -300,9 +382,15 @@ export function evaluateAssignment(
     basis,
     reconciled,
     mapApproved,
+    hasIntegratedMapHistory: mapRecords.length > 0,
+    approvedMapRecordId,
     missingLinks,
     outlineReady,
-    applicationNeedsCapture: externalApplicationNeedsCapture(course.id, audit, records),
+    applicationNeedsCapture: externalApplicationNeedsCapture(
+      course.id,
+      audit,
+      records,
+    ),
     canRecordReview: !!audit && !blockers.length,
     captureStatus: result?.captureReadiness?.status || "Not recorded",
     sourceStatus: result?.liveSourceGroundTruth?.status || "Not captured",
@@ -321,7 +409,7 @@ export function assignmentHandoff(
     `Route: ${e.plan.route}`,
     `Audit: ${audit?.id || "not saved"} · source SHA-256: ${course.data.scan?.fileSha256 || "unknown"}`,
     `Reconciliation: ${e.reconciled ? "Owner review recorded for this evidence" : "NOT READY"}`,
-    `Content map approval: ${e.mapApproved ? e.plan.mapApproval?.url : "Not recorded for this evidence"}`,
+    `Content map approval: ${e.mapApproved ? (e.approvedMapRecordId ? "CTI saved record " + e.approvedMapRecordId : e.plan.mapApproval?.url) : "Not recorded for this evidence"}`,
     `Outline: ${e.outlineReady ? "Prerequisites recorded; verify links in learner preview" : "NOT READY"}`,
     `Recorded audit: ${e.headline}`,
     `Capture: ${e.captureStatus}; source LMS: ${e.sourceStatus}`,
@@ -344,7 +432,10 @@ export function assignmentHandoff(
     moduleTimesText(e.moduleTimes),
     "",
     `Reference only / excluded from publishing work: ${e.excluded.length}`,
-    ...e.excluded.map(t => `${t.path} / ${t.name} — no checklist action or learner time included.`),
+    ...e.excluded.map(
+      (t) =>
+        `${t.path} / ${t.name} — no checklist action or learner time included.`,
+    ),
     "",
     "Attach CTI's complete owner report with saved follow-ups and the approved content map when required. This handoff is a task inventory, not a generated content map or outline.",
   ].join("\n");

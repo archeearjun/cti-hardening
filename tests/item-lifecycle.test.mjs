@@ -824,6 +824,53 @@ test("a new concurrent item review cannot commit a deliverable from an obsolete 
   api.sql.close();
 });
 
+test("a new concurrent report-content record cannot commit a deliverable from an obsolete supplement basis", async () => {
+  const { course, audit } = fixture(),
+    api = apiFixture();
+  for (const record of [course, audit])
+    assert.equal((await api.save({ ...record, version: 0 })).status, 200);
+  const artifact = generateAssignmentDeliverable(
+      course,
+      audit,
+      [course, audit],
+      "content-map",
+    ),
+    data = makeAssignmentDeliverableData(artifact, [], "draft", "", "owner");
+  const record = {
+    id: assignmentDeliverableRecordId(data.deliverableId, 1),
+    kind: "operations",
+    title: "Content map",
+    packageId: course.id,
+    data,
+    version: 0,
+    updatedAt: "",
+    updatedBy: "",
+  };
+  // Count every report-bound supplement used by assignmentBasis, not only the
+  // canonical ID whose absence is already checked by the content reader.
+  api.setBeforeBatch(() =>
+    insertConcurrentSummary(api, {
+      id: "historical-content-supplement",
+      kind: "operations",
+      packageId: course.id,
+      data: {
+        type: "report-content",
+        runId: audit.id,
+        platform: "coursera",
+        sourceHash: audit.data.hashes.json,
+      },
+    }),
+  );
+  assert.equal((await api.save(record)).status, 409);
+  assert.equal(
+    api.sql
+      .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+      .get(record.id).count,
+    0,
+  );
+  api.sql.close();
+});
+
 // This transaction fake deliberately closes request scheduling when a callback
 // returns. Awaiting validation after getAll therefore cannot silently pass on
 // platforms that auto-commit an idle IndexedDB transaction.
