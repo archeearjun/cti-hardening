@@ -12,6 +12,7 @@ import { buildOwnerContext, buildOwnerTasks } from "./owner-actions.ts";
 import { attachCourseraArchiveFileBytes } from "./coursera-capture-file.ts";
 import { buildCourseraArchiveProof } from "./coursera-archive-proof.ts";
 import { captureStructureWorkbook } from "./capture-structure.ts";
+import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import { applyDocumentComparisonScope, documentComparisonText } from "./document-comparison.ts";
 import type {
   ComparisonInput,
@@ -189,6 +190,14 @@ export function createWorkflows(xmlService: unknown) {
   function compare(input: ComparisonInput): ComparisonOutput {
     if (input.course.kind !== "package" || !input.course.data.scan?.courseTree)
       throw new Error("Choose a scanned source package.");
+    let brightspaceEvidence;
+    if (input.brightspace) {
+      if (input.brightspace.bytes.byteLength > 128 * 1024 * 1024)
+        throw Error("Brightspace capture exceeds the 128 MiB limit.");
+      brightspaceEvidence = assertBrightspaceCaptureIntegrity(
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.brightspace.bytes)),
+      );
+    }
     if (
       !Number.isInteger(input.generation) ||
       input.generation < 0 ||
@@ -277,6 +286,13 @@ export function createWorkflows(xmlService: unknown) {
         )
       : undefined;
     const warnings = [];
+    if (brightspaceEvidence) {
+      result.brightspaceEvidence = brightspaceEvidence;
+      warnings.push(...brightspaceEvidence.warnings);
+      warnings.push(...brightspaceEvidence.findings.map((finding) =>
+        [finding.itemName || finding.itemId || "Brightspace source", finding.detail].filter(Boolean).join(": "),
+      ));
+    }
     if (derivedStructure) warnings.push(result.inputCoherence.reason);
     if (course.scan.sourceEvidence?.kind === "CTI_SOURCE_DOCUMENT_BASELINE")
       warnings.push("Source comparison is limited to the supplied document sections. Full source LMS inventory, assessment definitions, media and runtime coverage are not established.");

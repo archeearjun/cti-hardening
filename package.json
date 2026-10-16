@@ -50,7 +50,8 @@
     "test:browser:reconnect-ui": "node tools/browser-coursera-recovery-ui-check.mjs",
     "test:browser:bookmark": "node tools/browser-coursera-bookmark-check.mjs",
     "test:browser:direct-data": "node tools/browser-coursera-direct-data-check.mjs",
-    "test:browser:assignment": "node tools/browser-assignment-workspace-check.mjs"
+    "test:browser:assignment": "node tools/browser-assignment-workspace-check.mjs",
+    "test:browser:brightspace-bookmark": "node tools/browser-brightspace-bookmark-check.mjs"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",

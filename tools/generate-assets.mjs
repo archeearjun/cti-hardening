@@ -27,6 +27,14 @@ for (const platform of ["coursera", "brightspace"]) {
     source,
   );
 }
+const brightspaceBookmarkBytes = Buffer.byteLength(
+  "javascript:" +
+    encodeJavaScriptBookmarkPayload("void " + sources.brightspaceSource),
+);
+if (brightspaceBookmarkBytes >= 500 * 1024)
+  throw Error(
+    "The Brightspace bookmark exceeds Chrome Bookmark Manager's input limit.",
+  );
 const directDataSource = bundleConsole(
   fileURLToPath(
     new URL("../src/extractors/coursera/direct-data-entry.js", import.meta.url),
@@ -65,6 +73,9 @@ if (!fs.existsSync(target) || fs.readFileSync(target, "utf8") !== output)
   fs.writeFileSync(target, output);
 console.log(
   `Validated the standalone scripts and full course bookmark (${directBookmarkBytes} encoded bytes).`,
+);
+console.log(
+  `Validated the Brightspace bookmark (${brightspaceBookmarkBytes} encoded bytes).`,
 );
 const { buildBrowserExtension } = await import("./build-browser-extension.mjs");
 await buildBrowserExtension(sources.courseraSource);

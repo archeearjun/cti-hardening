@@ -28,6 +28,7 @@ import {
   attachCourseraArchiveFileBytes,
 } from "./coursera-capture-file.ts";
 import { reviewCapture, MAX_CAPTURE_BYTES } from "./capture-review.ts";
+import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import { readWorkbook } from "../adapters/workbook.ts";
 import type { PackageProgress, PackageScan } from "./package-types.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
@@ -188,7 +189,8 @@ export async function inspectEvidenceInput(
         text(value.extractor || meta.extractor),
       );
       if (brightspace && capture.bytes.byteLength > MAX_CAPTURE_BYTES)
-        throw Error("Brightspace capture exceeds the 40 MiB limit.");
+        throw Error("Brightspace capture exceeds the 128 MiB limit.");
+      if (brightspace) assertBrightspaceCaptureIntegrity(value);
       const review = reviewCapture(
         capture.archiveFiles
           ? attachCourseraArchiveFileBytes(value, capture.archiveFiles)
@@ -212,7 +214,14 @@ export async function inspectEvidenceInput(
       scope = review.scope;
       gaps = [
         ...review.warnings,
+        ...(brightspace ? review.findings.map((finding) =>
+          [finding.itemName || finding.itemId || "Brightspace source", finding.detail || finding.code].join(": "),
+        ) : []),
         "Input inspection and saved file identity do not certify whole-course completeness.",
+      ];
+      if (gaps.length > 2000) gaps = [
+        ...gaps.slice(0, 1999),
+        `${gaps.length - 1999} additional gap details exceed this input record's display bound. Keep the original capture and its full inspection findings.`,
       ];
       counts = {
         items: review.counts.items,

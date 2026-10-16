@@ -83,13 +83,13 @@ test("capture inspector opens gzip Coursera evidence without changing review dec
   assert.deepEqual(packed.traversal, raw.traversal);
 });
 
-test("capture inspector keeps the Brightspace 40 MiB limit while supporting larger Coursera files", async () => {
+test("capture inspector accepts Brightspace originals above the former 40 MiB limit", async () => {
   const filler = "x".repeat(40 * 1024 * 1024);
   const coursera = new File(["{\"schemaVersion\":35,\"fingerprints\":[],\"padding\":\"", filler, "\"}"], "coursera.json");
   assert(coursera.size > 40 * 1024 * 1024);
   assert.equal((await readCaptureReviewFile(coursera)).fingerprints.length, 0);
-  const brightspace = new File(["{\"extractor\":\"CTI Brightspace\",\"padding\":\"", filler, "\"}"], "brightspace.json");
-  await assert.rejects(readCaptureReviewFile(brightspace), /Brightspace.*40 MiB/);
+  const brightspace = new File(["{\"schemaVersion\":2,\"contentTree\":[],\"extractor\":\"CTI Brightspace\",\"padding\":\"", filler, "\"}"], "brightspace.json");
+  assert.equal((await readCaptureReviewFile(brightspace)).extractor, "CTI Brightspace");
 });
 
 test("archived Apps Script reference remains immutable", () => {
@@ -146,10 +146,12 @@ for (const platform of ["coursera", "brightspace"])
         "The reviewed v6.15.4 release intentionally differs from the frozen v6.14.7 reference.",
       );
     } else {
-      const expected = original.ctiExtractorDelivery_(platform);
-      assert.equal(actual.buildId, expected.buildId);
+      const expected = CTI_RELEASE_REGISTRY_.brightspaceExtractor;
+      assert.equal(actual.buildId, expected.build);
       assert.equal(actual.version, expected.version);
-      assert.equal(actual.schemaVersion, expected.schemaVersion);
+      assert.equal(actual.schemaVersion, expected.schema);
+      assert.notEqual(actual.buildId, original.ctiExtractorDelivery_(platform).buildId,
+        "The reviewed bookmark release intentionally upgrades the frozen console-only reference.");
     }
   });
 

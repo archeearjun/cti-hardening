@@ -38,10 +38,6 @@ export async function saveOriginalContent(
     throw Error(
       "This file does not match either original extraction hash. Use the original file or create a new comparison.",
     );
-  if (platform === "brightspace" && bytes.length > 40 * 1024 * 1024)
-    throw Error(
-      "Brightspace extraction exceeds the 40 MiB content-import limit.",
-    );
   const saved = await store.get(auditId);
   if (
     saved.kind !== "audit" ||

@@ -80,7 +80,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
         if (readingRecoveryBase64 && String(readingRecoveryBase64).length>35000000)return {success:false,error:'Reading recovery JSON exceeds the 25 MB limit.'};
         if (jsonBytes && (!jsonBytes.byteLength || jsonBytes.byteLength > 128 * 1024 * 1024)) return { success:false, error:"Coursera fingerprint JSON must be non-empty and no larger than the 128 MiB expanded capture limit." };
         if (jsonBase64 && !jsonBytes && String(jsonBase64).length > 35000000) return { success:false, error:"Coursera fingerprint JSON is larger than the 25 MB QA safety limit." };
-        if (sourceLiveBase64 && String(sourceLiveBase64).length > 56000000) return { success:false, error:"Brightspace live-source JSON is larger than the 40 MB QA safety limit." };
+        if (sourceLiveBase64 && String(sourceLiveBase64).length > 178956972) return { success:false, error:"Brightspace live-source JSON is larger than the 128 MiB QA safety limit." };
         targetUuid = validateUuid_(targetUuid);
 
         var dbData = io.loadPackage(targetUuid);

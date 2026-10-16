@@ -3,6 +3,7 @@ import { getExtractor } from "../src/domain/capture-review";
 import { inspectBrightspaceCaptureFile } from "../src/domain/brightspace-local-extraction";
 import type { ExtractorDelivery, ReviewResult } from "../src/domain/types";
 import { download } from "./workspace-ui";
+import BrightspaceBookmarkSetup from "./BrightspaceBookmarkSetup";
 
 export default function SourceLmsCapture({
   disabled,
@@ -95,58 +96,43 @@ export default function SourceLmsCapture({
         Coursera. The package may contain only a link or wrapper for content
         that is available in the live source.
       </p>
-      <ol className="local-extraction-steps">
-        <li>
-          <strong>
-            Open the matching Brightspace course in your signed-in Chrome.
-          </strong>
-          <span>
-            The extractor uses your existing access and respects permission
-            failures.
-          </span>
-        </li>
-        <li>
-          <strong>Copy the current Brightspace extractor.</strong>
-          <span>
-            Paste it once into that course tab’s DevTools → Console. Keep the
-            tab open until the JSON downloads.
-          </span>
-        </li>
-        <li>
-          <strong>Inspect the downloaded source JSON here.</strong>
-          <span>
-            Check the course title and recorded gaps, then select it for
-            comparison.
-          </span>
-        </li>
-      </ol>
-      <div className="action-links">
-        <button
-          className="primary"
-          disabled={disabled || busy}
-          onClick={() => void prepare(true)}
-        >
-          Copy current Brightspace extractor
-        </button>
-        <button
-          className="secondary"
-          disabled={disabled || busy}
-          onClick={() => void prepare(false)}
-        >
-          Download Brightspace extractor
-        </button>
-      </div>
-      {extractor && (
-        <details>
-          <summary>Manual-copy Brightspace extractor</summary>
-          <textarea
-            aria-label="Brightspace extractor script"
-            readOnly
-            value={extractor.script}
-            onFocus={(e) => e.currentTarget.select()}
-          />
-        </details>
-      )}
+      <BrightspaceBookmarkSetup disabled={disabled || busy} />
+      <details className="scope">
+        <summary>Console fallback (optional)</summary>
+        <p className="hint">
+          If your browser blocks bookmarks, copy or download the complete script
+          and run it once in DevTools → Console on the matching Brightspace
+          course Home or Content page. Keep the tab open until the JSON
+          downloads.
+        </p>
+        <div className="action-links">
+          <button
+            className="secondary"
+            disabled={disabled || busy}
+            onClick={() => void prepare(true)}
+          >
+            Copy current Brightspace extractor
+          </button>
+          <button
+            className="secondary"
+            disabled={disabled || busy}
+            onClick={() => void prepare(false)}
+          >
+            Download Brightspace extractor
+          </button>
+        </div>
+        {extractor && (
+          <details>
+            <summary>Manual-copy Brightspace extractor</summary>
+            <textarea
+              aria-label="Brightspace extractor script"
+              readOnly
+              value={extractor.script}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+          </details>
+        )}
+      </details>
       <label>
         Downloaded Brightspace source JSON
         <input

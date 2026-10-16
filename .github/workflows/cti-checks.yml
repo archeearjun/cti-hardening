@@ -38,6 +38,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Verify unified intake, item history, deliverables and advisory UX
         run: npm run test:browser:assignment
+      - name: Verify Brightspace bookmark, original content and resumable capture
+        run: npm run test:browser:brightspace-bookmark
       - name: Verify package scanning in Chromium
         run: npm run test:browser:package
       - name: Verify workspace workflow in Chromium
@@ -54,6 +56,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/cti-assignment-workspace
+            /tmp/cti-brightspace-bookmark
             /tmp/cti-ux-screenshots
             /tmp/cti-owner-actions
 

@@ -10,6 +10,7 @@ import { directWidgetProviderSourceV1 } from "../extractors/coursera/direct-data
 import { directPanoptoEvidenceStructureV1 } from "../extractors/coursera/direct-data-panopto-contracts.js";
 import { directPanoptoSourceV1, directPanoptoProjectionV1 } from "../extractors/coursera/direct-data-panopto.js";
 import { workerXml } from "../adapters/worker-xml.ts";
+import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import {
   capturedTime,
   validateTimeEstimate,
@@ -788,6 +789,7 @@ export function buildContentSnapshot(
         ? parse(courseraBytes)
         : contentObject(parsedCourseraCapture),
     bs = parse(brightspaceBytes);
+  if (brightspaceBytes) assertBrightspaceCaptureIntegrity(bs);
   const fingerprints = array(raw.fingerprints),
     topics = qaBrightspaceFlattenTopics_(array(bs.contentTree));
   const coursera: ContentItem[] = fingerprints.map((v) => {

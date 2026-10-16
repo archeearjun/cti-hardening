@@ -15,8 +15,10 @@ const {Utilities} = services;
 const qaSha256Base64_ = function(...args) { return bindServices(create_qaSha256Base64_, services).apply(this, args); };
 return function qaParseBrightspaceGroundTruthCapture_(base64Value, fileName) {
   if (!base64Value) return null;
-  if (String(base64Value).length > 56000000) throw new Error('Brightspace live-source JSON is larger than the 40 MB safety limit.');
-  var json = Utilities.newBlob(Utilities.base64Decode(base64Value)).getDataAsString();
+  if (String(base64Value).length > 178956972) throw new Error('Brightspace live-source JSON is larger than the 128 MiB safety limit.');
+  var bytes = Utilities.base64Decode(base64Value);
+  if (bytes.length > 128 * 1024 * 1024) throw new Error('Brightspace live-source JSON is larger than the 128 MiB safety limit.');
+  var json = Utilities.newBlob(bytes).getDataAsString();
   var parsed = JSON.parse(json);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Brightspace live-source JSON must contain one capture object.');
   var extractor = String(parsed.extractor || '');

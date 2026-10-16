@@ -29,7 +29,7 @@ test("current QA build and retained workflow identities have explicit provenance
       CTI_RELEASE_REGISTRY_.brightspaceExtractor.version,
       CTI_RELEASE_REGISTRY_.brightspaceExtractor.schema,
     ],
-    ["v1.0.8", 2],
+    ["v1.1.0", 2],
   );
   assert.ok(
     qa
