@@ -1416,11 +1416,15 @@ import {
         }
         progress.finish(
           "review",
-          "Capture JSON prepared. Inspect separate inventory, original-body and definition gaps; complete course fidelity is not established.",
+          "Your source capture is ready. Review the retained content and unresolved sources in CTI. Whole-course completeness remains unverified.",
           capture.summary.topics +
             " topics · " +
             capture.summary.quizQuestions +
-            " native question definitions",
+            " question definitions · " +
+            capture.summary.originalBodies +
+            " original files retained · " +
+            capture.contentAcquisition.gaps.length +
+            " unresolved references",
         );
       } else
         progress.finish(

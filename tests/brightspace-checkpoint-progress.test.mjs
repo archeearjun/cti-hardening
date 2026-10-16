@@ -569,3 +569,36 @@ test("launcher requires an explicit action, isolates its closed display, and rec
     dom.restore();
   }
 });
+
+test("finished and interrupted captures replace the last processing phase with a terminal label", async () => {
+  const dom = panelDom();
+  let panel;
+  panel = createBrightspaceProgressPanelV110("Brightspace", {
+    courseId: "123",
+    buildId: "test",
+    onStart: () => {
+      panel.update({ phase: "Check source stability" });
+      panel.finish(
+        "review",
+        "Capture ready; review remaining gaps.",
+        "5 original files retained",
+      );
+    },
+  });
+  try {
+    await panel.start();
+    assert.equal(panel.snapshot().phase, "Capture finished");
+    assert.equal(panel.isRunning(), false);
+    assert.equal(
+      dom.roots[0].getElementById("phase").textContent,
+      "Capture finished",
+    );
+    assert.equal(panel.snapshot().count, "5 original files retained");
+    panel.update({ phase: "Read source files" });
+    panel.finish("error", "Source request interrupted.");
+    assert.equal(panel.snapshot().phase, "Capture interrupted");
+  } finally {
+    panel.dispose();
+    dom.restore();
+  }
+});

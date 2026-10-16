@@ -165,7 +165,8 @@ export function createBrightspaceProgressPanelV110(title, options) {
     updated=Date.now();draw();
   }
   function finish(outcome, detail, count) {
-    update({outcome:outcome || 'review',detail:detail || '',count:count===undefined ? state.count : count});
+    const phase=state.pauseRequested || outcome==='paused' ? 'Paused' : outcome==='error' ? 'Capture interrupted' : 'Capture finished';
+    update({phase,outcome:outcome || 'review',detail:detail || '',count:count===undefined ? state.count : count});
     finished=started ? Date.now() : 0;state.running=false;minimized=false;window[runningKey]=false;
     if(timer)clearInterval(timer);timer=null;draw();
   }

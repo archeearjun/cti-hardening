@@ -692,6 +692,12 @@ try {
       ),
     "Pause must settle the active source capture",
   );
+  assert.equal(
+    await page.evaluate(
+      () => window.__CTI_BRIGHTSPACE_PROGRESS__.snapshot().phase,
+    ),
+    "Paused",
+  );
   const checkpoint = await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const request = indexedDB.open("cti-brightspace-source-v110", 1);
@@ -743,6 +749,12 @@ try {
   const capture = await page.evaluate(
     () => window.__CTI_BRIGHTSPACE_SOURCE_CAPTURE_LAST__,
   );
+  const terminal = await page.evaluate(() =>
+    window.__CTI_BRIGHTSPACE_PROGRESS__.snapshot(),
+  );
+  assert.equal(terminal.phase, "Capture finished");
+  assert.match(terminal.count, /original files retained/);
+  assert.match(terminal.count, /unresolved references/);
   verifyCapture(capture);
   const downloadEvent = page.waitForEvent("download");
   await clickControl(page, session, "Download saved capture");

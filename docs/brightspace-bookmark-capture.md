@@ -14,7 +14,8 @@ file. It does not change the course or create replacement content.
    Brightspace bookmark address**, create or edit a bookmark, and paste the
    complete address into its URL field. Update an older bookmark’s URL once.
 3. Open the matching Brightspace course Home or Content page in the Chrome
-   profile already signed in to that course. Use the saved bookmark and keep
+   profile already signed in to that course. Use the saved bookmark, choose
+   **Capture/resume** on its card, and keep
    the course tab open while capture runs. DevTools can stay closed.
 4. Return the downloaded source JSON to CTI. Inspect the course identity,
    retained sources and gaps before selecting it for comparison.
