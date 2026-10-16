@@ -86,7 +86,7 @@ try {
   await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(input.course.id);
   await waitIdle();
   await tab("Compare");
-  await page.getByLabel("Coursera XLSX (required)").setInputFiles({
+  await page.getByLabel(/^Coursera XLSX/).setInputFiles({
     name: input.excel.name,
     mimeType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

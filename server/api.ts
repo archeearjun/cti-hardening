@@ -1,7 +1,14 @@
 import { fetchSourceQuestions } from "./source-questions.ts";
-import { readPanoptoProviderMetadata, readPanoptoProviderPodcast,
-  panoptoProviderErrorResponse } from "./panopto-provider.ts";
-import { validateRecord } from "../src/domain/workspace-validation.ts";
+import {
+  readPanoptoProviderMetadata,
+  readPanoptoProviderPodcast,
+  panoptoProviderErrorResponse,
+} from "./panopto-provider.ts";
+import {
+  validateRecord,
+  validateWorkspaceTransition,
+  validateOperationalReferences,
+} from "../src/domain/workspace-validation.ts";
 import {
   normalizePartnerName,
   packageSemanticKey,
@@ -86,6 +93,70 @@ const sha = async (bytes: Uint8Array) =>
 const PACKAGE_IDENTITY_ACTOR = "__cti_package_identity__";
 const PACKAGE_IDENTITY_COMMITTED = 2;
 
+async function readStoredWorkspaceRecord(
+  db: Database,
+  id: string,
+): Promise<WorkspaceRecord | undefined> {
+  const doc = await db
+    .prepare("SELECT * FROM documents WHERE id=?")
+    .bind(id)
+    .first();
+  if (!doc) return undefined;
+  const upload = await db
+    .prepare(
+      "SELECT * FROM uploads WHERE id=? AND document_id=? AND committed=1",
+    )
+    .bind(doc.revision, id)
+    .first();
+  if (!upload || upload.bytes > 32 * 1024 * 1024)
+    fail(
+      "Referenced evidence is unavailable or exceeds its storage bound.",
+      409,
+    );
+  const { results } = await db
+    .prepare(
+      "SELECT part,bytes,value FROM chunks WHERE upload_id=? ORDER BY part ASC",
+    )
+    .bind(doc.revision)
+    .all();
+  const bytes = new Uint8Array(upload.bytes);
+  let offset = 0;
+  if (results.length !== upload.parts)
+    fail("Referenced evidence is incomplete.", 409);
+  for (const [index, part] of results.entries()) {
+    const value =
+      part.value instanceof ArrayBuffer
+        ? new Uint8Array(part.value)
+        : ArrayBuffer.isView(part.value)
+          ? new Uint8Array(
+              part.value.buffer,
+              part.value.byteOffset,
+              part.value.byteLength,
+            )
+          : new Uint8Array(part.value || []);
+    if (
+      Number(part.part) !== index ||
+      value.length !== Number(part.bytes) ||
+      offset + value.length > bytes.length
+    )
+      fail("Referenced evidence chunks are invalid.", 409);
+    bytes.set(value, offset);
+    offset += value.length;
+  }
+  if (offset !== bytes.length || (await sha(bytes)) !== upload.sha256)
+    fail("Referenced evidence checksum failed.", 409);
+  return {
+    id: doc.id,
+    kind: doc.kind,
+    title: doc.title,
+    packageId: doc.package_id,
+    version: doc.version,
+    updatedAt: doc.updated_at,
+    updatedBy: doc.updated_by,
+    data: JSON.parse(new TextDecoder().decode(bytes)),
+  };
+}
+
 async function packageIdentityClaimId(partnerKey: string, semanticKey: string) {
   const digest = await sha(
     new TextEncoder().encode(partnerKey + "\u0000" + semanticKey),
@@ -156,34 +227,76 @@ async function releasePackageIdentityClaim(
     )
     .run();
 }
-function requireWriteAccess(request: Request, user: {role: string}) {
+function requireWriteAccess(request: Request, user: { role: string }) {
   if (request.method === "GET") return;
   if (request.headers.get("Origin") !== new URL(request.url).origin)
     fail("Cross-origin writes are not allowed.", 403);
   if (!["admin", "editor"].includes(user.role))
     fail("Your account has read-only access.", 403);
 }
-function panoptoProviderAction(request: Request): "metadata" | "podcast" | null {
-  const match = new URL(request.url).pathname.match(/^\/api\/provider\/panopto\/(metadata|podcast)$/);
-  return match ? match[1] as "metadata" | "podcast" : null;
+function panoptoProviderAction(
+  request: Request,
+): "metadata" | "podcast" | null {
+  const match = new URL(request.url).pathname.match(
+    /^\/api\/provider\/panopto\/(metadata|podcast)$/,
+  );
+  return match ? (match[1] as "metadata" | "podcast") : null;
 }
-async function handlePanoptoProvider(request: Request, user: {role: string},
-  action: "metadata" | "podcast", providerFetcher: typeof fetch): Promise<Response> {
+async function handlePanoptoProvider(
+  request: Request,
+  user: { role: string },
+  action: "metadata" | "podcast",
+  providerFetcher: typeof fetch,
+): Promise<Response> {
   requireWriteAccess(request, user);
   const serviceOrigin = new URL(request.url).origin;
-  if (request.method !== "POST") return panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, serviceOrigin);
+  if (request.method !== "POST")
+    return panoptoProviderErrorResponse(
+      "PANOPTO_PROVIDER_METHOD_NOT_ALLOWED",
+      405,
+      serviceOrigin,
+    );
   let input: Record<string, unknown>;
   try {
     const bytes = await boundedBody(request, 16384);
-    input = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
-    if (!input || typeof input !== "object" || Array.isArray(input)) throw Error();
-  } catch {return panoptoProviderErrorResponse("PANOPTO_PROVIDER_INVALID_REQUEST", 400, serviceOrigin);}
-  const keys = action === "metadata" ? ["targetUrl"] : ["targetUrl", "streamFileId", "sourceHash"];
-  if (Object.keys(input).length !== keys.length || keys.some(key => typeof input[key] !== "string"))
-    return panoptoProviderErrorResponse("PANOPTO_PROVIDER_INVALID_REQUEST", 400, serviceOrigin);
-  const options = {fetcher: providerFetcher, signal: request.signal, serviceOrigin};
-  return action === "metadata" ? readPanoptoProviderMetadata(input.targetUrl as string, options)
-    : readPanoptoProviderPodcast(input as {targetUrl: string; streamFileId: string; sourceHash: string}, options);
+    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw Error();
+  } catch {
+    return panoptoProviderErrorResponse(
+      "PANOPTO_PROVIDER_INVALID_REQUEST",
+      400,
+      serviceOrigin,
+    );
+  }
+  const keys =
+    action === "metadata"
+      ? ["targetUrl"]
+      : ["targetUrl", "streamFileId", "sourceHash"];
+  if (
+    Object.keys(input).length !== keys.length ||
+    keys.some((key) => typeof input[key] !== "string")
+  )
+    return panoptoProviderErrorResponse(
+      "PANOPTO_PROVIDER_INVALID_REQUEST",
+      400,
+      serviceOrigin,
+    );
+  const options = {
+    fetcher: providerFetcher,
+    signal: request.signal,
+    serviceOrigin,
+  };
+  return action === "metadata"
+    ? readPanoptoProviderMetadata(input.targetUrl as string, options)
+    : readPanoptoProviderPodcast(
+        input as {
+          targetUrl: string;
+          streamFileId: string;
+          sourceHash: string;
+        },
+        options,
+      );
 }
 export function createApiHandler(
   authenticate: AccessAuthenticator = authenticateAccess,
@@ -205,7 +318,12 @@ export function createApiHandler(
           : "viewer";
       const providerAction = panoptoProviderAction(request);
       if (providerAction)
-        return await handlePanoptoProvider(request, {role}, providerAction, providerFetcher);
+        return await handlePanoptoProvider(
+          request,
+          { role },
+          providerAction,
+          providerFetcher,
+        );
       if (!env.CTI_DB || !list(env.CTI_ADMINS).length)
         fail(
           "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",
@@ -248,7 +366,13 @@ export async function handleAuthorized(
       .filter(Boolean),
     method = request.method;
   const providerAction = panoptoProviderAction(request);
-  if (providerAction) return handlePanoptoProvider(request, user, providerAction, providerFetcher);
+  if (providerAction)
+    return handlePanoptoProvider(
+      request,
+      user,
+      providerAction,
+      providerFetcher,
+    );
   requireWriteAccess(request, user);
   if (p[0] === "source-questions" && p.length === 1 && method === "POST") {
     const bytes = await boundedBody(request, 12000);
@@ -557,8 +681,90 @@ export async function handleAuthorized(
         );
       }
       const r = JSON.parse(u.metadata) as WorkspaceRecord;
+      let operationDependencies: { id: string; version: number | null }[] = [];
+      let latestDeliverableAuditId = "";
+      let deliverableReviewCount: number | undefined;
       try {
         validateRecord({ ...r, data: fullData as Record<string, unknown> });
+        const protectedTypes = [
+          "item-lifecycle",
+          "evidence-input",
+          "assignment-deliverable",
+          "advisory-model",
+        ];
+        const current =
+          Number(u.expected_version) > 0
+            ? await db
+                .prepare("SELECT * FROM documents WHERE id=?")
+                .bind(r.id)
+                .first()
+            : null;
+        const currentSummary = current
+          ? JSON.parse(current.summary || "{}")
+          : {};
+        const next = { ...r, data: fullData as Record<string, any> };
+        if (
+          (r.kind === "operations" &&
+            protectedTypes.includes(next.data.type)) ||
+          (current?.kind === "operations" &&
+            protectedTypes.includes(currentSummary.type))
+        ) {
+          const cache = new Map<string, WorkspaceRecord | undefined>();
+          const lookup = async (id: string) => {
+            if (!cache.has(id))
+              cache.set(id, await readStoredWorkspaceRecord(db, id));
+            return cache.get(id);
+          };
+          const previous = current ? await lookup(r.id) : undefined;
+          validateWorkspaceTransition(previous, next);
+          const { results: summaries } =
+            next.data.type === "assignment-deliverable"
+              ? await db
+                  .prepare(
+                    "SELECT id,kind,title,package_id,version,updated_at,updated_by,summary FROM documents ORDER BY updated_at DESC",
+                  )
+                  .all()
+              : { results: [] };
+          const records = summaries.map((doc) => ({
+            id: doc.id,
+            kind: doc.kind,
+            title: doc.title,
+            packageId: doc.package_id,
+            version: doc.version,
+            updatedAt: doc.updated_at,
+            updatedBy: doc.updated_by,
+            data: JSON.parse(doc.summary),
+          })) as WorkspaceRecord[];
+          await validateOperationalReferences(next, lookup, previous, records);
+          operationDependencies = [...cache.entries()].map(([id, row]) => ({
+            id,
+            version: row?.version ?? null,
+          }));
+          if (next.data.type === "assignment-deliverable") {
+            deliverableReviewCount = records.filter(
+              (row) =>
+                row.kind === "item-review" &&
+                row.packageId === next.packageId &&
+                row.data.auditId === next.data.auditId,
+            ).length;
+            operationDependencies.push(
+              ...records
+                .filter(
+                  (row) =>
+                    row.kind === "item-review" &&
+                    row.packageId === next.packageId &&
+                    row.data.auditId === next.data.auditId,
+                )
+                .map((row) => ({ id: row.id, version: row.version })),
+            );
+            if (
+              ["approved", "external-application-recorded"].includes(
+                next.data.event,
+              )
+            )
+              latestDeliverableAuditId = next.data.auditId;
+          }
+        }
       } catch (error) {
         fail(
           error instanceof Error
@@ -668,11 +874,43 @@ export async function handleAuthorized(
         }
       }
 
+      // These references were checked before the write. Repeat their version
+      // predicates in the atomic mutation so a concurrent course/review edit
+      // cannot commit a decision against an obsolete evidence basis.
+      const referencePredicate = operationDependencies.length
+        ? " AND NOT EXISTS (SELECT 1 FROM json_each(?) AS reference LEFT JOIN documents AS dependency ON dependency.id=json_extract(reference.value,'$.id') WHERE (json_extract(reference.value,'$.version') IS NULL AND dependency.id IS NOT NULL) OR (json_extract(reference.value,'$.version') IS NOT NULL AND (dependency.id IS NULL OR dependency.version<>json_extract(reference.value,'$.version'))))"
+        : "";
+      const latestPredicate = latestDeliverableAuditId
+        ? " AND (SELECT id FROM documents WHERE kind='audit' AND package_id=? ORDER BY updated_at DESC,id DESC LIMIT 1)=?"
+        : "";
+      const reviewPredicate =
+        deliverableReviewCount !== undefined
+          ? " AND (SELECT COUNT(*) FROM documents WHERE kind='item-review' AND package_id=? AND json_extract(summary,'$.auditId')=?)=?"
+          : "";
+      const dependencyBindings: unknown[] = [
+        ...(operationDependencies.length
+          ? [JSON.stringify(operationDependencies)]
+          : []),
+        ...(latestDeliverableAuditId
+          ? [r.packageId, latestDeliverableAuditId]
+          : []),
+        ...(deliverableReviewCount !== undefined
+          ? [
+              r.packageId,
+              (fullData as Record<string, any>).auditId,
+              deliverableReviewCount,
+            ]
+          : []),
+      ];
       let q: Statement;
       if (u.expected_version === 0)
         q = db
           .prepare(
-            "INSERT INTO documents(id,kind,title,package_id,version,revision,updated_at,updated_by,summary) VALUES(?,?,?,?,1,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+            "INSERT INTO documents(id,kind,title,package_id,version,revision,updated_at,updated_by,summary) SELECT ?,?,?,?,1,?,?,?,? WHERE 1" +
+              referencePredicate +
+              latestPredicate +
+              reviewPredicate +
+              " ON CONFLICT(id) DO NOTHING",
           )
           .bind(
             r.id,
@@ -683,11 +921,15 @@ export async function handleAuthorized(
             u.created_at,
             u.actor,
             JSON.stringify(r.data),
+            ...dependencyBindings,
           );
       else
         q = db
           .prepare(
-            "UPDATE documents SET title=?,package_id=?,version=version+1,revision=?,updated_at=?,updated_by=?,summary=? WHERE id=? AND version=? AND kind=? AND kind<>'audit'",
+            "UPDATE documents SET title=?,package_id=?,version=version+1,revision=?,updated_at=?,updated_by=?,summary=? WHERE id=? AND version=? AND kind=? AND kind<>'audit'" +
+              referencePredicate +
+              latestPredicate +
+              reviewPredicate,
           )
           .bind(
             r.title,
@@ -699,6 +941,7 @@ export async function handleAuthorized(
             r.id,
             u.expected_version,
             r.kind,
+            ...dependencyBindings,
           );
       let results: Array<{ meta: { changes: number } }>;
       try {

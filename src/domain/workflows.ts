@@ -11,6 +11,8 @@ import { buildPostQaText_ } from "../reporting/owner-report.js";
 import { buildOwnerContext, buildOwnerTasks } from "./owner-actions.ts";
 import { attachCourseraArchiveFileBytes } from "./coursera-capture-file.ts";
 import { buildCourseraArchiveProof } from "./coursera-archive-proof.ts";
+import { captureStructureWorkbook } from "./capture-structure.ts";
+import { applyDocumentComparisonScope, documentComparisonText } from "./document-comparison.ts";
 import type {
   ComparisonInput,
   ComparisonOutput,
@@ -226,9 +228,14 @@ export function createWorkflows(xmlService: unknown) {
     if (course.externalRuntimeEvidence)
       io.externalRuntime = () =>
         structuredClone(course.externalRuntimeEvidence);
+    const derivedStructure = !input.excel && input.json
+      ? captureStructureWorkbook(io.readCourseraCapture(input.json.bytes)) : undefined;
+    const structuralInput = input.excel || derivedStructure;
+    if (!structuralInput) throw Error("Add a Coursera XLSX or a direct capture with a verified native material inventory.");
+    if (derivedStructure) Object.assign(io, { structuralInventoryBasis: derivedStructure.proof });
     const result = engine.runPostIngestionQaCore_(
-      base64(input.excel.bytes),
-      input.excel.name,
+      base64(structuralInput.bytes),
+      structuralInput.name,
       input.json?.bytes || "",
       input.json?.name || "",
       input.course.id,
@@ -245,6 +252,21 @@ export function createWorkflows(xmlService: unknown) {
       io,
     );
     if (!result.success) throw new Error(result.error || "Comparison failed.");
+    if (derivedStructure) {
+      result.structuralInventoryBasis = derivedStructure.proof;
+      result.inputCoherence = { status: "VERIFIED_CAPTURE_INVENTORY", independentWorkbook: false,
+        reason: "Structure was independently recomputed from stable retained native material models and source receipts. No separate Coursera XLSX was supplied." };
+      result.sourceInfo = ["Verified native material inventory + captured content; independent XLSX not supplied"];
+      result.stats.source = result.sourceInfo.join(" + ");
+      if (result.ownerView) result.ownerView.authority = "Retained native authoring-material inventory order and identities; captured payload observations. No independent XLSX or whole-course content certification.";
+      // An internally derived workbook is an adapter, not an independent source.
+      if (result.stats?.extractorMeta) {
+        delete result.stats.extractorMeta.xlsxTraversalInventory;
+        result.stats.extractorMeta.structuralInventoryBasis = derivedStructure.proof;
+        result.stats.extractorMeta.inputCoherence = result.inputCoherence;
+      }
+    }
+    applyDocumentComparisonScope(result, course.scan);
     const jsonSha256 = hash(input.json?.bytes);
     const archiveProof = input.json
       ? buildCourseraArchiveProof(
@@ -255,6 +277,9 @@ export function createWorkflows(xmlService: unknown) {
         )
       : undefined;
     const warnings = [];
+    if (derivedStructure) warnings.push(result.inputCoherence.reason);
+    if (course.scan.sourceEvidence?.kind === "CTI_SOURCE_DOCUMENT_BASELINE")
+      warnings.push("Source comparison is limited to the supplied document sections. Full source LMS inventory, assessment definitions, media and runtime coverage are not established.");
     if (!course.externalRuntimeEvidence)
       warnings.push(
         "The external SCORM/Rise inventory is not loaded for this course. Source-package and Brightspace runtime evidence are still evaluated.",
@@ -279,9 +304,10 @@ export function createWorkflows(xmlService: unknown) {
           ? "WORKSPACE EVIDENCE NOTE\n" + warnings.join("\n") + "\n\n"
           : "") +
         questionCountText +
-        buildPostQaText_(result),
+        (documentComparisonText(result) || buildPostQaText_(result)),
       hashes: {
-        excel: hash(input.excel.bytes),
+        excel: hash(input.excel?.bytes),
+        ...(derivedStructure ? { derivedStructure: hash(derivedStructure.bytes) } : {}),
         json: jsonSha256,
         brightspace: hash(input.brightspace?.bytes),
         recovery: hash(input.recovery?.bytes),

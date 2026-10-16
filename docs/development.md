@@ -48,6 +48,16 @@ For example, a source navigation fix can change `source-navigation.ts` and its
 focused test. It does not change any extractor, engine bundle, or Apps Script file.
 Use `rg -n 'functionName' src/engine src/extractors` to locate specific rules.
 
+## Unified assignment workflow
+
+See [unified assignment workspace](unified-assignment-workspace.md). Its maintained
+modules are `item-lifecycle.ts`, `evidence-intake.ts`, `source-documents.ts`,
+`capture-structure.ts`, `assignment-deliverables.ts` and `advisory-learning.ts`;
+`web/AssignmentWorkspace.tsx` integrates them through the existing workspace.
+Protected operation subtypes are validated by both local storage and shared API.
+`test:browser:assignment` verifies the built owner journey. Source scope, item
+identity, stage, freshness and owner decisions remain separate.
+
 ## Engine and service boundaries
 
 `src/engine/index.js` composes the existing public API from independently imported

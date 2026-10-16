@@ -24,6 +24,39 @@ import { qaApplyIngestionActionabilityPolicy_, workBuildRawQaOperationalPolicy_ 
 import { compareItemFidelity_, qaBuildSummary_ } from "./item.js";
 import { qaAttachLiveSourceTextReviews_ } from "../source/live-text-review.js";
 
+// XLSX and a Coursera capture share the same native item-ID namespace. A
+// plausible title is useful to review, but cannot identify another item's body.
+export function qaPlanCourseraPayloadBindings_(excelItems, liveItems) {
+    var excelById = Object.create(null), liveById = Object.create(null);
+    function index(items, target) {
+        items.forEach(function(item, position) {
+            var id = String(item.id || '').trim();
+            if (id) (target[id] || (target[id] = [])).push(position);
+        });
+    }
+    index(excelItems, excelById); index(liveItems, liveById);
+    return excelItems.map(function(item) {
+        var id = String(item.id || '').trim(), exact = id ? liveById[id] || [] : [];
+        var bound = id && (excelById[id] || []).length === 1 && exact.length === 1;
+        var candidates = exact.length ? exact : liveItems.map(function(live, i) {
+            return qaCleanName_(live.name) === qaCleanName_(item.name) && qaCleanName_(item.name) ? i : -1;
+        }).filter(function(i) { return i >= 0; });
+        return {
+            status: bound ? 'BOUND_NATIVE_ITEM_ID' : 'REVIEW',
+            reason: bound ? 'UNIQUE_NATIVE_ITEM_ID' : !id ? 'XLSX_ITEM_ID_MISSING' :
+                (excelById[id] || []).length > 1 ? 'DUPLICATE_XLSX_ITEM_ID' :
+                exact.length > 1 ? 'DUPLICATE_CAPTURE_ITEM_ID' : 'NATIVE_ITEM_ID_NOT_CAPTURED',
+            itemId: id, itemName: item.name || '', itemPath: item.path || '', itemType: item.type || '',
+            liveIndex: bound ? exact[0] : -1,
+            candidates: candidates.map(function(i) {
+                var live = liveItems[i];
+                return { id: String(live.id || ''), name: live.name || '', path: live.path || '',
+                    type: live.type || '', nativeIdAgrees: !!id && id === String(live.id || '').trim() };
+            }).sort(function(a, b) { return JSON.stringify(a).localeCompare(JSON.stringify(b)); })
+        };
+    });
+}
+
 export function create_runPostIngestionQaCore_(services) {
 const {Utilities} = services;
 const normalizeSourceItem_ = function(...args) { return bindServices(create_normalizeSourceItem_, services).apply(this, args); };
@@ -31,6 +64,7 @@ const qaParseBrightspaceGroundTruthCapture_ = function(...args) { return bindSer
 const qaSha256Base64_ = function(...args) { return bindServices(create_qaSha256Base64_, services).apply(this, args); };
 return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName, io) {
     var tempFileId = null;
+    var nativeStructure = io && io.structuralInventoryBasis && io.structuralInventoryBasis.kind === 'VERIFIED_NATIVE_CAPTURE_INVENTORY';
     if (persistResult === undefined || persistResult === null) persistResult = true;
     if (typeof lineageMeta === 'string' && lineageMeta) { try { lineageMeta = JSON.parse(lineageMeta); } catch (e) { lineageMeta = {}; } }
     if (!lineageMeta || typeof lineageMeta !== 'object') lineageMeta = {};
@@ -96,6 +130,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             // This receipt is computed from the supplied XLSX below; never trust
             // one embedded in an old or externally edited capture JSON.
             delete extractorMeta.xlsxTraversalInventory;
+            delete extractorMeta.payloadBindingDiagnostics;
             parsedPageMeta = parsed.page || {};
             extractorMeta.schemaVersion = parsed.schemaVersion || extractorMeta.schemaVersion || null;
             extractorMeta.buildId = parsed.buildId || extractorMeta.buildId || '';
@@ -194,8 +229,8 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                         path: currentModule || '',
                         lesson: currentLesson || '',
                         payload: {},
-                        evidenceLevel: 'excel-structure',
-                        evidenceSources: ['Coursera Excel Export']
+                        evidenceLevel: nativeStructure ? 'native-capture-structure' : 'excel-structure',
+                        evidenceSources: [nativeStructure ? 'Verified native material inventory' : 'Coursera Excel Export']
                     }));
                 }
             }
@@ -203,15 +238,21 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             if (!courseraEvidenceItems.length) courseraEvidenceItems = courseraItems.slice();
 
             inputCoherence = qaAssessSnapshotCoherence_(excelItems, jsonItemsForCoherence.length ? jsonItemsForCoherence : courseraItems, parsedPageMeta, excelName, jsonName);
+            if (nativeStructure && inputCoherence.status !== 'FAIL') inputCoherence = {
+                status:'VERIFIED_CAPTURE_INVENTORY', independentWorkbook:false,
+                reason:'Stable retained native material inventory, not an independently supplied Coursera XLSX.',
+                structuralInventoryBasis:io.structuralInventoryBasis
+            };
             extractorMeta.inputCoherence = inputCoherence;
-            extractorMeta.xlsxTraversalInventory=qaXlsxTraversalInventory_(data,jsonItemsForCoherence.length?jsonItemsForCoherence:courseraItems,parsedPageMeta,excelName,jsonName);
+            if (!nativeStructure) extractorMeta.xlsxTraversalInventory=qaXlsxTraversalInventory_(data,jsonItemsForCoherence.length?jsonItemsForCoherence:courseraItems,parsedPageMeta,excelName,jsonName);
+            else extractorMeta.structuralInventoryBasis=io.structuralInventoryBasis;
             if (jsonBase64 && inputCoherence.status === 'FAIL') {
                 return { success:false, error:'Input coherence check failed: ' + inputCoherence.reason + ' XLSX=' + String(excelName || '') + ' | JSON=' + String(jsonName || '') };
             }
 
         if (courseraItems.length === 0) {
                 courseraItems = excelItems;
-                sourceInfo.unshift("Excel (Authoritative Structure + IDs + Placement)");
+                sourceInfo.unshift(nativeStructure ? "Retained native material inventory" : "Excel (Authoritative Structure + IDs + Placement)");
             } else {
                 // v4.2 architecture: the Coursera Excel export is authoritative for
                 // visible structure, stable item IDs, titles, types and placement.
@@ -219,39 +260,20 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 // with payload evidence. This prevents lesson/module API objects from
                 // being misclassified as EXTRA Coursera items.
                 var liveItems = courseraItems.slice();
-                var consumedLiveIds = Object.create(null);
-                var liveById = Object.create(null);
-                var liveByName = Object.create(null);
-
-                liveItems.forEach(function(item) {
-                    if (item.id) {
-                        var idKey = String(item.id).toLowerCase();
-                        if (!liveById[idKey]) liveById[idKey] = [];
-                        liveById[idKey].push(item);
-                    }
-                    var liveNameKey = qaCleanName_(item.name);
-                    if (liveNameKey) {
-                        if (!liveByName[liveNameKey]) liveByName[liveNameKey] = [];
-                        liveByName[liveNameKey].push(item);
-                    }
-                });
-
-                var enrichedExcelItems = excelItems.map(function(excelItem) {
-                    var liveMatch = null;
-                    if (excelItem.id) {
-                        var candidatesById = liveById[String(excelItem.id).toLowerCase()] || [];
-                        if (candidatesById.length) liveMatch = candidatesById[0];
-                    }
-                    if (!liveMatch) {
-                        var candidatesByName = liveByName[qaCleanName_(excelItem.name)] || [];
-                        if (candidatesByName.length) liveMatch = candidatesByName[0];
-                    }
-                    if (liveMatch && liveMatch.id) consumedLiveIds[String(liveMatch.id).toLowerCase()] = true;
-                    return qaMergeCourseraPayload_(excelItem, liveMatch);
+                var consumedLiveIndexes = Object.create(null);
+                var payloadBindings = qaPlanCourseraPayloadBindings_(excelItems, liveItems);
+                var unresolvedBindings = payloadBindings.filter(function(binding) { return binding.status === 'REVIEW'; });
+                if (unresolvedBindings.length) extractorMeta.payloadBindingDiagnostics = unresolvedBindings;
+                var enrichedExcelItems = excelItems.map(function(excelItem, index) {
+                    var binding = payloadBindings[index];
+                    if (binding.liveIndex < 0) return excelItem;
+                    consumedLiveIndexes[binding.liveIndex] = true;
+                    return qaMergeCourseraPayload_(excelItem, liveItems[binding.liveIndex]);
                 });
 
                 extractorMeta.liveFingerprintCount = liveItems.length;
-                extractorMeta.excelCanonicalItemCount = excelItems.length;
+                if (nativeStructure) extractorMeta.nativeMaterialItemCount = excelItems.length;
+                else extractorMeta.excelCanonicalItemCount = excelItems.length;
                 extractorMeta.liveFingerprintsIgnoredForStructure = Math.max(0, liveItems.length - enrichedExcelItems.filter(function(item) {
                     return (item.evidenceSources || []).some(function(source) { return source !== 'Coursera Excel Export'; });
                 }).length);
@@ -263,14 +285,13 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 // files/links can participate in cross-item recovery and the Author
                 // Alignment Report can be parsed. They cannot become structural items.
                 courseraEvidenceItems = enrichedExcelItems.slice();
-                liveItems.forEach(function(liveItem) {
-                    var idKey = String(liveItem.id || '').toLowerCase();
-                    if (idKey && consumedLiveIds[idKey]) return;
+                liveItems.forEach(function(liveItem, index) {
+                    if (consumedLiveIndexes[index]) return;
                     liveItem.evidenceOnly = true;
                     liveItem.structuralAuthority = false;
                     courseraEvidenceItems.push(liveItem);
                 });
-                sourceInfo.push("Excel (Authoritative Structure) + Live JSON (Payload Enrichment)");
+                sourceInfo.push(nativeStructure ? "Verified native material inventory + captured payload; no independent XLSX" : "Excel (Authoritative Structure) + Live JSON (Payload Enrichment)");
             }
         }
 

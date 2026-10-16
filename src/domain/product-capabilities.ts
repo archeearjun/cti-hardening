@@ -14,6 +14,26 @@ export interface ProductCapability {
 export const CURRENT_PRODUCT_CAPABILITIES: readonly ProductCapability[] =
   Object.freeze([
     {
+      id: "assignment.workspace", label: "Unified assignment owner workspace", state: "AVAILABLE",
+      detail: "One course inbox, exception worklist, source exploration, item history and source-linked draft deliverables. Original audits remain immutable.",
+    },
+    {
+      id: "source.documents", label: "Attributed source documents and native structural intake", state: "AVAILABLE",
+      detail: "Markdown/text can supply a limited document baseline. Stable independently validated native direct-capture inventories can supply destination structure; legacy captures still require XLSX. Scope gaps remain explicit.",
+    },
+    {
+      id: "assignment.lifecycle", label: "Durable item lifecycle and history", state: "AVAILABLE",
+      detail: "Exact native identities, append-only events, evidence-bound decisions and separate workflow, coverage, fidelity, membership and freshness states in local and shared storage.",
+    },
+    {
+      id: "assignment.deliverables", label: "Versioned structural deliverable drafts", state: "AVAILABLE",
+      detail: "Source-linked content maps, outlines and transformation plans with reviewable revisions and exports. External LMS application requires recapture and verification; CTI does not perform LMS writes.",
+    },
+    {
+      id: "advisory.reviewed-local", label: "Locally evaluated advisory matching", state: "AVAILABLE",
+      detail: "Optional feature-only owner-reviewed training, course-grouped holdout and stale-model guards. Insufficient data stays untrained. Suggestions do not change evidence or QA results.",
+    },
+    {
       id: "coursera.local",
       label: "Coursera extraction · local Chrome",
       state: "AVAILABLE",

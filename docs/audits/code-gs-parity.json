@@ -2242,9 +2242,11 @@
     {
       "name": "qaParseBrightspaceGroundTruthCapture_",
       "line": 7339,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/brightspace-matching.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "note": "Retain all native quiz and assignment models while marking duplicate native-ID or title lookup keys unresolved instead of selecting the last model. Exact tool-ID uniqueness is independently checked before enrichment. See tests/strict-evidence-identity.test.mjs.",
+      "reviewedCurrentHash": "1708363113763b56523e078c5409d262e4d01b0a6d84c836203d24c927767b65"
     },
     {
       "name": "qaBrightspaceIdentityGuard_",
@@ -2277,9 +2279,11 @@
     {
       "name": "qaApplyBrightspaceGroundTruth_",
       "line": 7463,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/brightspace-matching.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "note": "Replace greedy source-topic consumption with a whole-inventory reciprocal unique identity plan. Package resource IDs are not native Brightspace topic IDs: only explicitly recorded native identity or unique exact title, compatible type and non-root placement can enrich. Ambiguous or similar-title candidates remain source-evidence reviews, without text, assessment, behavior or runtime borrowing. Tool definitions require unique exact native tool-item IDs; runtime observations require exact topic IDs; bundled attachment identity also resolves without order dependence. Navigation remains separate from fidelity and source uncertainty is retained. See tests/strict-evidence-identity.test.mjs and tests/source-plugin-followup.test.mjs.",
+      "reviewedCurrentHash": "9be7cdcd19538dccb974117d302e002baab2a1a1c2badbf247b4850c5bab07ad"
     },
     {
       "name": "qaApplyLiveSourceReviewPolicy_",
@@ -2905,8 +2909,8 @@
       "status": "adapted",
       "path": "src/engine/comparison/course.js",
       "effectiveOverride": false,
-      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits, structural authority and audit decisions. See syllabus-readiness.test.mjs and workflows.test.mjs.",
-      "reviewedCurrentHash": "5ceca2e581ff7441250d4a1b2831a1b0a827c7e1116867d129ee4a258b6f17ba"
+      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits and structural authority. Payload enrichment now requires one unique case-sensitive native Coursera item ID on both XLSX and capture sides. Duplicate or conflicting native IDs and title-only suggestions never borrow payload; retained unresolved candidates are recomputed as diagnostics and unmatched fingerprints remain evidence-only. Standard uniquely identified comparisons retain full reference parity. See syllabus-readiness.test.mjs, workflows.test.mjs and strict-evidence-identity.test.mjs. The optional direct-capture structure adapter is explicitly tagged as retained native material inventory rather than an independent XLSX; canonical item IDs remain required and derived structure never certifies complete content. See unified-inputs.test.mjs and docs/unified-assignment-workspace.md.",
+      "reviewedCurrentHash": "e1a124c6b73819d0dd6fe595bc9581aac670f035573f0b16ed1ed6d7fd4565eb"
     },
     {
       "name": "tokenJaccardSimilarity_",

@@ -103,8 +103,8 @@ function sourceFor(r: EvidenceObject, nodes: EvidenceObject[]) {
   let matches = nodes.filter(
     (n) => r.sourceId && String(n.idref || n.id || "") === String(r.sourceId),
   );
-  if (matches.length !== 1)
-    matches = nodes.filter(
+  if (r.sourceId) return matches.length === 1 ? matches[0] : null;
+  matches = nodes.filter(
       (n) =>
         clean(n.title) === clean(r.sourceName) &&
         clean(n.path) === clean(r.sourcePath),
@@ -130,8 +130,9 @@ export function buildOwnerTasks(
     const findings = sourceOnly
       ? results.filter(
           (r) =>
-            clean(r.sourceName) === clean(item.name) &&
-            clean(r.sourcePath) === clean(item.path),
+            item.sourceId
+              ? String(r.sourceId || "") === String(item.sourceId)
+              : clean(r.sourceName) === clean(item.name) && clean(r.sourcePath) === clean(item.path),
         )
       : results.filter((r) => linkedResult(r, id));
     const sources = findings
@@ -242,7 +243,7 @@ export function buildOwnerTasks(
         ),
       questionComparisons,
       key: sourceOnly
-        ? `source:${index}:${item.path}:${item.name}`
+        ? item.sourceId ? `source:${item.sourceId}` : `source:${index}:${item.path}:${item.name}`
         : `item:${id || index}`,
       id,
       name: item.name || "Unnamed item",

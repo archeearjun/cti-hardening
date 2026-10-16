@@ -29,15 +29,15 @@ return function qaParseBrightspaceGroundTruthCapture_(base64Value, fileName) {
   var discussions = Array.isArray(parsed.discussions) ? parsed.discussions : [];
   var quizById = Object.create(null), quizByName = Object.create(null);
   quizzes.forEach(function(q) {
-    if (q && q.id != null) quizById[String(q.id)] = q;
+    if (q && q.id != null) { var id=String(q.id); quizById[id]=Object.prototype.hasOwnProperty.call(quizById,id)?null:q; }
     var key = qaCleanName_(q && (q.name || q.title) || '');
-    if (key) quizByName[key] = q;
+    if (key) quizByName[key]=Object.prototype.hasOwnProperty.call(quizByName,key)?null:q;
   });
   var assignmentById = Object.create(null), assignmentByName = Object.create(null);
   assignments.forEach(function(a) {
-    if (a && a.id != null) assignmentById[String(a.id)] = a;
+    if (a && a.id != null) { var id=String(a.id); assignmentById[id]=Object.prototype.hasOwnProperty.call(assignmentById,id)?null:a; }
     var key = qaCleanName_(a && (a.name || a.title) || '');
-    if (key) assignmentByName[key] = a;
+    if (key) assignmentByName[key]=Object.prototype.hasOwnProperty.call(assignmentByName,key)?null:a;
   });
   var runtimeCarriers = Array.isArray(parsed.runtimeCarriers) ? parsed.runtimeCarriers.slice() : [];
   if (!runtimeCarriers.length && Array.isArray(parsed.runtimeSignals)) {
@@ -138,6 +138,68 @@ export function qaMergeInteractiveSignals_(existing, additions) {
   return existing;
 }
 
+// Package resource IDs and Brightspace topic IDs are different namespaces.
+// Only an explicitly recorded Brightspace identity can bypass placement checks.
+function nativeTopicId(source) {
+  var identity=source.nativeIdentity || (source.original || {}).nativeIdentity || {};
+  return String(identity.platform || '').toUpperCase()==='BRIGHTSPACE' ? String(identity.topicId || '').trim() : '';
+}
+
+function identityLabel(value) {
+  return qaCleanText_(value || '').normalize('NFKC').toLowerCase();
+}
+
+function topicTypeAgrees(source, topic) {
+  var topicType=qaBrightspaceTopicType_(topic);
+  // Quiz and assignment tool IDs occupy distinct native namespaces. The broad
+  // destination conversion rule must not authorize cross-tool source evidence.
+  return String(source.type || '').toLowerCase()==='assessment' ? topicType==='Assessment' : qaTypesCompatible_(source.type || '',topicType);
+}
+
+function samePlacement(sourcePath, topicPath) {
+  function parts(path) { return String(path || '').split('>').map(identityLabel).filter(function(p){return p && p!=='root' && p!=='course';}); }
+  var source=parts(sourcePath), topic=parts(topicPath);
+  return !!source.length && !!topic.length && source.slice(0,Math.min(source.length,topic.length)).every(function(p,i){return p===topic[i];});
+}
+
+export function qaPlanBrightspaceTopicBindings_(sources, topics) {
+  var plans=sources.map(function(source) {
+    var nativeId=nativeTopicId(source), exactNative=topics.map(function(topic,index){return {topic:topic,index:index};}).filter(function(row){return nativeId && String(row.topic.id || '')===nativeId;});
+    var candidates=topics.map(function(topic,index){return {topic:topic,index:index,score:qaBrightspaceMatchScore_(source,topic)};})
+      .filter(function(row){return row.score>=0.76 || nativeId && String(row.topic.id || '')===nativeId;})
+      .sort(function(a,b){return b.score-a.score || JSON.stringify(a.topic).localeCompare(JSON.stringify(b.topic));});
+    var supported=nativeId ? exactNative.filter(function(row){return topicTypeAgrees(source,row.topic);}) : candidates.filter(function(row){
+      return identityLabel(source.name)===identityLabel(row.topic.title) && samePlacement(source.path,row.topic.path) && topicTypeAgrees(source,row.topic);
+    });
+    var winner=supported.length===1 ? supported[0] : null;
+    // Duplicate topic IDs make even an otherwise unique contextual match unsafe.
+    if(winner && (!String(winner.topic.id || '') || topics.filter(function(topic){return String(topic.id || '')===String(winner.topic.id || '');}).length!==1))winner=null;
+    return {source:source,nativeId:nativeId,candidates:candidates,winner:winner,
+      reason:nativeId && exactNative.length!==1 ? 'NATIVE_TOPIC_ID_NOT_UNIQUE' : supported.length>1 ? 'AMBIGUOUS_TOPIC_CONTEXT' : !winner ? 'TOPIC_IDENTITY_UNCONFIRMED' : nativeId ? 'UNIQUE_NATIVE_TOPIC_ID' : 'UNIQUE_TITLE_TYPE_PLACEMENT'};
+  });
+  // Resolve the whole inventory before mutating it. Greedy consumption can turn
+  // a tie into a false unique match when source or topic order changes.
+  plans.forEach(function(plan) {
+    if(!plan.winner)return;
+    if(plans.filter(function(other){return other.winner && other.winner.index===plan.winner.index;}).length!==1){
+      plan.conflict=true;
+    }
+  });
+  return plans.map(function(plan) {
+    return {status:plan.winner && !plan.conflict?'BOUND':'REVIEW',reason:plan.conflict?'TOPIC_CLAIMED_BY_MULTIPLE_SOURCE_ITEMS':plan.reason,
+      method:plan.nativeId?'NATIVE_TOPIC_ID':'TITLE_TYPE_PLACEMENT',sourceId:String(plan.source.id || ''),sourceName:plan.source.name || '',sourcePath:plan.source.path || '',sourceType:plan.source.type || '',
+      topicIndex:plan.winner && !plan.conflict?plan.winner.index:-1,
+      candidates:plan.candidates.map(function(row){return {topicId:String(row.topic.id || ''),title:row.topic.title || '',path:row.topic.path || '',type:qaBrightspaceTopicType_(row.topic),score:Number(row.score.toFixed(3))};})};
+  });
+}
+
+function exactToolDefinition(capture, kind, toolItemId) {
+  if(toolItemId==null || String(toolItemId)==='')return null;
+  var rows=Array.isArray(capture[kind])?capture[kind]:[], id=String(toolItemId);
+  var matches=rows.filter(function(row){return row && String(row.id)===''+id;});
+  return matches.length===1?matches[0]:null;
+}
+
 export function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, packageMeta, bundledAssets) {
   sourceItems = Array.isArray(sourceItems) ? sourceItems : [];
   if (!liveCapture) return {sourceItems:sourceItems,report:null};
@@ -145,14 +207,15 @@ export function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, package
   if (!guard.ok) throw new Error('Live source course mismatch: ' + guard.reason);
   var topics = liveCapture.topics || [];
   var topicUsed = Object.create(null), matches = [], drift = [], contradictions = [], evidenceReviews = [], bundledMatches = [];
-  sourceItems.forEach(function(source) {
-    var best=null,bestScore=0,bestIndex=-1;
-    for (var i=0;i<topics.length;i++) {
-      if (topicUsed[i]) continue;
-      var score=qaBrightspaceMatchScore_(source,topics[i]);
-      if(score>bestScore){bestScore=score;best=topics[i];bestIndex=i;}
+  var bindingPlan=qaPlanBrightspaceTopicBindings_(sourceItems,topics);
+  sourceItems.forEach(function(source,sourceIndex) {
+    var binding=bindingPlan[sourceIndex];
+    if(binding.topicIndex<0){
+      var unresolvedPolicy=workSourceItemPolicy_((packageMeta || {}).partner || '',source);
+      evidenceReviews.push({sourceId:source.id || '',sourceName:source.name,sourcePath:source.path,kind:'SOURCE_TOPIC_IDENTITY_UNRESOLVED',reason:binding.reason,candidates:binding.candidates,decisionRelevant:unresolvedPolicy.inDecisionGate!==false});
+      return;
     }
-    if(!best || bestScore < 0.76) return;
+    var bestIndex=binding.topicIndex,best=topics[bestIndex],bestScore=qaBrightspaceMatchScore_(source,best);
     topicUsed[bestIndex]=true;
     var liveMeta={topicId:best.id,title:best.title,path:best.path,matchScore:Number(bestScore.toFixed(3)),activityTypeLabel:best.activityTypeLabel,contentEvidenceStatus:String((best.contentEvidence||{}).status||''),textSample:'',textLength:0};
     var enriched=[];
@@ -170,9 +233,8 @@ export function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, package
     }
     var topicType=qaBrightspaceTopicType_(best);
     if(/Assessment/i.test(source.type || '') || topicType==='Assessment') {
-      var q = null;
-      if(best.toolItemId != null) q=liveCapture.quizById[String(best.toolItemId)] || null;
-      if(!q) q=liveCapture.quizByName[qaCleanName_(best.title)] || null;
+      var q=exactToolDefinition(liveCapture,'quizzes',best.toolItemId);
+      if(!q)evidenceReviews.push({sourceId:source.id || '',sourceName:source.name,sourcePath:source.path,topicId:best.id,kind:'QUIZ_DEFINITION_IDENTITY_UNRESOLVED',toolItemId:best.toolItemId,reason:'A unique quiz definition with the topic’s exact native tool-item ID was not captured. Titles are review suggestions only.',decisionRelevant:workSourceItemPolicy_((packageMeta || {}).partner || '',source).inDecisionGate!==false});
       var liveAssessment=qaBrightspaceQuizToAssessment_(q);
       var liveQuizBehaviorV8=qaBrightspaceQuizBehaviorV8_(q);
       if(liveQuizBehaviorV8 && liveQuizBehaviorV8.observed===true && !(source.behavior && source.behavior.observed===true)){
@@ -191,48 +253,37 @@ export function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, package
       }
     }
     if(/Assignment/i.test(source.type || '') || topicType==='Assignment') {
-      var a=null;
-      if(best.toolItemId != null) a=liveCapture.assignmentById[String(best.toolItemId)] || null;
-      if(!a) a=liveCapture.assignmentByName[qaCleanName_(best.title)] || null;
+      var a=exactToolDefinition(liveCapture,'assignments',best.toolItemId);
+      if(!a)evidenceReviews.push({sourceId:source.id || '',sourceName:source.name,sourcePath:source.path,topicId:best.id,kind:'ASSIGNMENT_DEFINITION_IDENTITY_UNRESOLVED',toolItemId:best.toolItemId,reason:'A unique assignment definition with the topic’s exact native tool-item ID was not captured. Titles are review suggestions only.',decisionRelevant:workSourceItemPolicy_((packageMeta || {}).partner || '',source).inDecisionGate!==false});
       var behavior=qaBrightspaceAssignmentBehavior_(a);
       if(behavior && behavior.observed===true && !(source.behavior && source.behavior.observed===true)){source.behavior=behavior; enriched.push('BEHAVIOR');}
     }
     var families=[];
     (liveCapture.runtimeCarriers || []).forEach(function(r){
       var sameId=String(r.id||'') && String(r.id||'')===String(best.id||'');
-      var sameTitle=qaCleanName_(r.title||'') && qaCleanName_(r.title||'')===qaCleanName_(best.title||'');
-      if(sameId||sameTitle){var f=String(r.family||r.activityTypeLabel||'RUNTIME').toUpperCase(); if(families.indexOf(f)===-1)families.push(f);}
+      if(sameId){var f=String(r.family||r.activityTypeLabel||'RUNTIME').toUpperCase(); if(families.indexOf(f)===-1)families.push(f);}
     });
     (liveCapture.interactiveEmbeds || []).forEach(function(r){
       var sameId=String(r.topicId||'') && String(r.topicId||'')===String(best.id||'');
-      var sameTitle=qaCleanName_(r.topicTitle||'') && qaCleanName_(r.topicTitle||'')===qaCleanName_(best.title||'');
       var f=String(r.family||'').toUpperCase();
-      if((sameId||sameTitle) && f && f!=='VIDEO_EMBED' && families.indexOf(f)===-1) families.push(f);
+      if(sameId && f && f!=='VIDEO_EMBED' && families.indexOf(f)===-1) families.push(f);
     });
     if(families.length){source.interactiveSignals=qaMergeInteractiveSignals_(source.interactiveSignals,{detected:true,runtimeFamilies:families,confidence:'HIGH',liveSourceObserved:true,note:'Positive interactive/runtime evidence observed in live Brightspace.'}); enriched.push('RUNTIME');}
     source.liveSource=liveMeta;
     source.liveSource.enrichedFields=enriched;
-    var competitors=topics.filter(function(t){return String(t.id)!==String(best.id) && qaBrightspaceMatchScore_(source,t)>=bestScore-0.03;});
     var navigationArea=function(path){return /(?:^|>)\s*Archive\s*(?:>|$)/i.test(path)?'archive':/(?:^|>)\s*Instructor Resources\s*(?:>|$)/i.test(path)?'instructor':'learner';};
-    matches.push({sourceId:source.id||'',sourceName:source.name,sourcePath:source.path,topicId:best.id,topicTitle:best.title,score:liveMeta.matchScore,enrichedFields:enriched,navigationEligible:bestScore>=0.90 && competitors.length===0 && qaCleanName_(source.name)===qaCleanName_(best.title) && navigationArea(source.path)===navigationArea(best.path)});
+    matches.push({sourceId:source.id||'',sourceName:source.name,sourcePath:source.path,topicId:best.id,topicTitle:best.title,score:liveMeta.matchScore,enrichedFields:enriched,identityMethod:binding.method,navigationEligible:binding.method==='NATIVE_TOPIC_ID' || bestScore>=0.90 && qaCleanName_(source.name)===qaCleanName_(best.title) && navigationArea(source.path)===navigationArea(best.path)});
   });
   // Binary documents are intentionally outside the core learner-item denominator.
   // They still exist in the package and must not be labelled live-only drift.
-  (bundledAssets || []).forEach(function(asset) {
-    var candidates=[];
-    topics.forEach(function(t,i) {
-      if(topicUsed[i] || qaCleanName_(asset.name)!==qaCleanName_(t.title)) return;
-      var sourcePath=String(asset.path||'').split('>').map(qaCleanName_).filter(Boolean);
-      var livePath=String(t.path||'').split('>').map(qaCleanName_).filter(Boolean);
-      var ancestry=sourcePath.length>0 && sourcePath.every(function(v,i){return livePath[i]===v;});
-      if(!ancestry)return;
-      var score=qaBrightspaceMatchScore_(asset,t);
-      if(score>=0.90)candidates.push({topic:t,index:i,score:score});
-    });
-    candidates.sort(function(a,b){return b.score-a.score;});
-    if(!candidates.length || (candidates.length>1 && candidates[0].score-candidates[1].score<0.03))return;
-    var best=candidates[0];topicUsed[best.index]=true;
-    bundledMatches.push({sourceId:asset.id,sourceName:asset.name,sourcePath:asset.path,topicId:best.topic.id,topicTitle:best.topic.title,scope:'PACKAGE_ATTACHMENT_IDENTITY_ONLY',contentVerified:false});
+  var availableTopicIndexes=topics.map(function(t,i){return i;}).filter(function(i){return !topicUsed[i];});
+  var bundledPlan=qaPlanBrightspaceTopicBindings_(bundledAssets || [],availableTopicIndexes.map(function(i){return topics[i];}));
+  (bundledAssets || []).forEach(function(asset,i) {
+    var binding=bundledPlan[i];
+    if(binding.topicIndex<0)return;
+    var topicIndex=availableTopicIndexes[binding.topicIndex],best=topics[topicIndex];
+    topicUsed[topicIndex]=true;
+    bundledMatches.push({sourceId:asset.id,sourceName:asset.name,sourcePath:asset.path,topicId:best.id,topicTitle:best.title,scope:'PACKAGE_ATTACHMENT_IDENTITY_ONLY',contentVerified:false});
   });
   topics.forEach(function(t,i){
     if(topicUsed[i]) return;
@@ -254,6 +305,7 @@ export function qaApplyBrightspaceGroundTruth_(sourceItems, liveCapture, package
     identity:guard,
     matchedSourceItems:matches.length,
     sourceTopicMappings:matches,
+    sourceTopicCandidates:bindingPlan,
     matchedBundledAssetCount:bundledMatches.length,
     matchedBundledAssets:bundledMatches,
     evidenceReviews:evidenceReviews,
