@@ -561,7 +561,7 @@ export default function AssignmentWorkspace({
               )}
               <div className="assignment-filters">
                 <label>
-                  Find an item
+                  Find a work item
                   <input
                     type="search"
                     value={query}
