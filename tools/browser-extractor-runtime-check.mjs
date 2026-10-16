@@ -9,6 +9,7 @@ import { CTI_RELEASE_REGISTRY_ } from '../src/engine/release.js';
 import { courseraSource } from '../src/generated/extractor-sources.js';
 import { extractorFunctions } from './extractor-functions.cjs';
 import { ownerAccessFixture } from './browser-owner-fixture.mjs';
+import { ownerTool } from './browser-workspace-navigation.mjs';
 import { createSavedCourseraResumeScript } from '../src/domain/coursera-local-extraction.ts';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -353,7 +354,7 @@ try{
   await ownerAccessFixture(context);
   const app=await context.newPage();app.on('pageerror',error=>errors.push(error.message));
   await app.goto(base);
-  await app.getByRole('button',{name:'Review a capture',exact:true}).click();
+  await ownerTool(app, 'Review a capture');
   await app.getByRole('button',{name:'Coursera extractor',exact:false}).click();
   const quickLocal=app.locator('.script-panel .local-extraction-card');
   await quickLocal.locator('.legacy-local-extraction > summary').click();
