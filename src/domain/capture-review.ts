@@ -3,6 +3,7 @@ import build from "../release.json" with { type: "json" };
 import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import { readCourseraCaptureFileBytes } from "./coursera-capture-file.ts";
+import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import type {
   ExtractorDelivery,
   Finding,
@@ -39,12 +40,14 @@ interface CaptureEngine {
 const engine = createEngine(
   createBrowserServices(),
 ) as unknown as CaptureEngine;
-export const MAX_CAPTURE_BYTES = 40 * 1024 * 1024;
+export const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
 export async function readCaptureReviewFile(file: File): Promise<unknown> {
   const { bytes } = await readCourseraCaptureFileBytes(file);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    );
   } catch {
     throw Error("The selected capture is not valid UTF-8 JSON.");
   }
@@ -54,7 +57,14 @@ export async function readCaptureReviewFile(file: File): Promise<unknown> {
     /brightspace/i.test(text(capture.extractor || meta.extractor)) &&
     bytes.length > MAX_CAPTURE_BYTES
   )
-    throw Error("Brightspace capture JSON exceeds the 40 MiB inspection limit.");
+    throw Error(
+      "Brightspace capture JSON exceeds the 128 MiB inspection limit.",
+    );
+  if (
+    /brightspace/i.test(text(capture.extractor || meta.extractor)) &&
+    (Array.isArray(capture.contentTree) || capture.assetBodies)
+  )
+    assertBrightspaceCaptureIntegrity(capture);
   return parsed;
 }
 function object(value: unknown): RecordValue {
@@ -147,6 +157,7 @@ export function reviewCapture(
     if (!Array.isArray(capture.contentTree))
       throw new Error("The Brightspace capture has no contentTree array.");
     progress("Reading Brightspace evidence");
+    const independent = assertBrightspaceCaptureIntegrity(capture);
     const topics = engine.qaBrightspaceFlattenTopics_(capture.contentTree);
     const quizzes = list(capture.quizzes),
       assignments = list(capture.assignments).map((a) =>
@@ -171,7 +182,7 @@ export function reviewCapture(
     result.counts.assets = null;
     result.counts.links = result.items.reduce((n, i) => n + i.links, 0);
     result.warnings.push(
-      "This preview inventories Brightspace topics and quiz definitions. It does not evaluate Brightspace attachment evidence or assignment/discussion content.",
+      "This preview independently validates retained original-body bytes and inventories Brightspace content and definitions. Missing bodies, legacy projections, native identity gaps and runtime content remain explicit uncertainties.",
     );
     result.warnings.push(
       "Topic and quiz-definition counts are separate inventories; question-bank size does not establish learner exam length.",
@@ -185,21 +196,11 @@ export function reviewCapture(
       result.warnings.push(
         typeof warning === "string" ? warning : JSON.stringify(warning),
       );
-    const gaps = quizzes.filter(
-      (q) => object(q.questionCoverage).completenessVerified !== true,
+    result.findings.push(...independent.findings);
+    result.warnings.push(
+      ...independent.warnings,
+      `${independent.counts.retainedOriginals} retained original bodies; ${independent.counts.retainedOriginalBytes} bytes; integrity ${independent.originalIntegrity}. Whole-course completeness remains unverified.`,
     );
-    for (const q of gaps)
-      result.findings.push({
-        code: "QUIZ_DEFINITION_COVERAGE_UNVERIFIED",
-        severity: "EVIDENCE",
-        itemName: text(q.name || q.title),
-        itemId: text(q.id),
-        path: text(q.path),
-        detail:
-          "This capture does not verify complete question-definition coverage.",
-        action:
-          "Inspect this quiz’s questionCoverage and questionPageEvidence in the original capture before concluding that source questions are absent.",
-      });
   } else {
     if (!Array.isArray(capture.fingerprints))
       throw new Error(
@@ -216,7 +217,8 @@ export function reviewCapture(
     if (
       !Number.isInteger(Number(capture.schemaVersion)) ||
       Number(capture.schemaVersion) < 1 ||
-      Number(capture.schemaVersion) > CTI_RELEASE_REGISTRY_.courseraExtractor.schema
+      Number(capture.schemaVersion) >
+        CTI_RELEASE_REGISTRY_.courseraExtractor.schema
     )
       throw new Error(
         "This preview supports Coursera capture schemas 1–" +

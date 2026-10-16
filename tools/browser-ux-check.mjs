@@ -425,6 +425,7 @@ try {
       exact: true,
     })
     .waitFor();
+  await page.getByText("Console fallback (optional)", { exact: true }).click();
   const sourceDownload = page.waitForEvent("download");
   await page
     .getByRole("button", {

@@ -131,8 +131,18 @@ recorded modules and lessons and shows baseline/latest learner-time totals for
 content maps. See [scope and time behavior](docs/audits/owner-scope-time-2026-10-05.md)
 for refresh steps and evidence limits.
 
-Coursera extraction is **v6.15.14/schema 35** and Brightspace remains
-**v1.0.8/schema 2**. Coursera v6.15.14 uses short, durable local capture batches
+Brightspace capture is **v1.1.0/schema 2**, with **CTI Brightspace capture** as its
+primary saved bookmark and a console fallback. It retains bounded original
+same-origin HTML, caption text and files with native source bindings and hashes;
+external/LTI/runtime content and inaccessible question banks remain explicit
+gaps. Local checkpoints support recovery and download, while each current
+capture/resume attempt re-reads metadata and bodies. See
+[Brightspace bookmark capture](docs/brightspace-bookmark-capture.md) for setup,
+limits and freshness. Earlier v1.0.8 captures and audit documents remain
+historical evidence, without retroactive completeness claims.
+
+The rendered Coursera extractor is **v6.15.33/schema 35**. The v6.15.14 release
+introduced short, durable local capture batches
 and requires a reload between batches to release accumulated page state. Saved
 items are restored on the next paste; primary and retry visits share the same
 renderer budget. Aggregate network capture remains bounded.

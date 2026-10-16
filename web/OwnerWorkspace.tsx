@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
 import LocalCourseraExtraction from "./LocalCourseraExtraction";
+import BrightspaceBookmarkSetup from "./BrightspaceBookmarkSetup";
 import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
 import type {
   ExtractorDelivery,
@@ -245,15 +246,17 @@ export default function App() {
               <p>
                 Choose a CTI capture. Coursera .cti.zip archives open directly,
                 up to 640 MiB with a course-data manifest bounded to 128 MiB.
-                Earlier JSON and .json.gz captures remain supported up to
-                128 MiB. Brightspace JSON remains limited to 40 MiB.
+                Earlier JSON and .json.gz captures remain supported up to 128
+                MiB. Brightspace JSON is limited to 128 MiB.
               </p>
               <label className="file-picker" htmlFor="capture-file">
                 <span className="file-icon" aria-hidden="true">
                   ↥
                 </span>
                 <strong>
-                  {file ? file.name : "Choose Coursera .cti.zip/JSON/.json.gz or Brightspace JSON"}
+                  {file
+                    ? file.name
+                    : "Choose Coursera .cti.zip/JSON/.json.gz or Brightspace JSON"}
                 </strong>
                 <span>
                   {file
@@ -419,41 +422,58 @@ export default function App() {
                 </button>
               </div>
               {extractor.platform === "COURSERA" && (
-                <LocalCourseraExtraction disabled={busy} captureInputId="quick-coursera-capture" />
-              )}
-              <details open={extractor.platform !== "COURSERA"}>
-                <summary>Manual extractor script</summary>
-              <div className="button-row">
-                <button className="primary" onClick={() => void copyScript()}>
-                  Copy script
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    saveFile(
-                      "CTI-" +
-                        extractor.platform.toLowerCase() +
-                        "-" +
-                        extractor.version +
-                        ".js",
-                      extractor.script,
-                      "text/javascript",
-                    )
-                  }
-                >
-                  Download script
-                </button>
-              </div>
-              <p role="status">{copyStatus}</p>
-              <details>
-                <summary>Manual-copy fallback</summary>
-                <textarea
-                  aria-label="Extractor script"
-                  readOnly
-                  value={extractor.script}
-                  onFocus={(e) => e.currentTarget.select()}
+                <LocalCourseraExtraction
+                  disabled={busy}
+                  captureInputId="quick-coursera-capture"
                 />
-              </details>
+              )}
+              {extractor.platform === "BRIGHTSPACE" && (
+                <BrightspaceBookmarkSetup disabled={busy} />
+              )}
+              <details>
+                <summary>
+                  {extractor.platform === "BRIGHTSPACE"
+                    ? "Console fallback (optional)"
+                    : "Manual extractor script"}
+                </summary>
+                {extractor.platform === "BRIGHTSPACE" && (
+                  <p className="hint">
+                    Run this fallback once in DevTools → Console on the matching
+                    Brightspace course Home or Content page. Keep that tab open
+                    until the source JSON downloads.
+                  </p>
+                )}
+                <div className="button-row">
+                  <button className="primary" onClick={() => void copyScript()}>
+                    Copy script
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      saveFile(
+                        "CTI-" +
+                          extractor.platform.toLowerCase() +
+                          "-" +
+                          extractor.version +
+                          ".js",
+                        extractor.script,
+                        "text/javascript",
+                      )
+                    }
+                  >
+                    Download script
+                  </button>
+                </div>
+                <p role="status">{copyStatus}</p>
+                <details>
+                  <summary>Manual-copy fallback</summary>
+                  <textarea
+                    aria-label="Extractor script"
+                    readOnly
+                    value={extractor.script}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                </details>
               </details>
             </section>
           )}

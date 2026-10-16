@@ -67,6 +67,11 @@ if(require.main===module){
   'CTI_TEST_assignmentTextBlocks_','CTI_TEST_answerOnlyBoundaries_',
   'CTI_TEST_captureInputReadiness_','CTI_TEST_extractorDeliveryIntegrity_',
   'CTI_TEST_courseraCanonicalExtractor_','CTI_TEST_courseraSearchableFilename_',
+  // v1.1.0 replaces frozen v1.0.8 spelling/local-time filename assertions.
+  // Current GET-only/no-learner contract and exact-source delivery are tested
+  // in brightspace-bookmark.test.mjs; native filename/download and request
+  // boundaries are exercised by browser-brightspace-bookmark-check.mjs.
+  'CTI_TEST_brightspaceCanonicalExtractor_','CTI_TEST_brightspaceSearchableFilename_',
   'CTI_TEST_semanticQaUiContract_','CTI_TEST_courseraV68CoverageUiContract_',
   // The frozen release identity predates the reviewed corpus QA corrections.
   // tests/current-release.test.mjs asserts all maintained identities explicitly.

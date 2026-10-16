@@ -29,7 +29,8 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Coursera capture | `src/extractors/coursera/` | `npm run test:extractors`; `npm run test:browser:choices` for rendered choice layouts |
 | Full course bookmark and direct authoring drafts | `src/extractors/coursera/direct-data-*`, `src/domain/coursera-direct-data-capture.ts`, `web/CourseraDirectCaptureSetup.tsx` | `tests/coursera-direct-data-*.test.mjs`; `npm run test:browser:direct-data` |
 | Panopto within the course bookmark | `src/extractors/coursera/direct-data-panopto*`, `direct-data-network.js`, `direct-data-media.js`, `src/domain/coursera-capture-archive.ts` | `tests/coursera-direct-data-panopto*.test.mjs`; `npm run test:browser:direct-data` |
-| Brightspace capture | `src/extractors/brightspace/` | `npm run test:extractors` |
+| Brightspace bookmark, bounded originals and local recovery | `src/extractors/brightspace/`, `src/domain/brightspace-bookmark.ts`, `web/BrightspaceBookmarkSetup.tsx`, `web/SourceLmsCapture.tsx` | `tests/brightspace-bookmark.test.mjs`; bounded reader/checkpoint tests; `npm run test:browser:brightspace-bookmark` |
+| Brightspace import integrity and explicit source gaps | `src/domain/brightspace-capture-evidence.ts`, `capture-review.ts`, `content-evidence.ts`, `brightspace-local-extraction.ts` | Brightspace evidence-integrity tests; `npm run test:browser:ux` |
 | Source topic matching and source assessment definitions | `src/engine/source/brightspace-matching.js`, `brightspace-assessment.js` | `npm run test:engine` |
 | Syllabus placeholders and observed live-source wording | `src/engine/readiness/template-placeholders.js`, `src/engine/source/live-text-review.js` | `tests/syllabus-readiness.test.mjs`; `npm run test:browser:owner` |
 | Assessment questions, answers, behaviour, rubrics | `src/engine/assessment/` | `npm run test:engine` |
@@ -93,6 +94,37 @@ Generated standalone browser bundles and delivery strings live under ignored
 `src/generated/`. Do not paste encoded strings or generated scripts back into
 source control. Run `npm run generate` after changing extractor modules,
 including during `npm run dev`.
+
+## Brightspace browser extraction
+
+Current Brightspace delivery is v1.1.0/schema 2; see
+[Brightspace bookmark capture](brightspace-bookmark-capture.md). The primary UI
+saves **CTI Brightspace capture** once and runs it on the signed-in course Home or
+Content page. Console copy/download remains an optional fallback. Both Source
+LMS and the capture tool panel use `BrightspaceBookmarkSetup.tsx` and the same
+exact standalone source. The URI-safe `javascript:void` address stays strictly
+below the same 500 KiB bound as Coursera, without eval, a remote loader or an
+extension. Generation rejects oversized addresses rather than truncating them.
+
+`content-reader.js` retains original same-origin HTML/text, SRT/VTT and supported
+file bytes separately from text projections. Original hashes, receipts and
+native source bindings remain distinct from acquisition status and independent
+coverage findings. Its bounds are 4 MiB per text original, 16 MiB per file,
+64 MiB unique retained bodies, 96 MiB observed response-body bytes and 16 MiB
+combined projections. The observed byte counter includes failed reads and is
+not network-wire accounting. References to external providers and dynamic/LTI
+tools remain gaps and are not launched. Question-definition pagination does not
+establish full pool/bank coverage; the supplied historical capture’s 18 quiz
+banks remain unverified.
+
+`checkpoint.js` retains up to three scoped attempts for recovery and download,
+with a 128 MiB payload bound and explicit quota errors. Capture/resume performs
+current metadata and body reads again; saved observations keep their original
+dates and are not promoted to fresh cached evidence. JSON export and inspection
+also use a 128 MiB bound. `brightspace-capture-evidence.ts` independently checks
+retained body lengths, SHA-256, receipts and native source ownership. These checks
+do not certify whole-course completeness or external runtime behavior. Historical
+v1.0.8 capture facts and dated migration documents retain their original scope.
 
 ## Coursera browser extraction
 

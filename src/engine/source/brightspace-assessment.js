@@ -194,6 +194,9 @@ export function qaBrightspaceQuestionType_(q) {
 
 export function qaBrightspaceQuizQuestion_(q, index) {
   q = q || {};
+  var nativeIds=[q.QuestionId,q.questionId].filter(function(value){return (typeof value==='string'||typeof value==='number') && /^[A-Za-z0-9_-]{1,160}$/.test(String(value));}).map(String);
+  var nativeQuestionId=nativeIds[0]||'', conflictingNativeIds=nativeIds.some(function(value){return value!==nativeQuestionId;});
+  var projectionId='cti-brightspace-question-projection:'+String(index+1);
   var info = q.QuestionInfo || q.questionInfo || {};
   var type = qaBrightspaceQuestionType_(q);
   var options = [], correct = [], answerReliable=true;
@@ -226,7 +229,13 @@ export function qaBrightspaceQuizQuestion_(q, index) {
   }
   if (!correct.length) options.forEach(function(o){ if(o.correct) correct.push(o.text); });
   return {
-    id:String(q.QuestionId || q.questionId || index+1),
+    id:nativeQuestionId || projectionId,
+    nativeQuestionId:nativeQuestionId || null,
+    identityStatus:conflictingNativeIds?'CONFLICTING_NATIVE_ID':nativeQuestionId?'NATIVE_ID':'MISSING_NATIVE_ID',
+    syntheticProjectionIdentity:!nativeQuestionId,
+    sourceTypeEvidence:{platform:'BRIGHTSPACE',nativeQuestionId:nativeQuestionId || null,
+      identityStatus:conflictingNativeIds?'CONFLICTING_NATIVE_ID':nativeQuestionId?'NATIVE_ID':'MISSING_NATIVE_ID',
+      syntheticProjectionIdentity:!nativeQuestionId,projectionId:!nativeQuestionId?projectionId:null},
     number:index+1,
     type:type,
     prompt:qaBrightspaceText_(q.QuestionText || q.questionText || q.Name || q.name || ''),
@@ -277,11 +286,15 @@ export function qaBrightspaceQuizToAssessment_(quiz) {
   var declared = qaBrightspaceDeclaredQuizCount_(quiz) || questions.length;
   var observedDeclared = qaBrightspaceDeclaredQuizCount_(quiz);
   var pages = quiz.questionPageEvidence || {}, coverage = quiz.questionCoverage || {};
+  var nativeIds=questions.map(function(q){return q.nativeQuestionId;}).filter(Boolean);
+  var missingNativeIds=questions.filter(function(q){return !q.nativeQuestionId;}).length;
+  var conflictingNativeIds=questions.filter(function(q){return q.identityStatus==='CONFLICTING_NATIVE_ID';}).length;
+  var duplicateNativeIds=nativeIds.length-nativeIds.filter(function(id,index,all){return all.indexOf(id)===index;}).length;
   // Parsing the returned definitions and establishing the entire source bank
   // are separate claims. Preserve the source capture's uncertainty through QA.
   var complete = coverage.completenessVerified === true && pages.complete === true &&
       quiz.questionsStatus === 'CAPTURED' && observedDeclared === questions.length &&
-      questions.length === quiz.questions.length;
+      questions.length === quiz.questions.length && !missingNativeIds && !conflictingNativeIds && !duplicateNativeIds;
   return qaNormalizeAssessment_({
     schemaVersion:1,
     origin:'brightspace-live-api',
@@ -291,11 +304,13 @@ export function qaBrightspaceQuizToAssessment_(quiz) {
     definitionCoverage:{scope:'BRIGHTSPACE_QUESTION_DEFINITIONS',completenessVerified:complete,
       status:complete?'VERIFIED_DECLARED_DEFINITIONS':String(coverage.status || 'TOTAL_UNVERIFIED'),
       observedDeclaredQuestionCount:observedDeclared,capturedDefinitions:questions.length,
+      nativeIdentityComplete:!missingNativeIds && !conflictingNativeIds && !duplicateNativeIds,
+      missingNativeQuestionIds:missingNativeIds,conflictingNativeQuestionIds:conflictingNativeIds,duplicateNativeQuestionIds:duplicateNativeIds,
       apiPagesComplete:pages.complete===true,stopReason:String(pages.stopReason||''),
       meaning:'API page completion and matching captured subsets do not establish the total source question bank or pool membership.'},
     questions:questions,
     parserConfidence:declared === questions.length ? 0.99 : 0.88,
-    warnings:(declared === questions.length ? [] : ['Brightspace declared question count differs from captured question definitions.']).concat(complete?[]:['Brightspace question-definition completeness remains unverified.'])
+    warnings:(declared === questions.length ? [] : ['Brightspace declared question count differs from captured question definitions.']).concat(complete?[]:['Brightspace question-definition completeness remains unverified.']).concat(missingNativeIds || conflictingNativeIds || duplicateNativeIds?['Brightspace native question identities are missing, conflicting or repeated. Projection ordinals do not establish native source identity.']:[])
   }, 'brightspace-live-api');
 }
 

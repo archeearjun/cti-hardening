@@ -180,13 +180,13 @@ test("source input rejects wrong-platform, malformed, empty, oversized and diagn
   await assert.rejects(
     inspectBrightspaceCaptureFile(
       {
-        size: 40 * 1024 * 1024 + 1,
+        size: 128 * 1024 * 1024 + 1,
         text: () => {
           throw Error("must not read oversized file");
         },
       },
       "",
     ),
-    /40 MiB/,
+    /128 MiB/,
   );
 });

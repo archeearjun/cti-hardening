@@ -6,7 +6,9 @@ export async function inspectBrightspaceCaptureFile(
 ) {
   if (!file.size) throw Error("The selected Brightspace capture is empty.");
   if (file.size > MAX_CAPTURE_BYTES)
-    throw Error("The Brightspace capture exceeds the 40 MiB inspection limit.");
+    throw Error(
+      "The Brightspace capture exceeds the 128 MiB inspection limit.",
+    );
   let value: unknown;
   try {
     value = JSON.parse(await file.text());
