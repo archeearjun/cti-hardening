@@ -35,8 +35,9 @@ test('Brightspace corroboration retains unique navigation identity but rejects t
   const t={id:'10',title:s.name,path:s.path,activityTypeLabel:'Quiz'};
   const first=qa.qaApplyBrightspaceGroundTruth_([structuredClone(s)],make([t]),{}).report.sourceTopicMappings[0];
   assert.equal(first.sourceId,'s1');assert.equal(first.topicId,'10');assert.equal(first.navigationEligible,true);
-  const tied=qa.qaApplyBrightspaceGroundTruth_([structuredClone(s)],make([t,{...t,id:'11'}]),{}).report.sourceTopicMappings[0];
-  assert.equal(tied.navigationEligible,false);
+  const tied=qa.qaApplyBrightspaceGroundTruth_([structuredClone(s)],make([t,{...t,id:'11'}]),{}).report;
+  assert.equal(tied.sourceTopicMappings.length,0);
+  assert.equal(tied.sourceTopicCandidates[0].reason,'AMBIGUOUS_TOPIC_CONTEXT');
 });
 test('plugin targets remain destination observations in older and fresh owner reports',()=>{
   const result={ownerView:{items:[{id:'p',name:'Plugin',pluginTargets:['https://external.example/one']} ]},itemResults:[{courseraId:'p',checks:{externalWebpageEvidence:{configurationMarkerObserved:true,capturedUrls:['https://external.example/two'],sourceUrls:['https://wrong.example/']}}}]};
