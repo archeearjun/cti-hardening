@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import JSZip from "jszip";
+import { gzipSync } from "node:zlib";
+import { clickDisclosedControl } from "./browser-workspace-navigation.mjs";
 import {
   captureFixture,
   pdfFixture,
@@ -73,11 +75,25 @@ try {
       .count(),
     1,
   );
-  await page
-    .getByRole("link", { name: "Open Role Play & Dialogue", exact: true })
-    .click();
+  await clickDisclosedControl(
+    page.getByRole("link", {
+      name: "Open Role Play & Dialogue",
+      exact: true,
+      includeHidden: true,
+    }),
+  );
   await page.waitForFunction(
     () => !!globalThis.CoursePrepUI && !!globalThis.CoursePackets,
+  );
+  assert.equal(
+    await page.locator("#capture-bookmark").getAttribute("href"),
+    await page.evaluate(() =>
+      CourseCtiUnifiedCapture.bookmark(CourseCtiCaptureScript),
+    ),
+  );
+  assert.equal(
+    await page.locator("#capture-bookmark-address").inputValue(),
+    await page.locator("#capture-bookmark").getAttribute("href"),
   );
   const upload = async (name, value) =>
     page.locator("#file-input").setInputFiles({
@@ -674,6 +690,79 @@ try {
     path: path.join(screenshots, "observed-empty-mobile.png"),
     fullPage: true,
   });
+  const archivePage = await context.newPage();
+  archivePage.on("pageerror", (e) => errors.push(e.message));
+  await archivePage.goto("http://127.0.0.1:4188/activity-designer/index.html");
+  await archivePage.waitForFunction(
+    () => !!globalThis.CourseCtiUnifiedCapture && !!globalThis.CoursePrepUI,
+  );
+  const universal = {
+    schemaVersion: 35,
+    extractedAt: "2026-10-16T21:00:00.000Z",
+    page: {
+      courseId: "syntheticBranch",
+      title: "Universal bookmark input",
+      url: "https://www.coursera.org/teach/synthetic/syntheticBranch/content/edit",
+    },
+    meta: {
+      directDataCapture: {
+        mode: "BOUND_AUTHORING_DRAFT_API",
+        exportTransport: { format: "ZIP_GZIP_JSON_V1" },
+      },
+    },
+    fingerprints: [
+      {
+        id: "reading",
+        name: "Original teaching",
+        type: "Reading",
+        typeName: "supplement",
+        ancestors: [
+          { id: "m1", title: "Module", key: "m1" },
+          { id: "l1", title: "Lesson", key: "m1/l1" },
+        ],
+        payload: {
+          textScopeKind: "bound-authoring-draft-cml",
+          textSample:
+            "The original source explains how to identify dimensions and choose the appropriate measurement units.",
+          captureContract: {
+            status: "UNRESOLVED_DIRECT_READING",
+            complete: false,
+          },
+        },
+      },
+    ],
+  };
+  const universalZip = new JSZip();
+  universalZip.file(
+    "capture.json.gz",
+    gzipSync(Buffer.from(JSON.stringify(universal))),
+    { createFolders: false },
+  );
+  await archivePage
+    .locator("#file-input")
+    .setInputFiles({
+      name: "same-bookmark.cti.zip",
+      mimeType: "application/zip",
+      buffer: await universalZip.generateAsync({
+        type: "nodebuffer",
+        compression: "STORE",
+      }),
+    });
+  await archivePage.locator("#process").click();
+  await archivePage.waitForFunction(
+    () =>
+      document.querySelector("#progress-label").textContent ===
+      "Preparation complete",
+  );
+  const universalSession = await archivePage.evaluate(() =>
+    CoursePrepUI.getSession(),
+  );
+  assert.equal(universalSession.courses[0].branch_id, "syntheticBranch");
+  assert(
+    universalSession.sources[0].documents.some((d) =>
+      d.text.includes("original source explains"),
+    ),
+  );
   assert.deepEqual(errors, []);
   assert(
     requests
@@ -682,7 +771,7 @@ try {
   );
   assert(!requests.some((r) => /openai|gemini|coursera\.org/.test(r.url)));
   console.log(
-    "PASS: gateway, strict CSP, bulk import, packet metrics/search, failed preparation recovery, stale/wrong placement, packet merging, ZIP save/restore, design gates, complete two-page PDF text/original packet, literal rendering, desktop/mobile. Synthetic course; no live Coursera verification.",
+    "PASS: gateway, same universal bookmark and .cti.zip import under strict CSP, bulk import, packet metrics/search, failed preparation recovery, stale/wrong placement, packet merging, ZIP save/restore, design gates, complete two-page PDF text/original packet, literal rendering, desktop/mobile. Synthetic course; no live Coursera verification.",
   );
 } finally {
   await browser?.close();

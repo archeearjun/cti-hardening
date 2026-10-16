@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
 import LocalCourseraExtraction from "./LocalCourseraExtraction";
@@ -12,6 +12,8 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from "../src/domain/types";
+
+const CaptureReviewSharePanel = lazy(() => import("./CaptureReviewSharePanel"));
 
 const severityNames: Record<Severity, string> = {
   CRITICAL: "Critical",
@@ -32,8 +34,13 @@ function elapsed(seconds: number) {
 }
 
 export default function App() {
-  const [workspace, setWorkspace] = useState<"capture" | "package" | "full">(
-    "full",
+  const [workspace, setWorkspace] = useState<
+    "capture" | "package" | "full" | "share"
+  >(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("tool") === "share"
+      ? "share"
+      : "full",
   );
   const [packageBusy, setPackageBusy] = useState(false);
   const [fullBusy, setFullBusy] = useState(false);
@@ -185,21 +192,22 @@ export default function App() {
             <h1 id="gateway-title">
               {workspace === "full"
                 ? "CTI assignment workspace"
-                : workspace === "capture"
-                  ? "Review course evidence"
-                  : "Inspect source evidence"}
+                : workspace === "share"
+                  ? "Share a capture for review"
+                  : workspace === "capture"
+                    ? "Review course evidence"
+                    : "Inspect source evidence"}
             </h1>
             <p className="hint">
               {workspace === "full"
-                ? "Add course evidence, review item exceptions, and prepare traceable deliverables."
-                : workspace === "capture"
-                  ? "Inspect captured content and retain its evidence gaps before comparing courses."
-                  : "Explore package structure and retained source content before ingestion."}
+                ? "Understand your title, compare the evidence, fix the shell, and verify the changes."
+                : workspace === "share"
+                  ? "Create a small review report from your existing capture, without rerunning extraction."
+                  : workspace === "capture"
+                    ? "Inspect captured content and retain its evidence gaps before comparing courses."
+                    : "Explore package structure and retained source content before ingestion."}
             </p>
           </div>
-          <a className="secondary" href="/activity-designer/index.html">
-            Open Role Play &amp; Dialogue
-          </a>
         </section>
         <nav className="workspace-tabs" aria-label="Choose a workspace">
           <button
@@ -210,23 +218,55 @@ export default function App() {
           >
             Full CTI workspace
           </button>
-          <button
-            className={workspace === "capture" ? "primary" : "secondary"}
-            aria-pressed={workspace === "capture"}
-            disabled={busy || packageBusy || fullBusy}
-            onClick={() => setWorkspace("capture")}
+          <details
+            className="owner-secondary-tools"
+            open={workspace !== "full" ? true : undefined}
           >
-            Review a capture
-          </button>
-          <button
-            className={workspace === "package" ? "primary" : "secondary"}
-            aria-pressed={workspace === "package"}
-            disabled={busy || packageBusy || fullBusy}
-            onClick={() => setWorkspace("package")}
-          >
-            Inspect a package
-          </button>
+            <summary>More tools</summary>
+            <div className="owner-secondary-tool-list">
+              <button
+                className={workspace === "capture" ? "primary" : "secondary"}
+                aria-pressed={workspace === "capture"}
+                disabled={busy || packageBusy || fullBusy}
+                onClick={() => setWorkspace("capture")}
+              >
+                Review a capture
+              </button>
+              <button
+                className={workspace === "package" ? "primary" : "secondary"}
+                aria-pressed={workspace === "package"}
+                disabled={busy || packageBusy || fullBusy}
+                onClick={() => setWorkspace("package")}
+              >
+                Inspect a package
+              </button>
+              <button
+                className={workspace === "share" ? "primary" : "secondary"}
+                aria-pressed={workspace === "share"}
+                disabled={busy || packageBusy || fullBusy}
+                onClick={() => setWorkspace("share")}
+              >
+                Share a large capture
+              </button>
+              <a className="secondary" href="/activity-designer/index.html">
+                Open Role Play &amp; Dialogue
+              </a>
+            </div>
+            <p className="hint">
+              Activity design, one-file diagnostics and sharing are available
+              when you need them. Course capture uses the same saved bookmark.
+            </p>
+          </details>
         </nav>
+        {workspace === "share" && (
+          <Suspense
+            fallback={<p role="status">Loading local capture review…</p>}
+          >
+            <CaptureReviewSharePanel
+              disabled={busy || packageBusy || fullBusy}
+            />
+          </Suspense>
+        )}
         <div hidden={workspace !== "full"}>
           <FullWorkspace onBusyChange={setFullBusy} />
         </div>

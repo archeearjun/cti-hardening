@@ -86,7 +86,7 @@
                 <h2 id="input-heading">Add course files</h2>
               </div>
               <details class="detail-box capture-guide" open>
-                <summary>Capture directly from a Coursera shell</summary>
+                <summary>Use the same CTI course capture bookmark</summary>
                 <ol>
                   <li>
                     Open the course’s
@@ -94,21 +94,49 @@
                     Chrome.
                   </li>
                   <li>
-                    Open <strong>Inspect → Console</strong>, paste this script,
-                    and run it once.
+                    Save <strong>CTI course capture</strong> to Chrome's
+                    bookmarks bar once. On Coursera, click that bookmark and
+                    choose <strong>Capture/resume course</strong>.
                   </li>
                   <li>
-                    Keep the tab open. At the end, download the capture JSON and
-                    add it below.
+                    Keep the tab open. Download the capture file and add it
+                    below. The same original file works for inspection and
+                    activity preparation.
                   </li>
                 </ol>
                 <div class="action-row">
-                  <button id="copy-capture-script" class="primary">
-                    Copy capture script</button
-                  ><button id="download-capture-script" class="secondary">
-                    Download script
+                  <a id="capture-bookmark" class="primary" draggable="true"
+                    >CTI course capture</a
+                  >
+                  <button id="copy-capture-bookmark" class="secondary">
+                    Copy bookmark address
                   </button>
                 </div>
+                <details>
+                  <summary>
+                    Bookmark address and advanced console fallback
+                  </summary>
+                  <p class="small">
+                    Drag the link above to Chrome's bookmarks bar, or paste this
+                    complete address into a saved bookmark's URL field. Existing
+                    CTI bookmarks can be reused.
+                  </p>
+                  <textarea
+                    id="capture-bookmark-address"
+                    readonly
+                    aria-label="CTI course capture bookmark address"
+                  ></textarea>
+                  <div class="action-row">
+                    <button id="copy-capture-script" class="primary">
+                      Copy capture script</button
+                    ><button id="download-capture-script" class="secondary">
+                      Download script
+                    </button>
+                  </div>
+                  <p class="small">
+                    The console fallback runs the same complete course program.
+                  </p>
+                </details>
                 <details>
                   <summary>Test one quiz first</summary>
                   <p class="small">
@@ -139,12 +167,21 @@
                   ></textarea>
                 </details>
                 <p class="small">
-                  Uses the maintained CTI Coursera extractor. Existing CTI JSON and older activity captures can also be imported. Captured PDF originals are included when available within the 8 MiB document limit.
-                  Reads text and explicitly reports gaps. It does not edit the
-                  course or make the AI judgment. The capture reports
-                  non-placeholder text and assessment coverage separately.
-                  Readable viewer text may omit later pages and diagrams; a
-                  finished run is not complete coverage.
+                  Uses the universal CTI Coursera bookmark, with no separate
+                  activity extraction. Import its .cti.zip, JSON or .json.gz
+                  directly. Existing CTI JSON and older activity captures still
+                  work. The original capture retains native models and
+                  unresolved sources, including wrong, broken or empty authored
+                  values; credential exclusions and capture limits remain
+                  recorded. This activity preparation projects only supported
+                  learner fields. Unsupported role-play/dialogue runtime remains
+                  unverified. Captured teaching PDFs are included when verified
+                  within the separate 8 MiB saved-work limit. Reads text and
+                  explicitly reports gaps. It does not edit the course or make
+                  the AI judgment. The capture reports non-placeholder text and
+                  assessment coverage separately. Readable viewer text may omit
+                  later pages and diagrams; a finished run is not complete
+                  coverage.
                 </p>
               </details>
               <label class="label" for="title"
@@ -180,14 +217,14 @@
                   /></svg
                 ><strong>Drop your course files here</strong
                 ><span
-                  >Standalone or CTI capture JSON, IMSCC, XLSXs, map or
-                  outline</span
+                  >CTI capture (.cti.zip, JSON or .json.gz), IMSCC, XLSXs, map
+                  or outline</span
                 ><button id="choose" class="secondary">Choose files</button
                 ><input
                   id="file-input"
                   type="file"
                   multiple
-                  accept=".imscc,.zip,.xlsx,.pdf,.docx,.pptx,.txt,.md,.xml,.qti,.html,.htm,.json,.csv,.vtt,.srt"
+                  accept=".imscc,.zip,.gz,.xlsx,.pdf,.docx,.pptx,.txt,.md,.xml,.qti,.html,.htm,.json,.csv,.vtt,.srt"
                   hidden
                 />
               </div>
@@ -641,6 +678,7 @@
     <script src="vendor/jszip.min.js"></script>
     <script src="xml-reader.js"></script>
     <script src="configuration.js"></script>
+    <script src="unified-capture.js"></script>
     <script src="shell-capture.js"></script>
     <script src="shell-rendered.js"></script>
     <script src="cti-adapter.js"></script>

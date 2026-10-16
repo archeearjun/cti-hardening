@@ -1,4 +1,5 @@
 import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
+import { workspaceNav } from "./browser-workspace-navigation.mjs";
 import fs from "node:fs";
 import http from "node:http";
 import assert from "node:assert/strict";
@@ -64,10 +65,7 @@ const backup = {
     records: [input.course],
   };
 async function tab(name, p = page) {
-  await p
-    .getByRole("navigation", { name: "CTI workflows" })
-    .getByRole("button", { name, exact: true })
-    .click();
+  await workspaceNav(p, name);
 }
 async function waitIdle(p = page) {
   await p.locator(".full-workspace .status").waitFor({ state: "hidden" });

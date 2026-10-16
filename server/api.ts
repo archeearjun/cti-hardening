@@ -20,6 +20,7 @@ import {
   type AccessAuthenticator,
 } from "./access.ts";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
+import { recordSummary } from "../src/domain/workspace-store.ts";
 interface Statement {
   bind(...values: unknown[]): Statement;
   first<T = any>(): Promise<T | null>;
@@ -705,6 +706,8 @@ export async function handleAuthorized(
           : {};
         const next = { ...r, data: fullData as Record<string, any> };
         if (
+          next.kind === "item-review" ||
+          current?.kind === "item-review" ||
           (r.kind === "operations" &&
             protectedTypes.includes(next.data.type)) ||
           (current?.kind === "operations" &&
@@ -718,6 +721,9 @@ export async function handleAuthorized(
           };
           const previous = current ? await lookup(r.id) : undefined;
           validateWorkspaceTransition(previous, next);
+          // Listing edit receipts must come from the checksummed full payload,
+          // never from an independently supplied prepare-envelope summary.
+          if (next.kind === "item-review") r.data = recordSummary(next).data;
           const { results: summaries } =
             next.data.type === "assignment-deliverable"
               ? await db
@@ -742,11 +748,12 @@ export async function handleAuthorized(
             version: row?.version ?? null,
           }));
           if (next.data.type === "assignment-deliverable") {
+            // Edit receipts on earlier reports also affect this assignment's
+            // basis. Pin their versions and guard newly inserted reviews.
             deliverableReviewCount = records.filter(
               (row) =>
                 row.kind === "item-review" &&
-                row.packageId === next.packageId &&
-                row.data.auditId === next.data.auditId,
+                row.packageId === next.packageId,
             ).length;
             deliverableSupplementCount = records.filter(
               (row) =>
@@ -760,8 +767,7 @@ export async function handleAuthorized(
                 .filter(
                   (row) =>
                     row.packageId === next.packageId &&
-                    ((row.kind === "item-review" &&
-                      row.data.auditId === next.data.auditId) ||
+                    (row.kind === "item-review" ||
                       (row.kind === "operations" &&
                         row.data.type === "report-content" &&
                         row.data.runId === next.data.auditId)),
@@ -896,7 +902,7 @@ export async function handleAuthorized(
         : "";
       const reviewPredicate =
         deliverableReviewCount !== undefined
-          ? " AND (SELECT COUNT(*) FROM documents WHERE kind='item-review' AND package_id=? AND json_extract(summary,'$.auditId')=?)=?"
+          ? " AND (SELECT COUNT(*) FROM documents WHERE kind='item-review' AND package_id=?)=?"
           : "";
       const supplementPredicate =
         deliverableSupplementCount !== undefined
@@ -910,11 +916,7 @@ export async function handleAuthorized(
           ? [r.packageId, latestDeliverableAuditId]
           : []),
         ...(deliverableReviewCount !== undefined
-          ? [
-              r.packageId,
-              (fullData as Record<string, any>).auditId,
-              deliverableReviewCount,
-            ]
+          ? [r.packageId, deliverableReviewCount]
           : []),
         ...(deliverableSupplementCount !== undefined
           ? [

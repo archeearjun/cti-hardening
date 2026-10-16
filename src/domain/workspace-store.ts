@@ -4,6 +4,7 @@ import {
   validateOperationalReferences,
 } from "./workspace-validation.ts";
 import { reviewTime } from "./owner-time.ts";
+import { summarizeAssignmentChanges } from "./assignment-change-freshness.ts";
 import { normalizePartnerName, packageSemanticKey } from "./operations.ts";
 import {
   workspaceRequest as request,
@@ -103,6 +104,7 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                 note: d.review?.note,
                 updatedAt: d.review?.updatedAt,
                 updatedBy: d.review?.updatedBy,
+                changeDeclaredAt: d.review?.changeDeclaredAt,
                 hasCapture: !!d.review?.capture,
                 pluginCaptureCount: d.review?.pluginCaptures?.length || 0,
                 panoptoCaptureCount: d.review?.panoptoCaptures?.length || 0,
@@ -134,6 +136,9 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
                       ).length
                     : 0,
                   lastEventAt: d.events?.at(-1)?.recordedAt,
+                  ...(d.type === "item-lifecycle"
+                    ? { declaredChanges: summarizeAssignmentChanges(d) }
+                    : {}),
                   role: d.role,
                   nativeCourseId: d.nativeCourseId,
                   capturedAt: d.capturedAt,

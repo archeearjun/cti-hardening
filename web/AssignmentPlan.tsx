@@ -14,11 +14,11 @@ import type { WorkspaceStore } from "../src/domain/workspace-store";
 import { download } from "./workspace-ui";
 import ModuleTimeSummary from "./ModuleTimeSummary";
 import {
-  nextAssignmentStep,
   sourceBaseline,
   type PendingAssignmentEvidence,
   type AssignmentAction,
 } from "../src/domain/assignment-evidence";
+import { assignmentOwnerJourney } from "../src/domain/assignment-owner-journey";
 const statusLabel = (value: string) =>
   (
     ({
@@ -103,7 +103,7 @@ export default function AssignmentPlanView({
     );
   const audit = loaded.audit;
   const baseline = sourceBaseline(course.data.scan);
-  const next = nextAssignmentStep(course, audit, e, pending);
+  const next = assignmentOwnerJourney(course, audit, e, pending).nextAction;
   function openAction(action: AssignmentAction) {
     if (action === "scan") onRescan();
     else if (action === "source") onNavigate("Source LMS");
@@ -377,7 +377,11 @@ export default function AssignmentPlanView({
             {e.changed.length > 0 &&
               `${e.changed.length} changed item(s) await a new comparison.`}
           </p>
-          <p className="hint">{e.excluded.length} reference-only or owner-excluded item(s) are outside the publishing checklist. Use item relevance in the worklist to restore any of them; their evidence is retained.</p>
+          <p className="hint">
+            {e.excluded.length} reference-only or owner-excluded item(s) are
+            outside the publishing checklist. Use item relevance in the worklist
+            to restore any of them; their evidence is retained.
+          </p>
           {audit && (
             <button className="primary" onClick={() => onAudit(audit)}>
               Open latest item worklist
@@ -523,9 +527,15 @@ export default function AssignmentPlanView({
                   <p>
                     Approval recorded:{" "}
                     {e.approvedMapRecordId ? (
-                      <span>CTI content-map version {e.approvedMapRecordId}</span>
+                      <span>
+                        CTI content-map version {e.approvedMapRecordId}
+                      </span>
                     ) : (
-                      <a href={e.plan.mapApproval!.url} target="_blank" rel="noopener noreferrer">
+                      <a
+                        href={e.plan.mapApproval!.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         Approved content map ↗
                       </a>
                     )}
@@ -534,16 +544,23 @@ export default function AssignmentPlanView({
                   <button
                     className="secondary"
                     disabled={!e.approvedMapRecordId && readonly}
-                    onClick={() => e.approvedMapRecordId ? onNavigate("Assignment workspace") : void save("withdraw")}
+                    onClick={() =>
+                      e.approvedMapRecordId
+                        ? onNavigate("Assignment workspace")
+                        : void save("withdraw")
+                    }
                   >
-                    {e.approvedMapRecordId ? "Review content-map versions in assignment workspace" : "Withdraw content map approval"}
+                    {e.approvedMapRecordId
+                      ? "Review content-map versions in assignment workspace"
+                      : "Withdraw content map approval"}
                   </button>
                 </div>
               ) : e.hasIntegratedMapHistory ? (
                 <div>
                   <p>
-                    The latest content-map version needs approval against the current evidence.
-                    Open Deliverables in the assignment workspace to review it.
+                    The latest content-map version needs approval against the
+                    current evidence. Open Deliverables in the assignment
+                    workspace to review it.
                   </p>
                   <button
                     className="secondary"

@@ -4,6 +4,16 @@
     C = globalThis.CoursePrep;
   const setup = globalThis.CourseActivitySetup;
   const captureScript = globalThis.CourseCtiCaptureScript;
+  $("capture-bookmark").href = globalThis.CourseCtiCaptureBookmark;
+  $("capture-bookmark").onclick = (event) => {
+    event.preventDefault();
+    toast(
+      "Drag this link to Chrome's bookmarks bar, then use it on Coursera's Content page.",
+    );
+  };
+  $("capture-bookmark-address").value = globalThis.CourseCtiCaptureBookmark;
+  $("copy-capture-bookmark").onclick = () =>
+    copy(globalThis.CourseCtiCaptureBookmark);
   const testScript = globalThis.CourseActivityCaptureScript.replace(
     "const captureScope='course';",
     "const captureScope='current_item';",

@@ -88,7 +88,12 @@
     );
   }
   async function hydrate(raw, capture, options = {}) {
-    const originals = await verify(raw.documentAssets || []),
+    const unifiedPdfs = root.CourseCtiUnifiedCapture?.pdfs(raw) || [];
+    const originalMap = new Map(
+      (raw.documentAssets || []).map((a) => [a.sha256, a]),
+    );
+    for (const pdf of unifiedPdfs) originalMap.set(pdf.asset.sha256, pdf.asset);
+    const originals = await verify([...originalMap.values()]),
       retained = new Map(),
       parsed = new Map();
     const byHash = new Map(originals.map((a) => [a.sha256, a]));
@@ -98,7 +103,16 @@
         throw new DOMException("Processing cancelled", "AbortError");
       const fp = byItem.get(item.id);
       const refs = new Set();
-      for (const detail of fp?.payload?.assetDetails || []) {
+      for (const detail of [
+        ...(fp?.payload?.assetDetails || []),
+        ...unifiedPdfs
+          .filter((pdf) => pdf.itemId === item.id)
+          .map((pdf) => ({
+            documentRef: pdf.asset.sha256,
+            sha256: pdf.asset.sha256,
+            name: pdf.name,
+          })),
+      ]) {
         if (!detail.documentRef || refs.has(detail.documentRef)) continue;
         refs.add(detail.documentRef);
         const asset = byHash.get(detail.documentRef);

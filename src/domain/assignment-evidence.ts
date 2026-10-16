@@ -1,6 +1,7 @@
 import type { PackageScan } from "./package-types.ts";
 import type { WorkspaceRecord } from "./workspace-types.ts";
 import type { evaluateAssignment } from "./assignment-plan.ts";
+import { courseraContentObservedAt } from "./coursera-observation-time.ts";
 
 export function sourceBaseline(scan?: Partial<PackageScan> | null) {
   if (!scan) return { status: "missing", label: "IMSCC not scanned" } as const;
@@ -47,7 +48,7 @@ export function externalApplicationNeedsCapture(courseId: string, audit: Workspa
     r.data.type === "assignment-deliverable" && r.data.event === "external-application-recorded");
   if (!changes.length) return false;
   const latest = Math.max(...changes.map(r => Date.parse(r.updatedAt || r.data.createdAt || "")));
-  const capturedAt = Date.parse(audit?.data.result?.stats?.extractorMeta?.capturedAt || "");
+  const capturedAt = Date.parse(courseraContentObservedAt(audit));
   return !Number.isFinite(latest) || !Number.isFinite(capturedAt) || capturedAt <= latest;
 }
 
@@ -100,7 +101,7 @@ export function nextAssignmentStep(
     return { action: "coursera", title: "Verify the externally changed shell",
       detail: "An external application is recorded. Capture the changed shell and compare it before reusing reconciliation or approval.",
       button: "Capture changed Coursera shell" };
-  const capturedAt = audit?.data.result?.stats?.extractorMeta?.capturedAt;
+  const capturedAt = courseraContentObservedAt(audit);
   if (
     e.plan.shellChangedAt &&
     (!capturedAt ||

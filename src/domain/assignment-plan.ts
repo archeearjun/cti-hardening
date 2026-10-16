@@ -11,6 +11,9 @@ import { ownerScope } from "./owner-scope.ts";
 import { moduleTimes, moduleTimesText } from "./owner-time.ts";
 import { loadReportContent } from "./report-content-store.ts";
 import type { WorkspaceStore } from "./workspace-store.ts";
+import { loadItemLifecycle } from "./item-lifecycle.ts";
+import { assignmentChangeFreshness } from "./assignment-change-freshness.ts";
+import { courseraContentObservedAt } from "./coursera-observation-time.ts";
 import {
   assignmentDeliverableRecordId,
   deliverableIdentity,
@@ -33,7 +36,14 @@ export async function loadAssignmentEvidence(
     store,
     records,
   );
-  return { ...audit, data: { ...audit.data, contentEvidence } };
+  const assignmentLifecycleEvidence = await loadItemLifecycle(
+    store,
+    audit.packageId,
+  );
+  return {
+    ...audit,
+    data: { ...audit.data, contentEvidence, assignmentLifecycleEvidence },
+  };
 }
 
 export const CONTENT_MAP_AGENT =
@@ -171,6 +181,7 @@ export function assignmentBasis(
       record.data.sourceHash,
     ])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const changes = assignmentChangeFreshness(course.id, audit, records);
   return bytesToHex(
     sha256(
       new TextEncoder().encode(
@@ -199,6 +210,15 @@ export function assignmentBasis(
           // Keep historical no-supplement bases stable. A newly loaded or
           // revised exact-input projection still requires a fresh owner review.
           ...(supplements.length ? [["report-content", supplements]] : []),
+          ...(changes.declarationCount
+            ? [
+                [
+                  "declared-item-edits",
+                  changes.declarationCount,
+                  changes.latest,
+                ],
+              ]
+            : []),
         ]),
       ),
     ),
@@ -216,6 +236,7 @@ export function reconciliationCurrent(
     latest?.id === audit.id &&
     latest.version === audit.version &&
     !!plan.reconciliation &&
+    !assignmentChangeFreshness(course.id, audit, records).blockers.length &&
     !externalApplicationNeedsCapture(course.id, audit, records) &&
     !!course.data.scan?.fileSha256 &&
     audit.data.sourceScanSha256 === course.data.scan.fileSha256 &&
@@ -268,6 +289,8 @@ export function evaluateAssignment(
     (t) => reviewFor(t.key)?.status === "changed",
   );
   const blockers: string[] = [];
+  const changeFreshness = assignmentChangeFreshness(course.id, audit, records);
+  blockers.push(...changeFreshness.blockers);
   if (externalApplicationNeedsCapture(course.id, audit, records))
     blockers.push(
       "An external application was recorded. Capture and compare the changed Coursera shell before reusing reconciliation or approval.",
@@ -301,7 +324,7 @@ export function evaluateAssignment(
       blockers.push(
         "Add the full Coursera capture; an XLSX alone does not verify content.",
       );
-    const capturedAt = result?.stats?.extractorMeta?.capturedAt;
+    const capturedAt = courseraContentObservedAt(audit);
     if (
       plan.shellChangedAt &&
       (!date(capturedAt) ||
@@ -392,6 +415,7 @@ export function evaluateAssignment(
       records,
     ),
     canRecordReview: !!audit && !blockers.length,
+    changeFreshness,
     captureStatus: result?.captureReadiness?.status || "Not recorded",
     sourceStatus: result?.liveSourceGroundTruth?.status || "Not captured",
     headline: result?.summary?.headlineText || "No comparison saved",

@@ -3,8 +3,10 @@ import http from "node:http";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
+import { ownerTool, workspaceNav } from "./browser-workspace-navigation.mjs";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
@@ -135,11 +137,7 @@ await ownerAccessFixture(context);
 const page = await context.newPage(),
   errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
-const nav = (name) =>
-  page
-    .getByRole("navigation", { name: "CTI workflows" })
-    .getByRole("button", { name, exact: true })
-    .click();
+const nav = (name) => workspaceNav(page, name);
 const coursePicker = () =>
   page.getByRole("combobox", { name: "Selected source course", exact: true });
 const waitLoaded = async () => {
@@ -181,7 +179,318 @@ try {
   await page.goto(base);
   await page.getByRole("navigation", { name: "CTI workflows" }).waitFor();
   await page
-    .getByRole("heading", { name: "Start with your course evidence" })
+    .getByRole("heading", { name: "Inspect your title before making changes" })
+    .waitFor();
+  // Keep the everyday assignment path visible and secondary tools available
+  // through real disclosures. The browser helper never sets `open` itself.
+  const workflowNavigation = page.getByRole("navigation", {
+    name: "CTI workflows",
+  });
+  for (const name of [
+    "Assignment workspace",
+    "Scan",
+    "Source LMS",
+    "Extract",
+    "Compare",
+    "History",
+  ])
+    assert(
+      await workflowNavigation
+        .getByRole("button", { name, exact: true })
+        .isVisible(),
+    );
+  for (const name of ["Catalogue", "Setup"])
+    assert.equal(
+      await workflowNavigation
+        .getByRole("button", { name, exact: true, includeHidden: true })
+        .isVisible(),
+      false,
+    );
+  assert.equal(await workflowNavigation.locator("details[open]").count(), 0);
+  for (const label of ["More workspace tools", "Advanced tools"])
+    assert(
+      await workflowNavigation.getByText(label, { exact: true }).isVisible(),
+    );
+  assert.equal(
+    await page
+      .getByRole("button", {
+        name: "Share a large capture",
+        exact: true,
+        includeHidden: true,
+      })
+      .isVisible(),
+    false,
+  );
+  await ownerTool(page, "Share a large capture");
+  await page
+    .getByRole("heading", { name: "Share a capture review", exact: true })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByLabel("CTI capture review address", { exact: true })
+      .inputValue(),
+    "https://cti-hardening.pages.dev/?tool=share",
+  );
+  const rawCaption =
+      "RAW_CAPTION_SENTINEL_PRIVATE: preserve these original bytes.\n",
+    captionBytes = Buffer.from(rawCaption),
+    captionSha = createHash("sha256").update(captionBytes).digest("hex"),
+    capturedAt = "2026-10-17T09:00:00.000Z",
+    captionUrl =
+      "https://source.example.test/caption.srt?auth=RAW_ACCESS_PARAMETER_SENTINEL",
+    receipt = {
+      requestUrl: captionUrl,
+      responseUrl: captionUrl,
+      status: 200,
+      observedAt: capturedAt,
+      bytes: captionBytes.length,
+      sha256: captionSha,
+      complete: true,
+    },
+    localCapture = {
+      schemaVersion: 2,
+      extractor: "CTI Brightspace v1.1.0",
+      extractedAt: capturedAt,
+      orgUnitId: "123",
+      course: { name: "Synthetic source for local review" },
+      page: { url: "https://source.example.test/d2l/home/123" },
+      contentTree: [
+        {
+          kind: "TOPIC",
+          id: "share-topic-1",
+          title: "Caption",
+          path: ["Module", "Caption"],
+          url: captionUrl,
+          contentEvidence: {
+            status: "CAPTURED",
+            url: captionUrl,
+            rawBodyRef: captionSha,
+            bodyReceipt: receipt,
+            contentType: "text/srt; charset=utf-8",
+            format: "srt",
+            charset: "utf-8",
+            html: "",
+            text: rawCaption,
+            textLength: rawCaption.length,
+            textSha256: captionSha,
+            projectionTruncated: false,
+          },
+        },
+      ],
+      quizzes: [],
+      assignments: [],
+      discussions: [],
+      assetBodies: {
+        [captionSha]: {
+          encoding: "base64",
+          base64: captionBytes.toString("base64"),
+          bytes: captionBytes.length,
+          sha256: captionSha,
+        },
+      },
+      contentAcquisition: {
+        version: 1,
+        wholeCourseComplete: false,
+        assets: [
+          {
+            url: captionUrl,
+            status: "CAPTURED_ORIGINAL",
+            originalRef: captionSha,
+            bytes: captionBytes.length,
+            sha256: captionSha,
+            mediaType: "text/srt",
+            receipt,
+            sourceBindings: [
+              {
+                kind: "TOPIC",
+                id: "share-topic-1",
+                path: ["Module", "Caption"],
+              },
+            ],
+          },
+        ],
+        gaps: [
+          {
+            url: "https://media.example.test/video?id=native-video&hmac=SIGNED_PARAMETER_SENTINEL&expiry=98765",
+            reason: "EXTERNAL_PROVIDER_UNREAD",
+            sourceBinding: {
+              kind: "TOPIC",
+              id: "share-topic-1",
+              path: ["Module", "Caption"],
+            },
+          },
+        ],
+      },
+      inventoryEvidence: {
+        content: { complete: true },
+        quizzes: { complete: true },
+        assignments: { complete: true },
+        discussionForums: { complete: true },
+      },
+      summary: {
+        topics: 1,
+        wholeCourseComplete: true,
+        base64: "SUMMARY_BODY_SENTINEL",
+      },
+    },
+    captureText = JSON.stringify(localCapture),
+    captureInput = page.getByLabel(
+      "Existing capture JSON, JSON.gz or CTI ZIP",
+      { exact: true },
+    ),
+    shareDownloads = [],
+    shareUploads = [],
+    shareExternalRequests = [];
+  const observeDownload = (download) =>
+    shareDownloads.push(download.suggestedFilename());
+  const observeRequest = (request) => {
+    if (["POST", "PUT", "PATCH"].includes(request.method()))
+      shareUploads.push(request.url());
+    if (
+      /^https?:/.test(request.url()) &&
+      new URL(request.url()).origin !== new URL(base).origin
+    )
+      shareExternalRequests.push(request.url());
+  };
+  page.on("download", observeDownload);
+  page.on("request", observeRequest);
+  await captureInput.setInputFiles({
+    name: "existing-brightspace.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(captureText),
+  });
+  const reviewText = page.getByRole("textbox", {
+    name: "Capture review text to copy",
+    exact: true,
+  });
+  await reviewText.waitFor();
+  const sharedText = await reviewText.inputValue(),
+    shared = JSON.parse(sharedText);
+  assert.equal(shared.kind, "CTI_CAPTURE_SHARE_REVIEW");
+  assert.equal(shared.platform, "BRIGHTSPACE");
+  assert.equal(shared.localCheck.status, "PASSED");
+  assert.equal(
+    shared.localCheck.originalIntegrity,
+    "VERIFIED_RETAINED_ORIGINALS",
+  );
+  assert.equal(shared.counts.retainedOriginals, 1);
+  assert.equal(shared.wholeCourseCoverage, "UNVERIFIED");
+  assert.equal(shared.items[0].nativeItemId, "share-topic-1");
+  assert.equal(
+    shared.acquisitionGaps[0].url,
+    "https://media.example.test/video?id=native-video",
+  );
+  assert.equal(shared.omissions.originalBodies, "EXCLUDED_FROM_SHARE_REPORT");
+  assert(Buffer.byteLength(sharedText) <= 96 * 1024);
+  assert(
+    !/RAW_CAPTION_SENTINEL_PRIVATE|RAW_ACCESS_PARAMETER_SENTINEL|SIGNED_PARAMETER_SENTINEL|SUMMARY_BODY_SENTINEL|98765|"base64"|assetBodies/.test(
+      sharedText,
+    ),
+  );
+  assert(!sharedText.includes(captionBytes.toString("base64")));
+  assert.equal(
+    await captureInput.evaluate((element) => element.files[0].text()),
+    captureText,
+    "Local review leaves the original capture byte-for-byte unchanged",
+  );
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page
+    .getByRole("button", { name: "Copy review text", exact: true })
+    .click();
+  await page
+    .getByText("Review text copied. Paste it into your support chat.", {
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(
+    await page.evaluate(() => navigator.clipboard.readText()),
+    sharedText,
+  );
+  await page.evaluate(() => {
+    window.fixtureNativeShareClipboardWrite =
+      navigator.clipboard.writeText.bind(navigator.clipboard);
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: async () => {
+        throw Error("Synthetic embedded-browser clipboard denial");
+      },
+    });
+  });
+  await page
+    .getByRole("button", { name: "Copy review text", exact: true })
+    .click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Clipboard access is unavailable here." })
+    .waitFor();
+  assert.equal(
+    await reviewText.evaluate(
+      (element) => element.selectionEnd - element.selectionStart,
+    ),
+    sharedText.length,
+  );
+  await reviewText.evaluate((element) => element.setSelectionRange(0, 0));
+  await page
+    .getByRole("button", { name: "Select all review text", exact: true })
+    .click();
+  assert.equal(
+    await reviewText.evaluate(
+      (element) => element.selectionEnd - element.selectionStart,
+    ),
+    sharedText.length,
+  );
+  assert.equal(await reviewText.inputValue(), sharedText);
+  await page.evaluate(() =>
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: window.fixtureNativeShareClipboardWrite,
+    }),
+  );
+  assert.deepEqual(
+    shareDownloads,
+    [],
+    "Sharing a review does not require any download",
+  );
+  assert.deepEqual(
+    shareUploads,
+    [],
+    "Preparing and copying a review does not upload the capture",
+  );
+  assert.deepEqual(
+    shareExternalRequests,
+    [],
+    "Local review does not revisit any captured provider or source URL",
+  );
+  await page.screenshot({
+    path: screenshotDirectory + "/capture-share-copy-fallback.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth + 1,
+    ),
+    "The selectable capture review fits a phone or embedded narrow browser",
+  );
+  await page
+    .getByRole("button", { name: "Select all review text", exact: true })
+    .click();
+  assert.equal(
+    await reviewText.evaluate(
+      (element) => element.selectionEnd - element.selectionStart,
+    ),
+    sharedText.length,
+  );
+  await page.screenshot({
+    path: screenshotDirectory + "/capture-share-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  page.off("download", observeDownload);
+  page.off("request", observeRequest);
+  await ownerTool(page, "Full CTI workspace");
+  await page
+    .getByRole("heading", { name: "Inspect your title before making changes" })
     .waitFor();
   // The first assignment can begin with a real source document; no package or
   // existing saved course is required. Preserve its literal text and scope.
@@ -429,10 +738,7 @@ try {
   await second
     .getByRole("combobox", { name: "Selected source course", exact: true })
     .selectOption(input.course.id);
-  await second
-    .getByRole("navigation", { name: "CTI workflows" })
-    .getByRole("button", { name: "Catalogue", exact: true })
-    .click();
+  await workspaceNav(second, "Catalogue");
   await second
     .getByLabel("Owner", { exact: true })
     .fill("Second synthetic owner");
@@ -488,7 +794,7 @@ try {
     "A structural deliverable exports identified members",
   );
   assert.equal(artifact.courseId, input.course.id);
-  await page.getByRole("tab", { name: "Advisory", exact: true }).click();
+  await ownerTool(page, "Open advisory analysis");
   const advisory = page.getByRole("region", {
     name: "Measured advisory assistance",
     exact: true,
@@ -658,6 +964,10 @@ try {
         noListeningSocket: noListen,
         fullAudit: true,
         documentFirstAssignment: true,
+        secondaryToolsDisclosed: true,
+        originalIntegrityCheckedBeforeSharing: true,
+        shareCopyAndDeniedClipboardFallback: true,
+        shareWithoutDownloadOrUpload: true,
         partialIntake: true,
         explicitBaseline: true,
         exactDocumentDownload: true,

@@ -1003,6 +1003,13 @@ try{
   assert.equal(configured.capture.meta.directDataCapture.coverage.widgets.configurations,2);
   assert.equal(evaluateCourseraCapture(configured.capture,configuredWidgets.id).complete,false);
   const savedWidgetAssessments=configured.capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence);
+  const editedGroup=[...groups.values()].find(row=>row.courseId===configuredWidgets.id);
+  const oldQuestionId=editedGroup.value.questions[0],oldQuestion=definitions.get(oldQuestionId);
+  const editedQuestionId=oldQuestionId.replace(/@\d+$/,value=>'@'+(Number(value.slice(1))+1));
+  definitions.set(editedQuestionId,{...oldQuestion,value:{...oldQuestion.value,id:editedQuestionId,
+    definition:{...oldQuestion.value.definition,definition:{...oldQuestion.value.definition.definition,
+      prompt:cml('Edited source question for fresh verification')}}}});
+  editedGroup.value.questions[0]=editedQuestionId;
   for(const provider of providers.values())if(provider.courseId===configuredWidgets.id){
     provider.value.draft.configuration.url+='&revision=2';provider.value.draft.pageSrc=provider.value.draft.configuration.url;
     provider.value.metadata.updatedAt++;
@@ -1023,6 +1030,29 @@ try{
     assert(fp.payload.directWidgetProviderEvidence.targets.every(target=>target.url.includes('revision=2')));
   }
   assertTransport(configuredWidgets,widgetResumeStart);await assertNoEditor(configured.page,configured.destinations);
+  async function savedNativeRun(page,runId){return page.evaluate(async id=>{
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const result=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items','groups','definitions'],'readonly'),out={};
+      for(const name of ['runs','items','groups','definitions']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result.filter(row=>row.runId===id);};}
+      transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});database.close();return result;
+  },runId);}
+  const preservedRun=await savedNativeRun(configured.page,widgetResumeState.runId),freshStart=requests.length;
+  const freshDownload=configured.page.waitForEvent('download',{timeout:180000});void freshDownload.catch(()=>{});
+  await configured.page.getByRole('button',{name:'Start a fresh course capture',exact:true}).click();
+  const freshState=await terminal(configured.page),freshCapture=await readFile(await freshDownload);
+  assert.notEqual(freshState.runId,widgetResumeState.runId,'Explicit fresh verification opens an independent run');
+  assert.equal(freshCapture.meta.directDataCapture.resumed,false);
+  assert.equal(freshCapture.meta.directDataCapture.mediaEnrichment,undefined);
+  assert(freshCapture.fingerprints.some(fp=>fp.payload.structuredAssessment?.questions?.some(q=>q.prompt==='Edited source question for fresh verification')),
+    'A fresh full capture reads the edited native group and versioned question rather than relabeling retained questions');
+  const freshRequests=requests.slice(freshStart).filter(request=>request.courseId===configuredWidgets.id);
+  assert(freshRequests.some(request=>request.resource===groupResource));
+  assert(freshRequests.some(request=>request.resource===definitionResource&&request.reference===editedQuestionId));
+  assert.deepEqual(await savedNativeRun(configured.page,widgetResumeState.runId),preservedRun,
+    'Prior run items, groups, definitions, receipts and cumulative budgets remain available for export unchanged');
+  assert.equal(freshCapture.meta.directDataCapture.stats.inheritedBudget.requests,0,
+    'Explicit fresh verification has a separate budget rather than resetting the prior saved run');
+  assertTransport(configuredWidgets,freshStart);await assertNoEditor(configured.page,configured.destinations);
   await configured.context.close();
 
   function assertMixedNativeItems(config,capture){

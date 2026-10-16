@@ -15,7 +15,7 @@ import {
   validateCourseraLinkedCaptures,
   type CourseraLinkedCapture,
 } from "./coursera-linked-content.ts";
-import type { EvidenceObject } from "./workspace-types.ts";
+import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
 import { ownerScope, type ItemRelevance } from "./owner-scope.ts";
 import type { TimeEstimate } from "./owner-time.ts";
 import { validatePanoptoDeliveryInfoCapture } from "./panopto-delivery-info.ts";
@@ -32,12 +32,92 @@ export interface OwnerReview {
   note: string;
   updatedAt: string;
   updatedBy: string;
+  /** Sticky owner edit declaration; checking later does not refresh capture. */
+  changeDeclaredAt?: string;
   capture?: EvidenceObject;
   pluginCaptures?: EvidenceObject[];
   panoptoCaptures?: EvidenceObject[];
   sourceCounts?: ReviewedSourceCount[];
   sourceCaptures?: SourceQuestionCapture[];
   courseraLinkedCaptures?: CourseraLinkedCapture[];
+}
+const reviewTimeValue = (value: unknown) =>
+  typeof value === "string" && Number.isFinite(Date.parse(value))
+    ? Date.parse(value)
+    : 0;
+/** Retain an edit through every later capture/import/check save. The saved
+ * changed record's service date prevents a backdated client declaration from
+ * becoming an earlier barrier when its outcome is subsequently checked. */
+export function ownerReviewChangeDeclaration(
+  prior: WorkspaceRecord | null | undefined,
+  nextStatus: OwnerProgress,
+  now: string,
+): string | undefined {
+  const review = prior?.data.review;
+  const existing = reviewTimeValue(review?.changeDeclaredAt);
+  const previouslyChanged = review?.status === "changed";
+  if (nextStatus !== "changed" && !existing && !previouslyChanged)
+    return undefined;
+  const observed = Math.max(
+    existing,
+    previouslyChanged
+      ? Math.max(
+          reviewTimeValue(prior?.updatedAt),
+          reviewTimeValue(review?.updatedAt),
+        )
+      : 0,
+    nextStatus === "changed" ? reviewTimeValue(now) : 0,
+  );
+  return new Date(observed || reviewTimeValue(now)).toISOString();
+}
+
+export function validateOwnerReviewTransition(
+  prior: WorkspaceRecord | undefined,
+  next: WorkspaceRecord,
+) {
+  if (!prior || (prior.kind !== "item-review" && next.kind !== "item-review"))
+    return;
+  if (
+    prior.kind !== next.kind ||
+    prior.packageId !== next.packageId ||
+    prior.data.auditId !== next.data.auditId ||
+    prior.data.itemKey !== next.data.itemKey
+  )
+    throw Error(
+      "An item outcome cannot change its course, report or item identity.",
+    );
+  const previous = prior.data.review as OwnerReview;
+  const following = next.data.review as OwnerReview;
+  const floor = ownerReviewChangeDeclaration(
+    prior,
+    "checked",
+    following.updatedAt,
+  );
+  if (
+    floor &&
+    (!following.changeDeclaredAt ||
+      reviewTimeValue(following.changeDeclaredAt) < reviewTimeValue(floor))
+  )
+    throw Error(
+      "The recorded edit declaration cannot be cleared or backdated. Capture and compare the changed shell to verify it.",
+    );
+  if (
+    following.status !== "changed" &&
+    previous.status !== "changed" &&
+    following.changeDeclaredAt !== previous.changeDeclaredAt
+  )
+    throw Error(
+      "An unchanged item outcome must retain its exact edit declaration.",
+    );
+  if (
+    following.status === "changed" &&
+    (!following.changeDeclaredAt ||
+      reviewTimeValue(following.changeDeclaredAt) <
+        reviewTimeValue(prior.updatedAt))
+  )
+    throw Error(
+      "Record a current edit declaration before saving a changed item outcome.",
+    );
 }
 export interface OwnerTask {
   timeEstimate?: TimeEstimate;
@@ -105,10 +185,10 @@ function sourceFor(r: EvidenceObject, nodes: EvidenceObject[]) {
   );
   if (r.sourceId) return matches.length === 1 ? matches[0] : null;
   matches = nodes.filter(
-      (n) =>
-        clean(n.title) === clean(r.sourceName) &&
-        clean(n.path) === clean(r.sourcePath),
-    );
+    (n) =>
+      clean(n.title) === clean(r.sourceName) &&
+      clean(n.path) === clean(r.sourcePath),
+  );
   // Duplicated resource IDs or titles remain ambiguous; do not show a different
   // module's source text as a repair instruction.
   return matches.length === 1 ? matches[0] : null;
@@ -117,7 +197,11 @@ export function buildOwnerTasks(
   result: EvidenceObject,
   tree: EvidenceObject[] = [],
   override = "",
-  contentItems: { id: string; path?: string; content: { url: string; timeEstimate?: TimeEstimate } }[] = [],
+  contentItems: {
+    id: string;
+    path?: string;
+    content: { url: string; timeEstimate?: TimeEstimate };
+  }[] = [],
 ): OwnerTask[] {
   const nodes = sourceEntries(tree),
     results: EvidenceObject[] = result.itemResults || [];
@@ -128,11 +212,11 @@ export function buildOwnerTasks(
   ): OwnerTask => {
     const id = sourceOnly ? "" : String(item.id || "");
     const findings = sourceOnly
-      ? results.filter(
-          (r) =>
-            item.sourceId
-              ? String(r.sourceId || "") === String(item.sourceId)
-              : clean(r.sourceName) === clean(item.name) && clean(r.sourcePath) === clean(item.path),
+      ? results.filter((r) =>
+          item.sourceId
+            ? String(r.sourceId || "") === String(item.sourceId)
+            : clean(r.sourceName) === clean(item.name) &&
+              clean(r.sourcePath) === clean(item.path),
         )
       : results.filter((r) => linkedResult(r, id));
     const sources = findings
@@ -223,15 +307,23 @@ export function buildOwnerTasks(
     const questionComparisons = (findings.length ? findings : [{}])
       .map((r) => questionComparison(r, sourceFor(r, nodes), { ...item, id }))
       .filter((row): row is QuestionComparison => row !== null);
-    const contentMatches = contentItems.filter(entry => entry.id === id);
-    const contentItem = contentMatches.length === 1 ? contentMatches[0] : undefined;
+    const contentMatches = contentItems.filter((entry) => entry.id === id);
+    const contentItem =
+      contentMatches.length === 1 ? contentMatches[0] : undefined;
     const recordedPath = String(item.path || "");
     // Older reports dropped lesson metadata. An exact original item snapshot
     // can supply a deeper path only within that same recorded module.
     const capturedPath = String(contentItem?.path || "");
-    const deeperSameModule = !recordedPath.includes(">") && capturedPath.includes(">") && capturedPath.split(">")[0].trim() === recordedPath.trim();
-    const ownerPath = !sourceOnly && item.lesson ? [recordedPath, item.lesson].filter(Boolean).join(" > ")
-      : !sourceOnly && deeperSameModule ? capturedPath : recordedPath;
+    const deeperSameModule =
+      !recordedPath.includes(">") &&
+      capturedPath.includes(">") &&
+      capturedPath.split(">")[0].trim() === recordedPath.trim();
+    const ownerPath =
+      !sourceOnly && item.lesson
+        ? [recordedPath, item.lesson].filter(Boolean).join(" > ")
+        : !sourceOnly && deeperSameModule
+          ? capturedPath
+          : recordedPath;
     return {
       timeEstimate: contentItem?.content.timeEstimate,
       sourceTargets: findings
@@ -243,7 +335,9 @@ export function buildOwnerTasks(
         ),
       questionComparisons,
       key: sourceOnly
-        ? item.sourceId ? `source:${item.sourceId}` : `source:${index}:${item.path}:${item.name}`
+        ? item.sourceId
+          ? `source:${item.sourceId}`
+          : `source:${index}:${item.path}:${item.name}`
         : `item:${id || index}`,
       id,
       name: item.name || "Unnamed item",
@@ -295,20 +389,37 @@ export function buildOwnerTasks(
     ),
   ];
 }
-export function needsOwnerAction(task: OwnerTask, review?: Pick<OwnerReview, "relevance">) {
+export function needsOwnerAction(
+  task: OwnerTask,
+  review?: Pick<OwnerReview, "relevance">,
+) {
   return (
-    ownerScope(task, review).included && (
-    task.status !== "VERIFIED_EVIDENCE" ||
-    task.actions.some((a) => a.severity && a.severity !== "NONE"))
+    ownerScope(task, review).included &&
+    (task.status !== "VERIFIED_EVIDENCE" ||
+      task.actions.some((a) => a.severity && a.severity !== "NONE"))
   );
 }
 export function validateOwnerReview(review: OwnerReview) {
-  if (review.relevance !== undefined && !["auto", "relevant", "not_relevant"].includes(review.relevance))
+  if (
+    review.changeDeclaredAt !== undefined &&
+    (typeof review.changeDeclaredAt !== "string" ||
+      review.changeDeclaredAt.length > 40 ||
+      !/^\d{4}-\d\d-\d\dT/.test(review.changeDeclaredAt) ||
+      !Number.isFinite(Date.parse(review.changeDeclaredAt)))
+  )
+    throw Error("Invalid item edit declaration date.");
+  if (
+    review.relevance !== undefined &&
+    !["auto", "relevant", "not_relevant"].includes(review.relevance)
+  )
     throw Error("Choose automatic, relevant or not relevant for this item.");
   if (review.courseraLinkedCaptures != null)
     validateCourseraLinkedCaptures(review.courseraLinkedCaptures);
   if (review.panoptoCaptures != null) {
-    if (!Array.isArray(review.panoptoCaptures) || review.panoptoCaptures.length > 12)
+    if (
+      !Array.isArray(review.panoptoCaptures) ||
+      review.panoptoCaptures.length > 12
+    )
       throw Error("Invalid Panopto metadata captures.");
     const targets = new Set<string>();
     for (const capture of review.panoptoCaptures) {

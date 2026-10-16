@@ -258,6 +258,8 @@
       } else if (
         p.textScopeKind === "reading-content-field" ||
         [
+          "bound-authoring-draft-cml",
+          "bound-authoring-draft-discussion-cml",
           "discussion-content-field",
           "discussion-prompt",
           "discussion-prompt-field",
@@ -275,6 +277,15 @@
         notes.push(
           "No supported identity-scoped teaching field in this CTI item. Generic authoring-page text was not used.",
         );
+      if (p.directDataSources?.atom) {
+        notes.push(
+          "The original course capture retains the native authored draft and published snapshot separately, subject to recorded credential sanitization and capture limits. Wrong, broken or empty authored values stay source evidence; this activity projection does not repair them or infer runtime configuration.",
+        );
+        if (p.captureContract?.status === "UNRESOLVED_DIRECT_TYPE")
+          notes.push(
+            "This authored item type is not supported by the learner-text projection. Its native configuration remains in the original capture; role-play/dialogue interaction and hidden steps have not been read or certified.",
+          );
+      }
       const identity = (e) => e?.itemId === f.id && e?.courseId === branch;
       const externalResources = [];
       if (!assessed && identity(p.readingEditorEvidence))
@@ -384,6 +395,14 @@
         );
       if (p.textCaptureTruncated)
         notes.push("CTI marked its body text as truncated.");
+      if (
+        p.directAssetEvidence?.assets?.some(
+          (a) => a.body?.mime === "application/pdf",
+        )
+      )
+        notes.push(
+          "The original course capture contains PDF references. Only current, source-bound teaching PDFs that pass integrity checks and fit the 8 MiB activity-packet limit can be included here; retain the full original capture for all other files.",
+        );
       if (
         (p.files?.length || 0) +
         (p.images?.length || 0) +

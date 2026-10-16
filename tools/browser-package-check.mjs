@@ -1,4 +1,5 @@
 import { ownerAccessFixture } from './browser-owner-fixture.mjs';
+import { ownerTool } from './browser-workspace-navigation.mjs';
 import fs from 'node:fs';
 import http from 'node:http';
 import assert from 'node:assert/strict';
@@ -85,7 +86,7 @@ async function largeSparseFixture(directory) {
 }
 let sparseDirectory;
 try{
-await page.goto('http://127.0.0.1:4173');await page.getByRole('button',{name:'Inspect a package',exact:true}).click();
+await page.goto('http://127.0.0.1:4173');await ownerTool(page, 'Inspect a package');
 async function scan(input){await page.locator('#package-file').setInputFiles(input);await page.getByRole('button',{name:'Inspect package',exact:false}).click();await Promise.race([page.getByText('Package inspection complete',{exact:true}).waitFor({timeout:120000}),page.getByRole('alert').waitFor({timeout:120000}).then(async()=>{throw Error(await page.getByRole('alert').innerText());})]);const promise=page.waitForEvent('download');await page.getByRole('button',{name:'Download package evidence'}).click();return JSON.parse(fs.readFileSync(await (await promise).path(),'utf8'));}
 const r=await scan({name:'synthetic.imscc',mimeType:'application/zip',buffer:fixture});assert.equal(r.kind,'CTI_PACKAGE_SCAN');assert.equal(r.stats.totalResources,4);assert.equal(r.moduleCount,1);assert.equal(r.sourceEvidence.resources.q1.structuredAssessment.questionCount,2);assert.deepEqual(r.sourceEvidence.resources.q1.structuredAssessment.questions.map(q=>q.id),['q1','q2']);assert.equal(r.sourceEvidence.resources.r1.textSample,'Verified reading text.');assert(r.sourceEvidence.resources.r1.files[0].sha256);const pf=r.sourceEvidence.resources.pdf.files[0];assert.equal(pf.pdfParser,'pdfjs-6.3.289');assert.equal(pf.pdfPagesRead,1);assert(pf.textSample.includes('submit a written response'));assert(r.sourceEvidence.resources.a1.files.some(f=>f.dependencyResourceId==='pdf'&&f.sha256));assert.equal(r.sourceEvidence.manifestPath,'imsmanifest.xml');
 await page.getByLabel('Find an item').fill('Quiz');

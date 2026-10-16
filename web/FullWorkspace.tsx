@@ -105,21 +105,25 @@ const descriptions: Record<string, string> = {
 };
 const navGroups = [
   {
-    label: "Workspace",
+    label: "Owner workflow",
+    secondary: false,
     tabs: [
       "Assignment workspace",
-      "Overview",
-      "Assignment plan",
-      "Catalogue",
-      "Work queue",
+      "Scan",
+      "Source LMS",
+      "Extract",
+      "Compare",
+      "History",
     ],
   },
   {
-    label: "Course evidence",
-    tabs: ["Explore", "Scan", "Source LMS", "Extract", "Compare", "History"],
+    label: "More workspace tools",
+    secondary: true,
+    tabs: ["Overview", "Catalogue", "Explore", "Assignment plan", "Work queue"],
   },
   {
-    label: "Tools & admin",
+    label: "Advanced tools",
+    secondary: true,
     tabs: ["Macmillan", "Analytics", "Operations", "Setup"],
   },
 ] as const;
@@ -698,27 +702,47 @@ export default function FullWorkspace({
       <aside className="workspace-sidebar">
         <p className="eyebrow">WORKSPACE</p>
         <nav aria-label="CTI workflows">
-          {navGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <span className="nav-group-label">{group.label}</span>
-              {group.tabs.map((t) => (
-                <button
-                  key={t}
-                  disabled={!!busy}
-                  aria-current={tab === t ? "page" : undefined}
-                  onClick={() => {
-                    setTab(t);
-                    setNotice("");
-                  }}
-                >
-                  <span className="nav-number" aria-hidden="true">
-                    {navGlyphs[t]}
-                  </span>
-                  {t}
-                </button>
-              ))}
-            </div>
-          ))}
+          {navGroups.map((group) => {
+            const buttons = (
+              <div className="nav-group" key={group.label}>
+                {!group.secondary && (
+                  <span className="nav-group-label">{group.label}</span>
+                )}
+                {group.tabs.map((t) => (
+                  <button
+                    key={t}
+                    disabled={!!busy}
+                    aria-current={tab === t ? "page" : undefined}
+                    onClick={() => {
+                      setTab(t);
+                      setNotice("");
+                    }}
+                  >
+                    <span className="nav-number" aria-hidden="true">
+                      {navGlyphs[t]}
+                    </span>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            );
+            return group.secondary ? (
+              <details
+                className="nav-disclosure"
+                key={group.label}
+                open={
+                  group.tabs.some((value: string) => value === tab)
+                    ? true
+                    : undefined
+                }
+              >
+                <summary>{group.label}</summary>
+                {buttons}
+              </details>
+            ) : (
+              buttons
+            );
+          })}
         </nav>
         <div className="connection-state">
           <span
@@ -791,18 +815,11 @@ export default function FullWorkspace({
                 {course.data.status || "Status not set"}
               </span>
               <small>
-                {audits.length} complete saved reports · record version{" "}
-                {course.version}
+                {audits.length} saved comparisons · original observations and
+                history retained
               </small>
               <div className="context-actions">
-                {[
-                  "Assignment workspace",
-                  "Assignment plan",
-                  "Explore",
-                  "Compare",
-                  "History",
-                  "Work queue",
-                ]
+                {["Assignment workspace", "Explore", "Extract", "History"]
                   .filter((t) => t !== tab)
                   .map((t) => (
                     <button
@@ -811,7 +828,12 @@ export default function FullWorkspace({
                       disabled={!!busy}
                       onClick={() => setTab(t)}
                     >
-                      {t} →
+                      {t === "Explore"
+                        ? "Inspect source"
+                        : t === "Extract"
+                          ? "Capture / recheck Coursera"
+                          : t}{" "}
+                      →
                     </button>
                   ))}
               </div>

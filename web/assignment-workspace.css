@@ -10,6 +10,63 @@
 .assignment-summary h2 {
   margin-top: 0;
 }
+.assignment-journey ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+.assignment-journey li {
+  min-width: 0;
+}
+.assignment-journey li > button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 100%;
+  padding: 1rem;
+  text-align: left;
+  white-space: normal;
+  border: 1px solid var(--border, #dce3eb);
+  background: #f9fbfd;
+  color: #213c50;
+}
+.assignment-journey li > button.journey-current {
+  border: 2px solid #2067b7;
+  background: #eff6ff;
+}
+.journey-step-title {
+  font-weight: 700;
+}
+.journey-step-status {
+  color: #345b79;
+  font-size: 0.8rem;
+}
+.journey-step-detail {
+  font-size: 0.87rem;
+  line-height: 1.5;
+  font-weight: 400;
+}
+.assignment-advanced {
+  padding: 0.5rem 0;
+}
+.assignment-advanced > summary {
+  cursor: pointer;
+  color: #486070;
+}
+@media (max-width: 1100px) {
+  .assignment-journey ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .assignment-journey ol {
+    grid-template-columns: 1fr;
+  }
+}
 .assignment-next {
   border-left: 3px solid var(--accent, #1465dc);
   padding-left: 1.1rem;

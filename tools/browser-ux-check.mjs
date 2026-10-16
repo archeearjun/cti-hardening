@@ -1,4 +1,5 @@
 import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
+import { workspaceNav } from "./browser-workspace-navigation.mjs";
 import {
   buildOwnerTasks,
   needsOwnerAction,
@@ -67,10 +68,7 @@ const input = comparisonFixture(),
     records: [input.course],
   };
 async function tab(name, p = page) {
-  await p
-    .getByRole("navigation", { name: "CTI workflows" })
-    .getByRole("button", { name, exact: true })
-    .click();
+  await workspaceNav(p, name);
 }
 async function waitIdle(p = page) {
   await p.locator(".full-workspace .status").waitFor({ state: "hidden" });
@@ -379,7 +377,7 @@ try {
     .getByRole("button", { name: courses[0].title, exact: true })
     .click();
   await waitIdle();
-  await page.getByRole("heading", { name: "Your next decision, with its evidence", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Understand, correct and verify your title", exact: true }).waitFor();
   assert.equal(await courseSelect.inputValue(), courses[0].id, "Catalogue opens the selected assignment in its owner workspace");
   await page.getByRole("tab", { name: "Package explorer", exact: true }).click();
   await page.getByRole("heading", { name: "Explore what is inside" }).waitFor();

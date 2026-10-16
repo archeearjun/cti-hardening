@@ -118,12 +118,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     resumeButton.textContent = "Resume";
     resumeButton.hidden = true;
     const startButton = document.createElement("button"),
+      freshButton = document.createElement("button"),
       accessButton = document.createElement("button"),
       copyAccessButton = document.createElement("button"),
       downloadAccessButton = document.createElement("button"),
       accessText = document.createElement("pre"),
       accessFallback = document.createElement("textarea");
     startButton.textContent = "Capture/resume course";
+    freshButton.textContent = "Start a fresh course capture";
     accessButton.textContent = "Check Panopto access";
     copyAccessButton.textContent = "Copy access result";
     downloadAccessButton.textContent = "Download access report";
@@ -133,15 +135,18 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     accessFallback.readOnly = true;
     accessFallback.hidden = true;
     accessFallback.style.cssText = "width:95%;height:100px";
-    for (const button of [startButton, accessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
+    for (const button of [freshButton, startButton, accessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
       button.style.cssText =
         "margin:4px;padding:8px;background:#fff;border:1px solid #adc2de;border-radius:6px;color:#172b4d;cursor:pointer";
+    freshButton.style.background = "#0052cc";
+    freshButton.style.color = "#fff";
     card.append(
       heading,
       phase,
       detail,
       count,
       hint,
+      freshButton,
       startButton,
       accessButton,
       stopButton,
@@ -216,7 +221,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
       hint.textContent = state.diagnosing || state.state === "READY"
-        ? "Capture/resume reads the course. Check Panopto access only checks configured video sources; it does not reread questions, download videos, or change saved progress."
+        ? "After edits, start a fresh course capture to reread questions. Capture/resume continues saved progress; finished runs may only add media. Panopto access is diagnostic only."
         : mediaOnly
         ? "This attempt reads referenced files and supported external providers. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
@@ -260,6 +265,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       count.hidden = !meta || state.diagnosing;
       const busy = state.running || state.diagnosing || exporting;
       startButton.disabled = busy || state.terminal;
+      freshButton.disabled = busy;
       accessButton.disabled = busy;
       stopButton.disabled = !state.running && !state.diagnosing;
       downloadButton.disabled = busy || !meta;
@@ -1535,17 +1541,19 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
-    async function run() {
+    async function run(fresh = false) {
       if (
         state.running ||
         state.diagnosing ||
         exporting ||
-        state.terminal ||
+        (state.terminal && !fresh) ||
         location.origin !== "https://www.coursera.org" ||
         location.pathname !== initialPath
       )
         return;
       state.running = true;
+      state.terminal = false;
+      state.runId = "";
       providerTransport?.close();
       providerTransport = createDirectProviderHelperV1({courseId,
         onStatus: message => render(message)});
@@ -1585,7 +1593,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const policy = policyReader.snapshot().limits;
         policyReader.abort("POLICY_ONLY");
         budgetLimits = { ...policy };
-        const active = await store.getActiveRun({
+        const active = fresh ? null : await store.getActiveRun({
             recoverExportLimit: true,
             recoverMediaGaps: true,
           }),
@@ -1599,6 +1607,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.5.0-bound-widget-configuration-20261015",
             "v1.6.0-integrated-panopto-bookmark-20261015",
             "v1.6.1-provider-access-diagnostics-20261015",
+            "v1.7.0-public-panopto-helper-20261016",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1926,8 +1935,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     state.resume = () => void run();
     state.export = () => void download();
     state.start = () => void run();
+    state.startFresh = () => void run(true);
     state.checkProviderAccess = () => void checkProviderAccess();
     startButton.onclick = state.start;
+    freshButton.onclick = state.startFresh;
     accessButton.onclick = state.checkProviderAccess;
     copyAccessButton.onclick = () => void copyAccessResult();
     downloadAccessButton.onclick = downloadAccessReport;
@@ -1941,7 +1952,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       accessReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       providerTransport?.close();
     });
-    render("Choose Capture/resume course, or check only Panopto access without recapturing the course.");
+    render("After editing Coursera, start a fresh course capture. Capture/resume continues saved progress; prior runs stay saved locally.");
   })().catch(() => {
     alert(
       "CTI capture could not start. Open the course Content page and try the bookmark again.",

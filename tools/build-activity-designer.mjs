@@ -2,10 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { build } from "vite";
+import { encodeJavaScriptBookmarkPayload } from "../src/domain/bookmark-address.js";
 
 // The standalone UI remains isolated: external scripts and the existing CSP,
 // with pinned CTI parser dependencies. No partner data enters this build.
-export function buildActivityDesigner(ctiCapture) {
+export async function buildActivityDesigner(ctiCapture) {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const source = path.join(root, "src/activity-designer");
   const out = path.join(root, "public/activity-designer");
@@ -23,6 +25,27 @@ ${read("shell-runner.js")}
   new vm.Script(capture);
   if (!ctiCapture) throw Error("The maintained CTI extractor is required.");
   new vm.Script(ctiCapture);
+  const bookmark =
+    "javascript:" + encodeJavaScriptBookmarkPayload("void " + ctiCapture);
+  if (Buffer.byteLength(bookmark) >= 500 * 1024)
+    throw Error("The activity capture bookmark exceeds the safe Chrome limit.");
+  await build({
+    configFile: false,
+    publicDir: false,
+    logLevel: "error",
+    build: {
+      target: "es2022",
+      minify: false,
+      emptyOutDir: false,
+      outDir: out,
+      lib: {
+        entry: path.join(source, "unified-capture.ts"),
+        name: "CourseCtiUnifiedCapture",
+        formats: ["iife"],
+        fileName: () => "unified-capture.js",
+      },
+    },
+  });
   fs.writeFileSync(
     path.join(out, "downloads/CTI_Coursera_Capture.js"),
     ctiCapture,
@@ -40,7 +63,7 @@ ${read("shell-runner.js")}
   );
   fs.writeFileSync(
     path.join(out, "configuration.js"),
-    `globalThis.CourseActivitySetup=${JSON.stringify(JSON.parse(read("setup.json")))};\nglobalThis.CourseActivityCaptureScript=${JSON.stringify(capture)};\nglobalThis.CourseCtiCaptureScript=${JSON.stringify(ctiCapture)};\n`,
+    `globalThis.CourseActivitySetup=${JSON.stringify(JSON.parse(read("setup.json")))};\nglobalThis.CourseActivityCaptureScript=${JSON.stringify(capture)};\nglobalThis.CourseCtiCaptureScript=${JSON.stringify(ctiCapture)};\nglobalThis.CourseCtiCaptureBookmark=${JSON.stringify(bookmark)};\n`,
   );
   for (const name of fs.readdirSync(source)) {
     if (/\.(js|css|html)$/.test(name))

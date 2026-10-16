@@ -1,6 +1,6 @@
 (function (root) {
   "use strict";
-  const VERSION = "2.2.4";
+  const VERSION = "2.3.0";
   const LIMITS = {
     input: 500 * 1024 ** 2,
     entry: 32 * 1024 ** 2,
@@ -924,6 +924,35 @@
     for (const f of list) {
       if (options.signal?.aborted)
         throw new DOMException("Processing cancelled", "AbortError");
+      if (/\.(?:cti\.zip|json\.gz)$/i.test(f.name)) {
+        if (!root.CourseCtiUnifiedCapture)
+          throw Error(
+            "The unified capture importer is unavailable; refresh CTI before importing this file.",
+          );
+        options.progress?.({
+          file: f.name,
+          path: "Verifying original course capture",
+          done: 0,
+          total: 1,
+        });
+        const imported = await root.CourseCtiUnifiedCapture.read(f);
+        if (options.signal?.aborted)
+          throw new DOMException("Processing cancelled", "AbortError");
+        const capture = root.CourseCtiAdapter.adapt(imported.raw);
+        const assets = await root.CourseCtiDocuments.hydrate(
+          imported.raw,
+          capture,
+          options,
+        );
+        capturedInputs.push({ capture, filename: f.name, assets });
+        s.input_files.push({
+          filename: f.name,
+          size: f.size,
+          sha256: imported.sha256,
+          read_at: new Date().toISOString(),
+        });
+        continue;
+      }
       if (f.size > LIMITS.input) {
         s.issues.push({
           file: f.name,
@@ -937,8 +966,8 @@
         done: 0,
         total: 1,
       });
-      if (ext(f.name) === "json" && f.size > 40 * 1024 ** 2)
-        throw Error("JSON exceeds the 40 MiB import limit.");
+      if (ext(f.name) === "json" && f.size > 128 * 1024 ** 2)
+        throw Error("JSON exceeds the 128 MiB import limit.");
       const bytes = new Uint8Array(await f.arrayBuffer());
       const hash = await sha256(bytes);
       if (

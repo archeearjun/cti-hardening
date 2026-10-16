@@ -1,4 +1,5 @@
 import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
+import { workspaceNav } from "./browser-workspace-navigation.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -68,11 +69,7 @@ const backup = {
   schemaVersion: 1,
   records: [input.course, audit],
 };
-const workflow = async (name) =>
-  page
-    .getByRole("navigation", { name: "CTI workflows" })
-    .getByRole("button", { name, exact: true })
-    .click();
+const workflow = async (name) => workspaceNav(page, name);
 const request = (p, body) =>
   p.evaluate(
     (body) =>
