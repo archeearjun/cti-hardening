@@ -2226,3 +2226,12 @@ caption { text-align: left; font-weight: 650; padding: 10px 0; }
 .owner-workspace-intro p { margin: .35rem 0 0; }
 .owner-workspace-intro > a { flex-shrink: 0; display: inline-block; text-decoration: none; }
 @media (max-width: 720px) { .owner-workspace-intro { flex-direction: column; align-items: flex-start; } }
+
+/* Secondary owner tools stay available without crowding the course workflow. */
+.nav-disclosure { border-top: 1px solid var(--border, #dce3eb); padding-top: 8px; }
+.nav-disclosure > summary { padding: 10px 12px; color: #486070; font-size: 13px; font-weight: 650; cursor: pointer; }
+.nav-disclosure[open] > summary { margin-bottom: 6px; }
+.owner-secondary-tools { min-width: 0; }
+.owner-secondary-tools > summary { cursor: pointer; border: 1px solid #ccd7df; border-radius: 8px; padding: 10px 15px; }
+.owner-secondary-tool-list { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.owner-secondary-tool-list > a { display: inline-flex; align-items: center; text-decoration: none; }

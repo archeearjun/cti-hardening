@@ -5,6 +5,64 @@ deliverables and advisory analysis for one selected course. Existing Explore,
 Compare, History and operational tools remain available. It uses the existing
 local IndexedDB/shared D1 workspace and preserves immutable audit snapshots.
 
+## Assignment owner path
+
+The default owner view follows six evidence-based stages:
+
+1. **Understand the title.** Inspect the original source package or attributed
+   source document before making manual changes. Package hierarchy and literal
+   source text stay separate from proposed curriculum changes.
+2. **Collect evidence.** Add the live Brightspace capture, the Coursera course
+   bookmark capture, and a matching Coursera XLSX when available. The XLSX is
+   an independent structural export; a verified native capture inventory can
+   supply structure without certifying complete content.
+3. **Compare what is actually there.** Save a comparison before treating flags
+   as correction instructions. Confirmed differences, unresolved identity and
+   failed or unsupported source reads remain distinct.
+4. **Review and fix.** Open the exact Coursera item from its worklist where a
+   bound destination is known. Record the action and its reason. Empty, broken,
+   duplicated or unexpected source content stays as captured; extraction does
+   not silently repair it or invent a replacement.
+5. **Recapture and verify.** A recorded LMS edit requires capture after the edit
+   and a new saved comparison. A later checked decision cannot make an old
+   capture current. Changes to Brightspace or the source package require fresh
+   evidence for that source, not only a new Coursera capture.
+6. **Prepare the deliverable.** Reconciliation, content maps, outlines and owner
+   approval use the current evidence basis. Historic findings and decisions
+   remain available after new captures.
+
+Workflow stages describe recorded progress, not an extraction-completeness or
+quality percentage. The primary sidebar keeps the assignment, source inspection,
+source LMS, Coursera capture, comparison and history accessible. Catalogue,
+portfolio overview and the detailed plan remain under **More workspace tools**;
+administration, analytics and partner-specific operations remain under
+**Advanced tools**. Advisory learning is under **Advanced analysis** in the
+assignment. Activity creation and standalone diagnostics are under **More
+tools** at the top. These tools remain available without competing with the
+daily inspect–fix–verify path.
+
+## Sharing an extraction problem without file downloads
+
+Open `https://cti-hardening.pages.dev/?tool=share` in a regular Chrome tab, or
+choose **More tools → Share a large capture**. The same panel is also available
+under the source LMS capture screen. Select the existing JSON, gzip or Coursera
+archive; the local worker checks it using the maintained capture readers and
+Brightspace original-body validator. It does not rerun the LMS extractor or
+upload the capture.
+
+**Copy review text** produces a bounded review with counts, native identities,
+findings, original-body-check status and explicit omissions. A visible textarea
+and **Select all review text** remain available when clipboard access fails.
+This is the primary path in embedded browsers that block Blob downloads. An
+optional small download reports only that a download was requested.
+
+The review excludes original media and complete course/question bodies, strips
+access parameters from shared URLs, and is capped at 96 KiB with truncation
+counts. It is a local diagnostic observation, not a server attestation or a full
+capture. Keep the original file; the small report alone cannot independently
+reverify omitted media or certify course completeness. Failed consistency checks
+remain visible and copyable for investigation.
+
 ## Evidence intake and source scope
 
 The inbox inspects multiple files sequentially, hashes originals, identifies

@@ -9,10 +9,8 @@ import {
   latestAssignmentAudit,
   loadAssignmentEvidence,
 } from "../src/domain/assignment-plan";
-import {
-  nextAssignmentStep,
-  type PendingAssignmentEvidence,
-} from "../src/domain/assignment-evidence";
+import { type PendingAssignmentEvidence } from "../src/domain/assignment-evidence";
+import { assignmentOwnerJourney } from "../src/domain/assignment-owner-journey";
 import {
   appendLifecycleEvent,
   buildAssignmentItems,
@@ -24,6 +22,7 @@ import {
 import type { EvidenceStage } from "../src/domain/evidence-intake";
 import type { WorkspaceStore } from "../src/domain/workspace-store";
 import type { WorkspaceRecord } from "../src/domain/workspace-types";
+import { safeWebUrl } from "../src/domain/owner-urls";
 import "./assignment-workspace.css";
 
 const sections = [
@@ -31,8 +30,8 @@ const sections = [
   "Evidence inbox",
   "Package explorer",
   "Deliverables",
-  "Advisory",
 ] as const;
+type AssignmentSection = (typeof sections)[number] | "Advisory";
 const label = (value: string) =>
   value.replaceAll("-", " ").replaceAll("_", " ");
 const when = (value: string) =>
@@ -80,7 +79,7 @@ export default function AssignmentWorkspace({
   onAudit: (audit: WorkspaceRecord) => void;
   onRescan: () => void;
 }) {
-  const [section, setSection] = useState<(typeof sections)[number]>("Worklist");
+  const [section, setSection] = useState<AssignmentSection>("Worklist");
   const [audit, setAudit] = useState<WorkspaceRecord | null>(null);
   const [ledger, setLedger] = useState<WorkspaceRecord | null>(null);
   const [loading, setLoading] = useState(false),
@@ -161,10 +160,14 @@ export default function AssignmentWorkspace({
     () => (course ? buildAssignmentItems(course, audit) : []),
     [course, audit],
   );
-  const next =
-    course && evaluation
-      ? nextAssignmentStep(course, audit, evaluation, pending)
-      : null;
+  const journey = useMemo(
+    () =>
+      course && evaluation
+        ? assignmentOwnerJourney(course, audit, evaluation, pending)
+        : null,
+    [course, audit, evaluation, pending],
+  );
+  const next = journey?.nextAction || null;
   const states = useMemo(
     () =>
       new Map(
@@ -202,6 +205,10 @@ export default function AssignmentWorkspace({
   });
   const item = items.find((candidate) => candidate.key === selected);
   const state = item ? states.get(item.key)! : null;
+  const courseraItemUrl =
+    item?.platform === "coursera" && item.identityStatus === "exact"
+      ? safeWebUrl(item.task?.url)
+      : "";
   const readonly =
     !!disabled || loading || saving || !store || store.role === "viewer";
   const itemReadonly = readonly || !audit || item?.identityStatus !== "exact";
@@ -324,13 +331,13 @@ export default function AssignmentWorkspace({
           <p className="eyebrow">ASSIGNMENT OWNER</p>
           <h2>
             {course
-              ? "Your next decision, with its evidence"
-              : "Start with your course evidence"}
+              ? "Understand, correct and verify your title"
+              : "Inspect your title before making changes"}
           </h2>
           <p>
             {course
-              ? "Keep source evidence, item decisions and deliverables together. Repeated placements retain their own identity."
-              : "Create an assignment from a source package or an extracted Markdown/text document, then add the destination capture and other source evidence."}
+              ? "Follow the captured source, compare it with Coursera, and verify each recorded change with fresh evidence. Empty, broken and unexpected source content stays visible as captured."
+              : "Start with the source package or an attributed LMS document. Inspect its structure and content, then add the Coursera capture, XLSX and available source LMS extraction before deciding what to fix."}
           </p>
           {!course && (
             <button className="primary" onClick={() => onNavigate("Scan")}>
@@ -357,17 +364,95 @@ export default function AssignmentWorkspace({
           </div>
         )}
       </section>
+      {journey && (
+        <section
+          className="card assignment-journey"
+          aria-label="Your assignment workflow"
+        >
+          <div className="section-heading">
+            <div>
+              <h2>Your path through this title</h2>
+              <p>{journey.scope}</p>
+            </div>
+          </div>
+          <ol>
+            {journey.steps.map((step, index) => (
+              <li key={step.id}>
+                <button
+                  title={step.detail}
+                  className={
+                    journey.currentStage === step.id ? "journey-current" : ""
+                  }
+                  aria-current={
+                    journey.currentStage === step.id ? "step" : undefined
+                  }
+                  disabled={!!disabled || loading}
+                  onClick={() => {
+                    if (step.id === "understand") onNavigate("Explore");
+                    else if (step.id === "collect")
+                      setSection("Evidence inbox");
+                    else if (step.id === "compare") onNavigate("Compare");
+                    else if (step.id === "fix") setSection("Worklist");
+                    else if (step.id === "verify")
+                      journey.recaptureRequired
+                        ? nextAction()
+                        : onNavigate("Assignment plan");
+                    else setSection("Deliverables");
+                  }}
+                >
+                  <span className="journey-step-title">
+                    {index + 1}. {step.title}
+                  </span>
+                  <span className="journey-step-status">
+                    {step.status === "recorded"
+                      ? "Recorded"
+                      : step.status === "limited"
+                        ? "Limited evidence"
+                        : step.status === "ready"
+                          ? "Ready for handoff"
+                          : step.status === "needed"
+                            ? "Needs attention"
+                            : "Later step"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <p className="hint">
+            {
+              journey.steps.find((step) => step.id === journey.currentStage)
+                ?.detail
+            }
+          </p>
+          {journey.recaptureRequired && (
+            <p className="scope" role="status">
+              <strong>Changes are waiting for verification.</strong> Use the
+              next action above to capture the changed course and save a fresh
+              comparison. An owner checkmark does not update captured content.
+            </p>
+          )}
+        </section>
+      )}
       {course && (
         <div className="assignment-metrics" aria-label="Assignment status">
           <div>
             <strong>
-              {evaluation?.outlineReady
-                ? "Delivery preparation"
-                : evaluation?.reconciled
-                  ? "Deliverable preparation"
-                  : audit
-                    ? "Reconciliation"
-                    : "Evidence collection"}
+              {journey
+                ? {
+                    understand: "Inspect the title",
+                    collect: "Collect evidence",
+                    compare: "Compare sources",
+                    fix: "Review corrections",
+                    verify: "Recapture and verify",
+                    deliver: "Prepare deliverables",
+                  }[journey.currentStage]
+                : evaluation?.outlineReady
+                  ? "Delivery preparation"
+                  : evaluation?.reconciled
+                    ? "Deliverable preparation"
+                    : audit
+                      ? "Reconciliation"
+                      : "Evidence collection"}
             </strong>
             <span>Current assignment stage</span>
           </div>
@@ -431,7 +516,7 @@ export default function AssignmentWorkspace({
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
             return;
           event.preventDefault();
-          const index = sections.indexOf(section);
+          const index = sections.indexOf(section as (typeof sections)[number]);
           const nextIndex =
             event.key === "Home"
               ? 0
@@ -452,7 +537,12 @@ export default function AssignmentWorkspace({
             key={value}
             id={`assignment-tab-${value.replaceAll(" ", "-")}`}
             role="tab"
-            tabIndex={section === value ? 0 : -1}
+            tabIndex={
+              section === value ||
+              (section === "Advisory" && value === "Worklist")
+                ? 0
+                : -1
+            }
             aria-selected={section === value}
             aria-controls="assignment-panel"
             onClick={() => setSection(value)}
@@ -461,10 +551,34 @@ export default function AssignmentWorkspace({
           </button>
         ))}
       </div>
+      <details
+        className="assignment-advanced"
+        open={section === "Advisory" ? true : undefined}
+      >
+        <summary>Advanced analysis</summary>
+        <p className="hint">
+          Advisory learning and matching experiments are optional. They do not
+          change captured source content, QA findings or approval.
+        </p>
+        <button
+          className="secondary"
+          disabled={!!disabled}
+          onClick={() => setSection("Advisory")}
+        >
+          Open advisory analysis
+        </button>
+      </details>
       <section
         id="assignment-panel"
         role="tabpanel"
-        aria-labelledby={`assignment-tab-${section.replaceAll(" ", "-")}`}
+        aria-labelledby={
+          section === "Advisory"
+            ? undefined
+            : `assignment-tab-${section.replaceAll(" ", "-")}`
+        }
+        aria-label={
+          section === "Advisory" ? "Advanced advisory analysis" : undefined
+        }
       >
         {section === "Evidence inbox" && (
           <EvidenceInbox
@@ -516,8 +630,9 @@ export default function AssignmentWorkspace({
                 <div>
                   <h2>Item worklist</h2>
                   <p>
-                    Workflow decisions are recorded separately from capture
-                    coverage and content fidelity.
+                    Check the original evidence before changing Coursera. A
+                    confirmed difference, a capture gap and an owner decision
+                    are different things.
                   </p>
                 </div>
                 <div className="context-actions">
@@ -678,6 +793,18 @@ export default function AssignmentWorkspace({
                   Recording work does not certify a capture or change an audit.
                   Changed evidence requires fresh verification before handoff.
                 </p>
+                {courseraItemUrl && (
+                  <p>
+                    <a
+                      className="secondary"
+                      href={courseraItemUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open this item in Coursera
+                    </a>
+                  </p>
+                )}
                 <p className="hint">
                   Text / question coverage: {label(item.captureCoverage)}.
                   Original media, external widget content and whole-item
@@ -731,7 +858,13 @@ export default function AssignmentWorkspace({
                     >
                       {stages.map((value) => (
                         <option key={value} value={value}>
-                          {label(value)}
+                          {{
+                            inventory: "Source inspection",
+                            reconciliation: "Corrections and reconciliation",
+                            transformation: "Content map / outline work",
+                            verification: "Fresh evidence verification",
+                            delivery: "Handoff",
+                          }[value] || label(value)}
                         </option>
                       ))}
                     </select>
@@ -748,7 +881,14 @@ export default function AssignmentWorkspace({
                     >
                       {decisions.map((value) => (
                         <option key={value} value={value}>
-                          {label(value)}
+                          {{
+                            open: "Needs review",
+                            "in-progress": "Working on it",
+                            changed: "Changed in LMS — needs fresh capture",
+                            checked: "Checked against the evidence",
+                            blocked: "Blocked",
+                            excluded: "Excluded from scope",
+                          }[value] || label(value)}
                         </option>
                       ))}
                     </select>
@@ -764,6 +904,13 @@ export default function AssignmentWorkspace({
                     />
                   </label>
                 </div>
+                {decision === "changed" && (
+                  <p className="hint">
+                    After recording this change, capture the edited LMS item or
+                    course again and save a new comparison. Earlier checkmarks
+                    stay in history and do not verify the edited content.
+                  </p>
+                )}
                 <div className="context-actions">
                   <button
                     className="secondary"

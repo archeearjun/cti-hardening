@@ -25,6 +25,7 @@ const activityFiles = new Set([
   "core.js",
   "cti-adapter.js",
   "cti-documents.js",
+  "unified-capture.js",
   "activity-quality.js",
   "designer.js",
   "inspect-current-page.js",

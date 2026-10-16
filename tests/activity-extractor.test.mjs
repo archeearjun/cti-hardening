@@ -110,14 +110,14 @@ test("canonical PDF retention reuses bounded hash fetches and never archives an 
     else globalThis.location = originalLocation;
   }
 });
-test("activity primary script is byte-identical to the maintained CTI extractor delivery", () => {
+test("activity primary script is byte-identical to the universal Coursera bookmark program", () => {
   const activity = fs.readFileSync(
     "public/activity-designer/downloads/CTI_Coursera_Capture.js",
     "utf8",
   );
-  const canonical = fs.readFileSync(
-    "src/generated/coursera-console.js",
+  const universal = fs.readFileSync(
+    "src/generated/coursera-direct-data.js",
     "utf8",
   );
-  assert.equal(activity, canonical);
+  assert.equal(activity, universal);
 });

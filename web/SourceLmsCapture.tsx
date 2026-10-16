@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { getExtractor } from "../src/domain/capture-review";
 import { inspectBrightspaceCaptureFile } from "../src/domain/brightspace-local-extraction";
 import type { ExtractorDelivery, ReviewResult } from "../src/domain/types";
 import { download } from "./workspace-ui";
 import BrightspaceBookmarkSetup from "./BrightspaceBookmarkSetup";
+const CaptureReviewSharePanel = lazy(() => import("./CaptureReviewSharePanel"));
 
 export default function SourceLmsCapture({
   disabled,
@@ -60,7 +61,9 @@ export default function SourceLmsCapture({
           current.script,
           "text/javascript",
         );
-        setMessage(`${current.version} downloaded.`);
+        setMessage(
+          `${current.version} download requested. Check your browser's downloads; the bookmark above is the primary capture path.`,
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -97,6 +100,12 @@ export default function SourceLmsCapture({
         that is available in the live source.
       </p>
       <BrightspaceBookmarkSetup disabled={disabled || busy} />
+      <details className="scope">
+        <summary>Share an existing capture for help</summary>
+        <Suspense fallback={<p role="status">Loading local capture review…</p>}>
+          <CaptureReviewSharePanel disabled={disabled || busy} />
+        </Suspense>
+      </details>
       <details className="scope">
         <summary>Console fallback (optional)</summary>
         <p className="hint">

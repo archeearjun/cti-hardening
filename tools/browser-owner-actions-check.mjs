@@ -1,4 +1,5 @@
 import { ownerAccessFixture } from "./browser-owner-fixture.mjs";
+import { workspaceNav } from "./browser-workspace-navigation.mjs";
 import { courseraPageKey } from "../src/domain/coursera-linked-content.ts";
 import { fetchSourceQuestions } from "../server/source-questions.ts";
 import fs from "node:fs";
@@ -163,11 +164,7 @@ const backup = {
     },
   ],
 };
-const tab = async (name) =>
-  page
-    .getByRole("navigation", { name: "CTI workflows" })
-    .getByRole("button", { name, exact: true })
-    .click();
+const tab = async (name) => workspaceNav(page, name);
 const openAudit = async () => {
   await page
     .getByRole("combobox", { name: "Selected source course", exact: true })

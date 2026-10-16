@@ -8,8 +8,10 @@ This is a preview, not certification that every Coursera content layout is read.
 ## Boundary
 
 `src/activity-designer/` adapts the supplied Course Activity Designer modular
-browser source. The current preparation app is 2.2.4; its default capture is the
-maintained CTI Coursera v6.15.12 extractor. The separate 1.2.1 reader remains only
+browser source. The current preparation app is 2.3.0; it saves the same universal
+**CTI course capture** bookmark used by inspection and reconciliation. There is
+no separate Role Play or Dialogue course extractor. Its `.cti.zip`, JSON and
+`.json.gz` files are read directly. The separate 1.2.1 reader remains only
 as an optional one-item diagnostic and backward-compatible input. It runs on a separate page,
 isolated from React workspace state and existing extractor globals. There is no
 Apps Script runtime dependency. The supplied standalone project remains unchanged.
@@ -35,10 +37,12 @@ An authenticated production journey remains unverified.
    final drafting/revalidation. Opportunity mode offers concepts, not paste-ready
    authoring fields or implied partner approval.
 2. Add a current bulk capture, source package, current Coursera XLSX and useful
-   reference documents. The primary Copy capture script button delivers the same
-maintained CTI extractor used by reconciliation, including bounded waits, retries
-and identity scoping. Run it in an
-   already authorized Coursera tab. The one-item test is diagnostic, not a whole
+   reference documents. Save **CTI course capture** once by dragging its link
+   to Chrome's bookmarks bar or using **Copy bookmark address**. Open the course
+   Content page and click that bookmark, then **Capture/resume course**. Its
+   original capture works in inspection and here; a second extraction is not
+   needed. The advanced console fallback runs the exact same program. The
+   one-item test is diagnostic, not a whole
    course scan. Loading a diagnostic cannot replace a saved full-course capture.
 3. Prepare evidence. Inspect the nested course/module/lesson/item tree, source
    paths, unread material, prompt counts and associated option counts. A finished
@@ -76,6 +80,17 @@ references, not proof of current constituent course content or partner approval.
   metadata and generic assessment page text are excluded. Original CTI data and
   reconciliation rules are untouched. Missing hierarchy IDs remain unresolved;
   a matching current export can supply placement identity.
+- `unified-capture.ts` compiles the maintained ZIP/gzip transport importer into
+  this isolated page. Archive paths, CRC, body SHA-256 and reference ownership
+  use the same checks as CTI inspection. JSON retains the 128 MiB transport
+  bound; original archive bytes remain separate from the activity session.
+  Bound draft CML reading/discussion projections can be prepared directly.
+  Native Role Play/Dialogue or other unknown item configuration stays in the
+  original capture exactly as retained; unknown field semantics, empty values
+  and runtime dialogue are never invented or promoted to readable teaching.
+  Current, identity-bound reading PDF originals enter existing teaching packets
+  only after integrity checks and within the separate 8 MiB saved-work limit.
+  Other originals remain in the full capture with an explicit packet-limit note.
 - New captures replace a branch snapshot atomically, independent of file order.
   Conflicting new captures, malformed saved hierarchies and ambiguous module
   decisions fail explicitly. Module results accumulate by identity; revalidation

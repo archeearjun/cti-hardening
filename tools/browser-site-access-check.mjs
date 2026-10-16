@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { accessFixture } from "../tests/access-fixtures.mjs";
 import { createSiteBoundary } from "../server/site-access.ts";
 import { createApiHandler } from "../server/api.ts";
+import { ownerTool } from "./browser-workspace-navigation.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const f = await accessFixture();
@@ -187,9 +188,7 @@ try {
   );
   const privateReply = await owner.request.get(origin + "/");
   assert.equal(privateReply.headers()["cache-control"], "private, no-store");
-  await o
-    .getByRole("button", { name: "Inspect a package", exact: true })
-    .click();
+  await ownerTool(o, "Inspect a package");
   await o.screenshot({ path: screenshots + "/owner.png", fullPage: true });
   // An already-open owner tab loses controls when its verified identity changes.
   await owner.clearCookies();
