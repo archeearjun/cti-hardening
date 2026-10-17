@@ -304,7 +304,9 @@ export function deriveBrightspaceHtmlStructure(
       panels: [] as BrightspaceHtmlPanel[],
     };
     result.groups.push(group);
-    const instructions = owned.filter((el) => hasClass(el, "instruction"));
+    const instructions = owned.filter(
+      (el) => hasClass(el, "instruction") && el.parentNode === widget,
+    );
     group.instruction = take(
       instructions.map((el) => staticText(el)).join("\n"),
       4096,
@@ -321,9 +323,22 @@ export function deriveBrightspaceHtmlStructure(
       const property = el.getAttribute("data-itemprop") || "";
       const match = /^(0|[1-9]\d{0,3})\|([01])$/.exec(property);
       if (!match) continue;
+      const enclosing = nearest(
+        el.parentNode,
+        (candidate) =>
+          hasClass(candidate, "tab-pane") || hasClass(candidate, "d2l-element"),
+      );
+      const navigation = nearest(
+        el.parentNode,
+        (candidate) =>
+          hasClass(candidate, "list-group") || candidate === wrapper,
+      );
       if (
         match[2] === "0" &&
         tag(el) === "span" &&
+        enclosing === widget &&
+        navigation &&
+        hasClass(navigation, "list-group") &&
         nearest(
           el.parentNode,
           (candidate) =>
@@ -332,12 +347,6 @@ export function deriveBrightspaceHtmlStructure(
       )
         labels.set(match[1], [...(labels.get(match[1]) || []), el]);
       if (match[2] === "1" && hasClass(el, "tab-pane")) {
-        const enclosing = nearest(
-          el.parentNode,
-          (candidate) =>
-            hasClass(candidate, "tab-pane") ||
-            hasClass(candidate, "d2l-element"),
-        );
         if (enclosing && hasClass(enclosing, "tab-pane"))
           issue(`GROUP_${ordinal}_KEY_${match[1]}_NESTED_PANEL_UNRESOLVED`);
         else if (

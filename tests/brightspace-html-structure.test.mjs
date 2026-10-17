@@ -168,6 +168,25 @@ test("malformed nested panes cannot lend text, resources or tables to their oute
   assert.deepEqual(actual.groups[0].panels[0].resources, []);
 });
 
+test("a label or instruction inside a pane cannot masquerade as outer navigation", () => {
+  const fakeLabel =
+    '<a class="list-group-item"><span data-itemprop="0|0">Wrong borrowed label</span></a>';
+  const nested = `<div class="tab-pane" data-itemprop="1|1"><div class="list-group">${fakeLabel}</div><div class="instruction">Wrong group instruction</div></div>`;
+  const body = widget(
+    [["1", "Real navigation label"]],
+    [["0", `<p>Outer prose</p>${nested}`]],
+  );
+  const actual = derive(body);
+  assert.deepEqual(actual.groups[0].panels, []);
+  assert.equal(actual.groups[0].instruction, "");
+  assert.match(actual.issues.join(" "), /KEY_0_AMBIGUOUS_OR_MISSING_PAIR/);
+  assert.match(actual.issues.join(" "), /KEY_1_AMBIGUOUS_OR_MISSING_PAIR/);
+  assert.doesNotMatch(
+    brightspaceHtmlStructureText(actual),
+    /Wrong borrowed label|Wrong group instruction/,
+  );
+});
+
 test("unsafe resource schemes and credentials retain only authored URL; ordinary query strings remain exact", () => {
   const urls = [
     "javascript:alert(1)",
