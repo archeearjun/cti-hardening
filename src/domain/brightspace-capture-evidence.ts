@@ -99,6 +99,21 @@ function approvedStaticSource(value: string, allowCourseFile: boolean) {
     /\/d2l\/api\//i.test(pathname)
   )
     return false;
+  // Independently mirror the narrow, observed image-view route. Decoding an
+  // alternate path must not authorize encoded separators or tool wrappers.
+  const imageView =
+    /^\/d2l\/lp\/files\/temp\/[A-Za-z0-9_-]{1,160}\.([A-Za-z]{3,4});[A-Za-z0-9][A-Za-z0-9_.-]{0,199}\.([A-Za-z]{3,4})\/View$/.exec(
+      url.pathname,
+    );
+  if (
+    imageView &&
+    !url.search &&
+    /^(?:png|jpe?g|gif|webp|svg)$/.test(imageView[1].toLowerCase()) &&
+    imageView[1].toLowerCase() === imageView[2].toLowerCase()
+  )
+    return true;
+  if (/^\/d2l\/lp\/files\/temp\//.test(pathname) && /;/i.test(pathname))
+    return false;
   if (
     /\.(?:html?|xhtml|txt|srt|vtt|csv|json|jpe?g|png|gif|webp|svg|pdf|pptx?|docx?|xlsx?|mp4|webm|mp3|wav|m4a|zip)$/i.test(
       pathname,

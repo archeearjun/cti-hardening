@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createBrightspaceCheckpointV110,
+  loadBrightspacePreviousRecoveryV111,
   BRIGHTSPACE_CHECKPOINT_MAX_BYTES_V110,
 } from "../src/extractors/brightspace/checkpoint.js";
 import { createBrightspaceProgressPanelV110 } from "../src/extractors/brightspace/progress.js";
@@ -239,6 +240,86 @@ test("course, build and origin scopes never read or prune one another", async ()
     (error) => error.code === "BRIGHTSPACE_CHECKPOINT_IDENTITY",
   );
   assert.equal(db.rows().length, 1);
+});
+
+test("v1.1.1 can recover the exact earlier v1.1.0 observations read-only while new attempts retain their own build scope", async () => {
+  const db = storageFixture(),
+    previousBuild = "v1.1.0-faithful-bookmark-20261016",
+    currentBuild = "v1.1.1-native-image-view-20261017",
+    old = structuredClone(observation);
+  old.capture.buildId = previousBuild;
+  old.capture.attempt = { id: "previous-finished" };
+  const legacy = session(db, { buildId: previousBuild });
+  await legacy.save(old, { status: "FINISHED" });
+  const partial = structuredClone(old);
+  partial.capture.attempt.id = "previous-paused";
+  partial.capture.body.text += " Original paused attempt";
+  await legacy.save(partial, { status: "PAUSED" });
+  const before = structuredClone(db.rows());
+  const options = {
+    origin: "https://lms.example.test",
+    courseId: "123",
+    buildId: currentBuild,
+    indexedDB: db.indexedDB,
+    IDBKeyRange: db.IDBKeyRange,
+  };
+  assert.equal(await session(db, { buildId: currentBuild }).load(), null);
+  const recovered = await loadBrightspacePreviousRecoveryV111(options),
+    finished = await loadBrightspacePreviousRecoveryV111({
+      ...options,
+      finishedOnly: true,
+    });
+  assert.deepEqual(recovered.state, partial);
+  assert.equal(recovered.status, "PAUSED");
+  assert.deepEqual(finished.state, old);
+  assert.equal(finished.status, "FINISHED");
+  assert.equal(
+    recovered.state.capture.body.observedAt,
+    observation.capture.body.observedAt,
+  );
+  assert.equal(recovered.state.capture.buildId, previousBuild);
+  assert.deepEqual(
+    db.rows(),
+    before,
+    "Recovery never rewrites or prunes old-version evidence",
+  );
+  assert.equal(
+    await loadBrightspacePreviousRecoveryV111({ ...options, courseId: "456" }),
+    null,
+  );
+  assert.equal(
+    await loadBrightspacePreviousRecoveryV111({
+      ...options,
+      origin: "https://another-lms.example.test",
+    }),
+    null,
+  );
+  assert.equal(
+    await loadBrightspacePreviousRecoveryV111({
+      ...options,
+      buildId: "unrelated-build",
+    }),
+    null,
+  );
+  const current = session(db, { buildId: currentBuild }),
+    fresh = structuredClone(old);
+  fresh.capture.buildId = currentBuild;
+  fresh.capture.capturedAt = "2026-10-17T08:00:00.000Z";
+  fresh.capture.body.observedAt = "2026-10-17T07:59:00.000Z";
+  await current.save(fresh, { status: "PAUSED" });
+  assert.deepEqual((await current.load()).state, fresh);
+  assert.deepEqual(
+    db.rows().filter((row) => row.buildId === previousBuild),
+    before,
+  );
+  assert.deepEqual(
+    (await loadBrightspacePreviousRecoveryV111(options)).state,
+    partial,
+  );
+  await assert.rejects(
+    current.save(partial),
+    (error) => error.code === "BRIGHTSPACE_CHECKPOINT_IDENTITY",
+  );
 });
 
 test("capture wrappers require exact nested course, build and origin on save and verified load", async () => {

@@ -225,17 +225,25 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         : mediaOnly
         ? "This attempt reads referenced files and supported external providers. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
+      const summary = coverageSummary();
+      state.coverage = summary;
       count.textContent =
+        summary.content.verified +
+        "/" +
+        summary.content.total +
+        " content items verified · " +
         state.counts.processed +
         "/" +
         state.counts.total +
         (mediaOnly
           ? " inventory entries retained · "
           : " inventory entries read · ") +
-        state.counts.complete +
-        " verified · " +
-        state.counts.questions +
-        " questions · " +
+        summary.structures.verified +
+        "/" +
+        summary.structures.total +
+        " empty structures verified · " +
+        summary.questions +
+        " question occurrences · " +
         Math.floor((stats.currentAttempt?.elapsedMs || 0) / 60000) +
         "m this attempt · " +
         (stats.currentAttempt?.requests || 0) +
@@ -243,8 +251,6 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         (budgetBase.elapsedMs
           ? " · " + Math.floor(stats.elapsedMs / 60000) + "m across attempts"
           : "");
-      const summary = coverageSummary();
-      state.coverage = summary;
       if (summary.assessments.total || summary.readings.total || summary.widgets.total)
         count.textContent +=
           " · Assessments " +
@@ -1608,6 +1614,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.6.0-integrated-panopto-bookmark-20261015",
             "v1.6.1-provider-access-diagnostics-20261015",
             "v1.7.0-public-panopto-helper-20261016",
+            "v1.7.1-explicit-fresh-course-capture-20261017",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -1873,11 +1880,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ? "Course draft captured and verified"
             : "Capture finished with evidence gaps";
         await saveRun(state.state, true);
+        const summary = coverageSummary();
         render(
-          state.counts.complete +
+          summary.content.verified +
             "/" +
-            items.length +
-            " verified. One capture file retains original media, published snapshots and every unresolved source.",
+            summary.content.total +
+            " content items verified; " +
+            summary.structures.verified +
+            "/" +
+            summary.structures.total +
+            " empty structures verified. One capture file retains original media, published snapshots and every unresolved source.",
         );
       } catch (error) {
         fatalReason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")

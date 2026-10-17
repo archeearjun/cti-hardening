@@ -829,6 +829,8 @@ test("Brightspace definition content joins by tool identity, never by duplicate 
         kind: "TOPIC",
         id: 12,
         title: "Quiz",
+        activityType: 4,
+        activityTypeLabel: "Quiz",
         toolItemId: 23,
         contentEvidence: { text: "Source wrapper" },
       },

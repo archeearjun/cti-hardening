@@ -1,5 +1,8 @@
 import { createBrightspaceProgressPanelV110 } from "./progress.js";
-import { createBrightspaceCheckpointV110 } from "./checkpoint.js";
+import {
+  createBrightspaceCheckpointV110,
+  loadBrightspacePreviousRecoveryV111,
+} from "./checkpoint.js";
 import {
   sha256,
   absoluteUrl,
@@ -22,13 +25,13 @@ import {
   readBrightspaceJsonResponse,
 } from "./content-reader.js";
 
-/* CTI Brightspace v1.1.0. Bookmark entry: explicit on-page start, bounded GET-only
+/* CTI Brightspace v1.1.1. Bookmark entry: explicit on-page start, bounded GET-only
  * source observations, native identities, original bodies and honest gaps.
  * No learner attempts, submissions, posts, grades or tool launches are read. */
 (async () => {
   "use strict";
-  const VERSION = "v1.1.0",
-    BUILD_ID = "v1.1.0-faithful-bookmark-20261016",
+  const VERSION = "v1.1.1",
+    BUILD_ID = "v1.1.1-native-image-view-20261017",
     SCHEMA_VERSION = 2;
   const MAX_REQUESTS = 1200,
     MAX_JSON_BYTES = 4 * 1024 * 1024,
@@ -107,6 +110,13 @@ import {
       activeController?.abort(Error("CHECKPOINT_STORAGE_FAILED"));
     },
   });
+  const previousRecovery = (finishedOnly = false) =>
+    loadBrightspacePreviousRecoveryV111({
+      courseId,
+      buildId: BUILD_ID,
+      origin,
+      finishedOnly,
+    });
   function exportCapture(capture) {
     if (!capture) throw Error("There is no retained capture to download yet.");
     const json = JSON.stringify(capture),
@@ -119,19 +129,25 @@ import {
       capture.exportFileName ||
         "CTI__BRIGHTSPACE__ORG_" +
           courseId +
-          "__v1.1.0_s2__SOURCE_GROUND_TRUTH.json",
+          "__" +
+          (capture.buildId === "v1.1.0-faithful-bookmark-20261016"
+            ? "v1.1.0"
+            : VERSION) +
+          "_s2__SOURCE_GROUND_TRUTH.json",
       json,
       "application/json;charset=utf-8",
     );
   }
   async function savedDownload() {
     if (!lastCapture && !previousFinishedCapture) {
-      const finished = await checkpoint.loadLatestFinished?.();
+      const finished =
+        (await checkpoint.loadLatestFinished?.()) ||
+        (await previousRecovery(true));
       previousFinishedCapture = finished?.state?.capture || null;
     }
     exportCapture(lastCapture || previousFinishedCapture);
   }
-  progress = createBrightspaceProgressPanelV110("CTI · Brightspace v1.1.0", {
+  progress = createBrightspaceProgressPanelV110("CTI · Brightspace v1.1.1", {
     key: "__CTI_BRIGHTSPACE_PROGRESS__",
     courseId,
     buildId: BUILD_ID,
@@ -156,12 +172,13 @@ import {
   });
   checkpointReady = (async () => {
     try {
-      const saved = await checkpoint.load();
+      const saved = (await checkpoint.load()) || (await previousRecovery());
       if (saved?.state) {
         if (saved.status === "FINISHED")
           previousFinishedCaptureRef = {
             runId: saved.runId,
             savedAt: saved.savedAt,
+            buildId: saved.state.capture?.buildId || BUILD_ID,
           };
         lastCapture = saved.state.capture || null;
         previousFinishedCapture =
@@ -174,7 +191,10 @@ import {
         if (lastCapture)
           window.__CTI_BRIGHTSPACE_SOURCE_CAPTURE_LAST__ = lastCapture;
         progress.update({
-          phase: "Saved recovery available",
+          phase:
+            lastCapture?.buildId && lastCapture.buildId !== BUILD_ID
+              ? "Earlier-version recovery available"
+              : "Saved recovery available",
           detail:
             "Capture/resume makes fresh API and body observations. Saved observations keep their original timestamps and remain downloadable.",
           downloadAvailable: !!lastCapture,
@@ -716,7 +736,7 @@ import {
           courseId +
           "__" +
           now().replace(/[:.]/g, "-") +
-          "__v1.1.0_s2__SOURCE_GROUND_TRUTH.json",
+          "__v1.1.1_s2__SOURCE_GROUND_TRUTH.json",
       };
     }
     async function saveCheckpoint(

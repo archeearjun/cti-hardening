@@ -7,6 +7,8 @@ import {
   validatePanoptoDeliveryInfoCapture,
 } from "../src/domain/panopto-delivery-info.ts";
 import { panoptoDeliveryFixture } from "./panopto-delivery-fixtures.mjs";
+import { capturedContent } from "../src/domain/content-evidence.ts";
+import { createHash } from "node:crypto";
 
 function fixture() {
   const course = {
@@ -322,7 +324,10 @@ test("exports separately saved Panopto metadata with exact report binding and un
   assert(exported.text.endsWith(before.report));
   assert.equal(review.pluginCaptures.length, 1);
   assert.equal(review.panoptoCaptures.length, 1);
-  assert.deepEqual(metadata, validatePanoptoDeliveryInfoCapture(f.metadata, f.spec));
+  assert.deepEqual(
+    metadata,
+    validatePanoptoDeliveryInfoCapture(f.metadata, f.spec),
+  );
   assert.deepEqual(metadata.nativeModel, f.metadata.nativeModel);
   assert.equal(metadata.nativeModelSha256, f.metadata.nativeModelSha256);
   assert.equal(metadata.responseTextSha256, f.metadata.responseTextSha256);
@@ -342,7 +347,8 @@ test("exports separately saved Panopto metadata with exact report binding and un
   assert.match(exported.text, /Manually imported Panopto metadata/);
   assert.match(exported.text, /Import time is not a new player observation/);
   assert.match(exported.text, /No finding is automatically cleared/);
-  const observations = exported.followUp.contentComparisons[0].view.observations;
+  const observations =
+    exported.followUp.contentComparisons[0].view.observations;
   assert(observations.some((entry) => /Panopto metadata/.test(entry.basis)));
   assert(!observations.some((entry) => /Previous.*Panopto/.test(entry.basis)));
 });
@@ -355,22 +361,41 @@ test("recomputes saved Panopto projections and verification claims during export
   p.streams = [];
   p.navigation = [{ text: "Invented transcript", kind: "TRANSCRIPT" }];
   for (const key of [
-    "bodyVerified", "binaryContentVerified", "captionsVerified",
-    "playbackVerified", "courseLaunchVerified", "wholePluginVerified",
-    "wholeWidgetVerified", "automatedResolution",
-  ]) p[key] = true;
-  const exported = await prepareOwnerReportExport(f.report, "audit-a", f.course, f.store),
+    "bodyVerified",
+    "binaryContentVerified",
+    "captionsVerified",
+    "playbackVerified",
+    "courseLaunchVerified",
+    "wholePluginVerified",
+    "wholeWidgetVerified",
+    "automatedResolution",
+  ])
+    p[key] = true;
+  const exported = await prepareOwnerReportExport(
+      f.report,
+      "audit-a",
+      f.course,
+      f.store,
+    ),
     recomputed = exported.followUp.reviews[0].panoptoCaptures[0];
   assert.equal(recomputed.title, f.native.model.Delivery.SessionName);
   assert.equal(recomputed.durationSeconds, f.native.model.Delivery.Duration);
   assert(recomputed.streams.length > 0);
   assert.equal(recomputed.navigation.length, 9);
-  assert(!JSON.stringify(recomputed.navigation).includes("Invented transcript"));
+  assert(
+    !JSON.stringify(recomputed.navigation).includes("Invented transcript"),
+  );
   for (const key of [
-    "bodyVerified", "binaryContentVerified", "captionsVerified",
-    "playbackVerified", "courseLaunchVerified", "wholePluginVerified",
-    "wholeWidgetVerified", "automatedResolution",
-  ]) assert.equal(recomputed[key], false, key);
+    "bodyVerified",
+    "binaryContentVerified",
+    "captionsVerified",
+    "playbackVerified",
+    "courseLaunchVerified",
+    "wholePluginVerified",
+    "wholeWidgetVerified",
+    "automatedResolution",
+  ])
+    assert.equal(recomputed[key], false, key);
   assert(!exported.text.includes("Invented title"));
   assert(!exported.text.includes("Invented transcript"));
 });
@@ -378,25 +403,305 @@ test("recomputes saved Panopto projections and verification claims during export
 test("retains historical Panopto metadata when the current item no longer references its target", async () => {
   const f = await panoptoFixture();
   f.record.data.review.capture.payload.embeddedRefs = [];
-  const exported = await prepareOwnerReportExport(f.report, "audit-a", f.course, f.store),
+  const exported = await prepareOwnerReportExport(
+      f.report,
+      "audit-a",
+      f.course,
+      f.store,
+    ),
     observations = exported.followUp.contentComparisons[0].view.observations;
   assert.equal(exported.followUp.reviews[0].panoptoCaptures.length, 1);
   assert(observations.some((entry) => /Previous.*Panopto/.test(entry.basis)));
-  assert(observations.some((entry) => /current.*reference.*unverified/i.test(entry.basis)));
+  assert(
+    observations.some((entry) =>
+      /current.*reference.*unverified/i.test(entry.basis),
+    ),
+  );
   assert.match(exported.text, /No finding is automatically cleared/);
 });
 
 test("rejects altered native metadata and cross-report or same-title cross-item Panopto attribution", async () => {
   for (const mutate of [
-    (p) => { p.auditId = "another-audit"; },
-    (p) => { p.courseId = "another-course"; },
-    (p) => { p.itemId = "same-title-other-item"; },
-    (p) => { p.nativeModel.Delivery.SessionName = "Altered source"; },
-    (p) => { p.nativeModelSha256 = "f".repeat(64); },
-    (p) => { p.targetUrl = p.targetUrl.replace("00000001-", "00000009-"); },
+    (p) => {
+      p.auditId = "another-audit";
+    },
+    (p) => {
+      p.courseId = "another-course";
+    },
+    (p) => {
+      p.itemId = "same-title-other-item";
+    },
+    (p) => {
+      p.nativeModel.Delivery.SessionName = "Altered source";
+    },
+    (p) => {
+      p.nativeModelSha256 = "f".repeat(64);
+    },
+    (p) => {
+      p.targetUrl = p.targetUrl.replace("00000001-", "00000009-");
+    },
   ]) {
     const f = await panoptoFixture();
     mutate(f.record.data.review.panoptoCaptures[0]);
-    await assert.rejects(prepareOwnerReportExport(f.report, "audit-a", f.course, f.store));
+    await assert.rejects(
+      prepareOwnerReportExport(f.report, "audit-a", f.course, f.store),
+    );
   }
+});
+
+function sourceBodyFixture() {
+  const f = fixture(),
+    literal =
+      '1\r\n00:00:01,000 --> 00:00:03,500\r\nOriginal <word> & "exact caption".\r\n',
+    hash = createHash("sha256").update(literal).digest("hex"),
+    url = "https://source.example.test/captions/original.srt",
+    imageUrl = "https://source.example.test/protected/blueprint.png",
+    alt = 'North <south> & "original drawing".',
+    content = {
+      ...capturedContent({}, { basis: "Original Brightspace extraction" }),
+      text: literal,
+      textCoverage: "COMPLETE",
+      textReason:
+        "Complete literal source-file text verified against its retained original bytes.",
+      references: [imageUrl],
+      imageAltText: [{ imageOrdinal: 1, text: alt }],
+      sourceBody: {
+        platform: "BRIGHTSPACE",
+        topicId: "topic-a",
+        status: "CAPTURED",
+        format: "srt",
+        contentType: "application/x-subrip; charset=utf-8",
+        observedAt: "2026-10-17T11:14:42.000Z",
+        bytes: Buffer.byteLength(literal),
+        sha256: hash,
+        originalRef: hash,
+        originalIntegrity: "VERIFIED_RETAINED_ORIGINAL",
+        textScope: "ORIGINAL_BODY",
+        descriptionText: "Native topic description kept separately.",
+        descriptionTruncated: false,
+        reason: "",
+        projectionStatus: "",
+        projectionReason: "",
+        references: [
+          {
+            url: imageUrl,
+            rawUrl: "../protected/blueprint.png",
+            tag: "img",
+            attribute: "src",
+            status: "NOT_FETCHED",
+            reason: "AUTHENTICATED_RESOURCE_NOT_READ",
+            originalRef: "",
+            alt,
+            text: "",
+          },
+        ],
+      },
+    };
+  f.course.data.scan = {
+    courseTree: [
+      {
+        title: "Module 1",
+        type: "folder",
+        children: [
+          {
+            title: "Source caption",
+            idref: "source-a",
+            type: "webcontent",
+            sourcePayload: {},
+            children: [],
+          },
+        ],
+      },
+    ],
+  };
+  f.report.result.itemResults = [
+    {
+      sourceId: "source-a",
+      sourceName: "Source caption",
+      sourcePath: "Module 1",
+      courseraId: "survey",
+      checks: {},
+    },
+  ];
+  f.report.ownerContext = {
+    sourceTopics: [
+      { id: "topic-a", name: "Source caption", path: "Module 1", url },
+    ],
+    sourceTopicMappings: [
+      {
+        sourceId: "source-a",
+        sourceName: "Source caption",
+        sourcePath: "Module 1",
+        topicId: "topic-a",
+        navigationEligible: true,
+      },
+    ],
+  };
+  f.report.contentEvidence = {
+    schemaVersion: 1,
+    coursera: [],
+    brightspace: [
+      { id: "topic-a", name: "Source caption", path: "Module 1", content },
+    ],
+  };
+  f.store.list = async () => [];
+  return { ...f, content, literal, hash, alt, imageUrl };
+}
+
+test("owner exports retain literal caption timing, source-file identity and per-reference outcomes without original bytes", async () => {
+  const f = sourceBodyFixture(),
+    original = structuredClone(f.report),
+    exported = await prepareOwnerReportExport(
+      f.report,
+      "audit-a",
+      f.course,
+      f.store,
+    ),
+    source = exported.followUp.contentComparisons[0].view.source.find(
+      (c) => c.sourceBody,
+    );
+  assert.deepEqual(f.report, original);
+  assert.equal(source.text, f.literal);
+  assert.deepEqual(source.sourceBody, f.content.sourceBody);
+  assert.deepEqual(exported.evidence.contentEvidence, original.contentEvidence);
+  assert(
+    exported.text.includes(f.literal),
+    "SRT line endings and literal markup survive text export",
+  );
+  for (const value of [
+    "topic-a",
+    "CAPTURED",
+    "srt",
+    "application/x-subrip; charset=utf-8",
+    "2026-10-17T11:14:42.000Z",
+    f.hash,
+    "VERIFIED_RETAINED_ORIGINAL",
+    "ORIGINAL_BODY",
+    "img",
+    "src",
+    f.imageUrl,
+    "../protected/blueprint.png",
+    "NOT_FETCHED",
+    "AUTHENTICATED_RESOURCE_NOT_READ",
+    f.alt,
+    "Native topic description kept separately.",
+  ])
+    assert(
+      exported.text.includes(value),
+      `Source-file export retains ${value}`,
+    );
+  assert(
+    !JSON.stringify(exported.followUp.contentEvidence).includes('"base64"'),
+  );
+  assert.equal(exported.followUp.automatedResolution, false);
+  assert(exported.text.endsWith(original.report));
+});
+
+test("source-file exports distinguish a retained binary with no preview from an unfetched body and description fallback", async () => {
+  for (const mode of ["binary", "description"]) {
+    const f = sourceBodyFixture(),
+      body = f.content.sourceBody;
+    body.format = "";
+    body.references = [];
+    f.content.imageAltText = [];
+    f.content.references = [];
+    if (mode === "binary") {
+      body.status = "CAPTURED_ORIGINAL";
+      body.contentType = "application/pdf";
+      body.textScope = "NO_TEXT";
+      body.projectionStatus = "UNRESOLVED";
+      body.projectionReason = "BINARY_TEXT_PREVIEW_NOT_AVAILABLE";
+      f.content.text = "";
+      f.content.textCoverage = "UNVERIFIED";
+      f.content.textReason =
+        "The original source-file bytes were retained and verified; this file is not confirmed empty.";
+    } else {
+      body.status = "NOT_FETCHED";
+      body.reason = "AUTHENTICATED_RESOURCE_NOT_READ";
+      body.originalIntegrity = "UNVERIFIED";
+      body.textScope = "DESCRIPTION_FALLBACK";
+      body.bytes = null;
+      body.sha256 = "";
+      body.originalRef = "";
+      f.content.text = "Native topic description only.";
+      body.descriptionText = f.content.text;
+      f.content.textCoverage = "PARTIAL";
+      f.content.textReason =
+        "Description only; source-file contents and emptiness remain unverified.";
+    }
+    const exported = await prepareOwnerReportExport(
+        f.report,
+        "audit-a",
+        f.course,
+        f.store,
+      ),
+      source = exported.followUp.contentComparisons[0].view.source.find(
+        (c) => c.sourceBody,
+      );
+    assert.deepEqual(source.sourceBody, body);
+    assert(exported.text.includes(body.status));
+    assert(exported.text.includes(body.textScope));
+    assert(exported.text.includes(body.originalIntegrity));
+    assert(
+      exported.text.includes(
+        mode === "binary" ? body.projectionReason : f.content.text,
+      ),
+    );
+    assert(!exported.text.includes("Text: EMPTY"));
+  }
+});
+
+test("older source snapshots without source-file fields keep their original export scope", async () => {
+  const f = sourceBodyFixture();
+  delete f.content.sourceBody;
+  const exported = await prepareOwnerReportExport(
+      f.report,
+      "audit-a",
+      f.course,
+      f.store,
+    ),
+    source = exported.followUp.contentComparisons[0].view.source.find(
+      (c) => c.text === f.literal,
+    );
+  assert.equal(source.sourceBody, undefined);
+  assert.equal(source.text, f.literal);
+  assert(!exported.text.includes("VERIFIED_RETAINED_ORIGINAL"));
+});
+
+test("an empty source body stays empty while its separate native topic description remains exportable", async () => {
+  const f = sourceBodyFixture();
+  f.content.text = "";
+  f.content.textCoverage = "EMPTY";
+  f.content.textReason = "The retained source file has an empty text field.";
+  const emptyHash = createHash("sha256").update("").digest("hex");
+  f.content.sourceBody.bytes = 0;
+  f.content.sourceBody.sha256 = emptyHash;
+  f.content.sourceBody.originalRef = emptyHash;
+  const exported = await prepareOwnerReportExport(
+      f.report,
+      "audit-a",
+      f.course,
+      f.store,
+    ),
+    source = exported.followUp.contentComparisons[0].view.source.find(
+      (c) => c.sourceBody,
+    );
+  assert.equal(source.text, "");
+  assert.equal(source.textCoverage, "EMPTY");
+  assert.equal(source.sourceBody.textScope, "ORIGINAL_BODY");
+  assert.equal(
+    source.sourceBody.descriptionText,
+    "Native topic description kept separately.",
+  );
+  assert(exported.text.includes("Text: EMPTY"));
+  assert(exported.text.includes(source.sourceBody.descriptionText));
+});
+
+test("an incomplete saved original-file identity prevents a misleading owner export", async () => {
+  const f = sourceBodyFixture();
+  f.content.sourceBody.sha256 = "";
+  await assert.rejects(
+    prepareOwnerReportExport(f.report, "audit-a", f.course, f.store),
+    /original-body identity/,
+  );
 });

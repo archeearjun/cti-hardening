@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { verifiedCourseraCaptureInventory, evaluateCourseraCapture } from '../src/domain/coursera-background-extraction.ts';
-import { captureStructureWorkbook } from '../src/domain/capture-structure.ts';
+import { captureStructureEvidence, captureStructureWorkbook } from '../src/domain/capture-structure.ts';
 import { readWorkbook } from '../src/adapters/workbook.ts';
 import { sourceDocumentScan } from '../src/domain/source-documents.ts';
 import { inspectEvidenceInput } from '../src/domain/evidence-intake.ts';
@@ -10,6 +10,8 @@ import { createWorkflows } from '../src/domain/workflows.ts';
 import { workerXml } from '../src/adapters/worker-xml.ts';
 import { comparisonFixture, encode } from './workflow-fixtures.mjs';
 import { directCanonicalSourceTextV1 } from '../src/extractors/coursera/direct-data-canonical.js';
+import { buildOwnerTasks } from '../src/domain/owner-actions.ts';
+import { ownerScope } from '../src/domain/owner-scope.ts';
 const digest = x => createHash('sha256').update(x).digest('hex');
 function captureFixture(typeName = 'supplement') {
  const courseId='native_course_123', atomId='a'.repeat(22);
@@ -21,12 +23,71 @@ function captureFixture(typeName = 'supplement') {
   meta:{baseFingerprintCount:1,directDataCapture:{mode:'BOUND_AUTHORING_DRAFT_API',version:1,sourceStable:true,acquisitionComplete:true,wholeCourseVerified:false,materialVersion:1,courseBranchVersion:1,initialMaterialHash:modelHash,finalMaterialHash:modelHash,materials:model,finalMaterials:structuredClone(model),materialsReceipt:receipt,finalMaterialsReceipt:structuredClone(receipt)}},
   fingerprints:[{id:leaf.id,name:leaf.name,type:'Reading',path:'Module 1',atomId,contentId:leaf.contentId,captureContract:{complete:false,status:'SOURCE_CONTENT_UNVERIFIED'},payload:{textSample:'',files:[],links:[],images:[]}}]};
 }
+function shellCaptureFixture() {
+ const capture=captureFixture(), mode=capture.meta.directDataCapture;
+ const root=mode.materials.elements[0], first=root.material.elements[0];
+ first.originalName='Old module title';
+ first.elements[0].name='Current reading title';
+ first.elements[0].originalName='Old reading title';
+ first.elements.push({id:'empty_lesson',name:'Explore',trackId:'track_1',elements:[]});
+ root.material.elements.push({id:'empty_module',name:'Archive',description:'',learningObjectives:[],timeCommitment:0,elements:[]});
+ const repeated={id:'module_2',name:first.name,elements:[{...structuredClone(first.elements[0]),id:'reading_2',atomId:'b'.repeat(22),contentId:'atom~'+'b'.repeat(22)}]};
+ root.material.elements.push(repeated);
+ capture.fingerprints[0].name='Current reading title';
+ capture.fingerprints.push(...[
+  {id:'empty_lesson',name:'Explore',type:'Unknown'},
+  {id:'empty_module',name:'Archive',type:'Unknown'},
+  {id:'reading_2',name:'Current reading title',type:'Reading',atomId:'b'.repeat(22),contentId:'atom~'+'b'.repeat(22)}
+ ].map(item=>({...item,payload:{textSample:'',files:[],links:[],images:[]}})));
+ capture.meta.baseFingerprintCount=capture.fingerprints.length;
+ mode.finalMaterials=structuredClone(mode.materials);
+ mode.initialMaterialHash=mode.finalMaterialHash=digest(directCanonicalSourceTextV1(root));
+ mode.materialsReceipt.sha256=mode.materialsReceipt.originalResponseSha256=digest(JSON.stringify(mode.materials));
+ mode.finalMaterialsReceipt=structuredClone(mode.materialsReceipt);
+ return capture;
+}
+function contextCaptureFixture() {
+ const capture=captureFixture(), mode=capture.meta.directDataCapture, root=mode.materials.elements[0];
+ const item=(id,letter)=>({id,name:id,atomId:letter.repeat(22),contentId:'atom~'+letter.repeat(22),content:{typeName:'supplement',definition:{}}});
+ root.material.elements=[{id:'module_1',name:'Module 1',elements:[
+  {id:'archive_1',name:'Archive',trackId:'t1',elements:[]}, item('reading_1','a'),
+  {id:'lesson_1',name:'Repeated lesson',trackId:'t2',elements:[item('reading_2','b')]}, item('reading_3','c'),
+  {id:'archive_2',name:'Archive',trackId:'t3',elements:[]},
+  {id:'lesson_2',name:'Repeated lesson',trackId:'t4',elements:[item('reading_4','d')]}
+ ]},{id:'module_2',name:'Module 1',elements:[
+  {id:'archive_3',name:'Archive',trackId:'t5',elements:[]},item('reading_5','e')
+ ]}];
+ capture.fingerprints=[];
+ function visit(node,ancestors) {
+  if(node.elements?.length) return node.elements.forEach(child=>visit(child,[...ancestors,node]));
+  capture.fingerprints.push({id:node.id,name:node.name,path:ancestors.map(a=>a.name).join(' > '),
+   type:node.content?'Reading':'Unknown',atomId:node.atomId||'',contentId:node.contentId||'',payload:{textSample:'',files:[],links:[],images:[]}});
+ }
+ root.material.elements.forEach(node=>visit(node,[]));
+ capture.meta.baseFingerprintCount=capture.fingerprints.length;
+ mode.finalMaterials=structuredClone(mode.materials);
+ mode.initialMaterialHash=mode.finalMaterialHash=digest(directCanonicalSourceTextV1(root));
+ mode.materialsReceipt.sha256=mode.materialsReceipt.originalResponseSha256=digest(JSON.stringify(mode.materials));
+ mode.finalMaterialsReceipt=structuredClone(mode.materialsReceipt);
+ return capture;
+}
 test('native material structure can be verified while content gaps remain unresolved',()=>{
  const capture=captureFixture();const proof=verifiedCourseraCaptureInventory(capture);
  assert.equal(proof.inventory.length,1);assert.equal(proof.completeContent,false);
  assert.equal(evaluateCourseraCapture(capture).complete,false);
  const workbook=captureStructureWorkbook(capture);
  assert.equal(workbook.proof.independentWorkbook,false);assert.equal(workbook.proof.contentItemCount,1);
+ assert.deepEqual(captureStructureEvidence(capture),workbook.proof);
+});
+test('verified native shell evidence retains unsupported source types without assigning a comparison content type',()=>{
+ for(const type of ['programming','ungradedLab','gradedLti','futureQuiz','ungradedWidgetFuture','constructor']) {
+  const capture=captureFixture(type), proof=captureStructureEvidence(capture);
+  assert.equal(proof.contentItemCount,1);assert.equal(proof.completeContent,false);
+  assert.deepEqual(proof.nativeHierarchy.at(-1),{
+   id:'reading_1',title:'Reading',kind:'item',ancestorIds:['module_1'],emptyContainer:false,sourceContentType:type
+  });
+  assert.throws(()=>captureStructureWorkbook(capture),/unsupported type.*matching Coursera XLSX/);
+ }
 });
 test('native type projection uses explicit supported kinds and rejects unknown content instead of inventing readings',()=>{
  for(const [type,label] of [['supplement','Reading'],['staffGraded','Assignment'],['peerGraded','Assignment'],['ungradedAssignment','Assignment'],['discussionPrompt','Discussion Prompt'],['quiz','Quiz'],['exam','Quiz'],['video','Video'],['ungradedWidget','Plugin'],['gradedWidget','Plugin']]) {
@@ -40,6 +101,90 @@ test('native type projection uses explicit supported kinds and rejects unknown c
   assert.equal(verifiedCourseraCaptureInventory(capture).inventory[0].sourceContentType,type);
   assert.throws(()=>captureStructureWorkbook(capture),/unsupported type.*matching Coursera XLSX/);
  }
+});
+test('native shell projection retains empty modules and lessons, current names and repeated identities without inventing content',()=>{
+ const capture=shellCaptureFixture(), workbook=captureStructureWorkbook(capture);
+ const rows=readWorkbook(workbook.bytes,workbook.name).sheets.Inventory.values;
+ assert.deepEqual(rows.filter(row=>row[0]==='***Name').map(row=>[row[1],row[7]]),[
+  ['Module 1','module_1'],['Explore','empty_lesson'],['Archive','empty_module'],['Module 1','module_2']
+ ]);
+ assert.deepEqual(rows.filter(row=>row[0]==='Reading').map(row=>[row[1],row[7]]),[
+  ['Current reading title','reading_1'],['Current reading title','reading_2']
+ ]);
+ const proof=workbook.proof;
+ assert.equal(proof.inventoryEntryCount,4);assert.equal(proof.contentItemCount,2);
+ assert.equal(proof.moduleCount,3);assert.equal(proof.lessonCount,1);assert.equal(proof.emptyContainerCount,2);
+ assert.deepEqual(proof.nativeHierarchy.map(n=>[n.id,n.kind,n.ancestorIds,n.emptyContainer]),[
+  ['module_1','module',[],false],['reading_1','item',['module_1'],false],
+  ['empty_lesson','lesson',['module_1'],true],['empty_module','module',[],true],
+  ['module_2','module',[],false],['reading_2','item',['module_2'],false]
+ ]);
+ assert.equal(capture.meta.directDataCapture.materials.elements[0].material.elements[0].originalName,'Old module title');
+ assert(!rows.some(row=>row[1]==='Old module title'||row[1]==='Old reading title'));
+ assert.equal(proof.completeContent,false);assert.equal(proof.independentWorkbook,false);
+});
+test('empty native headings retain shell evidence while the comparison still contains only content items',()=>{
+ const input=comparisonFixture();delete input.excel;input.json={name:'native-shell.json',bytes:encode(shellCaptureFixture())};
+ const output=createWorkflows(workerXml).compare(input);
+ assert.equal(output.result.success,true);
+ assert.equal(output.result.structuralInventoryBasis.emptyContainerCount,2);
+ assert.equal(output.result.structuralInventoryBasis.nativeHierarchy.length,6);
+ assert.deepEqual(output.result.nativeCourseOutlineEvidence,output.result.structuralInventoryBasis);
+ const ids=output.result.ownerView.items.map(item=>item.id);
+ assert.deepEqual(ids,['reading_1','reading_2']);
+ assert(!ids.includes('empty_module'));assert(!ids.includes('empty_lesson'));
+});
+test('native workbook context cannot assign direct module items to a preceding empty Archive or completed lesson',()=>{
+ const capture=contextCaptureFixture(), input=comparisonFixture();delete input.excel;
+ input.json={name:'native-context.json',bytes:encode(capture)};
+ const output=createWorkflows(workerXml).compare(input);
+ assert.equal(output.result.success,true);
+ const items=output.result.ownerView.items;
+ assert.deepEqual(items.map(item=>[item.id,item.path,item.lesson||'']),[
+  ['reading_1','Module 1',''],['reading_2','Module 1','Repeated lesson'],
+  ['reading_3','Module 1',''],['reading_4','Module 1','Repeated lesson'],['reading_5','Module 1','']
+ ]);
+ const tasks=buildOwnerTasks(output.result,[], '',output.contentEvidence.coursera);
+ const destination=tasks.filter(task=>!task.sourceOnly);
+ assert.deepEqual(destination.map(task=>task.path),[
+  'Module 1','Module 1 > Repeated lesson','Module 1','Module 1 > Repeated lesson','Module 1'
+ ]);
+ assert(destination.every(task=>ownerScope(task).included));
+ assert.deepEqual(output.result.nativeCourseOutlineEvidence.nativeHierarchy.filter(n=>n.kind==='item').map(n=>[n.id,n.ancestorIds]),[
+  ['reading_1',['module_1']],['reading_2',['module_1','lesson_1']],['reading_3',['module_1']],
+  ['reading_4',['module_1','lesson_2']],['reading_5',['module_2']]
+ ]);
+});
+test('an independent workbook keeps its authority while the capture retains a separate full native shell outline',()=>{
+ const input=comparisonFixture();input.json={name:'native-shell.json',bytes:encode(shellCaptureFixture())};
+ const output=createWorkflows(workerXml).compare(input);
+ assert.equal(output.result.success,true);
+ assert.equal(output.hashes.derivedStructure,undefined);
+ assert.equal(output.result.structuralInventoryBasis,undefined);
+ assert.equal(output.result.nativeCourseOutlineEvidence.contentItemCount,2);
+ assert.equal(output.result.nativeCourseOutlineEvidence.emptyContainerCount,2);
+ assert.deepEqual(output.result.nativeCourseOutlineEvidence.nativeHierarchy.map(n=>n.id),[
+  'module_1','reading_1','empty_lesson','empty_module','module_2','reading_2'
+ ]);
+ assert.notEqual(output.result.inputCoherence?.status,'VERIFIED_CAPTURE_INVENTORY');
+ assert.match(output.result.stats.source,/Excel/);
+});
+test('native outline evidence keeps unsupported native kinds literal beside an independent workbook',()=>{
+ const input=comparisonFixture();input.json={name:'native-unsupported.json',bytes:encode(captureFixture('futureQuiz'))};
+ const output=createWorkflows(workerXml).compare(input);
+ assert.equal(output.result.success,true);
+ assert.equal(output.result.nativeCourseOutlineEvidence.nativeHierarchy.at(-1).sourceContentType,'futureQuiz');
+ assert.equal(output.result.structuralInventoryBasis,undefined);
+});
+test('legacy and unstable captures do not acquire a fabricated verified native shell outline',()=>{
+ const legacy=createWorkflows(workerXml).compare(comparisonFixture());
+ assert.equal(legacy.result.nativeCourseOutlineEvidence,undefined);
+ const input=comparisonFixture(), capture=shellCaptureFixture();
+ capture.meta.directDataCapture.sourceStable=false;
+ input.json={name:'unstable-shell.json',bytes:encode(capture)};
+ const output=createWorkflows(workerXml).compare(input);
+ assert.equal(output.result.nativeCourseOutlineEvidence,undefined);
+ assert(output.result.workspaceWarnings.some(w=>/native course outline.*unavailable/.test(w)));
 });
 test('native structural alternative rejects altered models, order, IDs, receipts and incomplete legacy inventory',()=>{
  const changes=[c=>{c.meta.directDataCapture.materials.elements[0].material.elements[0].name='Changed';},c=>{c.fingerprints[0].id='wrong';},c=>{c.meta.directDataCapture.finalMaterialsReceipt.status=403;},c=>{c.meta.baseFingerprintCount=2;},c=>{c.meta.directDataCapture.sourceStable=false;},c=>{delete c.meta.directDataCapture;}];

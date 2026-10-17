@@ -46,6 +46,14 @@ export interface ReviewResult {
     assets: number | null;
     links: number;
   };
+  courseraCoverage?: {
+    inventoryEntries: number;
+    contentItems: number;
+    emptyStructures: number;
+    reportedCompleteContent: number;
+    reportedCompleteEmptyStructures: number;
+    basis: "VERIFIED_NATIVE_MATERIAL_INVENTORY";
+  };
   traversal: {
     recorded: boolean;
     visited: number;

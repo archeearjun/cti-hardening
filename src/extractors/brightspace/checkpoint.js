@@ -2,6 +2,24 @@ export const BRIGHTSPACE_CHECKPOINT_DB_V110 = "cti-brightspace-source-v110";
 export const BRIGHTSPACE_CHECKPOINT_MAX_BYTES_V110 = 134217728;
 export const BRIGHTSPACE_CHECKPOINT_MAX_RUNS_V110 = 3;
 
+/** Read the immediately preceding compatible schema-2 release for historical
+ * download only. Never rewrite its build, dates, scope or run identity, and
+ * never save new observations through the old checkpoint session. */
+export async function loadBrightspacePreviousRecoveryV111(options) {
+  if (options.buildId !== "v1.1.1-native-image-view-20261017") return null;
+  const previous = createBrightspaceCheckpointV110({
+    ...options,
+    buildId: "v1.1.0-faithful-bookmark-20261016",
+  });
+  try {
+    return options.finishedOnly
+      ? await previous.loadLatestFinished()
+      : await previous.load();
+  } finally {
+    await previous.close();
+  }
+}
+
 /** Local recovery evidence only. Saved observations retain their original dates;
  * saving or loading never makes an API/body observation newly observed. */
 export function createBrightspaceCheckpointV110(options) {

@@ -92,6 +92,27 @@ labelled derived native structure, never an independent export. Legacy, unstable
 unsupported or incomplete inventories still require XLSX. Structure verification
 does not certify content capture.
 
+When native structure is verified, **Captured Coursera shell outline** retains
+all modules, lessons and item IDs in their captured order, including empty
+containers and repeated titles. It is also available beside an independent XLSX
+without replacing that workbook's comparison authority. Empty containers remain
+structural observations and do not become invented content tasks. The native
+current title is displayed while the original material model stays unchanged.
+
+Brightspace content views distinguish original-file acquisition, retained text
+projection and referenced-resource outcomes. Verified text/SRT/VTT originals keep
+their literal text and caption timing. A binary original, an unread reference,
+an empty body and a native description are separate observations. Original-file
+hashes identify evidence in the supplied extraction; the report does not contain
+a downloadable copy of those bytes. HTML-original retention alone does not
+certify its text projection, layout, interactive behavior or whole-course coverage.
+
+Captured assessment grading is shown only when the exact item's native
+authoring-draft configuration can be rebound independently. The boolean
+`configuration.isGraded` describes that retained draft setting. A lesson title
+such as “Practice” and an unlinked source gradebook do not establish an ungraded
+source policy, complete assessment behavior or a learner-facing state.
+
 Small source-document originals are retained as text. Large original archives and
 capture binaries remain local files: workspace records retain identities and
 scope, not an unbounded Base64 copy. Keep original files for future reopening.

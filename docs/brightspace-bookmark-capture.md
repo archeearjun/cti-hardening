@@ -1,6 +1,6 @@
 # Brightspace bookmark capture
 
-The current Brightspace collector is **v1.1.0, schema 2**. Its primary delivery
+The current Brightspace collector is **v1.1.1, schema 2**. Its primary delivery
 is a saved **CTI Brightspace capture** bookmark. It reads supported source
 evidence in the operator’s existing signed-in Chrome tab and downloads one JSON
 file. It does not change the course or create replacement content.
@@ -44,6 +44,17 @@ bindings identify the relevant topic, module, quiz, assignment or discussion.
 The same body may be stored once by hash while its distinct course placements
 and source bindings remain separate. Matching titles do not supply identity.
 
+Version 1.1.1 also reads the specific same-origin Brightspace temporary image
+view route ending in an image extension, semicolon filename and `/View`.
+Malformed or encoded wrappers, unexpected query strings and HTML error pages
+remain rejected. This adds a supported source location; successful body reads,
+original identity, visible appearance and media fidelity remain separate checks.
+
+Static tab panels already present in an HTML document are included in its text
+projection even when CSS hides them. The flattened projection does not preserve
+tab-to-panel relationships, media position or content loaded by a later click.
+External tool interiors require their own evidence.
+
 External URLs, Panopto, Yuja, LTI quicklinks and unsupported dynamic tools remain
 recorded references or gaps. The Brightspace collector does not launch an LTI
 tool, navigate assessment pages, request learner attempts or retrieve an
@@ -69,6 +80,11 @@ for recovery and download, with their original observation dates and payload
 hashes. Up to three attempts are retained per scope. Storage failures are
 reported; the operator should download the in-memory evidence before closing
 the tab if checkpoint storage is unavailable or full.
+
+When the current build has no saved history, its recovery controls can offer
+the exact known v1.1.0 checkpoint as a historical download. That fallback is
+read-only: original build identities, payloads and dates remain unchanged, and
+current captures write into the new build's scope.
 
 **Capture/resume re-reads metadata and original bodies on each current attempt.**
 The saved checkpoint is not a cache that certifies unchanged sources or makes

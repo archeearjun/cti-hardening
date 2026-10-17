@@ -117,8 +117,17 @@ test("Evidence Inbox and comparison retain independent Brightspace gaps and lite
   );
   assert.equal(
     output.contentEvidence.brightspace[0].content.textCoverage,
-    "PARTIAL",
+    "COMPLETE",
   );
+  assert.equal(
+    output.contentEvidence.brightspace[0].content.sourceBody.originalIntegrity,
+    "VERIFIED_RETAINED_ORIGINAL",
+  );
+  assert.equal(
+    output.contentEvidence.brightspace[0].content.sourceBody.format,
+    "srt",
+  );
+  assert.equal(output.result.brightspaceEvidence.wholeCourseComplete, false);
 });
 
 test("tampered originals fail in Evidence Inbox, direct comparison and original-content supplementation", async () => {

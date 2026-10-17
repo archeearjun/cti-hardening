@@ -11,9 +11,16 @@ import { buildPostQaText_ } from "../reporting/owner-report.js";
 import { buildOwnerContext, buildOwnerTasks } from "./owner-actions.ts";
 import { attachCourseraArchiveFileBytes } from "./coursera-capture-file.ts";
 import { buildCourseraArchiveProof } from "./coursera-archive-proof.ts";
-import { captureStructureWorkbook } from "./capture-structure.ts";
+import {
+  captureStructureEvidence,
+  captureStructureWorkbook,
+} from "./capture-structure.ts";
+import { nativeCourseOutlineText } from "./native-course-outline.ts";
 import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
-import { applyDocumentComparisonScope, documentComparisonText } from "./document-comparison.ts";
+import {
+  applyDocumentComparisonScope,
+  documentComparisonText,
+} from "./document-comparison.ts";
 import type {
   ComparisonInput,
   ComparisonOutput,
@@ -195,7 +202,11 @@ export function createWorkflows(xmlService: unknown) {
       if (input.brightspace.bytes.byteLength > 128 * 1024 * 1024)
         throw Error("Brightspace capture exceeds the 128 MiB limit.");
       brightspaceEvidence = assertBrightspaceCaptureIntegrity(
-        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.brightspace.bytes)),
+        JSON.parse(
+          new TextDecoder("utf-8", { fatal: true }).decode(
+            input.brightspace.bytes,
+          ),
+        ),
       );
     }
     if (
@@ -237,11 +248,31 @@ export function createWorkflows(xmlService: unknown) {
     if (course.externalRuntimeEvidence)
       io.externalRuntime = () =>
         structuredClone(course.externalRuntimeEvidence);
-    const derivedStructure = !input.excel && input.json
-      ? captureStructureWorkbook(io.readCourseraCapture(input.json.bytes)) : undefined;
+    const derivedStructure =
+      !input.excel && input.json
+        ? captureStructureWorkbook(io.readCourseraCapture(input.json.bytes))
+        : undefined;
+    let nativeCourseOutlineEvidence = derivedStructure?.proof;
+    let nativeCourseOutlineWarning = "";
+    if (!nativeCourseOutlineEvidence && input.json) {
+      const captured = io.readCourseraCapture(input.json.bytes);
+      // Keep the captured shell visible even when an independent workbook is
+      // supplied. It does not replace that workbook's comparison authority.
+      if (captured?.meta?.directDataCapture?.materials) {
+        try {
+          nativeCourseOutlineEvidence = captureStructureEvidence(captured);
+        } catch (error) {
+          nativeCourseOutlineWarning = `Captured native course outline is unavailable: ${error instanceof Error ? error.message : "inventory verification failed"}`;
+        }
+      }
+    }
     const structuralInput = input.excel || derivedStructure;
-    if (!structuralInput) throw Error("Add a Coursera XLSX or a direct capture with a verified native material inventory.");
-    if (derivedStructure) Object.assign(io, { structuralInventoryBasis: derivedStructure.proof });
+    if (!structuralInput)
+      throw Error(
+        "Add a Coursera XLSX or a direct capture with a verified native material inventory.",
+      );
+    if (derivedStructure)
+      Object.assign(io, { structuralInventoryBasis: derivedStructure.proof });
     const result = engine.runPostIngestionQaCore_(
       base64(structuralInput.bytes),
       structuralInput.name,
@@ -261,17 +292,28 @@ export function createWorkflows(xmlService: unknown) {
       io,
     );
     if (!result.success) throw new Error(result.error || "Comparison failed.");
+    if (nativeCourseOutlineEvidence)
+      result.nativeCourseOutlineEvidence = nativeCourseOutlineEvidence;
     if (derivedStructure) {
       result.structuralInventoryBasis = derivedStructure.proof;
-      result.inputCoherence = { status: "VERIFIED_CAPTURE_INVENTORY", independentWorkbook: false,
-        reason: "Structure was independently recomputed from stable retained native material models and source receipts. No separate Coursera XLSX was supplied." };
-      result.sourceInfo = ["Verified native material inventory + captured content; independent XLSX not supplied"];
+      result.inputCoherence = {
+        status: "VERIFIED_CAPTURE_INVENTORY",
+        independentWorkbook: false,
+        reason:
+          "Structure was independently recomputed from stable retained native material models and source receipts. No separate Coursera XLSX was supplied.",
+      };
+      result.sourceInfo = [
+        "Verified native material inventory + captured content; independent XLSX not supplied",
+      ];
       result.stats.source = result.sourceInfo.join(" + ");
-      if (result.ownerView) result.ownerView.authority = "Retained native authoring-material inventory order and identities; captured payload observations. No independent XLSX or whole-course content certification.";
+      if (result.ownerView)
+        result.ownerView.authority =
+          "Retained native authoring-material inventory order and identities; captured payload observations. No independent XLSX or whole-course content certification.";
       // An internally derived workbook is an adapter, not an independent source.
       if (result.stats?.extractorMeta) {
         delete result.stats.extractorMeta.xlsxTraversalInventory;
-        result.stats.extractorMeta.structuralInventoryBasis = derivedStructure.proof;
+        result.stats.extractorMeta.structuralInventoryBasis =
+          derivedStructure.proof;
         result.stats.extractorMeta.inputCoherence = result.inputCoherence;
       }
     }
@@ -286,16 +328,26 @@ export function createWorkflows(xmlService: unknown) {
         )
       : undefined;
     const warnings = [];
+    if (nativeCourseOutlineWarning) warnings.push(nativeCourseOutlineWarning);
     if (brightspaceEvidence) {
       result.brightspaceEvidence = brightspaceEvidence;
       warnings.push(...brightspaceEvidence.warnings);
-      warnings.push(...brightspaceEvidence.findings.map((finding) =>
-        [finding.itemName || finding.itemId || "Brightspace source", finding.detail].filter(Boolean).join(": "),
-      ));
+      warnings.push(
+        ...brightspaceEvidence.findings.map((finding) =>
+          [
+            finding.itemName || finding.itemId || "Brightspace source",
+            finding.detail,
+          ]
+            .filter(Boolean)
+            .join(": "),
+        ),
+      );
     }
     if (derivedStructure) warnings.push(result.inputCoherence.reason);
     if (course.scan.sourceEvidence?.kind === "CTI_SOURCE_DOCUMENT_BASELINE")
-      warnings.push("Source comparison is limited to the supplied document sections. Full source LMS inventory, assessment definitions, media and runtime coverage are not established.");
+      warnings.push(
+        "Source comparison is limited to the supplied document sections. Full source LMS inventory, assessment definitions, media and runtime coverage are not established.",
+      );
     if (!course.externalRuntimeEvidence)
       warnings.push(
         "The external SCORM/Rise inventory is not loaded for this course. Source-package and Brightspace runtime evidence are still evaluated.",
@@ -319,11 +371,14 @@ export function createWorkflows(xmlService: unknown) {
         (warnings.length
           ? "WORKSPACE EVIDENCE NOTE\n" + warnings.join("\n") + "\n\n"
           : "") +
+        nativeCourseOutlineText(result) +
         questionCountText +
         (documentComparisonText(result) || buildPostQaText_(result)),
       hashes: {
         excel: hash(input.excel?.bytes),
-        ...(derivedStructure ? { derivedStructure: hash(derivedStructure.bytes) } : {}),
+        ...(derivedStructure
+          ? { derivedStructure: hash(derivedStructure.bytes) }
+          : {}),
         json: jsonSha256,
         brightspace: hash(input.brightspace?.bytes),
         recovery: hash(input.recovery?.bytes),

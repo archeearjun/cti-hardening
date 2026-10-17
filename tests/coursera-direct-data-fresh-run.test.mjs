@@ -5,7 +5,10 @@ import vm from "node:vm";
 import ts from "typescript";
 import { createHash } from "node:crypto";
 import { directCourseInventoryV1 } from "../src/extractors/coursera/direct-data-inventory.js";
-import { CTI_DIRECT_DATA_BUILD_V1 } from "../src/extractors/coursera/direct-data-config.js";
+import {
+  CTI_DIRECT_DATA_BUILD_V1,
+  CTI_DIRECT_DATA_VERSION_V1,
+} from "../src/extractors/coursera/direct-data-config.js";
 
 const entry = fs.readFileSync(
   new URL("../src/extractors/coursera/direct-data-entry.js", import.meta.url),
@@ -143,7 +146,7 @@ function fixture() {
     metadataReserveBytes: 0,
     store: null,
     CTI_DIRECT_DATA_BUILD_V1,
-    CTI_DIRECT_DATA_VERSION_V1: "1.7.1",
+    CTI_DIRECT_DATA_VERSION_V1,
     CTI_DIRECT_DATA_EXPORT_BYTES_V1: 128 * 1024 * 1024,
     CTI_DIRECT_DATA_MAX_PARTS_V1: 5000,
     CTI_DIRECT_DATA_MEDIA_BYTES_V1: 512 * 1024 * 1024,
@@ -188,7 +191,10 @@ function fixture() {
       createHash("sha256").update(JSON.stringify(value)).digest("hex"),
     receipt: (read) => read.receipt,
     terminalBudgetReason: () => false,
-    coverageSummary: () => ({}),
+    coverageSummary: () => ({
+      content: { verified: state.counts.complete, total: state.counts.total },
+      structures: { verified: 0, total: 0 },
+    }),
   });
   const summarize = () => {
     const values = [...ctx.itemStates.values()];

@@ -126,6 +126,73 @@ test("actual original bytes, literal SRT text, references and receipts are verif
   );
 });
 
+test("independent redirect policy accepts only the exact same-origin native temporary image view", () => {
+  const requestUrl = "https://source.example.test/content/drawing.png",
+    imagePath =
+      "/d2l/lp/files/temp/synthetic-private-token.png;drawing-1.png/View",
+    responseUrl = "https://source.example.test" + imagePath,
+    bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]),
+    hash = sha(bytes);
+  const capture = {
+    page: { url: "https://source.example.test/d2l/home/123" },
+    contentTree: [
+      {
+        kind: "TOPIC",
+        id: "image-topic",
+        title: "Drawing",
+        url: requestUrl,
+        contentEvidence: {
+          status: "CAPTURED_ORIGINAL",
+          originalRef: hash,
+          bodyReceipt: {
+            requestUrl,
+            responseUrl,
+            status: 200,
+            observedAt: at,
+            bytes: bytes.length,
+            sha256: hash,
+            complete: true,
+            contentType: "image/png",
+            redirectPolicy: "SAME_ORIGIN_STATIC_CONTENT",
+            mode: "same-origin",
+            sourceResponseRedirected: true,
+          },
+        },
+      },
+    ],
+    assetBodies: {
+      [hash]: {
+        encoding: "base64",
+        base64: bytes.toString("base64"),
+        bytes: bytes.length,
+        sha256: hash,
+      },
+    },
+  };
+  assert.equal(
+    assertBrightspaceCaptureIntegrity(capture).originalIntegrity,
+    "VERIFIED_RETAINED_ORIGINALS",
+  );
+  for (const target of [
+    "https://other.example.test" + imagePath,
+    responseUrl + "?type=lti",
+    responseUrl + "/extra.png",
+    responseUrl.replace(";", "%3B"),
+    responseUrl.replace("/temp/", "/temp%2F"),
+    responseUrl.replace("drawing-1.png", "drawing-1.jpg"),
+    responseUrl.replace("/d2l/lp/", "/d2l/api/"),
+    responseUrl.replace("/d2l/lp/", "/login/"),
+  ]) {
+    const altered = structuredClone(capture);
+    altered.contentTree[0].contentEvidence.bodyReceipt.responseUrl = target;
+    assert.throws(
+      () => assertBrightspaceCaptureIntegrity(altered),
+      /Brightspace.*(?:receipt|redirect)/,
+      target,
+    );
+  }
+});
+
 test("tampered, partial, unbound or contradictory originals fail at file intake rather than become source evidence", async () => {
   for (const alter of [
     (capture) =>

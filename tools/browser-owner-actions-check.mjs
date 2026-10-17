@@ -30,6 +30,15 @@ import { workerXml } from "../src/adapters/worker-xml.ts";
 import { checkItemRefreshUi } from "./browser-item-refresh-ui.mjs";
 import { percentages } from "../tests/cti-percentage-fixtures.mjs";
 import { checkOwnerScope } from "./browser-owner-scope-check.mjs";
+import {
+  buildContentSnapshot,
+  validateContentSnapshot,
+} from "../src/domain/content-evidence.ts";
+import {
+  gradingFixture,
+  gradingCourseId,
+  gradingCourseSlug,
+} from "../tests/native-grading-fixtures.mjs";
 const root = path.resolve(".");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -199,7 +208,8 @@ const capture = {
       courseId: "course",
       courseSlug: "synthetic",
       textSample: "Fresh reading content",
-      cmlValue: '<co-content><p>Fresh reading content</p><img alt=""/><img alt="Keep literal &lt;span&gt; &amp;amp; alt text."/></co-content>',
+      cmlValue:
+        '<co-content><p>Fresh reading content</p><img alt=""/><img alt="Keep literal &lt;span&gt; &amp;amp; alt text."/></co-content>',
     }).payload,
     structuredAssessment: {
       questions: [
@@ -594,6 +604,1009 @@ async function checkPanoptoMetadata(page, tab, shots) {
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
 }
+
+async function checkSourceShellEvidence(page, tab, shots) {
+  // All identities, body bytes and URLs here are synthetic. Exercise the same
+  // independent original-body importer used by comparisons before saving the
+  // report, rather than hand-authoring a verified UI coverage label.
+  const source = comparisonFixture(),
+    capturedAt = "2026-10-17T09:00:00.000Z",
+    observedAt = "2026-10-17T08:00:00.000Z",
+    captions =
+      "1\n00:00:01,000 --> 00:00:03,000\nLiteral <b> &amp; caption.\n\n2\n00:00:04,125 --> 00:00:06,750\nSecond authored line.\n",
+    captionDescription =
+      "Separate native metadata about these source captions.",
+    alt = "Authored <span> &amp; drawing label.",
+    imageUrl = "https://source.example.test/course/authenticated-drawing.png",
+    externalUrl = "https://external.example.test/player",
+    specs = [
+      {
+        id: "caption-item",
+        topic: "1001",
+        title: "Synthetic captions",
+        format: "srt",
+        body: captions,
+        text: captions,
+      },
+      {
+        id: "binary-item",
+        topic: "1002",
+        title: "Synthetic binary original",
+        format: "pdf",
+        body: "%PDF-1.7\nSynthetic binary original",
+        text: "",
+      },
+      {
+        id: "failed-item",
+        topic: "1003",
+        title: "Synthetic unavailable source",
+        format: "html",
+        text: "A separately captured native description.",
+      },
+      {
+        id: "html-item",
+        topic: "1004",
+        title: "Synthetic authenticated resources",
+        format: "html",
+        body: '<p>Authored reading.</p><img src="authenticated-drawing.png" alt="Authored &lt;span&gt; &amp;amp; drawing label."><iframe src="https://external.example.test/player"></iframe>',
+        text: "Authored reading.",
+      },
+    ],
+    brightspace = {
+      schemaVersion: 2,
+      extractor: "CTI Brightspace v1.1.0",
+      capturedAt,
+      page: {
+        url: "https://source.example.test/d2l/le/lessons/700/topics/1001",
+      },
+      course: { orgUnitId: "700", title: "Synthetic source shell" },
+      contentTree: [
+        {
+          kind: "MODULE",
+          id: "source-module",
+          title: "Module 1",
+          children: [],
+        },
+      ],
+      quizzes: [],
+      assignments: [],
+      discussions: [],
+      assetBodies: {},
+      contentAcquisition: { assets: [], gaps: [] },
+    };
+  for (const spec of specs) {
+    const url = `https://source.example.test/course/${spec.id}.${spec.format}`,
+      topic = {
+        kind: "TOPIC",
+        id: spec.topic,
+        title: spec.title,
+        path: ["Module 1"],
+        activityType: 1,
+        activityTypeLabel: "File",
+        url,
+        description: {
+          text:
+            spec.id === "failed-item"
+              ? spec.text
+              : spec.id === "caption-item"
+                ? captionDescription
+                : "",
+        },
+        contentEvidence: {
+          status: "UNRESOLVED",
+          reason: "HTTP_403",
+          format: spec.format,
+          bodyReceipt: { observedAt, status: 403 },
+        },
+      };
+    if (spec.body !== undefined) {
+      const bytes = Buffer.from(spec.body),
+        hash = await digest(bytes);
+      brightspace.assetBodies[hash] = {
+        encoding: "base64",
+        base64: bytes.toString("base64"),
+        bytes: bytes.length,
+        sha256: hash,
+      };
+      topic.contentEvidence = {
+        status: spec.id === "binary-item" ? "CAPTURED_ORIGINAL" : "CAPTURED",
+        url,
+        format: spec.format,
+        contentType:
+          spec.format === "pdf"
+            ? "application/pdf"
+            : `text/${spec.format}; charset=utf-8`,
+        charset: "utf-8",
+        projectionTruncated: false,
+        bodyReceipt: {
+          requestUrl: url,
+          responseUrl: url,
+          status: 200,
+          observedAt,
+          bytes: bytes.length,
+          sha256: hash,
+          complete: true,
+          contentType:
+            spec.format === "pdf"
+              ? "application/pdf"
+              : `text/${spec.format}; charset=utf-8`,
+        },
+        references: [],
+        links: [],
+        images: [],
+        embeds: [],
+        ...(spec.id === "binary-item"
+          ? {
+              originalRef: hash,
+              projectionStatus: "UNRESOLVED",
+              projectionReason: "TEXT_PROJECTION_UNAVAILABLE",
+            }
+          : {
+              rawBodyRef: hash,
+              html: spec.format === "html" ? spec.body : "",
+              text: spec.text,
+              textLength: spec.text.length,
+              textSha256: await digest(Buffer.from(spec.text)),
+            }),
+      };
+    }
+    if (spec.id === "html-item") {
+      topic.contentEvidence.images = [{ url: imageUrl, alt }];
+      topic.contentEvidence.embeds = [{ url: externalUrl }];
+      topic.contentEvidence.references = [
+        {
+          url: imageUrl,
+          rawUrl: "authenticated-drawing.png",
+          tag: "img",
+          attribute: "src",
+          status: "UNRESOLVED",
+          reason: "HTTP_403",
+          alt,
+          text: "",
+        },
+        {
+          url: externalUrl,
+          rawUrl: externalUrl,
+          tag: "iframe",
+          attribute: "src",
+          status: "NOT_FETCHED",
+          reason: "EXTERNAL_REFERENCE_NOT_FETCHED",
+          alt: "",
+          text: "",
+        },
+      ];
+    }
+    brightspace.contentTree[0].children.push(topic);
+  }
+  brightspace.contentTree[0].children.push({
+    kind: "TOPIC",
+    id: "1999",
+    title: specs[0].title,
+    path: ["Module 1"],
+    activityType: 1,
+    activityTypeLabel: "File",
+    url: "https://source.example.test/course/other-copy.srt",
+    contentEvidence: {
+      status: "CAPTURED",
+      text: "DO NOT BORROW THIS SAME-TITLE TOPIC",
+      textLength: 38,
+    },
+  });
+  source.course.data.scan.courseTree[0].children = specs.map((spec) => ({
+    title: spec.title,
+    type: "webcontent",
+    idref: `source-${spec.id}`,
+    children: [],
+    sourcePayload: {
+      textSample: spec.text,
+      textLength: spec.text.length,
+      links: [],
+      images: [],
+      files: [],
+    },
+  }));
+  source.course.data.scan.stats = {
+    webcontent: 4,
+    discussions: 0,
+    quizzes: 0,
+    assignments: 0,
+    lti: 0,
+    emptyFolders: 0,
+    totalItems: 4,
+    ifs: 4,
+  };
+  source.json.bytes = encode({
+    schemaVersion: 34,
+    extractedAt: capturedAt,
+    page: {
+      title: "Synthetic destination shell",
+      url: "https://www.coursera.org/teach/synthetic/shell-course/content/edit",
+    },
+    meta: { buildId: "synthetic-test-only" },
+    fingerprints: specs.map((spec) => ({
+      id: spec.id,
+      name: spec.title,
+      type: "Reading",
+      path: "Module 1",
+      lesson: "Lesson 1",
+      payload: {
+        textSample: spec.text,
+        textLength: spec.text.length,
+        textScopeKind: "item-scoped",
+        textEvidenceCompleteness: 1,
+        links: [],
+        published: false,
+      },
+    })),
+  });
+  source.excel.bytes = writeWorkbook({
+    name: "synthetic-source-shell",
+    sheets: {
+      "FOR IMPORT": {
+        values: [
+          ["Module"],
+          ["***Name", "Module 1"],
+          ["Lesson"],
+          ["***Name", "Lesson 1"],
+          ...specs.map((spec) => [
+            "Reading",
+            spec.title,
+            "",
+            "",
+            "",
+            "",
+            "",
+            spec.id,
+          ]),
+        ],
+      },
+    },
+  });
+  source.brightspace = {
+    name: "synthetic-source-shell.json",
+    bytes: encode(brightspace),
+  };
+  const report = createWorkflows(workerXml).compare(source);
+  // This also checks that UI fixtures cannot silently promote collector labels
+  // into verified originals or literal-caption coverage.
+  assert.deepEqual(
+    report.contentEvidence,
+    buildContentSnapshot(source.json.bytes, source.brightspace.bytes),
+  );
+  validateContentSnapshot(report.contentEvidence);
+  assert.equal(report.contentEvidence.brightspace[0].content.text, captions);
+  assert.equal(
+    report.contentEvidence.brightspace[0].content.textCoverage,
+    "COMPLETE",
+  );
+  assert.equal(
+    report.contentEvidence.brightspace[1].content.sourceBody.originalIntegrity,
+    "VERIFIED_RETAINED_ORIGINAL",
+  );
+  assert.equal(
+    report.contentEvidence.brightspace[2].content.sourceBody.originalIntegrity,
+    "UNVERIFIED",
+  );
+  report.ownerContext = buildOwnerContext(
+    source.brightspace.bytes,
+    specs.map((spec) => ({
+      sourceName: spec.title,
+      sourcePath: "Module 1",
+      sourceId: `source-${spec.id}`,
+      topicId: spec.topic,
+      navigationEligible: true,
+    })),
+  );
+  for (const item of report.result.ownerView.items) {
+    item.status = "EVIDENCE_NEEDED";
+    item.actions = [
+      {
+        action: "Review this synthetic source-file observation.",
+        severity: "EVIDENCE",
+        verdict: "UNVERIFIED",
+      },
+    ];
+  }
+  const nativeHierarchy = [
+    {
+      id: "native-module",
+      title: "Module 1",
+      kind: "module",
+      ancestorIds: [],
+      emptyContainer: false,
+      sourceContentType: "",
+    },
+    {
+      id: "native-lesson",
+      title: "Lesson 1",
+      kind: "lesson",
+      ancestorIds: ["native-module"],
+      emptyContainer: false,
+      sourceContentType: "",
+    },
+    ...specs.map((spec) => ({
+      id: spec.id,
+      title: spec.title,
+      kind: "item",
+      ancestorIds: ["native-module", "native-lesson"],
+      emptyContainer: false,
+      sourceContentType: "supplement",
+    })),
+    {
+      id: "future-item",
+      title: "Future native content",
+      kind: "item",
+      ancestorIds: ["native-module", "native-lesson"],
+      emptyContainer: false,
+      sourceContentType: "futureNativeKind",
+    },
+    {
+      id: "empty-lesson",
+      title: "Authored empty lesson",
+      kind: "lesson",
+      ancestorIds: ["native-module"],
+      emptyContainer: true,
+      sourceContentType: "",
+    },
+    {
+      id: "archive-module",
+      title: "Archive",
+      kind: "module",
+      ancestorIds: [],
+      emptyContainer: false,
+      sourceContentType: "",
+    },
+    {
+      id: "archive-lesson",
+      title: "Lesson 1",
+      kind: "lesson",
+      ancestorIds: ["archive-module"],
+      emptyContainer: false,
+      sourceContentType: "",
+    },
+    {
+      id: "archive-caption-copy",
+      title: specs[0].title,
+      kind: "item",
+      ancestorIds: ["archive-module", "archive-lesson"],
+      emptyContainer: false,
+      sourceContentType: "supplement",
+    },
+  ];
+  const tasksBeforeOutline = buildOwnerTasks(
+    report.result,
+    source.course.data.scan.courseTree,
+  );
+  report.result.nativeCourseOutlineEvidence = {
+    kind: "VERIFIED_NATIVE_CAPTURE_INVENTORY",
+    courseId: "shell-course",
+    materialHash: "7".repeat(64),
+    contentItemCount: 6,
+    inventoryEntryCount: 7,
+    moduleCount: 2,
+    lessonCount: 3,
+    emptyContainerCount: 1,
+    nativeHierarchy,
+    independentWorkbook: false,
+    completeContent: false,
+  };
+  assert.deepEqual(
+    buildOwnerTasks(report.result, source.course.data.scan.courseTree),
+    tasksBeforeOutline,
+    "Native shell folders and reference-only placements do not invent owner findings",
+  );
+  const savedAudit = {
+      ...source.course,
+      id: "source-shell-evidence-audit",
+      kind: "audit",
+      packageId: source.course.id,
+      title: "Synthetic source and destination evidence",
+      data: report,
+    },
+    invalidAudit = structuredClone(savedAudit);
+  invalidAudit.id = "invalid-shell-evidence-audit";
+  invalidAudit.title = "Synthetic invalid native outline";
+  invalidAudit.data.result.nativeCourseOutlineEvidence.courseId =
+    "different-course";
+  await tab("Setup");
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "synthetic-shell-evidence.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        kind: "CTI_BROWSER_WORKSPACE",
+        schemaVersion: 1,
+        records: [source.course, savedAudit, invalidAudit],
+      }),
+    ),
+  });
+  await page
+    .getByRole("button", { name: "Import prepared records", exact: true })
+    .click();
+  await page.getByText("Imported 3 records;", { exact: false }).waitFor();
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(source.course.id);
+  await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+  const openReport = async (title) => {
+    await tab("History");
+    await page.getByRole("button", { name: title, exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Coursera content view", exact: true })
+      .waitFor();
+  };
+  await openReport(savedAudit.title);
+  const outline = page.getByTestId("native-course-outline");
+  await outline.locator(":scope > summary").click();
+  assert.equal(
+    await outline.locator("li[data-native-id]").count(),
+    nativeHierarchy.length,
+  );
+  assert.deepEqual(
+    await outline
+      .locator("li[data-native-id]")
+      .evaluateAll((rows) => rows.map((row) => row.dataset.nativeId)),
+    nativeHierarchy.map((node) => node.id),
+    "Native modules, lessons and repeated-title items retain captured preorder",
+  );
+  for (const node of nativeHierarchy) {
+    const row = outline.locator(`li[data-native-id="${node.id}"]`);
+    assert.equal(await row.getAttribute("data-native-kind"), node.kind);
+    assert((await row.innerText()).includes(node.title));
+    assert((await row.innerText()).includes(node.id));
+  }
+  assert(
+    (
+      await outline.locator('li[data-native-id="empty-lesson"]').innerText()
+    ).includes("0 child entries observed"),
+  );
+  assert.equal(
+    await outline
+      .locator('li[data-native-id="caption-item"] a')
+      .getAttribute("href"),
+    "https://www.coursera.org/teach/synthetic/shell-course/content/item/supplement/caption-item",
+  );
+  assert.equal(
+    await outline
+      .locator('li[data-native-id="archive-caption-copy"] a')
+      .getAttribute("href"),
+    "https://www.coursera.org/teach/synthetic/shell-course/content/item/supplement/archive-caption-copy",
+  );
+  assert.equal(
+    await outline.locator('li[data-native-id="future-item"] a').count(),
+    0,
+    "Unknown native kinds retain identity without a guessed item route",
+  );
+  await page
+    .getByRole("group", { name: "Show owner work" })
+    .getByRole("button", { name: "All items (4)", exact: true })
+    .click();
+  assert.equal(
+    await page.locator(".action-card").count(),
+    4,
+    "Empty lesson, Archive copy and future-kind outline rows are structural evidence, not extra owner tasks",
+  );
+  const cardFor = (id) =>
+      page.locator(`.action-card:has(a[href$="/item/supplement/${id}"])`),
+    sourceArticle = (card) =>
+      card
+        .getByRole("region", { name: "Source captured content", exact: true })
+        .locator(".captured-content")
+        .filter({
+          has: page.getByRole("heading", {
+            name: "Original Brightspace extraction",
+            exact: true,
+          }),
+        });
+  const captionCard = cardFor("caption-item");
+  await captionCard.locator(":scope > summary").click();
+  const captionContent = sourceArticle(captionCard),
+    captionBody = captionContent.getByRole("region", {
+      name: "Brightspace source file evidence",
+      exact: true,
+    });
+  await captionBody
+    .getByText("Original file retained and verified at import", { exact: true })
+    .waitFor();
+  assert.equal(
+    await captionContent.locator("pre.reading-text").textContent(),
+    captions,
+  );
+  assert.equal(
+    await captionContent.locator("pre.reading-text b").count(),
+    0,
+    "Caption markup is retained literally rather than interpreted as HTML",
+  );
+  assert.equal(
+    await captionContent
+      .locator("pre.reading-text")
+      .evaluate((node) => getComputedStyle(node).whiteSpace),
+    "pre-wrap",
+  );
+  assert(
+    (await captionContent.innerText()).includes(
+      `Literal source captions (SRT) · Complete captured field · ${captions.length} retained characters`,
+    ),
+  );
+  assert.equal(
+    await captionContent
+      .getByText("DO NOT BORROW THIS SAME-TITLE TOPIC", { exact: true })
+      .count(),
+    0,
+  );
+  await captionBody
+    .getByText("Original file identity and text preview scope", { exact: true })
+    .click();
+  assert(
+    (await captionBody.innerText()).includes(
+      `Topic 1001 · Collector outcome: CAPTURED · Format: SRT`,
+    ),
+  );
+  assert(
+    (await captionBody.innerText()).includes(
+      `Source read recorded: ${observedAt} · ${Buffer.byteLength(captions)} bytes`,
+    ),
+  );
+  assert(
+    (await captionBody.innerText()).includes(
+      `SHA-256: ${await digest(Buffer.from(captions))}`,
+    ),
+  );
+  assert.equal(
+    await captionContent
+      .getByRole("link", { name: "Open recorded page ↗", exact: true })
+      .getAttribute("href"),
+    "https://source.example.test/d2l/le/content/700/viewContent/1001/View",
+    "The captured body binds to the exact native topic rather than the same-title sibling",
+  );
+  await captionContent
+    .getByText("Native topic description (separate from file body)", {
+      exact: true,
+    })
+    .click();
+  await captionContent.getByText(captionDescription, { exact: true }).waitFor();
+  assert.equal(
+    await captionContent.locator("pre.reading-text").textContent(),
+    captions,
+    "Native description metadata does not replace or append to literal source captions",
+  );
+  const binaryCard = cardFor("binary-item");
+  await binaryCard.locator(":scope > summary").click();
+  const binaryContent = sourceArticle(binaryCard),
+    binaryBody = binaryContent.getByRole("region", {
+      name: "Brightspace source file evidence",
+      exact: true,
+    });
+  await binaryBody
+    .getByText("Original file retained and verified at import", { exact: true })
+    .waitFor();
+  assert(
+    (await binaryContent.innerText()).includes("Text preview unavailable"),
+  );
+  await binaryContent
+    .locator("details")
+    .filter({
+      has: page.locator("summary", { hasText: "Text preview unavailable" }),
+    })
+    .locator(":scope > summary")
+    .click();
+  await binaryContent
+    .getByText(
+      "The original source-file bytes were retained and verified, but a readable text projection could not be established. The file is not confirmed empty.",
+      { exact: true },
+    )
+    .waitFor();
+  await binaryBody
+    .getByText("Original file identity and text preview scope", { exact: true })
+    .click();
+  await binaryBody
+    .getByText("Text projection: UNRESOLVED", { exact: true })
+    .waitFor();
+  await binaryBody
+    .getByText("TEXT_PROJECTION_UNAVAILABLE", { exact: true })
+    .waitFor();
+  assert.equal(await binaryContent.locator(".reading-text").count(), 0);
+  const failedCard = cardFor("failed-item");
+  await failedCard.locator(":scope > summary").click();
+  const failedContent = sourceArticle(failedCard),
+    failedBody = failedContent.getByRole("region", {
+      name: "Brightspace source file evidence",
+      exact: true,
+    });
+  await failedBody
+    .getByText("Original file capture unresolved", { exact: true })
+    .waitFor();
+  await failedBody.getByText("HTTP_403", { exact: true }).waitFor();
+  assert(
+    (await failedContent.innerText()).includes(
+      "Topic description · Partial / coverage unverified",
+    ),
+  );
+  assert.equal(
+    await failedContent.locator(".reading-text").textContent(),
+    specs[2].text,
+  );
+  await failedBody
+    .getByText("Original file identity and text preview scope", { exact: true })
+    .click();
+  assert.equal(
+    await failedBody.getByText("SHA-256:", { exact: false }).count(),
+    0,
+  );
+  await failedContent
+    .getByText(
+      "The captured native topic description is shown. The source-file body text was not captured; this description does not establish the contents or emptiness of that file.",
+      { exact: true },
+    )
+    .waitFor();
+  const htmlCard = cardFor("html-item");
+  await htmlCard.locator(":scope > summary").click();
+  const htmlContent = sourceArticle(htmlCard),
+    htmlBody = htmlContent.getByRole("region", {
+      name: "Brightspace source file evidence",
+      exact: true,
+    });
+  await htmlBody
+    .getByText("Source file references and read outcomes (2)", { exact: true })
+    .click();
+  const references = htmlBody.locator("ol > li");
+  assert.equal(await references.count(), 2);
+  assert(
+    (await references.nth(0).innerText()).includes(
+      "Image (img.src) · Read outcome: UNRESOLVED",
+    ),
+  );
+  await references.nth(0).getByText("HTTP_403", { exact: true }).waitFor();
+  assert.equal(
+    await references
+      .nth(0)
+      .getByRole("link", { name: imageUrl, exact: true })
+      .getAttribute("href"),
+    imageUrl,
+  );
+  const displayedAlt = references
+    .nth(0)
+    .getByText(`Authored image alt text: ${alt}`, { exact: true });
+  await displayedAlt.waitFor();
+  assert.equal(
+    await displayedAlt.locator("span").count(),
+    0,
+    "Authored image alt remains literal text even when the original resource is unavailable",
+  );
+  assert(
+    (await references.nth(1).innerText()).includes(
+      "Embedded page (iframe.src) · Read outcome: NOT_FETCHED",
+    ),
+  );
+  await references
+    .nth(1)
+    .getByText("EXTERNAL_REFERENCE_NOT_FETCHED", { exact: true })
+    .waitFor();
+  assert.equal(
+    await htmlContent
+      .locator("iframe, img, video, audio, object, embed")
+      .count(),
+    0,
+    "Displaying saved references never loads or executes the external resources",
+  );
+  await captionContent.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "literal-source-captions-desktop.png"),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await htmlBody.scrollIntoViewIfNeeded();
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    "Source-body metadata and literal references fit mobile width",
+  );
+  await page.screenshot({
+    path: path.join(shots, "source-body-outcomes-mobile.png"),
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const evidenceEvent = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download full evidence", exact: true })
+    .click();
+  const exported = JSON.parse(
+    fs.readFileSync(await (await evidenceEvent).path(), "utf8"),
+  );
+  assert.deepEqual(
+    exported.result,
+    report.result,
+    "Opening shell and source evidence leaves original QA decisions unchanged",
+  );
+  assert.deepEqual(exported.followUp.contentEvidence, report.contentEvidence);
+  const captionView = exported.followUp.contentComparisons.find(
+      (entry) => entry.name === specs[0].title,
+    ).view,
+    boundCaption = captionView.source.filter(
+      (entry) => entry.basis === "Original Brightspace extraction",
+    );
+  assert.equal(boundCaption.length, 1);
+  assert.equal(boundCaption[0].sourceBody.topicId, "1001");
+  assert.equal(boundCaption[0].text, captions);
+  const reportEvent = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download complete report", exact: true })
+    .click();
+  const text = fs.readFileSync(await (await reportEvent).path(), "utf8");
+  assert(
+    text.includes(captions),
+    "Readable exports preserve complete source-caption timing, markup and line breaks",
+  );
+  assert(text.includes("Original-body integrity: VERIFIED_RETAINED_ORIGINAL"));
+  assert(text.includes("Text projection: UNRESOLVED"));
+  assert(text.includes("Collection outcome: EXTERNAL_REFERENCE_NOT_FETCHED"));
+  assert(text.includes(alt));
+  assert(!text.includes("DO NOT BORROW THIS SAME-TITLE TOPIC"));
+  await openReport(invalidAudit.title);
+  await page.getByTestId("native-course-outline-error").waitFor();
+  assert(
+    (
+      await page.getByTestId("native-course-outline-error").innerText()
+    ).startsWith("Captured Coursera shell outline could not be shown:"),
+  );
+  assert.equal(await page.getByTestId("native-course-outline").count(), 0);
+  assert.equal(
+    await page.locator("[data-native-id]").count(),
+    0,
+    "A mismatched native course identity cannot appear as verified shell evidence",
+  );
+}
+function nativeGradingBrowserFixture() {
+  const source = comparisonFixture(),
+    title = gradingFixture().item.name;
+  source.course.data.scan.courseTree[0].children = [
+    { ...source.course.data.scan.courseTree[0].children[0], title },
+  ];
+  source.course.data.scan.stats = {
+    webcontent: 1,
+    discussions: 0,
+    quizzes: 0,
+    assignments: 0,
+    lti: 0,
+    emptyFolders: 0,
+    totalItems: 1,
+    ifs: 1,
+  };
+  source.excel.bytes = writeWorkbook({
+    name: "synthetic-native-grading",
+    sheets: {
+      "FOR IMPORT": {
+        values: [
+          ["Module"],
+          ["***Name", "Module 1"],
+          ["Lesson"],
+          ["***Name", "Lesson 1"],
+          ["Graded Assignment", title, "", "", "", "", "", "gradingItem"],
+        ],
+      },
+    },
+  });
+  const cases = [
+    { key: "true", graded: true, expected: true },
+    { key: "false", graded: false, expected: false },
+    { key: "foreign-course", graded: true, expected: undefined },
+    { key: "missing-proof", graded: true, expected: undefined },
+  ].map((variant) => {
+    // The fixture contains an exact atom/relation/stability model. In
+    // particular, its published value and the title disagree with one of the
+    // draft settings, so neither can substitute for the captured native field.
+    const { item } = gradingFixture(variant.graded),
+      courseId =
+        variant.key === "foreign-course"
+          ? "Foreign_grading_course_123"
+          : gradingCourseId;
+    item.path = "Module 1";
+    item.lesson = "Lesson 1";
+    if (variant.key === "missing-proof") delete item.payload.directDataSources;
+    const capture = {
+      schemaVersion: 34,
+      extractedAt: "2026-10-17T11:00:00.000Z",
+      page: {
+        title: "Synthetic native grading settings",
+        courseId,
+        url: `https://www.coursera.org/teach/${gradingCourseSlug}/${courseId}/content/edit`,
+      },
+      meta: { buildId: "synthetic-test-only" },
+      fingerprints: [item],
+    };
+    const report = createWorkflows(workerXml).compare({
+      ...source,
+      json: {
+        name: `synthetic-grading-${variant.key}.json`,
+        bytes: encode(capture),
+      },
+    });
+    assert.deepEqual(
+      report.contentEvidence,
+      buildContentSnapshot(undefined, undefined, capture),
+    );
+    validateContentSnapshot(report.contentEvidence);
+    const setting = report.contentEvidence.coursera[0].content.nativeGrading;
+    assert.equal(setting?.graded, variant.expected);
+    assert.equal(
+      report.contentEvidence.coursera[0].content.questionCoverage,
+      "UNVERIFIED",
+    );
+    assert.equal(
+      report.contentEvidence.coursera[0].content.expectedQuestions,
+      null,
+    );
+    assert.equal(
+      report.result.ownerView.items.length,
+      1,
+      "A captured grading readout does not create additional owner items",
+    );
+    const tasksBeforeReadout = buildOwnerTasks(
+      report.result,
+      source.course.data.scan.courseTree,
+    );
+    assert.equal(tasksBeforeReadout.length, 1);
+    report.result.ownerView.items[0].status = "EVIDENCE_NEEDED";
+    report.result.ownerView.items[0].actions = [
+      {
+        action: "Review this synthetic assessment observation.",
+        severity: "EVIDENCE",
+        verdict: "UNVERIFIED",
+      },
+    ];
+    return {
+      ...variant,
+      setting,
+      report,
+      audit: {
+        ...source.course,
+        id: `native-grading-${variant.key}-audit`,
+        kind: "audit",
+        packageId: source.course.id,
+        title: `Synthetic native grading: ${variant.key}`,
+        data: report,
+      },
+    };
+  });
+  return { source, cases };
+}
+
+async function checkNativeGradingEvidence(page, tab, shots) {
+  const fixture = nativeGradingBrowserFixture();
+  await tab("Setup");
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "synthetic-native-grading.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        kind: "CTI_BROWSER_WORKSPACE",
+        schemaVersion: 1,
+        records: [
+          fixture.source.course,
+          ...fixture.cases.map((entry) => entry.audit),
+        ],
+      }),
+    ),
+  });
+  await page
+    .getByRole("button", { name: "Import prepared records", exact: true })
+    .click();
+  await page.getByText("Imported 5 records;", { exact: false }).waitFor();
+  await page
+    .getByRole("combobox", { name: "Selected source course", exact: true })
+    .selectOption(fixture.source.course.id);
+  await page.locator(".full-workspace .status").waitFor({ state: "hidden" });
+  for (const entry of fixture.cases) {
+    await tab("History");
+    await page
+      .getByRole("button", { name: entry.audit.title, exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "Coursera content view", exact: true })
+      .waitFor();
+    await page
+      .getByRole("group", { name: "Show owner work" })
+      .getByRole("button", { name: "All items (1)", exact: true })
+      .click();
+    assert.equal(await page.locator(".action-card").count(), 1);
+    const card = page.locator(".action-card");
+    await card.locator(":scope > summary").click();
+    const content = card.getByRole("region", {
+        name: "Coursera captured content",
+        exact: true,
+      }),
+      setting = content.getByRole("region", {
+        name: "Captured grading setting",
+        exact: true,
+      });
+    if (entry.expected === undefined) {
+      assert.equal(
+        await setting.count(),
+        0,
+        `${entry.key} cannot display an independently bound native grading setting`,
+      );
+    } else {
+      await setting
+        .getByText(entry.expected ? "Graded" : "Not graded", { exact: true })
+        .waitFor();
+      await setting
+        .getByText(
+          `Native field: draft.content.definition.configuration.isGraded = ${entry.expected}`,
+          { exact: true },
+        )
+        .waitFor();
+      await setting
+        .getByText("Observed: 2026-10-17T10:00:00.000Z", { exact: true })
+        .waitFor();
+      await setting
+        .getByText(
+          "This records the grading toggle only. Passing score, attempts, complete assessment behavior, learner operation and published state are not established by this setting.",
+          { exact: true },
+        )
+        .waitFor();
+      await setting
+        .getByText("Native grading source identity", { exact: true })
+        .click();
+      const identity = await setting.locator(".captured-text").textContent();
+      for (const field of [
+        `Course: ${entry.setting.courseId}`,
+        `Item: ${entry.setting.itemId}`,
+        `Atom: ${entry.setting.atomId}`,
+        `Content: ${entry.setting.contentId}`,
+        `Draft SHA-256: ${entry.setting.draftHash}`,
+        "Scope: GRADING_SETTING_ONLY",
+      ])
+        assert(
+          identity.includes(field),
+          `Captured grading identity must retain ${field}`,
+        );
+      assert.equal(
+        await card
+          .getByRole("region", { name: "Source captured content", exact: true })
+          .getByRole("region", {
+            name: "Captured grading setting",
+            exact: true,
+          })
+          .count(),
+        0,
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      await setting.scrollIntoViewIfNeeded();
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        "Native grading source identity fits mobile width",
+      );
+      await page.screenshot({
+        path: path.join(shots, `native-grading-${entry.key}-mobile.png`),
+      });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+    assert.equal(await page.locator(".action-card").count(), 1);
+    const evidenceEvent = page.waitForEvent("download");
+    await page
+      .getByRole("button", { name: "Download full evidence", exact: true })
+      .click();
+    const exported = JSON.parse(
+      fs.readFileSync(await (await evidenceEvent).path(), "utf8"),
+    );
+    assert.deepEqual(
+      exported.result,
+      entry.report.result,
+      "Inspecting the native grading field cannot change original owner findings",
+    );
+    assert.deepEqual(
+      exported.followUp.contentEvidence.coursera[0].content.nativeGrading,
+      entry.setting,
+    );
+    assert.deepEqual(
+      exported.followUp.contentComparisons[0].view.coursera.nativeGrading,
+      entry.setting,
+    );
+    assert.equal(exported.followUp.automatedResolution, false);
+  }
+}
+
 const shots = process.env.CTI_OWNER_SCREENSHOTS || "/tmp/cti-owner-actions";
 fs.mkdirSync(shots, { recursive: true });
 try {
@@ -979,32 +1992,74 @@ try {
   await destinationContent
     .getByText("First question", { exact: true })
     .waitFor();
-  assert.equal(await sourceContent.getByText("Authored image alt text", { exact: true }).count(), 0,
-    "Legacy content without authored alt values adds no disclosure");
-  await destinationContent.getByText("Authored image alt text", { exact: true }).click();
-  const displayedImageAlt = destinationContent.getByText(imageAltText, { exact: true });
+  assert.equal(
+    await sourceContent
+      .getByText("Authored image alt text", { exact: true })
+      .count(),
+    0,
+    "Legacy content without authored alt values adds no disclosure",
+  );
+  await destinationContent
+    .getByText("Authored image alt text", { exact: true })
+    .click();
+  const displayedImageAlt = destinationContent.getByText(imageAltText, {
+    exact: true,
+  });
   await displayedImageAlt.waitFor();
-  assert.equal(await displayedImageAlt.locator("span").count(), 0,
-    "Literal image alt markup stays text");
+  assert.equal(
+    await displayedImageAlt.locator("span").count(),
+    0,
+    "Literal image alt markup stays text",
+  );
   const imageAltDisclosure = displayedImageAlt.locator("..").locator("..");
-  assert.equal(await imageAltDisclosure.getByText("Source image 2", { exact: true }).count(), 1);
-  assert.equal(await imageAltDisclosure.getByText("Source image 1", { exact: true }).count(), 0,
-    "Empty authored alt values do not invent a visible label");
-  const firstQuestion = destinationContent.locator(".captured-questions > li").first(),
+  assert.equal(
+    await imageAltDisclosure
+      .getByText("Source image 2", { exact: true })
+      .count(),
+    1,
+  );
+  assert.equal(
+    await imageAltDisclosure
+      .getByText("Source image 1", { exact: true })
+      .count(),
+    0,
+    "Empty authored alt values do not invent a visible label",
+  );
+  const firstQuestion = destinationContent
+      .locator(".captured-questions > li")
+      .first(),
     displayedChoiceFeedback = firstQuestion.getByText(
       "Captured feedback: " + choiceFeedback,
       { exact: true },
     );
   await displayedChoiceFeedback.waitFor();
-  assert.equal(await displayedChoiceFeedback.locator("span").count(), 0,
-    "Literal feedback markup stays text");
-  assert.equal(await firstQuestion.getByText("Captured feedback:", { exact: true }).count(), 1,
-    "Empty option feedback does not add a feedback label");
-  await page.getByLabel("Find captured question text", { exact: true }).fill(choiceFeedback);
-  assert.equal(await destinationContent.locator(".captured-questions > li").count(), 1,
-    "Question search includes authored choice feedback");
-  assert.equal(await sourceContent.locator(".captured-questions > li").count(), 0);
-  await page.getByLabel("Find captured question text", { exact: true }).fill("");
+  assert.equal(
+    await displayedChoiceFeedback.locator("span").count(),
+    0,
+    "Literal feedback markup stays text",
+  );
+  assert.equal(
+    await firstQuestion
+      .getByText("Captured feedback:", { exact: true })
+      .count(),
+    1,
+    "Empty option feedback does not add a feedback label",
+  );
+  await page
+    .getByLabel("Find captured question text", { exact: true })
+    .fill(choiceFeedback);
+  assert.equal(
+    await destinationContent.locator(".captured-questions > li").count(),
+    1,
+    "Question search includes authored choice feedback",
+  );
+  assert.equal(
+    await sourceContent.locator(".captured-questions > li").count(),
+    0,
+  );
+  await page
+    .getByLabel("Find captured question text", { exact: true })
+    .fill("");
   assert.equal(
     await sourceContent.locator(".captured-questions > li").count(),
     10,
@@ -1346,7 +2401,10 @@ try {
   );
   assert.deepEqual(
     data.followUp.contentComparisons[0].view.coursera.imageAltText,
-    [{ imageOrdinal: 1, text: "" }, { imageOrdinal: 2, text: imageAltText }],
+    [
+      { imageOrdinal: 1, text: "" },
+      { imageOrdinal: 2, text: imageAltText },
+    ],
     "Authored image alt values retain exact source ordinals and text in saved exports",
   );
   assert.equal(
@@ -1710,6 +2768,8 @@ try {
   }
   await checkOwnerScope(page, tab, shots);
   await checkPanoptoMetadata(page, tab, shots);
+  await checkSourceShellEvidence(page, tab, shots);
+  await checkNativeGradingEvidence(page, tab, shots);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -1735,6 +2795,8 @@ try {
           "contact template: passed text vs inherited readiness, actionable guidance first, no irrelevant question warnings, keyboard expansion and 390px layout",
           "hidden matched syllabus is discoverable without clearing search; template/live-source review remains visible in Needs attention",
           "Panopto response paste/file import, same-title wrong-recording rejection, failed refresh preservation, literal OCR/navigation labels, reported-only caption absence, review/reload persistence, complete metadata exports and unchanged audit at desktop and 390px",
+          "verified literal source captions, retained binary versus failed-read outcomes, native topic identity, authored resource alt/read reasons, immutable exports, empty native shell folders, repeated-title Archive placements, unsupported-kind links and visible invalid-proof rejection at desktop and 390px",
+          "independently bound native graded and not-graded settings with identity/scope/time, foreign-course and missing-proof suppression, unchanged owner item counts and original findings, exact exported readouts and 390px layout",
         ],
         screenshots: shots,
       },

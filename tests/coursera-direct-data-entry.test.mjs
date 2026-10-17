@@ -601,6 +601,9 @@ test("the actual entry captures drafts without navigation and exports its saved 
   assert.equal(app.metrics.helperOpens[0].storeOpens, 0, "open the helper in the capture click before awaiting storage");
   assert(app.readers().every(factory => typeof factory.providerTransport?.request === "function"));
   assert.equal(app.metrics.helperCloses, 1, "close the owned helper after the run");
+  assert(app.nodes.some(node => node.textContent.includes("2/2 content items verified")));
+  assert(app.nodes.some(node => node.textContent.includes("0/0 empty structures verified")));
+  assert(app.nodes.some(node => node.textContent.includes("0 question occurrences")));
   assert.deepEqual(app.alerts, []);
 });
 
