@@ -21,6 +21,10 @@ import {
 } from "./access.ts";
 import type { WorkspaceRecord } from "../src/domain/workspace-types.ts";
 import { recordSummary } from "../src/domain/workspace-store.ts";
+import {
+  readWorkspacePayload,
+  compactIngestionHistoryRecord,
+} from "./workspace-payload.ts";
 interface Statement {
   bind(...values: unknown[]): Statement;
   first<T = any>(): Promise<T | null>;
@@ -114,38 +118,7 @@ async function readStoredWorkspaceRecord(
       "Referenced evidence is unavailable or exceeds its storage bound.",
       409,
     );
-  const { results } = await db
-    .prepare(
-      "SELECT part,bytes,value FROM chunks WHERE upload_id=? ORDER BY part ASC",
-    )
-    .bind(doc.revision)
-    .all();
-  const bytes = new Uint8Array(upload.bytes);
-  let offset = 0;
-  if (results.length !== upload.parts)
-    fail("Referenced evidence is incomplete.", 409);
-  for (const [index, part] of results.entries()) {
-    const value =
-      part.value instanceof ArrayBuffer
-        ? new Uint8Array(part.value)
-        : ArrayBuffer.isView(part.value)
-          ? new Uint8Array(
-              part.value.buffer,
-              part.value.byteOffset,
-              part.value.byteLength,
-            )
-          : new Uint8Array(part.value || []);
-    if (
-      Number(part.part) !== index ||
-      value.length !== Number(part.bytes) ||
-      offset + value.length > bytes.length
-    )
-      fail("Referenced evidence chunks are invalid.", 409);
-    bytes.set(value, offset);
-    offset += value.length;
-  }
-  if (offset !== bytes.length || (await sha(bytes)) !== upload.sha256)
-    fail("Referenced evidence checksum failed.", 409);
+  const data = await readWorkspacePayload(db, upload, "referenced");
   return {
     id: doc.id,
     kind: doc.kind,
@@ -154,7 +127,7 @@ async function readStoredWorkspaceRecord(
     version: doc.version,
     updatedAt: doc.updated_at,
     updatedBy: doc.updated_by,
-    data: JSON.parse(new TextDecoder().decode(bytes)),
+    data: data as Record<string, any>,
   };
 }
 
@@ -625,63 +598,10 @@ export async function handleAuthorized(
           403,
         );
 
-      const counts = await db
-        .prepare(
-          "SELECT COUNT(*) AS count,COALESCE(SUM(bytes),0) AS bytes FROM chunks WHERE upload_id=?",
-        )
-        .bind(u.id)
-        .first();
-      if (counts.count !== u.parts || counts.bytes !== u.bytes)
-        fail("Upload is incomplete. Nothing has been saved.", 409);
-
       // The prepare request contains only a bounded summary. Reconstruct and
       // validate the complete payload at the trust boundary before committing
       // it as a workspace record. Client-side validation is not authoritative.
-      const { results: storedChunks } = await db
-        .prepare(
-          "SELECT part,bytes,value FROM chunks WHERE upload_id=? ORDER BY part ASC",
-        )
-        .bind(u.id)
-        .all();
-      if (storedChunks.length !== u.parts)
-        fail("Upload is incomplete. Nothing has been saved.", 409);
-      const payloadBytes = new Uint8Array(u.bytes);
-      let payloadOffset = 0;
-      for (let index = 0; index < storedChunks.length; index++) {
-        const chunk = storedChunks[index] as any;
-        if (
-          Number(chunk.part) !== index ||
-          !Number.isInteger(Number(chunk.bytes)) ||
-          Number(chunk.bytes) < 1
-        )
-          fail("Uploaded evidence chunk ordering is invalid.", 409);
-        const value =
-          chunk.value instanceof ArrayBuffer
-            ? new Uint8Array(chunk.value)
-            : ArrayBuffer.isView(chunk.value)
-              ? new Uint8Array(
-                  chunk.value.buffer,
-                  chunk.value.byteOffset,
-                  chunk.value.byteLength,
-                )
-              : new Uint8Array(chunk.value || []);
-        if (value.length !== Number(chunk.bytes))
-          fail("Uploaded evidence chunk length is invalid.", 409);
-        payloadBytes.set(value, payloadOffset);
-        payloadOffset += value.length;
-      }
-      if (payloadOffset !== u.bytes || (await sha(payloadBytes)) !== u.sha256)
-        fail("Uploaded evidence checksum failed. Nothing has been saved.", 409);
-
-      let fullData: unknown;
-      try {
-        fullData = JSON.parse(new TextDecoder().decode(payloadBytes));
-      } catch {
-        fail(
-          "Uploaded evidence is not valid JSON. Nothing has been saved.",
-          400,
-        );
-      }
+      const fullData = await readWorkspacePayload(db, u, "uploaded");
       const r = JSON.parse(u.metadata) as WorkspaceRecord;
       let operationDependencies: { id: string; version: number | null }[] = [];
       let latestDeliverableAuditId = "";
@@ -769,13 +689,20 @@ export async function handleAuthorized(
           ) {
             // Allocation uses original saved payloads, including repaired
             // legacy generations, rather than independently supplied summaries.
-            const originalHistory = await Promise.all(
-              historyRows.map((row) => lookup(row.id)),
-            );
-            if (originalHistory.some((row) => !row))
-              throw Error(
-                "Ingestion history changed. Refresh before recording another attempt.",
-              );
+            // Validate originals sequentially and retain only the facts used
+            // by ingestion allocation/freshness. Loading every prior report
+            // concurrently retains course-sized payloads in this isolate.
+            const originalHistory: WorkspaceRecord[] = [];
+            for (const row of historyRows) {
+              const original = await lookup(row.id);
+              if (!original)
+                throw Error(
+                  "Ingestion history changed. Refresh before recording another attempt.",
+                );
+              const projected = compactIngestionHistoryRecord(original);
+              cache.set(row.id, projected);
+              originalHistory.push(projected);
+            }
             const ids = new Set(historyRows.map((row) => row.id));
             records = [
               ...records.filter((row) => !ids.has(row.id)),

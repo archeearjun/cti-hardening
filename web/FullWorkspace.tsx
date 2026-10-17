@@ -11,6 +11,15 @@ import ReportOverview from "./ReportOverview";
 import { readMigrationFiles } from "../src/domain/migration-files";
 import { prepareOwnerReportExport } from "../src/domain/owner-report-export";
 import {
+  pendingComparison,
+  rememberPendingComparison,
+  sessionPendingComparison,
+  forgetPendingComparison,
+  recoverComparisonSave,
+  unconfirmedComparisonExport,
+  type PendingComparison,
+} from "../src/domain/comparison-save-recovery";
+import {
   prepareWorkspaceBackup,
   validateImportRecordSizes,
 } from "../src/domain/workspace-validation";
@@ -156,7 +165,9 @@ const dateLabel = (value: string) =>
 const ingestionHistoryRefs = (rows: WorkspaceRecord[], courseId: string) => {
   const auditIds = new Set(
     rows
-      .filter((record) => record.kind === "audit" && record.packageId === courseId)
+      .filter(
+        (record) => record.kind === "audit" && record.packageId === courseId,
+      )
       .map((record) => record.id),
   );
   return rows.filter(
@@ -166,7 +177,8 @@ const ingestionHistoryRefs = (rows: WorkspaceRecord[], courseId: string) => {
         ((record.data.type === "lineage-repair" &&
           (record.packageId === courseId || auditIds.has(record.data.runId))) ||
           (record.data.type === "ingestion-attempt" &&
-            (record.packageId === courseId || record.data.courseId === courseId)))),
+            (record.packageId === courseId ||
+              record.data.courseId === courseId)))),
   );
 };
 const ingestionHistoryVersion = (rows: WorkspaceRecord[], courseId: string) =>
@@ -182,7 +194,7 @@ export default function FullWorkspace({
 }) {
   const [store, setStore] = useState<WorkspaceStore | null>(null),
     [records, setRecords] = useState<WorkspaceRecord[]>([]);
-  const [tab, setTab] = useState("Assignment workspace"),
+  const [tab, setTabState] = useState("Assignment workspace"),
     [courseId, setCourseId] = useState(""),
     [course, setCourse] = useState<WorkspaceRecord | null>(null);
   const [busy, setBusy] = useState(""),
@@ -196,6 +208,19 @@ export default function FullWorkspace({
     useState<EvidenceObject | null>(null);
   useEffect(() => setPortfolio(null), [records]);
   const [reportId, setReportId] = useState("");
+  const [pendingAudit, setPendingAudit] = useState<PendingComparison | null>(
+    null,
+  );
+  const pendingAuditRef = useRef<PendingComparison | null>(null);
+  function setTab(next: string) {
+    if (pendingAuditRef.current && next !== "Compare" && next !== "History") {
+      setError(
+        "Check the completed comparison save, or download and explicitly discard its local recovery copy, before leaving this comparison.",
+      );
+      return;
+    }
+    setTabState(next);
+  }
   const [report, setReport] = useState<EvidenceObject | null>(null),
     [analysis, setAnalysis] = useState<EvidenceObject | null>(null),
     [versions, setVersions] = useState<EvidenceObject[]>([]);
@@ -272,8 +297,8 @@ export default function FullWorkspace({
   const [page, setPage] = useState(0);
   const [connectionReady, setConnectionReady] = useState(false);
   useEffect(() => {
-    onBusyChange?.(!!busy);
-  }, [busy, onBusyChange]);
+    onBusyChange?.(!!busy || !!pendingAudit);
+  }, [busy, pendingAudit, onBusyChange]);
   useEffect(() => setPage(0), [query, partnerFilter, statusFilter, records]);
   useEffect(() => {
     let alive = true;
@@ -283,16 +308,30 @@ export default function FullWorkspace({
           localStorage.getItem("cti-workspace-mode") === "team"
             ? await teamStore()
             : localStore();
-        const rows = await s.list();
         if (alive) {
           setStore(s);
+          const pending = sessionPendingComparison(s);
+          if (pending) {
+            pendingAuditRef.current = pending;
+            setPendingAudit(pending);
+            setCourse(pending.course);
+            setCourseId(pending.course.id);
+            setReport(JSON.parse(JSON.stringify(pending.record.data)));
+            setReportId("");
+            setTabState("Compare");
+          }
+        }
+        const rows = await s.list();
+        if (alive) {
           setRecords(rows);
         }
       } catch (e) {
         if (alive)
           setError(
             (e instanceof Error ? e.message : String(e)) +
-              " Open Setup to reconnect or choose local mode.",
+              (pendingAuditRef.current
+                ? " The completed comparison is retained below. Download it or check its save once access returns."
+                : " Open Setup to reconnect or choose local mode."),
           );
       } finally {
         if (alive) setConnectionReady(true);
@@ -323,8 +362,7 @@ export default function FullWorkspace({
   };
   let ingestionAttemptError = "";
   try {
-    if (courseId)
-      ingestionAttempt = currentIngestionAttempt(courseId, records);
+    if (courseId) ingestionAttempt = currentIngestionAttempt(courseId, records);
   } catch (e) {
     ingestionAttemptError = e instanceof Error ? e.message : String(e);
   }
@@ -502,6 +540,42 @@ export default function FullWorkspace({
       );
     });
   }
+  function exportPendingComparison(format: "text" | "json") {
+    if (!pendingAudit) return;
+    const exported = unconfirmedComparisonExport(pendingAudit);
+    download(
+      format === "json"
+        ? "CTI_QA_unsaved_comparison.json"
+        : "CTI_QA_unsaved_comparison.txt",
+      format === "json" ? json(exported.evidence) : exported.text,
+      format === "json" ? "application/json" : "text/plain",
+    );
+  }
+  async function checkComparisonSave() {
+    const pending = pendingAuditRef.current;
+    if (!pending || !store) return;
+    await act("Checking the completed comparison save", async () => {
+      const saved = await recoverComparisonSave(
+        pending,
+        store,
+        ingestionHistoryVersion,
+        setRecords,
+        controller.current?.signal,
+      );
+      setReport(saved.data);
+      setReportId(saved.id);
+      forgetPendingComparison(pending);
+      pendingAuditRef.current = null;
+      setPendingAudit(null);
+      setRecords((rows) => [
+        ...rows.filter((record) => record.id !== saved.id),
+        saved,
+      ]);
+      setNotice(
+        `Full report save confirmed (${saved.id}). The completed comparison was recovered without creating another report ID.`,
+      );
+    });
+  }
   async function act(label: string, fn: () => Promise<void>) {
     setError("");
     setNotice("");
@@ -528,20 +602,25 @@ export default function FullWorkspace({
       setComputing(false);
     }
   };
-  useEffect(
-    () => setReport(null),
-    [
-      excel,
-      capture,
-      source,
-      recovery,
-      mode,
-      generation,
-      newIngestion,
-      ingestionCapabilityStatus,
-    ],
-  );
+  useEffect(() => {
+    if (!pendingAuditRef.current) setReport(null);
+  }, [
+    excel,
+    capture,
+    source,
+    recovery,
+    mode,
+    generation,
+    newIngestion,
+    ingestionCapabilityStatus,
+  ]);
   async function selectCourse(id: string) {
+    if (pendingAuditRef.current) {
+      setError(
+        "Check the completed comparison save, or download and explicitly discard its local recovery copy, before changing course.",
+      );
+      return;
+    }
     resetCourseInputs();
     setCourseId(id);
     setReport(null);
@@ -716,7 +795,13 @@ export default function FullWorkspace({
     }
   }
   async function compare(openSavedReport = false) {
-    if (!store || !course || (!excel && !capture)) return;
+    if (!store || !course || !editable || (!excel && !capture)) return;
+    if (pendingAuditRef.current) {
+      setError(
+        "A completed comparison is awaiting save confirmation. Check its save before running another comparison.",
+      );
+      return;
+    }
     const epoch = courseSelectionEpoch.current;
     const declaration = pendingIngestion;
     await act("Comparing full source and Coursera evidence", async () => {
@@ -811,7 +896,14 @@ export default function FullWorkspace({
         );
         currentAttempt = currentIngestionAttempt(course.id, history);
       }
-      const automaticIngestion = createAutomaticIngestionBasis(course.id, history);
+      const automaticIngestion = createAutomaticIngestionBasis(
+        course.id,
+        history,
+      );
+      const comparisonHistoryVersion = ingestionHistoryVersion(
+        currentRecords,
+        course.id,
+      );
       setImportProgress("Reading the selected evidence files");
       const evidenceFiles = {
         excel: await inputFile(excel),
@@ -838,21 +930,34 @@ export default function FullWorkspace({
         ...(await job({ kind: "compare", input })),
         automaticIngestion,
       };
+      const pending = await pendingComparison(
+        output,
+        `${course.title} · generation ${currentAttempt.generation} · ${mode}`,
+        course,
+        store,
+        comparisonHistoryVersion,
+      );
+      pendingAuditRef.current = pending;
+      rememberPendingComparison(pending);
+      setPendingAudit(pending);
       setReportId("");
       setReport(output);
+      setTab("Compare");
+      setComparedFiles(comparisonFiles);
       setImportProgress(
         "Comparison complete. Saving the full report and evidence",
       );
-      const saved = await store.save(
-        newRecord(
-          "audit",
-          `${course.title} · generation ${currentAttempt.generation} · ${mode}`,
-          output,
-          course.id,
-        ),
-      );
+      const saved = await store.save(pending.record, {
+        signal: controller.current?.signal,
+      });
       setReportId(saved.id);
-      setComparedFiles(comparisonFiles);
+      forgetPendingComparison(pending);
+      pendingAuditRef.current = null;
+      setPendingAudit(null);
+      setRecords((rows) => [
+        ...rows.filter((record) => record.id !== saved.id),
+        saved,
+      ]);
       await refresh();
       if (openSavedReport) setTab("History");
       setNotice(
@@ -874,7 +979,10 @@ export default function FullWorkspace({
                 {group.tabs.map((t) => (
                   <button
                     key={t}
-                    disabled={!!busy}
+                    disabled={
+                      !!busy ||
+                      (!!pendingAudit && !["Compare", "History"].includes(t))
+                    }
                     aria-current={tab === t ? "page" : undefined}
                     onClick={() => {
                       setTab(t);
@@ -959,7 +1067,7 @@ export default function FullWorkspace({
         <div className="card course-context">
           <SearchableSelect
             label="Selected source course"
-            disabled={!!busy}
+            disabled={!!busy || !!pendingAudit}
             value={courseId}
             onChange={(value) => void selectCourse(value)}
             emptyLabel="Choose a saved course"
@@ -1043,13 +1151,82 @@ export default function FullWorkspace({
             {notice}
           </p>
         )}
+        {pendingAudit && (
+          <section
+            className="card"
+            role="status"
+            aria-live="polite"
+            data-testid="pending-comparison-save"
+          >
+            <h2>Comparison completed; shared save unconfirmed</h2>
+            <p>
+              The computed report for{" "}
+              <strong>{pendingAudit.course.title}</strong> is available below.
+              Download it now even if the shared service is unavailable. Saved
+              follow-ups and unsaved item edits are not included in these local
+              exports.
+            </p>
+            <p className="hint">
+              Report ID: <code>{pendingAudit.record.id}</code>. Keep this tab
+              open until the save is confirmed or you have downloaded the local
+              copy. Checking the save reads this exact ID before retrying it; it
+              does not create a second report.
+            </p>
+            <div className="workspace-tabs">
+              <button
+                className="secondary"
+                onClick={() => exportPendingComparison("json")}
+              >
+                Download unsaved comparison JSON
+              </button>
+              <button
+                className="secondary"
+                onClick={() => exportPendingComparison("text")}
+              >
+                Download unsaved comparison text
+              </button>
+              <button
+                className="primary"
+                disabled={!store || !!busy}
+                onClick={() => void checkComparisonSave()}
+              >
+                Check save / retry
+              </button>
+            </div>
+            <details>
+              <summary>Start a different comparison</summary>
+              <p>
+                Download this result first. Discarding this browser-session
+                recovery copy does not delete or cancel any report already saved
+                by the service. Its save status will remain unconfirmed.
+              </p>
+              <button
+                className="secondary"
+                disabled={!!busy}
+                onClick={() => {
+                  forgetPendingComparison(pendingAudit);
+                  pendingAuditRef.current = null;
+                  setPendingAudit(null);
+                  setReport(null);
+                  setReportId("");
+                  setError("");
+                  setNotice(
+                    "Local recovery copy discarded. No shared report was deleted. Refresh saved history before starting a new comparison.",
+                  );
+                }}
+              >
+                Discard local recovery copy
+              </button>
+            </details>
+          </section>
+        )}
         {tab === "Assignment workspace" && (
           <AssignmentWorkspace
             key={courseId}
             course={course}
             records={records}
             store={store}
-            disabled={!!busy}
+            disabled={!!busy || !!pendingAudit}
             pending={pendingEvidence}
             onStage={stageAssignmentEvidence}
             onCompare={() => compare(true)}
@@ -1076,7 +1253,7 @@ export default function FullWorkspace({
             course={course}
             records={records}
             store={store}
-            disabled={!!busy}
+            disabled={!!busy || !!pendingAudit}
             pending={pendingEvidence}
             onRescan={() => {
               setRescan(!!course);
@@ -1867,7 +2044,10 @@ export default function FullWorkspace({
                 Extract Coursera shell →
               </button>
             </div>
-            <fieldset key={courseId} disabled={!course || !!busy || !editable}>
+            <fieldset
+              key={courseId}
+              disabled={!course || !!busy || !editable || !!pendingAudit}
+            >
               <legend className="sr-only">Comparison inputs</legend>
               <div className="settings">
                 <FileField
@@ -1876,12 +2056,19 @@ export default function FullWorkspace({
                   file={excel}
                   onChange={setExcel}
                 />
-                <FileField
-                  label="Coursera full capture JSON"
-                  accept={COURSERA_CAPTURE_FILE_ACCEPT}
-                  file={capture}
-                  onChange={setCapture}
-                />
+                <div>
+                  <FileField
+                    label="Coursera full capture JSON"
+                    accept={COURSERA_CAPTURE_FILE_ACCEPT}
+                    file={capture}
+                    onChange={setCapture}
+                  />
+                  <p className="hint">
+                    <a href="?tool=share" target="_blank" rel="noreferrer">
+                      Share or split this capture
+                    </a>
+                  </p>
+                </div>
               </div>
               <p className="hint">
                 Use files from the selected course and the same capture stage.
@@ -1906,12 +2093,19 @@ export default function FullWorkspace({
                 Capture Brightspace source →
               </button>
               <div className="settings">
-                <FileField
-                  label="Brightspace source JSON"
-                  accept=".json"
-                  file={source}
-                  onChange={setSource}
-                />
+                <div>
+                  <FileField
+                    label="Brightspace source JSON"
+                    accept=".json"
+                    file={source}
+                    onChange={setSource}
+                  />
+                  <p className="hint">
+                    <a href="?tool=share" target="_blank" rel="noreferrer">
+                      Share or split this capture
+                    </a>
+                  </p>
+                </div>
                 <FileField
                   label="Supplemental reading recovery JSON"
                   accept=".json"
@@ -1999,10 +2193,10 @@ export default function FullWorkspace({
                 A new ingestion completed in Coursera
               </label>
               <p className="hint">
-                Coursera does not send CTI an ingestion completion signal. Select
-                this only after a new ingestion actually completes; CTI records
-                your declaration when you run the comparison. Snapshot stage and
-                Smart Ingestion capability remain separate.
+                Coursera does not send CTI an ingestion completion signal.
+                Select this only after a new ingestion actually completes; CTI
+                records your declaration when you run the comparison. Snapshot
+                stage and Smart Ingestion capability remain separate.
               </p>
               {pendingIngestion && (
                 <p className="hint" role="status">
@@ -2022,7 +2216,11 @@ export default function FullWorkspace({
               <button
                 className="primary"
                 disabled={
-                  !course || (!excel && !capture) || !editable || !!busy
+                  !course ||
+                  (!excel && !capture) ||
+                  !editable ||
+                  !!busy ||
+                  !!pendingAudit
                 }
                 onClick={() => void compare()}
               >
@@ -2101,7 +2299,7 @@ export default function FullWorkspace({
                   <li key={r.id}>
                     <button
                       className="text-button"
-                      disabled={!!busy}
+                      disabled={!!busy || !!pendingAudit}
                       onClick={() =>
                         void act("Opening full saved report", async () => {
                           setReport((await store!.get(r.id)).data);
