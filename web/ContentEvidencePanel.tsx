@@ -8,6 +8,7 @@ import type { ItemContentView } from "../src/domain/owner-content";
 import { safeWebUrl } from "../src/domain/owner-urls";
 import PublicContentFetch from "./PublicContentFetch";
 import CtiAnswerPanel from "./CtiAnswerPanel";
+import BrightspaceHtmlStructureEvidence from "./BrightspaceHtmlStructure";
 import { choiceLabel, ctiAnswerCheck } from "../src/domain/cti-answer-check";
 const labels = {
   COMPLETE: "Complete captured field",
@@ -82,6 +83,12 @@ function SourceBodyEvidence({ body }: { body: BrightspaceSourceBody }) {
           interactions or whole-course completeness.
         </p>
       </details>
+      {body.htmlStructure && (
+        <BrightspaceHtmlStructureEvidence
+          structure={body.htmlStructure}
+          references={body.references}
+        />
+      )}
       {!!body.references.length && (
         <details>
           <summary>
