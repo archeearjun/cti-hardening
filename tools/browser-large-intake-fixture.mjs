@@ -491,7 +491,12 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     try {
-      await page.goto(base);
+      await page.goto(base + (mode === "lost-saved" ? "/?tool=share" : ""));
+      if (mode === "lost-saved") {
+        await page
+          .getByRole("button", { name: "Full CTI workspace", exact: true })
+          .click();
+      }
       const coursePicker = page.getByRole("combobox", {
         name: "Selected source course",
         exact: true,
@@ -636,10 +641,33 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           .getByRole("heading", { name: "Role Play & Dialogue", exact: true })
           .waitFor();
         api.faults.session = true;
+        const sessionUnavailable = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/session" &&
+            response.status() === 503,
+        );
         fullCti = true;
         await page.evaluate(() =>
           document.dispatchEvent(new Event("visibilitychange")),
         );
+        await sessionUnavailable;
+        const returnToWorkspace = page.getByRole("button", {
+          name: "Full CTI workspace",
+          exact: true,
+        });
+        await returnToWorkspace.waitFor();
+        assert(
+          await page
+            .locator("button")
+            .filter({ hasText: /^\s*Share a large capture\s*$/ })
+            .isDisabled(),
+          "Initial session recovery locks outgoing tool navigation",
+        );
+        assert(
+          await returnToWorkspace.isEnabled(),
+          "Auth restoration on a sharing URL still permits returning to the retained full workspace",
+        );
+        await returnToWorkspace.click();
         await page
           .getByRole("alert")
           .filter({ hasText: "Synthetic session unavailable" })

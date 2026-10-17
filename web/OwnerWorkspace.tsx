@@ -213,7 +213,7 @@ export default function App() {
           <button
             className={workspace === "full" ? "primary" : "secondary"}
             aria-pressed={workspace === "full"}
-            disabled={busy || packageBusy || fullBusy}
+            disabled={busy || packageBusy || (fullBusy && workspace === "full")}
             onClick={() => setWorkspace("full")}
           >
             Full CTI workspace

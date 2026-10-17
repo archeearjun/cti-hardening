@@ -308,8 +308,8 @@ export default function FullWorkspace({
     setTabState("Compare");
   }
   useEffect(() => {
-    onBusyChange?.(!!busy || !!pendingAudit);
-  }, [busy, pendingAudit, onBusyChange]);
+    onBusyChange?.(!connectionReady || !!busy || !!pendingAudit);
+  }, [connectionReady, busy, pendingAudit, onBusyChange]);
   useEffect(() => setPage(0), [query, partnerFilter, statusFilter, records]);
   useEffect(() => {
     let alive = true;
