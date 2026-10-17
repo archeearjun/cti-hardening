@@ -1,5 +1,9 @@
 import { digest, newRecord, type WorkspaceStore } from "./workspace-store.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
+import {
+  workspaceFailureDiagnostic,
+  type WorkspaceFailureDiagnostic,
+} from "./workspace-http.ts";
 
 /** One computed audit retains one identity until its save is confirmed. This is
  * only a browser-session recovery copy, never a shared persistence receipt. */
@@ -10,6 +14,18 @@ export interface PendingComparison {
   course: WorkspaceRecord;
   historyVersion: string;
   actor: { mode: WorkspaceStore["mode"]; email: string };
+  lastSaveFailure?: WorkspaceFailureDiagnostic;
+}
+
+/** Diagnostics supplement the local recovery copy, never its computed audit. */
+export function recordComparisonSaveFailure(
+  pending: PendingComparison,
+  error: unknown,
+): boolean {
+  const diagnostic = workspaceFailureDiagnostic(error);
+  if (!diagnostic) return false;
+  pending.lastSaveFailure = diagnostic;
+  return true;
 }
 
 // Protected UI may remount after an access recheck. Retain the recovery copy in
@@ -144,6 +160,9 @@ export function unconfirmedComparisonExport(pending: PendingComparison) {
     computedAt: pending.computedAt,
     savedFollowUpsIncluded: false,
     unsavedItemEditsIncluded: false,
+    ...(pending.lastSaveFailure
+      ? { lastSaveFailure: workspaceFailureDiagnostic(pending.lastSaveFailure) }
+      : {}),
   };
   return {
     evidence: { ...pending.record.data, localComparisonRecovery: saveStatus },
@@ -155,6 +174,12 @@ export function unconfirmedComparisonExport(pending: PendingComparison) {
       `Computed payload SHA-256: ${pending.payloadSha256}`,
       "This is the computed comparison retained in this browser session. It is not confirmation of a shared save. Saved follow-ups and unsaved item edits are not included.",
       "The JSON download retains the complete computed evidence.",
+      ...(pending.lastSaveFailure
+        ? [
+            `Last save/read failure: ${pending.lastSaveFailure.code} | phase: ${pending.lastSaveFailure.phase}`,
+            pending.lastSaveFailure.message,
+          ]
+        : []),
       "",
       typeof pending.record.data.report === "string"
         ? pending.record.data.report

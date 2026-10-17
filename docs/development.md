@@ -332,14 +332,27 @@ retained occurrences across placements, not unique bank definitions. The capture
 review labels collector completion declarations separately from independently
 verified native structure and original-body checks.
 
+Version 1.7.3 requires an exact, positive full-source Content-Length for Panopto
+MP4 acquisition. The public service and helper relay it separately from their
+own HTTP framing; the helper and bookmark each compare the final byte count
+before retaining a body. Missing lengths, ranges, encoded responses and short
+or excessive EOF remain explicit gaps. New receipts record `declaredBodyBytes`;
+historical receipts without that field remain historical evidence. This checks
+transport framing, not playback or complete MP4 semantics. Replace the saved
+v1.7.2 bookmark: its strict helper header allowlist cannot accept the new relay
+header. Capture/resume refreshes mutable provider sources while retaining prior
+assessment observations and their timestamps.
+
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct
 capture file.
 
-The automatic background path remains a separate service-bound Worker because
-Browser Run and durable Workflows are Worker capabilities. It is intended only
-for deployments that provision sufficient remote-browser quota; it is not a
-requirement for the Pages application or shared workspace.
+The automatic background path uses a service-bound Worker because Browser Run
+and durable Workflows are Worker capabilities. Launch it only when sufficient
+remote-browser quota has been provisioned. The same private Worker now hosts
+the required shared-record Durable Object route; that route runs independently
+of Browser Run and does not consume a browser session. Local browser storage
+and bookmark capture do not require a shared-record runtime.
 
 The legacy local workflow uses Chrome's built-in Protocol monitor to register
 `Page.addScriptToEvaluateOnNewDocument`. The canonical entry owns durable run
@@ -395,6 +408,29 @@ exact matching save receipt, and retries that same ID only after a definite
 not-found and unchanged course history. An uncertain read never permits a
 blind write. This recovery copy lasts for the current browser session, so it
 must be downloaded before closing or refreshing the page.
+
+Shared transfers now bind an upload session to the exact actor, record envelope,
+version, full payload checksum/length, chunk count and commit options. Repeated
+preparations deduplicate atomically; received chunk digests are checked against
+the selected payload before skipping them. Recovery reuses that same upload and
+does not retransmit earlier verified chunks. An uncertain commit first requires
+an exact saved-record readback, or a definite not-found before an explicit retry.
+Binary saved-record chunk reads use the same bounded retry policy. Pending local
+exports retain allowlisted HTTP status, phase and Cloudflare diagnostic headers
+outside the immutable comparison payload. This does not remove runtime quotas.
+
+Production shared-record routes use a private service binding to
+`WorkspaceRuntime`, a SQLite-backed Durable Object in the existing extractor
+Worker. Pages still verifies Access, owner identity, current role and the
+same-origin write boundary before forwarding. The non-public Worker front door
+forwards without parsing report bytes. The object serializes bounded requests
+and runs the same original-payload validator and atomic D1 writes; it never
+launches Browser Run. This moves expensive validation from the ordinary Free
+10 ms HTTP CPU allowance to the documented Durable Object 30-second allowance.
+The existing production `CTI_DB` binding is copied from Pages configuration
+during deployment; no database, paid plan or replacement evidence store is
+created. Local/test handlers still exercise the same maintained implementation.
+Memory, D1 query/storage limits and Free Durable Object quotas still apply.
 
 Use the focused commands above while implementing. Before publishing changes
 across feature boundaries, run `npm test` and `npm run build`. CI additionally

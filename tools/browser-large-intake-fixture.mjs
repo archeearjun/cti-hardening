@@ -8,6 +8,7 @@ import { workspaceNav } from "./browser-workspace-navigation.mjs";
 import { recordSummary } from "../src/domain/workspace-store.ts";
 
 const MAX_PART_BYTES = 24 * 1024 * 1024;
+const WORKSPACE_CHUNK_BYTES = 128 * 1024;
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const upload = (name, buffer, mimeType = "application/json") => ({
   name,
@@ -357,6 +358,7 @@ function comparisonSaveApi(input, mode) {
   };
   const records = new Map([[course.id, course]]);
   const uploads = new Map();
+  const uploadBindings = new Map();
   const events = [];
   const faults = { session: false, list: false };
   const json = (route, value, status = 200) =>
@@ -365,6 +367,19 @@ function comparisonSaveApi(input, mode) {
       contentType: "application/json",
       body: JSON.stringify(value),
     });
+  const uploadStatus = (upload) => ({
+    id: upload.id,
+    ...upload.manifest,
+    receivedParts: [...upload.chunks.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([part, bytes]) => ({
+        part,
+        bytes: bytes.length,
+        digest: sha256(bytes),
+      })),
+    committed: upload.committed,
+    ...(upload.savedRecord ? { savedRecord: upload.savedRecord } : {}),
+  });
   let commits = 0;
   async function route(route) {
     const request = route.request();
@@ -397,15 +412,19 @@ function comparisonSaveApi(input, mode) {
       if (recordPath[2] === "versions") return json(route, { versions: [] });
       const bytes = Buffer.from(JSON.stringify(saved.data));
       if (recordPath[2] === "chunks") {
-        assert.equal(recordPath[3], "0");
+        const part = Number(recordPath[3]);
+        assert(part < Math.ceil(bytes.length / WORKSPACE_CHUNK_BYTES));
         return route.fulfill({
           contentType: "application/octet-stream",
-          body: bytes,
+          body: bytes.subarray(
+            part * WORKSPACE_CHUNK_BYTES,
+            (part + 1) * WORKSPACE_CHUNK_BYTES,
+          ),
         });
       }
       return json(route, {
         record: recordSummary(saved),
-        parts: 1,
+        parts: Math.ceil(bytes.length / WORKSPACE_CHUNK_BYTES),
         sha256: sha256(bytes),
         revision: "fixture-saved-revision",
       });
@@ -415,22 +434,62 @@ function comparisonSaveApi(input, mode) {
       assert.equal(manifest.record.kind, "audit");
       assert.equal(manifest.record.packageId, course.id);
       assert.equal(manifest.record.version, 0);
-      assert.equal(manifest.parts, Math.ceil(manifest.bytes / 131072));
-      const id = `fixture-upload-${uploads.size + 1}`;
-      uploads.set(id, { manifest, chunks: new Map() });
-      return json(route, { id });
+      assert.equal(
+        manifest.parts,
+        Math.ceil(manifest.bytes / WORKSPACE_CHUNK_BYTES),
+      );
+      assert.equal(manifest.allowSemanticDuplicate, false);
+      const binding = JSON.stringify([
+        actor.email,
+        manifest.record,
+        manifest.bytes,
+        manifest.parts,
+        manifest.sha256,
+        manifest.allowSemanticDuplicate,
+      ]);
+      let id = uploadBindings.get(binding);
+      if (!id) {
+        id = `fixture-upload-${uploads.size + 1}`;
+        uploads.set(id, {
+          id,
+          manifest,
+          chunks: new Map(),
+          committed: false,
+        });
+        uploadBindings.set(binding, id);
+      }
+      return json(route, uploadStatus(uploads.get(id)));
+    }
+    const uploadPath = /^uploads\/([^/]+)$/.exec(path);
+    if (method === "GET" && uploadPath) {
+      const upload = uploads.get(uploadPath[1]);
+      if (!upload) return json(route, { error: "Upload not found." }, 404);
+      return json(route, uploadStatus(upload));
     }
     const chunkPath = /^uploads\/([^/]+)\/chunks\/(\d+)$/.exec(path);
     if (method === "PUT" && chunkPath) {
       const upload = uploads.get(chunkPath[1]);
       assert(upload);
-      upload.chunks.set(Number(chunkPath[2]), request.postDataBuffer());
+      const part = Number(chunkPath[2]);
+      const bytes = request.postDataBuffer();
+      assert(part < upload.manifest.parts);
+      assert.equal(
+        bytes.length,
+        Math.min(
+          WORKSPACE_CHUNK_BYTES,
+          upload.manifest.bytes - part * WORKSPACE_CHUNK_BYTES,
+        ),
+      );
+      if (upload.chunks.has(part))
+        assert.deepEqual(upload.chunks.get(part), bytes);
+      upload.chunks.set(part, bytes);
       return json(route, { success: true });
     }
     const commitPath = /^uploads\/([^/]+)\/commit$/.exec(path);
     if (method === "POST" && commitPath) {
       const upload = uploads.get(commitPath[1]);
       assert(upload);
+      assert.equal(request.postDataJSON().allowSemanticDuplicate, false);
       const { manifest, chunks } = upload;
       assert.equal(chunks.size, manifest.parts);
       const bytes = Buffer.concat(
@@ -446,12 +505,20 @@ function comparisonSaveApi(input, mode) {
         updatedBy: actor.email,
       };
       commits++;
-      if (commits > 1 || mode === "lost-saved") records.set(saved.id, saved);
+      if (commits > 1 || mode === "lost-saved") {
+        records.set(saved.id, saved);
+        upload.committed = true;
+        upload.savedRecord = recordSummary(saved);
+      }
       if (commits === 1)
         return route.fulfill({
           status: 503,
           contentType: "text/html",
-          headers: { "cf-ray": "synthetic-intake-BOM" },
+          headers: {
+            "cf-ray": "synthetic-intake-BOM",
+            "cf-error-type": "synthetic-finalization",
+            "cf-error-origin": "synthetic-workspace",
+          },
           body: "<html><body>Synthetic temporary finalization error</body></html>",
         });
       return json(route, { record: recordSummary(saved) });
@@ -467,6 +534,16 @@ function comparisonSaveApi(input, mode) {
     faults,
     commits: () => commits,
   };
+}
+
+function assertRecoveryEvidenceUnchanged(current, original, message) {
+  const currentEvidence = JSON.parse(current.toString("utf8"));
+  const originalEvidence = JSON.parse(original.toString("utf8"));
+  const diagnostic = currentEvidence.localComparisonRecovery.lastSaveFailure;
+  delete currentEvidence.localComparisonRecovery.lastSaveFailure;
+  delete originalEvidence.localComparisonRecovery.lastSaveFailure;
+  assert.deepEqual(currentEvidence, originalEvidence, message);
+  return diagnostic;
 }
 
 export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
@@ -579,6 +656,22 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
       assert.equal(receipt.sharedSaveConfirmed, false);
       assert.equal(receipt.packageId, api.course.id);
       assert.equal(receipt.savedFollowUpsIncluded, false);
+      assert.equal(receipt.lastSaveFailure.code, "WORKSPACE_RESPONSE_INVALID");
+      assert.equal(receipt.lastSaveFailure.phase, "finalize");
+      assert.equal(receipt.lastSaveFailure.status, 503);
+      assert.equal(receipt.lastSaveFailure.attempts, 1);
+      assert.match(receipt.lastSaveFailure.context, /^Finalizing /);
+      assert(receipt.lastSaveFailure.context.includes(receipt.auditId));
+      assert.deepEqual(receipt.lastSaveFailure.cloudflare, {
+        rayId: "synthetic-intake-BOM",
+        errorType: "synthetic-finalization",
+        errorOrigin: "synthetic-workspace",
+      });
+      assert.equal(
+        JSON.stringify(receipt).includes("<html>"),
+        false,
+        "Recovery metadata retains bounded diagnostics without the HTML response body",
+      );
       delete evidence.localComparisonRecovery;
       assert.equal(
         sha256(Buffer.from(JSON.stringify(evidence))),
@@ -696,10 +789,18 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           .getByRole("alert")
           .filter({ hasText: "Synthetic record listing unavailable" })
           .waitFor({ timeout: 15000 });
-        assert.deepEqual(
+        const reconnectDiagnostic = assertRecoveryEvidenceUnchanged(
           (await downloadBytes(page, exportJson)).bytes,
           downloaded.bytes,
           "Authenticated reconnect restores the same audit ID, payload hash and complete export before listing succeeds",
+        );
+        assert.equal(reconnectDiagnostic.code, "WORKSPACE_HTTP_ERROR");
+        assert.equal(reconnectDiagnostic.phase, "read");
+        assert.equal(reconnectDiagnostic.status, 503);
+        assert.equal(reconnectDiagnostic.attempts, 3);
+        assert.match(
+          reconnectDiagnostic.message,
+          /Synthetic record listing unavailable/,
         );
         assert.equal(api.uploads.size, 1);
         assert.equal(api.commits(), 1);
@@ -731,10 +832,17 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           3,
           "Only the safe read follows the existing bounded retry policy",
         );
-        assert.deepEqual(
+        const readDiagnostic = assertRecoveryEvidenceUnchanged(
           (await downloadBytes(page, exportJson)).bytes,
           downloaded.bytes,
+          "A failed recovery read updates its diagnostic while preserving the complete computed evidence",
         );
+        assert.equal(readDiagnostic.code, "WORKSPACE_HTTP_ERROR");
+        assert.equal(readDiagnostic.phase, "download");
+        assert.equal(readDiagnostic.status, 503);
+        assert.equal(readDiagnostic.attempts, 3);
+        assert(readDiagnostic.context.includes(receipt.auditId));
+        assert.match(readDiagnostic.message, /Synthetic temporary read failure/);
       } else {
         await page
           .getByRole("status")
@@ -747,6 +855,13 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           [...api.records.values()].filter((record) => record.kind === "audit")
             .length,
           1,
+        );
+        assert.equal(
+          sha256(
+            Buffer.from(JSON.stringify(api.records.get(receipt.auditId).data)),
+          ),
+          receipt.payloadSha256,
+          "The recovered save retains the original audit ID and exact payload SHA-256",
         );
         const afterCheck = api.events.slice(beforeCheck);
         assert.equal(afterCheck[0].method, "GET");
@@ -763,17 +878,25 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           );
           assert.equal(api.commits(), 1);
         } else {
-          assert.equal(api.uploads.size, 2);
-          assert.equal(api.commits(), 2);
-          assert.deepEqual(
-            [...api.uploads.values()].map(
-              (upload) => upload.manifest.record.id,
-            ),
-            [receipt.auditId, receipt.auditId],
+          assert.equal(
+            api.uploads.size,
+            1,
+            "A definite missing save resumes the original upload without an orphan",
           );
-          assert.deepEqual(
-            [...api.uploads.values()].map((upload) => upload.manifest.sha256),
-            [receipt.payloadSha256, receipt.payloadSha256],
+          assert.equal(api.commits(), 2);
+          assert.equal(firstUpload.manifest.record.id, receipt.auditId);
+          assert.equal(firstUpload.manifest.sha256, receipt.payloadSha256);
+          assert.equal(
+            afterCheck.filter(
+              (event) => event.method === "POST" && event.path === "uploads",
+            ).length,
+            0,
+            "Recovery does not prepare a second upload for the same computed report",
+          );
+          assert.equal(
+            afterCheck.filter((event) => event.method === "PUT").length,
+            0,
+            "Verified receipts skip all chunks already held by the original upload",
           );
           const notFoundRead = afterCheck.findIndex(
             (event) => event.path === `records/${receipt.auditId}`,
@@ -784,9 +907,21 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           const write = afterCheck.findIndex(
             (event) => event.method === "POST",
           );
+          const uploadRead = afterCheck.findIndex(
+            (event) =>
+              event.method === "GET" &&
+              event.path === `uploads/${firstUpload.id}`,
+          );
           assert(
-            notFoundRead < historyRead && historyRead < write,
-            "Known absence and refreshed history precede an explicit retry of the same ID",
+            notFoundRead < historyRead &&
+              historyRead < uploadRead &&
+              uploadRead < write,
+            "Known absence, refreshed history and the original upload status precede finalization",
+          );
+          assert.equal(
+            afterCheck[write].path,
+            `uploads/${firstUpload.id}/commit`,
+            "Finalization retries the same fully uploaded ID",
           );
         }
       }

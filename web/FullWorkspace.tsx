@@ -15,6 +15,7 @@ import {
   rememberPendingComparison,
   sessionPendingComparison,
   forgetPendingComparison,
+  recordComparisonSaveFailure,
   recoverComparisonSave,
   unconfirmedComparisonExport,
   type PendingComparison,
@@ -587,6 +588,11 @@ export default function FullWorkspace({
     try {
       await fn();
     } catch (e) {
+      if (
+        pendingAuditRef.current &&
+        recordComparisonSaveFailure(pendingAuditRef.current, e)
+      )
+        setPendingAudit({ ...pendingAuditRef.current });
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy("");

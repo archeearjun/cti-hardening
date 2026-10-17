@@ -25,6 +25,15 @@ import {
   readWorkspacePayload,
   compactIngestionHistoryRecord,
 } from "./workspace-payload.ts";
+import {
+  workspaceUploadId,
+  workspaceUploadCommitOption,
+  assertWorkspaceUploadBinding,
+} from "./workspace-upload.ts";
+import {
+  isWorkspaceApiPath,
+  forwardWorkspaceApi,
+} from "./workspace-runtime.ts";
 interface Statement {
   bind(...values: unknown[]): Statement;
   first<T = any>(): Promise<T | null>;
@@ -201,6 +210,60 @@ async function releasePackageIdentityClaim(
     )
     .run();
 }
+
+async function uploadStatus(db: Database, upload: any) {
+  const record = JSON.parse(upload.metadata) as WorkspaceRecord;
+  const { results } = await db
+    .prepare(
+      "SELECT part,bytes,digest FROM chunks WHERE upload_id=? ORDER BY part ASC",
+    )
+    .bind(upload.id)
+    .all<{ part: number; bytes: number; digest: string }>();
+  let prior = -1;
+  for (const part of results) {
+    if (
+      !Number.isInteger(part.part) ||
+      part.part <= prior ||
+      part.part >= upload.parts ||
+      part.bytes !== Math.min(131072, upload.bytes - part.part * 131072) ||
+      !/^[a-f0-9]{64}$/.test(part.digest)
+    )
+      fail(
+        "Saved upload part receipts are invalid. The upload was not reused.",
+        409,
+      );
+    prior = part.part;
+  }
+  let savedRecord: WorkspaceRecord | undefined;
+  if (upload.committed === 1) {
+    const document = await db
+      .prepare("SELECT * FROM documents WHERE id=?")
+      .bind(upload.document_id)
+      .first();
+    if (!document || document.version < upload.expected_version + 1)
+      fail("The committed upload's saved record could not be confirmed.", 409);
+    savedRecord = {
+      ...record,
+      // A previous revision's untrusted prepare summary must never become
+      // authoritative report data in this status response.
+      data: document.revision === upload.id ? JSON.parse(document.summary) : {},
+      version: upload.expected_version + 1,
+      updatedAt: upload.created_at,
+      updatedBy: upload.actor,
+    };
+  }
+  return {
+    id: upload.id,
+    record,
+    bytes: upload.bytes,
+    parts: upload.parts,
+    sha256: upload.sha256,
+    receivedParts: results,
+    committed: upload.committed === 1,
+    allowSemanticDuplicate: workspaceUploadCommitOption(upload.id),
+    ...(savedRecord ? { savedRecord } : {}),
+  };
+}
 function requireWriteAccess(request: Request, user: { role: string }) {
   if (request.method === "GET") return;
   if (request.headers.get("Origin") !== new URL(request.url).origin)
@@ -303,6 +366,18 @@ export function createApiHandler(
           "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",
           503,
         );
+      if (isWorkspaceApiPath(new URL(request.url).pathname)) {
+        if (!env.CTI_EXTRACTOR)
+          fail(
+            "The durable shared workspace runtime is not configured. Your local report remains available; contact the CTI owner.",
+            503,
+          );
+        return await forwardWorkspaceApi(
+          request,
+          { ...identity, role },
+          env.CTI_EXTRACTOR!,
+        );
+      }
       return await handleAuthorized(
         request,
         env.CTI_DB!,
@@ -511,6 +586,40 @@ export async function handleAuthorized(
       !/^[a-f0-9]{64}$/.test(input.sha256)
     )
       fail("Invalid evidence manifest.");
+    const optionPresent = Object.prototype.hasOwnProperty.call(
+      input,
+      "allowSemanticDuplicate",
+    );
+    if (optionPresent && typeof input.allowSemanticDuplicate !== "boolean")
+      fail("Invalid upload commit option.");
+    if (
+      input.allowSemanticDuplicate === true &&
+      (user.role !== "admin" || r.version !== 0)
+    )
+      fail(
+        "Only an administrator may prepare a historical duplicate migration import.",
+        403,
+      );
+    const binding = {
+      actor: user.email,
+      record: r,
+      bytes: input.bytes,
+      parts: input.parts,
+      sha256: input.sha256,
+      allowSemanticDuplicate: optionPresent
+        ? (input.allowSemanticDuplicate as boolean)
+        : null,
+    };
+    const id = await workspaceUploadId(binding);
+    const reusable = await db
+      .prepare("SELECT * FROM uploads WHERE id=?")
+      .bind(id)
+      .first();
+    if (reusable) {
+      assertWorkspaceUploadBinding(reusable, binding, id);
+      if (reusable.committed === 1 && optionPresent)
+        return response(await uploadStatus(db, reusable));
+    }
     const old = await db
       .prepare("SELECT * FROM documents WHERE id=?")
       .bind(r.id)
@@ -522,10 +631,9 @@ export async function handleAuthorized(
         "Saved audit snapshots and record types cannot be overwritten.",
         409,
       );
-    const id = crypto.randomUUID();
     await db
       .prepare(
-        "INSERT INTO uploads(id,document_id,expected_version,actor,created_at,bytes,parts,sha256,metadata) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT OR IGNORE INTO uploads(id,document_id,expected_version,actor,created_at,bytes,parts,sha256,metadata) VALUES(?,?,?,?,?,?,?,?,?)",
       )
       .bind(
         id,
@@ -539,7 +647,12 @@ export async function handleAuthorized(
         JSON.stringify(r),
       )
       .run();
-    return response({ id });
+    const prepared = await db
+      .prepare("SELECT * FROM uploads WHERE id=?")
+      .bind(id)
+      .first();
+    assertWorkspaceUploadBinding(prepared, binding, id);
+    return response(await uploadStatus(db, prepared));
   }
   if (p[0] === "uploads" && p[1]) {
     const u = await db
@@ -547,6 +660,8 @@ export async function handleAuthorized(
       .bind(p[1])
       .first();
     if (!u || u.actor !== user.email) fail("Upload not found.", 404);
+    if (p.length === 2 && method === "GET")
+      return response(await uploadStatus(db, u));
     if (u.committed) fail("This upload was already committed.", 409);
     if (p[2] === "chunks" && method === "PUT") {
       const n = Number(p[3]);
@@ -589,6 +704,12 @@ export async function handleAuthorized(
       }
       const allowSemanticDuplicate =
         commitOptions.allowSemanticDuplicate === true;
+      const boundOption = workspaceUploadCommitOption(u.id);
+      if (boundOption !== null && boundOption !== allowSemanticDuplicate)
+        fail(
+          "Commit options differ from this upload's prepared binding. Prepare the exact import again.",
+          409,
+        );
       if (
         allowSemanticDuplicate &&
         (user.role !== "admin" || Number(u.expected_version) !== 0)
