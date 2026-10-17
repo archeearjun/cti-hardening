@@ -61,6 +61,16 @@ export default {
     status(interrupted, 499, 200, 1);
     equal(await interrupted.json(), { error: "PANOPTO_PROVIDER_ABORTED" }, "Cancelled metadata cannot become partial success");
     const cancellable = await readPanoptoProviderPodcast((await inputFor("cancel-media.hosted.panopto.com")).input);
+    if (cancellable.status !== 200) {
+      const diagnostic = await cancellable.json().catch(() => ({}));
+      throw Error("Cancellable native media setup failed: " + JSON.stringify({
+        status: cancellable.status,
+        upstreamStatus: cancellable.headers.get("X-CTI-Upstream-Status"),
+        upstreamRequests: cancellable.headers.get("X-CTI-Upstream-Requests"),
+        error: /^PANOPTO_PROVIDER_[A-Z0-9_]{1,80}$/.test(diagnostic?.error || "")
+          ? diagnostic.error : "PANOPTO_PROVIDER_UNEXPECTED_ERROR_RESPONSE",
+      }));
+    }
     status(cancellable, 200, 200, 2);
     const reader = cancellable.body.getReader();
     equal([...(await reader.read()).value], [...mediaBytes], "The native rendition stream starts before the pending remainder");

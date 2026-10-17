@@ -19,9 +19,11 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run worker:check
+        id: worker_build
       - name: Verify public provider reads in the actual Workers runtime
         run: npm run test:worker:provider
       - name: Verify large evidence commits in the actual Durable Object and D1 runtime
+        if: ${{ !cancelled() && steps.worker_build.outcome == 'success' }}
         run: npm run test:worker:workspace
       - name: Probe public source definitions (diagnostic, no credentials)
         run: node tools/check-public-source-questions.mjs
