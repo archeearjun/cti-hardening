@@ -9,6 +9,7 @@ import {
 import OwnerActionCard from "./OwnerActionCard";
 import OwnerChecklistTree from "./OwnerChecklistTree";
 import ModuleTimeSummary from "./ModuleTimeSummary";
+import NativeCourseOutline from "./NativeCourseOutline";
 import { ownerScope, ownerHierarchy, referenceArea } from "../src/domain/owner-scope";
 import { moduleTimes } from "../src/domain/owner-time";
 import {
@@ -253,6 +254,7 @@ export default function OwnerEvidence({
           repair evidence. The original findings remain available.
         </p>
       )}
+      <NativeCourseOutline result={result} courseUrl={courseUrl} />
       <div className="action-switch" role="group" aria-label="Show owner work">
         {[
           ["attention", `Needs attention (${remaining})`],

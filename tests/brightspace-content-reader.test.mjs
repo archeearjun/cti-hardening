@@ -38,6 +38,122 @@ function response(body, contentType = "text/html; charset=utf-8", extra = {}) {
   });
 }
 
+const imageViewPath =
+  "/d2l/lp/files/temp/synthetic-private-token.png;drawing-1.png/View";
+test("only the bounded native same-origin image-view shape is eligible, without guessing other tool endpoints", () => {
+  assert.equal(
+    classifyBrightspaceReferenceV110(imageViewPath, origin, origin).fetch,
+    true,
+  );
+  assert.equal(
+    classifyBrightspaceReferenceV110(imageViewPath, origin, origin).kind,
+    "SAME_ORIGIN_FILE",
+  );
+  for (const raw of [
+    "https://other.example.test" + imageViewPath,
+    "https://user:secret@lms.example.test" + imageViewPath,
+    "javascript:" + imageViewPath,
+    imageViewPath.replace("drawing-1.png", "drawing-1.jpg"),
+    imageViewPath.replace("synthetic-private-token", "x".repeat(161)),
+    imageViewPath.replace("drawing-1", "x".repeat(201)),
+    imageViewPath.replace("/View", "/Download"),
+    imageViewPath + "/extra.png",
+    imageViewPath + "?type=lti",
+    imageViewPath.replace(";", "%3B"),
+    imageViewPath.replace(";", "%253B"),
+    imageViewPath.replace("drawing-1", "%2F..%2Fdrawing-1"),
+    imageViewPath.replace("temp/", "temp%2F"),
+    imageViewPath.replace("/View", "/%56iew"),
+    imageViewPath.replace(".png;drawing-1.png", ".html;drawing-1.html"),
+    "/unrelated" + imageViewPath,
+    imageViewPath.replace("/d2l/lp/", "/d2l/api/"),
+    imageViewPath.replace("/d2l/lp/", "/login/"),
+  ])
+    assert.equal(
+      classifyBrightspaceReferenceV110(raw, origin, origin).fetch,
+      false,
+      raw,
+    );
+});
+
+test("native image-view references retain bounded original bytes and pass independent origin and ownership checks", async () => {
+  const htmlUrl = origin + "/content/reading.html",
+    imageUrl = origin + imageViewPath,
+    image = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]),
+    calls = [];
+  const reader = fixture(async (url, init) => {
+    calls.push({ url, init });
+    return url === htmlUrl
+      ? response(
+          `<html><body><p>Authored reading</p><img src="${imageViewPath}" alt="Authored drawing"/></body></html>`,
+        )
+      : response(image, "image/png");
+  });
+  const native = { ...topic(htmlUrl), kind: "TOPIC" };
+  native.contentEvidence = await reader.readTopic(native);
+  const snapshot = reader.snapshot(),
+    assetBodies = snapshot.assetBodies;
+  delete snapshot.assetBodies;
+  const observed = native.contentEvidence.references[0];
+  assert.equal(observed.url, imageUrl);
+  assert.equal(observed.status, "CAPTURED_ORIGINAL");
+  assert.equal(observed.originalRef, sha256(image));
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].init.method, "GET");
+  assert.equal(calls[1].init.credentials, "same-origin");
+  assert.equal(calls[1].init.mode, "same-origin");
+  assert.equal(
+    Buffer.from(assetBodies[observed.originalRef].base64, "base64").length,
+    image.length,
+  );
+  const verified = assertBrightspaceCaptureIntegrity({
+    schemaVersion: 2,
+    page: { url: origin + "/d2l/home/123" },
+    contentTree: [native],
+    assetBodies,
+    contentAcquisition: snapshot,
+  });
+  assert.equal(verified.originalIntegrity, "VERIFIED_RETAINED_ORIGINALS");
+  assert.equal(verified.wholeCourseComplete, false);
+
+  const limited = fixture(async () => response(image, "image/png"), {
+    maxAssetBytes: 8,
+  });
+  const rejected = await limited.readTopic(topic(imageUrl));
+  assert.equal(rejected.reason, "BODY_LIMIT_EXCEEDED");
+  assert.equal(Object.keys(limited.snapshot().assetBodies).length, 0);
+});
+
+test("image-view HTML responses and final external or malformed wrapper targets remain unresolved", async () => {
+  const requested = origin + imageViewPath;
+  const htmlReader = fixture(async () =>
+    response("<p>Provider error page</p>"),
+  );
+  assert.equal(
+    (await htmlReader.readTopic(topic(requested))).reason,
+    "UNEXPECTED_HTML_FOR_ORIGINAL_FILE",
+  );
+  assert.equal(Object.keys(htmlReader.snapshot().assetBodies).length, 0);
+  for (const target of [
+    "https://other.example.test" + imageViewPath,
+    requested + "?type=lti",
+    requested + "/extra.png",
+    requested.replace(";", "%3B"),
+  ]) {
+    const reader = fixture(async () => {
+      const result = response(Uint8Array.from([137, 80, 78, 71]), "image/png");
+      Object.defineProperties(result, {
+        url: { value: target },
+        redirected: { value: true },
+      });
+      return result;
+    });
+    const evidence = await reader.readTopic(topic(requested));
+    assert.equal(evidence.reason, "OUT_OF_SCOPE_CONTENT_REDIRECT", target);
+    assert.equal(Object.keys(reader.snapshot().assetBodies).length, 0);
+  }
+});
+
 test("HTML source longer than 80k retains full original and complete text instead of a success-labelled clipped sample", async () => {
   const literal = "A source sentence with café and 日本語. ".repeat(3500);
   const html =

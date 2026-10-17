@@ -12,6 +12,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Site identity, owner boundary and gateway | `server/access.ts`, `server/site-access.ts`, `functions/_middleware.ts`, `web/App.tsx`, `public/activity-gateway.*` | `tests/site-access.test.mjs`; `node tools/browser-site-access-check.mjs`; [site access](site-access.md) |
 | Independent Role Play & Dialogue preview | `src/activity-designer/`, `tools/build-activity-designer.mjs`, owner gateway in `web/OwnerWorkspace.tsx` | `npm run test:activities`; `npm run test:browser:activities`; [boundary and evidence limits](activity-designer.md) |
 | Source/Coursera content view and original-input supplements | `src/domain/content-evidence.ts`, `owner-content.ts`, `report-content-store.ts`, `web/ContentEvidencePanel.tsx` | `tests/content-evidence.test.mjs`; `npm run test:browser:owner` |
+| Captured native shell outline, empty containers and source names | `src/domain/capture-structure.ts`, `native-course-outline.ts`, `web/NativeCourseOutline.tsx` | `tests/unified-inputs.test.mjs`; native outline validation tests; `npm run test:browser:owner` |
 | Recorded Coursera public links and separate fetched page observations | `src/domain/coursera-linked-content.ts`, `owner-content.ts`, `web/OwnerActionCard.tsx` | `tests/coursera-linked-content.test.mjs`; `npm run test:browser:owner` |
 | Automatic public source question definitions | `src/domain/external-source-questions.ts`, `server/source-questions.ts` | `tests/external-source-questions.test.mjs`; `npm run test:browser:owner` |
 | Source answer keys, feedback, original definitions and reuse | `src/domain/h5p-definition-evidence.ts`, `source-bank-summary.ts`, `web/SourceBankTools.tsx` | `tests/h5p-answer-evidence.test.mjs`; `npm run test:browser:owner` |
@@ -98,7 +99,7 @@ including during `npm run dev`.
 
 ## Brightspace browser extraction
 
-Current Brightspace delivery is v1.1.0/schema 2; see
+Current Brightspace delivery is v1.1.1/schema 2; see
 [Brightspace bookmark capture](brightspace-bookmark-capture.md). The primary UI
 saves **CTI Brightspace capture** once and runs it on the signed-in course Home or
 Content page. Console copy/download remains an optional fallback. Both Source
@@ -320,6 +321,13 @@ timestamps. Both controls wait for an operator click. Assignment reconciliation
 uses the retained base-content date for enrichment captures, so a later export
 date alone cannot verify an edit. Role Play & Dialogue receive the same complete
 bookmark source and use the same original capture file.
+
+Version 1.7.2 presents content-item coverage separately from empty structural
+entries. The unchanged completion contract still covers the complete inventory;
+an empty folder does not count as captured lesson content. Question totals are
+retained occurrences across placements, not unique bank definitions. The capture
+review labels collector completion declarations separately from independently
+verified native structure and original-body checks.
 
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct

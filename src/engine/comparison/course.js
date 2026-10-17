@@ -139,7 +139,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             extractorMeta.page = parsedPageMeta;
 
             if (parsed.fingerprints && parsed.fingerprints.length > 0) {
-                parsed.fingerprints.forEach(function(item) { courseraItems.push(normalizeCourseraItem_(item)); });
+                parsed.fingerprints.forEach(function(item) { courseraItems.push(normalizeCourseraItem_(item, parsedPageMeta.courseId)); });
                 liveEvidenceItems = courseraItems.slice();
                 jsonItemsForCoherence = courseraItems.slice();
                 sourceInfo.push('Coursera Item Fingerprint JSON v' + String(parsed.schemaVersion || '2'));
@@ -166,7 +166,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 });
                 sourceInfo.push('Legacy Coursera Backend API JSON');
             } else if (parsed.items && parsed.items.length > 0) {
-                parsed.items.forEach(function(item) { courseraItems.push(normalizeCourseraItem_(item)); });
+                parsed.items.forEach(function(item) { courseraItems.push(normalizeCourseraItem_(item, parsedPageMeta.courseId)); });
                 sourceInfo.push(excelBase64 ? 'Legacy Live DOM JSON (Assets)' : 'Legacy Live DOM JSON (Structure + Assets)');
             }
         }

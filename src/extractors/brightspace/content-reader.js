@@ -70,6 +70,21 @@ export async function readBrightspaceJsonResponse(response, options = {}) {
   }
 }
 
+/** An observed Brightspace temporary image-file view, not a general tool route.
+ * Keep the URL path literal: encoded separators or alternate wrapper shapes do
+ * not establish the same native file endpoint. */
+export function brightspaceImageViewPathV111(pathname) {
+  const match =
+    /^\/d2l\/lp\/files\/temp\/[A-Za-z0-9_-]{1,160}\.([A-Za-z]{3,4});[A-Za-z0-9][A-Za-z0-9_.-]{0,199}\.([A-Za-z]{3,4})\/View$/.exec(
+      pathname,
+    );
+  return (
+    !!match &&
+    /^(?:png|jpe?g|gif|webp|svg)$/.test(match[1].toLowerCase()) &&
+    match[1].toLowerCase() === match[2].toLowerCase()
+  );
+}
+
 export function classifyBrightspaceReferenceV110(rawUrl, baseUrl, origin) {
   let url;
   try {
@@ -143,6 +158,22 @@ export function classifyBrightspaceReferenceV110(rawUrl, baseUrl, origin) {
       reason: "DYNAMIC_TOOL_NOT_LAUNCHED",
     };
   }
+  if (brightspaceImageViewPathV111(url.pathname) && !url.search)
+    return { url: url.href, kind: "SAME_ORIGIN_FILE", fetch: true, reason: "" };
+  let decodedPath = url.pathname;
+  try {
+    decodedPath = decodeURIComponent(decodedPath);
+  } catch {}
+  if (
+    /^\/d2l\/lp\/files\/temp\//.test(decodedPath) &&
+    decodedPath.includes(";")
+  )
+    return {
+      url: url.href,
+      kind: "UNSUPPORTED_RESOURCE",
+      fetch: false,
+      reason: "UNSUPPORTED_NATIVE_IMAGE_VIEW",
+    };
   if (
     /\.(?:html?|xhtml|txt|srt|vtt|csv|json|jpe?g|png|gif|webp|svg|pdf|pptx?|docx?|xlsx?|mp4|webm|mp3|wav|m4a|zip)$/i.test(
       url.pathname,
@@ -487,10 +518,12 @@ export function createBrightspaceContentReader(options = {}) {
           /(?:text\/html|application\/xhtml\+xml)/i.test(mediaType)
         ) {
           if (
-            [url, responseUrl].some((target) =>
-              /\.(?:jpe?g|png|gif|webp|pdf|pptx?|docx?|xlsx?|zip)(?:[?#]|$)/i.test(
-                target,
-              ),
+            [url, responseUrl].some(
+              (target) =>
+                brightspaceImageViewPathV111(new URL(target).pathname) ||
+                /\.(?:jpe?g|png|gif|webp|pdf|pptx?|docx?|xlsx?|zip)(?:[?#]|$)/i.test(
+                  target,
+                ),
             )
           )
             throw Error("UNEXPECTED_HTML_FOR_ORIGINAL_FILE");

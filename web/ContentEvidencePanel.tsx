@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   contentQuestionText,
+  type BrightspaceSourceBody,
   type ContentEvidence,
 } from "../src/domain/content-evidence";
 import type { ItemContentView } from "../src/domain/owner-content";
@@ -14,6 +15,133 @@ const labels = {
   UNVERIFIED: "Unverified",
   EMPTY: "Confirmed empty",
 };
+function SourceBodyEvidence({ body }: { body: BrightspaceSourceBody }) {
+  const originalVerified =
+    body.originalIntegrity === "VERIFIED_RETAINED_ORIGINAL";
+  const outcome = originalVerified
+    ? "Original file retained and verified at import"
+    : body.textScope === "ORIGINAL_BODY"
+      ? "Source text captured; original file unverified"
+      : /NOT_FETCHED|NOT_READ|EXTERNAL/.test(body.status)
+        ? "Source file not fetched"
+        : "Original file capture unresolved";
+  const referenceRole = (tag: string, attribute: string) => {
+    const roles: Record<string, string> = {
+      img: "Image",
+      iframe: "Embedded page",
+      video: "Video",
+      audio: "Audio",
+      source: "Media source",
+      track: "Caption or text track",
+      a: "Link",
+      object: "Embedded object",
+      embed: "Embedded content",
+    };
+    return `${roles[tag.toLowerCase()] || "Resource"}${tag ? ` (${tag}${attribute ? `.${attribute}` : ""})` : ""}`;
+  };
+  return (
+    <section className="scope" aria-label="Brightspace source file evidence">
+      <h6>Source file evidence</h6>
+      <p>
+        <strong>{outcome}</strong>
+      </p>
+      <p className="hint">
+        Topic {body.topicId} · Collector outcome: {body.status || "Unrecorded"}
+        {body.format && ` · Format: ${body.format.toUpperCase()}`}
+        {body.contentType && ` · Content type: ${body.contentType}`}
+      </p>
+      {body.reason && <p className="hint">{body.reason}</p>}
+      <details>
+        <summary>Original file identity and text preview scope</summary>
+        <p className="hint">
+          Source read recorded: {body.observedAt || "Unrecorded"}
+          {body.bytes !== null && ` · ${body.bytes.toLocaleString()} bytes`}
+        </p>
+        {body.sha256 && <p className="captured-text">SHA-256: {body.sha256}</p>}
+        {body.originalRef && (
+          <p className="captured-text">
+            Retained original reference: {body.originalRef}
+          </p>
+        )}
+        <p className="hint">
+          {body.textScope === "ORIGINAL_BODY"
+            ? "The text below is the captured source body or its recorded text projection."
+            : body.textScope === "DESCRIPTION_FALLBACK"
+              ? "The text below is the topic description. It does not stand in for the source file."
+              : "This snapshot has no source body text preview. A binary file or an unresolved projection does not establish missing source content."}
+        </p>
+        {body.projectionStatus && (
+          <p className="hint">Text projection: {body.projectionStatus}</p>
+        )}
+        {body.projectionReason && (
+          <p className="hint">{body.projectionReason}</p>
+        )}
+        <p className="hint">
+          This snapshot keeps file evidence and references, not downloadable
+          original bytes. File verification does not establish playback,
+          interactions or whole-course completeness.
+        </p>
+      </details>
+      {!!body.references.length && (
+        <details>
+          <summary>
+            Source file references and read outcomes ({body.references.length})
+          </summary>
+          <p className="hint">
+            These are recorded references. CTI does not load embedded pages or
+            media while displaying this evidence.
+          </p>
+          <ol>
+            {body.references.map((reference, index) => (
+              <li key={index}>
+                <p>
+                  <strong>
+                    {referenceRole(reference.tag, reference.attribute)}
+                  </strong>{" "}
+                  · Read outcome: {reference.status || "Unrecorded"}
+                </p>
+                <p className="captured-text">
+                  {safeWebUrl(reference.url) ? (
+                    <a
+                      href={safeWebUrl(reference.url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {reference.url}
+                    </a>
+                  ) : (
+                    reference.url || reference.rawUrl || "URL unrecorded"
+                  )}
+                </p>
+                {reference.rawUrl && reference.rawUrl !== reference.url && (
+                  <p className="captured-text">
+                    Authored reference: {reference.rawUrl}
+                  </p>
+                )}
+                {reference.reason && <p className="hint">{reference.reason}</p>}
+                {reference.alt !== "" && (
+                  <p className="captured-text">
+                    Authored image alt text: {reference.alt}
+                  </p>
+                )}
+                {reference.text !== "" && (
+                  <p className="captured-text">
+                    Authored reference text: {reference.text}
+                  </p>
+                )}
+                {reference.originalRef && (
+                  <p className="captured-text">
+                    Retained original reference: {reference.originalRef}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </section>
+  );
+}
 function Evidence({
   content,
   query,
@@ -28,6 +156,9 @@ function Evidence({
   const imageAltText = (content.imageAltText || []).filter(
     (image) => image.text !== "",
   );
+  const literalCaptions =
+    content.sourceBody?.textScope === "ORIGINAL_BODY" &&
+    /^(srt|vtt)$/i.test(content.sourceBody.format);
   const filtered = content.questions.filter(
     (q) =>
       !query.trim() ||
@@ -64,6 +195,45 @@ function Evidence({
           </>
         )}
       </p>
+      {content.sourceBody && <SourceBodyEvidence body={content.sourceBody} />}
+      {content.nativeGrading && (
+        <section className="scope" aria-label="Captured grading setting">
+          <h6>Captured grading setting</h6>
+          <p>
+            <strong>
+              {content.nativeGrading.graded ? "Graded" : "Not graded"}
+            </strong>{" "}
+            · Native authoring draft
+          </p>
+          <p className="hint">
+            Native field: {content.nativeGrading.field} ={" "}
+            {String(content.nativeGrading.graded)}
+          </p>
+          <p className="hint">
+            Observed: {content.nativeGrading.observedAt || "Unrecorded"}
+          </p>
+          <p className="hint">
+            This records the grading toggle only. Passing score, attempts,
+            complete assessment behavior, learner operation and published state
+            are not established by this setting.
+          </p>
+          <details>
+            <summary>Native grading source identity</summary>
+            <p className="captured-text">
+              Course: {content.nativeGrading.courseId}
+              {"\n"}Item: {content.nativeGrading.itemId}
+              {"\n"}Atom: {content.nativeGrading.atomId}
+              {"\n"}Content: {content.nativeGrading.contentId}
+              {"\n"}Stored atom version:{" "}
+              {content.nativeGrading.storedAtomVersion}
+              {"\n"}Native modification value: {content.nativeGrading.updatedAt}
+              {"\n"}Draft SHA-256: {content.nativeGrading.draftHash}
+              {"\n"}Method: {content.nativeGrading.method}
+              {"\n"}Scope: {content.nativeGrading.scope}
+            </p>
+          </details>
+        </section>
+      )}
       {showQuestions && (
         <>
           <p>
@@ -221,17 +391,49 @@ function Evidence({
       )}
       <details open={!!content.text}>
         <summary>
-          Reading / surrounding text ·{" "}
-          {content.textCoverage === "EMPTY"
-            ? "Empty captured text field"
-            : labels[content.textCoverage]}{" "}
+          {literalCaptions
+            ? `Literal source captions (${content.sourceBody?.format.toUpperCase()})`
+            : content.sourceBody?.textScope === "DESCRIPTION_FALLBACK"
+              ? "Topic description"
+              : "Reading / surrounding text"}{" "}
+          ·{" "}
+          {content.sourceBody?.textScope === "NO_TEXT"
+            ? "Text preview unavailable"
+            : content.textCoverage === "EMPTY"
+              ? "Empty captured text field"
+              : labels[content.textCoverage]}{" "}
           · {content.text.length} retained characters
         </summary>
         <p className="hint">{content.textReason}</p>
-        {content.text && (
-          <div className="captured-text reading-text">{content.text}</div>
-        )}
+        {content.text &&
+          (literalCaptions ? (
+            <pre
+              className="captured-text reading-text"
+              style={{ whiteSpace: "pre-wrap" }}
+            >
+              {content.text}
+            </pre>
+          ) : (
+            <div className="captured-text reading-text">{content.text}</div>
+          ))}
       </details>
+      {content.sourceBody?.descriptionText &&
+        content.sourceBody.textScope !== "DESCRIPTION_FALLBACK" && (
+          <details>
+            <summary>
+              Native topic description (separate from file body)
+            </summary>
+            <p className="hint">
+              This is the captured topic-description text projection. It does
+              not replace the source file above.
+              {content.sourceBody.descriptionTruncated &&
+                " The description exceeds this snapshot’s text limit; only the retained portion is shown."}
+            </p>
+            <div className="captured-text reading-text">
+              {content.sourceBody.descriptionText}
+            </div>
+          </details>
+        )}
       {!!imageAltText.length && (
         <details>
           <summary>Authored image alt text</summary>

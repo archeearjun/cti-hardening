@@ -764,7 +764,7 @@ try {
   assert.match(
     download.suggestedFilename(),
     new RegExp(
-      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__v1\\.1\\.0_s2__SOURCE_GROUND_TRUTH\\.json$`,
+      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__v1\\.1\\.1_s2__SOURCE_GROUND_TRUTH\\.json$`,
     ),
   );
   assert.equal(download.suggestedFilename(), capture.exportFileName);

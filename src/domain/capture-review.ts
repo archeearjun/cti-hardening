@@ -4,6 +4,10 @@ import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
 import { readCourseraCaptureFileBytes } from "./coursera-capture-file.ts";
 import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
+import {
+  hasCourseraDirectDataCaptureMarker,
+  verifiedCourseraCaptureInventory,
+} from "./coursera-background-extraction.ts";
 import type {
   ExtractorDelivery,
   Finding,
@@ -268,8 +272,65 @@ export function reviewCapture(
       assets: count(i.assetDetails),
       links: count(i.links),
     }));
+    if (hasCourseraDirectDataCaptureMarker(capture)) {
+      try {
+        const native = verifiedCourseraCaptureInventory(capture);
+        const fingerprints = list(capture.fingerprints);
+        const coverage: NonNullable<ReviewResult["courseraCoverage"]> = {
+          inventoryEntries: fingerprints.length,
+          contentItems: 0,
+          emptyStructures: 0,
+          reportedCompleteContent: 0,
+          reportedCompleteEmptyStructures: 0,
+          basis: "VERIFIED_NATIVE_MATERIAL_INVENTORY",
+        };
+        native.inventory.forEach((leaf, index) => {
+          const fp = fingerprints[index];
+          const outer = object(fp.captureContract);
+          const inner = object(object(fp.payload).captureContract);
+          const contract = Object.keys(outer).length ? outer : inner;
+          const consistent =
+            !Object.keys(outer).length ||
+            !Object.keys(inner).length ||
+            (outer.complete === inner.complete &&
+              outer.status === inner.status &&
+              outer.itemId === inner.itemId);
+          const complete =
+            consistent &&
+            contract.itemId === fp.id &&
+            contract.complete === true &&
+            typeof contract.status === "string" &&
+            contract.status.length > 0;
+          if (leaf.contentBearing) {
+            coverage.contentItems++;
+            if (
+              complete &&
+              /^COMPLETE_/.test(String(contract.status)) &&
+              contract.status !== "COMPLETE_EMPTY_STRUCTURE"
+            )
+              coverage.reportedCompleteContent++;
+          } else {
+            coverage.emptyStructures++;
+            result.items[index].type = "Empty structure";
+            if (complete && contract.status === "COMPLETE_EMPTY_STRUCTURE")
+              coverage.reportedCompleteEmptyStructures++;
+          }
+        });
+        result.courseraCoverage = coverage;
+        result.warnings.push(
+          "Native inventory separates content items from empty structures. Completion counts are the capture's per-entry claims; this preview does not independently certify every content body.",
+        );
+      } catch {
+        result.warnings.push(
+          "The content-item and empty-structure split could not be verified from a stable native material inventory. All fingerprint entries remain in the inventory; unknown items are not assumed empty.",
+        );
+      }
+    }
     result.warnings.push(
-      "Item titles and paths come from the capture. The Coursera XLSX remains the structural authority in the full CTI workflow.",
+      "Question occurrences count retained questions across item placements. Repeated placements and repeated questions remain separate; this is not a unique question-bank total or learner exam length.",
+    );
+    result.warnings.push(
+      "Item titles and paths come from the capture. The full comparison uses the supplied Coursera XLSX or a verified native material inventory as structural evidence; this preview does not run that comparison.",
     );
     if (!items.length)
       result.warnings.push(

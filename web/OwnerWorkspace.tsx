@@ -547,12 +547,16 @@ export default function App() {
                   <span>
                     {result.platform === "BRIGHTSPACE"
                       ? "Captured topics"
-                      : "Captured items"}
+                      : "Inventory entries"}
                   </span>
                 </div>
                 <div>
                   <strong>{result.counts.questionDefinitions}</strong>
-                  <span>Question definitions</span>
+                  <span>
+                    {result.platform === "BRIGHTSPACE"
+                      ? "Question definitions"
+                      : "Question occurrences"}
+                  </span>
                 </div>
                 <div>
                   <strong>
@@ -571,6 +575,28 @@ export default function App() {
                   <span>Link references</span>
                 </div>
               </div>
+              {result.courseraCoverage && (
+                <div className="card evidence-notes">
+                  <h3>Content coverage</h3>
+                  <p>
+                    <strong>
+                      {result.courseraCoverage.reportedCompleteContent}/
+                      {result.courseraCoverage.contentItems}
+                    </strong>{" "}
+                    content items reported complete ·{" "}
+                    <strong>
+                      {result.courseraCoverage.reportedCompleteEmptyStructures}/
+                      {result.courseraCoverage.emptyStructures}
+                    </strong>{" "}
+                    empty structures reported complete
+                  </p>
+                  <p>
+                    Empty modules and lessons stay in the inventory and do not
+                    increase the content-item count. Completion is reported by
+                    the capture; evidence boundaries below still apply.
+                  </p>
+                </div>
+              )}
               <div className="card evidence-notes">
                 <h3>Evidence boundaries</h3>
                 <p>{result.scope}</p>
@@ -677,8 +703,11 @@ export default function App() {
               </div>
               <details className="card inventory">
                 <summary>
-                  Captured item inventory{" "}
-                  <span className="muted">{result.items.length} items</span>
+                  Captured inventory{" "}
+                  <span className="muted">
+                    {result.items.length}{" "}
+                    {result.platform === "BRIGHTSPACE" ? "topics" : "entries"}
+                  </span>
                 </summary>
                 <div
                   className="table-scroll"
@@ -692,7 +721,11 @@ export default function App() {
                         <th scope="col">Item / ID</th>
                         <th scope="col">Type</th>
                         <th scope="col">Path</th>
-                        <th scope="col">Question definitions</th>
+                        <th scope="col">
+                          {result.platform === "BRIGHTSPACE"
+                            ? "Question definitions"
+                            : "Question occurrences"}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
