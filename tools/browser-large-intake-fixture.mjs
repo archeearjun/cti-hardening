@@ -505,7 +505,7 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
           ),
         );
       await page
-        .getByLabel("Coursera full capture JSON", { exact: true })
+        .getByLabel("Coursera full capture JSON")
         .setInputFiles(upload(input.json.name, Buffer.from(input.json.bytes)));
       await page.getByLabel("Snapshot stage").selectOption("raw");
       const run = page.getByRole("button", {
@@ -572,9 +572,7 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
       );
       assert(text.bytes.toString("utf8").includes(receipt.auditId));
       assert(
-        await page
-          .getByLabel("Coursera full capture JSON", { exact: true })
-          .isDisabled(),
+        await page.getByLabel("Coursera full capture JSON").isDisabled(),
         "Pending report inputs cannot replace the retained computed evidence",
       );
       assert(
