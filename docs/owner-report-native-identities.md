@@ -40,3 +40,16 @@ unmatched destination counts, ambiguous snapshot rejection and inherited source
 visibility in exports. A replay of the supplied newest Coursera manifest yields
 34 assessment rows and 4,007 captured question occurrences; it does not establish
 4,007 unique questions or complete source-to-destination alignment.
+
+Verified Brightspace CSV originals can also supply structured source-file bank
+questions. The supported `NewQuestion,MC` physical-line dialect preserves literal
+prompts, four choices and explicit 0/100 source scores. Unsupported or ambiguous
+records remain gaps; raw bytes and text stay retained. Derived record identities
+include the source topic, original file hash and ordinal, not a native quiz ID.
+Saved projections independently rehash and reparse the original text.
+
+The supplied seven CSV originals contain 700 such file question records. They
+remain separate from the 14 question definitions returned by native endpoints
+across 18 quiz records. File-bank contents do not establish deployed quiz
+membership, pool selection or unique question totals. Owner exports show the
+file-bank summary separately and leave original audit scores/findings unchanged.

@@ -25,6 +25,13 @@ import {
   type BrightspaceHtmlStructure,
 } from "./brightspace-html-structure.ts";
 import {
+  BRIGHTSPACE_CSV_BANK_BASIS,
+  deriveBrightspaceCsvBank,
+  validateBrightspaceCsvBank,
+  type BrightspaceCsvBank,
+  type BrightspaceCsvSource,
+} from "./brightspace-csv-bank.ts";
+import {
   capturedTime,
   validateTimeEstimate,
   type TimeEstimate,
@@ -61,6 +68,10 @@ export interface ContentQuestion {
   feedbackCoverage?: "CAPTURED" | "NONE_AUTHORED" | "UNVERIFIED";
   answerKeyReliable?: boolean;
   mathTextChecked?: boolean;
+  sourceFile?: BrightspaceCsvSource & {
+    ordinal: number;
+    identityBasis: "SOURCE_FILE_ORDINAL";
+  };
 }
 export interface BrightspaceSourceBody {
   platform: "BRIGHTSPACE";
@@ -125,6 +136,7 @@ export interface ContentEvidence {
   imageAltText?: { imageOrdinal: number; text: string }[];
   sourceBody?: BrightspaceSourceBody;
   nativeGrading?: CapturedNativeGrading;
+  sourceFileBank?: BrightspaceCsvBank;
   limitations: string[];
 }
 export interface ContentItem {
@@ -218,6 +230,53 @@ export function validateContentSnapshot(
             "Saved Brightspace source-body evidence belongs to a different native item or platform.",
           );
       }
+      if (c.sourceFileBank !== undefined) {
+        const body = contentObject(c.sourceBody);
+        if (
+          list !== s.brightspace ||
+          body.originalIntegrity !== "VERIFIED_RETAINED_ORIGINAL" ||
+          body.format !== "text" ||
+          body.textScope !== "ORIGINAL_BODY" ||
+          body.status !== "CAPTURED" ||
+          body.projectionStatus === "UNRESOLVED"
+        )
+          throw Error(
+            "Saved CSV bank requires a verified Brightspace source-file body.",
+          );
+        validateBrightspaceCsvBank(
+          c.sourceFileBank,
+          {
+            topicId: string(item.id),
+            url: string(body.originalUrl),
+            originalRef: string(body.originalRef),
+            bytes: Number(body.bytes),
+          },
+          c.questions,
+        );
+        const bank = c.sourceFileBank as BrightspaceCsvBank;
+        if (
+          c.basis !== BRIGHTSPACE_CSV_BANK_BASIS ||
+          c.url !== bank.source.url ||
+          c.text !== bank.source.rawText ||
+          c.textCoverage !== "COMPLETE" ||
+          c.textReason !== csvBankTextReason ||
+          c.questionCoverage !== csvBankCoverage(bank) ||
+          c.expectedQuestions !==
+            (bank.status === "COMPLETE" ? bank.encounteredQuestions : null) ||
+          c.questionReason !== csvBankQuestionReason(bank, c.questions.length)
+        )
+          throw Error(
+            "Saved CSV bank coverage differs from its retained source-file evidence.",
+          );
+      } else if (
+        c.basis === BRIGHTSPACE_CSV_BANK_BASIS ||
+        array(c.questions).some(
+          (question) => contentObject(question).sourceFile !== undefined,
+        )
+      )
+        throw Error(
+          "Source-file question projections require their retained CSV bank original.",
+        );
       if (c.nativeGrading !== undefined) {
         validateCapturedNativeGrading(c.nativeGrading);
         if (list !== s.coursera || c.nativeGrading.itemId !== item.id)
@@ -349,7 +408,8 @@ function validateBrightspaceSourceBody(value: unknown) {
     typeof body.descriptionTruncated !== "boolean" ||
     !(
       body.bytes === null ||
-      (integer(body.bytes) !== null && Number(body.bytes) <= MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES)
+      (integer(body.bytes) !== null &&
+        Number(body.bytes) <= MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES)
     ) ||
     (body.sha256 !== "" && !hash.test(string(body.sha256))) ||
     (body.originalRef !== "" && !hash.test(string(body.originalRef))) ||
@@ -1137,6 +1197,24 @@ function brightspaceQuizTopic(topic: Obj) {
     return false;
   }
 }
+function csvBankCoverage(bank: BrightspaceCsvBank): ContentCoverage {
+  return bank.status === "COMPLETE"
+    ? "COMPLETE"
+    : bank.status === "PARTIAL"
+      ? "PARTIAL"
+      : "UNVERIFIED";
+}
+const csvBankTextReason =
+  "Complete literal CSV source-file text verified against its retained original UTF-8 bytes; interior quotes and markup remain literal. Deployed quiz membership and whole-course completeness remain unverified.";
+function csvBankQuestionReason(bank: BrightspaceCsvBank, count: number) {
+  return (
+    `${count} supported MC questions recovered from this retained CSV file; ` +
+    (bank.status === "COMPLETE"
+      ? "all records match the supported file grammar. "
+      : `${bank.gaps.length + bank.omittedGaps} source-file record gaps remain. `) +
+    "Deployed quiz membership, random pools and the full native question library remain unverified."
+  );
+}
 /** Called after original bytes, source origins, native bindings and projections
  * have passed the independent Brightspace intake validator. A declared status
  * alone never supplies original integrity, nor does a file body prove playback. */
@@ -1150,9 +1228,14 @@ function brightspaceSourceContent(
     bodies = contentObject(capture.assetBodies),
     ref = string(ce.rawBodyRef || ce.originalRef),
     body = contentObject(bodies[ref]),
-    originalHtml = body.encoding === "archive"
-      ? getBrightspaceOriginalText(capture, ref, string(ce.charset) || "utf-8")
-      : ce.html,
+    originalHtml =
+      body.encoding === "archive"
+        ? getBrightspaceOriginalText(
+            capture,
+            ref,
+            string(ce.charset) || "utf-8",
+          )
+        : ce.html,
     originalVerified = /^[a-f0-9]{64}$/.test(ref) && body.sha256 === ref,
     bodyTextPresent = typeof ce.text === "string",
     description = qaBrightspaceText_(topic.description),
@@ -1308,6 +1391,41 @@ function brightspaceSourceContent(
         : "The original source-file bytes were retained and verified. This binary file has no captured readable text projection; it is not confirmed empty."
       : "The source-file body was not captured with independently verifiable original bytes. This does not establish an empty or broken source file.";
   }
+  if (
+    exactLiteralText &&
+    ce.format === "text" &&
+    text.length <= 300000 &&
+    /^(?:utf-8|utf8)$/i.test(string(ce.charset) || "utf-8") &&
+    sourceBody.originalUrl &&
+    /\.csv(?:\?|$)/i.test(sourceBody.originalUrl)
+  ) {
+    const projected = deriveBrightspaceCsvBank(text, {
+      topicId: sourceBody.topicId,
+      url: sourceBody.originalUrl,
+      originalRef: ref,
+      bytes: Number(body.bytes),
+    });
+    if (projected) {
+      content.basis = BRIGHTSPACE_CSV_BANK_BASIS;
+      content.url = sourceBody.originalUrl;
+      content.text = text;
+      content.textReason = csvBankTextReason;
+      content.sourceFileBank = projected.bank;
+      content.questions = projected.questions;
+      content.questionCoverage = csvBankCoverage(projected.bank);
+      content.expectedQuestions =
+        projected.bank.status === "COMPLETE"
+          ? projected.bank.encounteredQuestions
+          : null;
+      content.questionReason = csvBankQuestionReason(
+        projected.bank,
+        projected.questions.length,
+      );
+      content.limitations.push(
+        "These questions belong to this retained CSV file. They do not establish membership in a native quiz, a random pool or the full question library.",
+      );
+    }
+  }
   const labels = array(ce.images)
     .map((image, index) => ({
       imageOrdinal: index + 1,
@@ -1344,9 +1462,10 @@ export function buildContentSnapshot(
       parsedCourseraCapture === undefined
         ? parse(courseraBytes)
         : contentObject(parsedCourseraCapture),
-    bs = parsedBrightspaceCapture === undefined
-      ? parse(brightspaceBytes)
-      : contentObject(parsedBrightspaceCapture);
+    bs =
+      parsedBrightspaceCapture === undefined
+        ? parse(brightspaceBytes)
+        : contentObject(parsedBrightspaceCapture);
   if (brightspaceBytes || parsedBrightspaceCapture !== undefined)
     assertBrightspaceCaptureIntegrity(bs);
   const fingerprints = array(raw.fingerprints),
@@ -1422,6 +1541,13 @@ export function buildContentSnapshot(
 export function contentQuestionText(q: ContentQuestion): string {
   return [
     `Question ${q.ordinal} [${q.type}]`,
+    ...(q.sourceFile
+      ? [
+          `Source-file question identity: ${q.id} | ${q.sourceFile.identityBasis}; not a native quiz question ID.`,
+          `Source file: ${q.sourceFile.url} | native topic: ${q.sourceFile.topicId} | original SHA-256: ${q.sourceFile.originalRef} | record: ${q.sourceFile.ordinal}`,
+          "Deployed quiz membership: unverified.",
+        ]
+      : []),
     q.prompt || "[Prompt not captured]",
     ...q.options.flatMap((o, i) => [
       `  ${choiceLabel(i)} (recorded ID ${o.id}): ${o.text || "[Choice text not captured]"}`,
@@ -1461,6 +1587,20 @@ export function contentEvidenceText(content: ContentEvidence): string {
     content.text,
     `Questions: ${content.questionCoverage} | ${content.questions.length} captured / ${content.expectedQuestions ?? "unknown"} expected — ${content.questionReason}`,
   ];
+  if (content.sourceFileBank)
+    out.push(
+      `Source-file bank: ${content.sourceFileBank.format} | ${content.sourceFileBank.status} | ${content.sourceFileBank.encounteredQuestions} question records encountered`,
+      "Deployed quiz membership: UNVERIFIED. Source-file records are separate from native quiz definitions and pool membership.",
+      ...content.sourceFileBank.gaps.map(
+        (gap) =>
+          `Source-file gap: line ${gap.line} | record ${gap.ordinal} | ${gap.reason}`,
+      ),
+      ...(content.sourceFileBank.omittedGaps
+        ? [
+            `Additional source-file gap details omitted at the display bound: ${content.sourceFileBank.omittedGaps}.`,
+          ]
+        : []),
+    );
   const grading = content.nativeGrading;
   if (grading)
     out.push(

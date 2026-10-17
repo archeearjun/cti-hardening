@@ -1961,7 +1961,7 @@ try {
     })
     .click();
   await page
-    .getByLabel("Original extraction JSON", { exact: true })
+    .getByLabel("Original extraction capture", { exact: true })
     .setInputFiles({
       name: "wrong.json",
       mimeType: "application/json",
@@ -1972,7 +1972,7 @@ try {
     .filter({ hasText: "does not match either original extraction hash" })
     .waitFor();
   await page
-    .getByLabel("Original extraction JSON", { exact: true })
+    .getByLabel("Original extraction capture", { exact: true })
     .setInputFiles({
       name: input.json.name,
       mimeType: "application/json",

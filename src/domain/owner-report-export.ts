@@ -260,6 +260,19 @@ export async function prepareOwnerReportExport(
     })
     .filter((group) => group.questionComparisons.length);
   const followUp = {
+    sourceFileBanks: contentEvidence.brightspace
+      .filter((item) => item.content.sourceFileBank)
+      .map((item) => ({
+        topicId: item.id,
+        name: item.name,
+        path: item.path,
+        originalRef: item.content.sourceFileBank!.source.originalRef,
+        url: item.content.sourceFileBank!.source.url,
+        status: item.content.sourceFileBank!.status,
+        encounteredQuestions: item.content.sourceFileBank!.encounteredQuestions,
+        capturedQuestions: item.content.questions.length,
+        nativeQuizMembership: "UNVERIFIED" as const,
+      })),
     sourcePlacement: (normalizeOwnerContext(report.ownerContext).sourceTopics || [])
       .filter((topic: EvidenceObject) => topic.sourceVisibility)
       .map((topic: EvidenceObject) => ({ id: topic.id, name: topic.name, path: topic.path, sourceVisibility: topic.sourceVisibility })),
@@ -349,6 +362,12 @@ export async function prepareOwnerReportExport(
     lines.push(
       "NO SAVED FOLLOW-UP EVIDENCE FOR THIS REPORT. Import the item-check JSON into the same saved report that generated its script, then export that report. A new comparison is not required.",
     );
+  if (followUp.sourceFileBanks.length) {
+    lines.push("", "RETAINED SOURCE-FILE QUESTION BANKS",
+      `${followUp.sourceFileBanks.length} original CSV bank files | ${followUp.sourceFileBanks.reduce((n, bank) => n + bank.capturedQuestions, 0)} structured source-file questions. These records are separate from native quiz question lists; deployed quiz membership and whole-library coverage remain unverified.`);
+    for (const bank of followUp.sourceFileBanks)
+      lines.push(`${line(bank.name)} [source topic ${line(bank.topicId)}] — ${bank.capturedQuestions}/${bank.encounteredQuestions} file question records projected | ${bank.status} | original SHA-256: ${bank.originalRef}`);
+  }
   if (followUp.sourcePlacement.length) {
     lines.push("", "CAPTURED SOURCE PLACEMENT AND VISIBILITY", "Placement and flags below retain the source ancestor chain. Hidden or archived source material is not automatically required in the destination, and matching content is not automatically approved.");
     for (const topic of followUp.sourcePlacement)

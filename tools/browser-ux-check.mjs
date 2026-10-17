@@ -452,9 +452,10 @@ try {
     fs.readFileSync(await (await sourceDownload).path(), "utf8"),
     /CTI Source LMS Ground-Truth Extractor/,
   );
-  const sourceFile = page.getByLabel("Downloaded Brightspace source JSON", {
+  const sourceFile = page.getByLabel("Downloaded Brightspace source capture (.cti.zip or JSON)", {
     exact: true,
   });
+  assert.match(await sourceFile.getAttribute("accept"), /\.cti\.zip/);
   await sourceFile.setInputFiles({
     name: "wrong-platform.json",
     mimeType: "application/json",
@@ -462,7 +463,7 @@ try {
   });
   await page
     .getByRole("alert")
-    .filter({ hasText: "Choose the full CTI Brightspace source JSON" })
+    .filter({ hasText: "Choose the full CTI Brightspace source capture" })
     .waitFor();
   assert.equal(
     await page
@@ -503,7 +504,7 @@ try {
     .click();
   await page
     .getByRole("status")
-    .filter({ hasText: "Brightspace JSON selected for comparison" })
+    .filter({ hasText: "Brightspace capture selected for comparison" })
     .waitFor();
   await page
     .getByRole("button", { name: "Return to assignment plan", exact: true })
@@ -807,7 +808,7 @@ try {
   await page.getByLabel(/^Coursera XLSX/).setInputFiles(file);
   for (const label of [
     "Coursera full capture JSON",
-    "Brightspace source JSON",
+    "Brightspace source capture (.cti.zip or JSON)",
     "Supplemental reading recovery JSON",
   ])
     await page.getByLabel(label).setInputFiles(capture);
