@@ -296,6 +296,17 @@ export default function FullWorkspace({
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(0);
   const [connectionReady, setConnectionReady] = useState(false);
+  function restorePendingComparison(s: WorkspaceStore) {
+    const pending = sessionPendingComparison(s);
+    if (!pending) return;
+    pendingAuditRef.current = pending;
+    setPendingAudit(pending);
+    setCourse(pending.course);
+    setCourseId(pending.course.id);
+    setReport(JSON.parse(JSON.stringify(pending.record.data)));
+    setReportId("");
+    setTabState("Compare");
+  }
   useEffect(() => {
     onBusyChange?.(!!busy || !!pendingAudit);
   }, [busy, pendingAudit, onBusyChange]);
@@ -310,16 +321,7 @@ export default function FullWorkspace({
             : localStore();
         if (alive) {
           setStore(s);
-          const pending = sessionPendingComparison(s);
-          if (pending) {
-            pendingAuditRef.current = pending;
-            setPendingAudit(pending);
-            setCourse(pending.course);
-            setCourseId(pending.course.id);
-            setReport(JSON.parse(JSON.stringify(pending.record.data)));
-            setReportId("");
-            setTabState("Compare");
-          }
+          restorePendingComparison(s);
         }
         const rows = await s.list();
         if (alive) {
@@ -2907,14 +2909,16 @@ export default function FullWorkspace({
             <div className="workspace-tabs">
               <button
                 className="primary"
-                disabled={!!busy}
+                disabled={!!busy || !connectionReady}
                 onClick={() =>
                   void act("Connecting to shared workspace", async () => {
                     const s = await teamStore();
-                    setRecords(await s.list());
                     localStorage.setItem("cti-workspace-mode", s.mode);
                     setStore(s);
+                    setRecords([]);
                     resetWorkspaceSelection();
+                    restorePendingComparison(s);
+                    setRecords(await s.list());
                     setNotice("Connected to the shared team workspace.");
                   })
                 }
@@ -2923,14 +2927,16 @@ export default function FullWorkspace({
               </button>
               <button
                 className="secondary"
-                disabled={!!busy}
+                disabled={!!busy || !connectionReady}
                 onClick={() =>
                   void act("Opening local workspace", async () => {
                     const s = localStore();
-                    setRecords(await s.list());
                     localStorage.setItem("cti-workspace-mode", s.mode);
                     setStore(s);
+                    setRecords([]);
                     resetWorkspaceSelection();
+                    restorePendingComparison(s);
+                    setRecords(await s.list());
                   })
                 }
               >

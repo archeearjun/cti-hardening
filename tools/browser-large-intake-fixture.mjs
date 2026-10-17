@@ -358,6 +358,7 @@ function comparisonSaveApi(input, mode) {
   const records = new Map([[course.id, course]]);
   const uploads = new Map();
   const events = [];
+  const faults = { session: false, list: false };
   const json = (route, value, status = 200) =>
     route.fulfill({
       status,
@@ -371,9 +372,20 @@ function comparisonSaveApi(input, mode) {
     const path = url.pathname.replace(/^\/api\//, "");
     const method = request.method();
     events.push({ path, method });
-    if (method === "GET" && path === "session") return json(route, actor);
-    if (method === "GET" && path === "records")
+    if (method === "GET" && path === "session") {
+      if (faults.session)
+        return json(route, { error: "Synthetic session unavailable." }, 503);
+      return json(route, actor);
+    }
+    if (method === "GET" && path === "records") {
+      if (faults.list)
+        return json(
+          route,
+          { error: "Synthetic record listing unavailable." },
+          503,
+        );
       return json(route, { records: [...records.values()].map(recordSummary) });
+    }
     const recordPath =
       /^records\/([^/]+)(?:\/(chunks|versions)(?:\/(\d+))?)?$/.exec(path);
     if (method === "GET" && recordPath) {
@@ -446,7 +458,15 @@ function comparisonSaveApi(input, mode) {
     }
     throw Error(`Unexpected synthetic comparison request: ${method} ${path}`);
   }
-  return { route, course, records, uploads, events, commits: () => commits };
+  return {
+    route,
+    course,
+    records,
+    uploads,
+    events,
+    faults,
+    commits: () => commits,
+  };
 }
 
 export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
@@ -460,6 +480,13 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
     );
     await context.route("**/api/**", (route) => api.route(route));
     await ownerAccessFixture(context);
+    let fullCti = true;
+    await context.route("**/api/access", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ fullCti }),
+      }),
+    );
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -596,6 +623,60 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
         "Navigating to history does not replace or hide the completed recovery copy",
       );
       await workspaceNav(page, "Compare");
+      if (mode === "lost-saved") {
+        // A protected UI recheck unmounts the workspace without a page reload.
+        // The memory-only copy must remain hidden until the original account
+        // authenticates, then restore through explicit Setup reconnect even
+        // when the following record listing still fails.
+        fullCti = false;
+        await page.evaluate(() =>
+          document.dispatchEvent(new Event("visibilitychange")),
+        );
+        await page
+          .getByRole("heading", { name: "Role Play & Dialogue", exact: true })
+          .waitFor();
+        api.faults.session = true;
+        fullCti = true;
+        await page.evaluate(() =>
+          document.dispatchEvent(new Event("visibilitychange")),
+        );
+        await page
+          .getByRole("alert")
+          .filter({ hasText: "Synthetic session unavailable" })
+          .waitFor({ timeout: 15000 });
+        assert.equal(
+          await pending.count(),
+          0,
+          "Unverified session access cannot reveal the held comparison",
+        );
+        api.faults.session = false;
+        api.faults.list = true;
+        await workspaceNav(page, "Setup");
+        await page
+          .getByRole("button", {
+            name: "Connect shared workspace",
+            exact: true,
+          })
+          .click();
+        await pending
+          .getByRole("heading", {
+            name: "Comparison completed; shared save unconfirmed",
+            exact: true,
+          })
+          .waitFor();
+        await page
+          .getByRole("alert")
+          .filter({ hasText: "Synthetic record listing unavailable" })
+          .waitFor({ timeout: 15000 });
+        assert.deepEqual(
+          (await downloadBytes(page, exportJson)).bytes,
+          downloaded.bytes,
+          "Authenticated reconnect restores the same audit ID, payload hash and complete export before listing succeeds",
+        );
+        assert.equal(api.uploads.size, 1);
+        assert.equal(api.commits(), 1);
+        api.faults.list = false;
+      }
       const beforeCheck = api.events.length;
       await pending
         .getByRole("button", { name: "Check save / retry", exact: true })

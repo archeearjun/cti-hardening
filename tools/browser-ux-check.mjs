@@ -949,6 +949,21 @@ try {
   for (const name of ["Download complete report", "Download full evidence", "Copy report"])
     assert.equal(await page.getByRole("button", { name, exact: true }).isDisabled(), true,
       "A rejected comparison cannot export through the earlier saved report identity");
+  const stalePending = page.getByTestId("pending-comparison-save");
+  const staleDownload = page.waitForEvent("download");
+  await stalePending.getByRole("button", { name: "Download unsaved comparison JSON", exact: true }).click();
+  const staleExport = JSON.parse(fs.readFileSync(await (await staleDownload).path(), "utf8"));
+  assert.equal(staleExport.localComparisonRecovery.status, "SAVE_UNCONFIRMED");
+  assert.equal(staleExport.localComparisonRecovery.sharedSaveConfirmed, false);
+  assert.equal(staleExport.localComparisonRecovery.packageId, courses[1].id);
+  assert.equal(staleExport.localComparisonRecovery.auditId,
+    await stalePending.locator("code").innerText());
+  assert(!baselineReports.some((record) => record.id === staleExport.localComparisonRecovery.auditId),
+    "The rejected audit retains its own local identity without claiming a baseline save");
+  await stalePending.getByText("Start a different comparison", { exact: true }).click();
+  await stalePending.getByRole("button", { name: "Discard local recovery copy", exact: true }).click();
+  assert.equal(await stalePending.count(), 0,
+    "An explicit discard releases navigation after the owner downloads the rejected comparison");
   const staleCaptureRecords = await workspaceBackup();
   assert.deepEqual(staleCaptureRecords.filter((record) =>
     record.kind === "audit" && record.packageId === courses[1].id,
