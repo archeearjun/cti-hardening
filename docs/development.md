@@ -45,6 +45,8 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Source ZIP, XML, QTI and PDF scanning | `src/source/`, `src/domain/package-scan.ts` | `npm run test:browser:package` |
 | Workbook/Macmillan checks | `src/engine/workbook/`, `src/adapters/workbook.ts` | `npm run test:engine` |
 | Shared records, authentication and API | `server/`, `functions/`, `src/domain/workspace-*` | Shared-store/HTTP tests; `npm test` |
+| Lossless large-capture sharing | `src/domain/capture-file-transfer.ts`, `web/CaptureFileTransferPanel.tsx`, `web/capture-transfer.worker.ts` | Transfer contract tests; `npm run test:browser:workspace` |
+| Completed comparisons with unconfirmed shared saves | `src/domain/comparison-save-recovery.ts`, `web/FullWorkspace.tsx` | Comparison recovery tests; `npm run test:browser:workspace` |
 | Migrated planner/catalog/runtime/duplicate operations | `src/domain/operations.ts`, `web/OperationsWorkspace.tsx` | `tests/operations-migration.test.mjs`; `npm run test:browser:ux` |
 | Background Coursera browser jobs and strict completion gate | `workers/coursera-extractor/`, `src/domain/coursera-background-extraction.ts`, `web/CourseraExtractionWorkspace.tsx` | `tests/coursera-background-extraction.test.mjs`; `npm run worker:check` |
 
@@ -365,6 +367,34 @@ boundary. Deployment and security details are in
 docs/background-coursera-extraction.md.
 
 ## Regression and publishing
+
+The capture sharing page (`?tool=share`) accepts an existing JSON, JSON.gz or
+CTI ZIP up to 640 MiB. A dedicated worker computes original-byte checksums,
+compresses plain JSON only when smaller, and prepares lossless JSON attachment
+envelopes no larger than 24 MiB each. The manifest preserves original identity,
+transport identity, ordered offsets and both payload and attachment checksums.
+The operator downloads the manifest and every part through persistent links;
+the tool never uploads files, recaptures a course, or substitutes reduced review
+diagnostics for the complete capture. Transfer files are not audit inputs.
+
+Shared record commits and referenced-record checks reconstruct at most 32 MiB
+from bounded D1 hex batches instead of retaining complete BLOB number arrays.
+Checks still validate all chunk sizes, order, byte count, SHA-256 and JSON before
+using original records. Automatic ingestion checks read history sequentially,
+retaining a temporary projection only after validating each original. Stored
+evidence and version dependency guards remain unchanged.
+These bounded reads still count toward D1's per-request query limit. The Free
+plan is not unlimited history capacity: very large records across a long audit
+history can exceed that limit and leave a save unconfirmed. Recovery downloads
+remain available; no history is deleted or accepted without validation to fit.
+
+A completed comparison keeps its audit ID and computed evidence while a shared
+save is unconfirmed. Local downloads identify that state and exclude saved
+follow-ups. Explicit recovery checks the same record ID first, adopts only an
+exact matching save receipt, and retries that same ID only after a definite
+not-found and unchanged course history. An uncertain read never permits a
+blind write. This recovery copy lasts for the current browser session, so it
+must be downloaded before closing or refreshing the page.
 
 Use the focused commands above while implementing. Before publishing changes
 across feature boundaries, run `npm test` and `npm run build`. CI additionally

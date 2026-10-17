@@ -100,8 +100,15 @@ export default function SourceLmsCapture({
         that is available in the live source.
       </p>
       <BrightspaceBookmarkSetup disabled={disabled || busy} />
+      <p>
+        Already have a capture that is too large to attach in chat?{" "}
+        <a href="?tool=share" target="_blank" rel="noopener noreferrer">
+          Share or split a large capture
+        </a>
+        . Use the file you already downloaded; no rescan is needed.
+      </p>
       <details className="scope">
-        <summary>Share an existing capture for help</summary>
+        <summary>Review or share an existing capture</summary>
         <Suspense fallback={<p role="status">Loading local capture review…</p>}>
           <CaptureReviewSharePanel disabled={disabled || busy} />
         </Suspense>

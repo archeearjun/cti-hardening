@@ -11,6 +11,7 @@ import { migrationTextInfo } from "../src/domain/migration-files.ts";
 import { writeWorkbook } from "../src/adapters/workbook.ts";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
+import { checkLargeCaptureSharing, checkUnconfirmedComparisonRecovery } from "./browser-large-intake-fixture.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -434,6 +435,8 @@ try {
   assert.equal(after.version,before.version+1);assert.equal(after.data.assignedDate,before.data.assignedDate);assert.equal(after.data.deadline,before.data.deadline);
   assert.equal(after.data.scan.sourceHierarchy[0].children[0].title,'Week One');
   assert.deepEqual(recordsAfterRescan.filter(r=>r.kind==='audit'),recordsBeforeRescan.filter(r=>r.kind==='audit'),'Rescan preserves every saved report');
+  await checkLargeCaptureSharing(browser, base);
+  await checkUnconfirmedComparisonRecovery(browser, base, input);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -456,6 +459,9 @@ try {
           "local concurrent edit conflict",
           "unconfigured team service is explicit",
           "390px layouts",
+          "lossless large JSON/gzip/ZIP sharing through real workers and persistent user-click downloads",
+          "file preparation cancellation and late worker callbacks cannot replace current state",
+          "computed QA remains downloadable after a 503 and recovery checks the exact ID before any retry",
         ],
         pageErrors: errors,
       },

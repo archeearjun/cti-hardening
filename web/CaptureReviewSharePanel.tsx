@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CaptureShareReview } from "../src/domain/capture-share-review";
 import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file";
 import { download } from "./workspace-ui";
+import CaptureFileTransferPanel from "./CaptureFileTransferPanel";
 
 /** No upload, external requests, or persistent storage: only the bounded review
  * returns from the worker. The user's existing capture stays on their device. */
@@ -106,9 +107,9 @@ export default function CaptureReviewSharePanel({
     >
       <h2 id="capture-share-title">Share a capture review</h2>
       <p>
-        Choose your existing Brightspace or Coursera capture to prepare a small
-        review you can paste into a support chat. It runs on this device; no
-        upload, compression, split files or new course extraction is needed.
+        Share your existing complete file below, or prepare a small diagnostic
+        review further down. Both run on this device without uploading anything
+        or extracting the course again.
       </p>
       <p className="hint">
         If CTI is open inside ChatGPT, copy this address into Chrome's address
@@ -131,7 +132,14 @@ export default function CaptureReviewSharePanel({
         >
           Open capture review
         </a>
-        . Return to your chat with the copied review. No download is required.
+        . Use Chrome to download the complete-file parts, or return with copied
+        diagnostic review text.
+      </p>
+      <CaptureFileTransferPanel disabled={disabled} />
+      <h3>Small diagnostic review (optional)</h3>
+      <p className="hint">
+        This separate review excludes original media and full content bodies. It
+        can help diagnose a capture but cannot replace the complete file.
       </p>
       <label>
         Existing capture JSON, JSON.gz or CTI ZIP
