@@ -1,0 +1,27 @@
+name: Read-only workspace runtime diagnostics
+
+on:
+  push:
+    branches: [codex/durable-report-persistence]
+    paths:
+      - .github/workflows/workspace-storage-diagnostics.yml
+      - tools/diagnose-workspace-runtime.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Inspect aggregate storage and invocation outcomes without changing resources
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node tools/diagnose-workspace-runtime.mjs
