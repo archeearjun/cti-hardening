@@ -507,9 +507,7 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
       await page
         .getByLabel("Coursera full capture JSON", { exact: true })
         .setInputFiles(upload(input.json.name, Buffer.from(input.json.bytes)));
-      await page
-        .getByLabel("Snapshot stage", { exact: true })
-        .selectOption("raw");
+      await page.getByLabel("Snapshot stage").selectOption("raw");
       const run = page.getByRole("button", {
         name: "Run and save full comparison",
         exact: true,
