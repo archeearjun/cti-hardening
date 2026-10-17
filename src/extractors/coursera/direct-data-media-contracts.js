@@ -10,7 +10,7 @@ import {
  * DOM. This bounded lexer never mounts markup or resolves external resources.
  * @returns {{valid: boolean, references: Array<{tag: string, id: string, url: string, name: string, locationResolved: boolean, bodyVerified: boolean}>, reason: string, text: string}}
  */
-export function directCmlMediaInventoryV1(value) {
+export function directCmlMediaInventoryV1(value, textProjectionVersion = 1) {
   const fail = (reason = "DIRECT_CML_NOT_SUPPORTED") => ({
     valid: false,
     references: [],
@@ -18,6 +18,7 @@ export function directCmlMediaInventoryV1(value) {
     text: "",
   });
   if (
+    ![1, 2].includes(textProjectionVersion) ||
     typeof value !== "string" ||
     value.length > 4000000 ||
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(
@@ -62,10 +63,14 @@ export function directCmlMediaInventoryV1(value) {
       return String.fromCodePoint(code);
     });
   };
+  // Native Coursera headings use <heading level="…"> rather than HTML h1–h6.
+  // Keep the original projection available for immutable historical captures;
+  // v2 adds authored heading/list boundaries without changing inline text.
   const block = (tag) =>
     /^(?:text|p|div|section|article|header|footer|h[1-6]|li|ul|ol|blockquote|pre|table|thead|tbody|tfoot|tr|td|th|caption|br|hr)$/.test(
       tag,
-    );
+    ) ||
+    (textProjectionVersion === 2 && /^(?:heading|list)$/.test(tag));
   try {
     while (index < value.length) {
       const opening = value.indexOf("<", index);

@@ -40,6 +40,23 @@ function response(body, contentType = "text/html; charset=utf-8", extra = {}) {
 
 const imageViewPath =
   "/d2l/lp/files/temp/synthetic-private-token.png;drawing-1.png/View";
+test("identity-length framing rejects clean truncated or excessive EOF without comparing decoded gzip bytes to wire lengths", async () => {
+  for (const declared of ["100", "2"])
+    await assert.rejects(readBrightspaceBoundedBodyV110(response(Uint8Array.from([1, 2, 3]), "image/png", {
+      "content-length": declared,
+    })), /BODY_LENGTH_MISMATCH/);
+  for (const declared of ["", "3.0", "-1", "3, 3", "9007199254740992"])
+    await assert.rejects(readBrightspaceBoundedBodyV110(response(Uint8Array.from([1, 2, 3]), "image/png", {
+      "content-length": declared,
+    })), /INVALID_CONTENT_LENGTH/);
+  for (const extra of [{}, { "content-length": "3" }, { "content-length": "1", "content-encoding": "gzip" }])
+    assert.deepEqual(await readBrightspaceBoundedBodyV110(response(Uint8Array.from([1, 2, 3]), "image/png", extra)), Uint8Array.from([1, 2, 3]));
+  const reader = fixture(async () => response(Uint8Array.from([1, 2, 3]), "image/png", { "content-length": "100" }));
+  const evidence = await reader.readTopic(topic(origin + "/content/truncated.png"));
+  assert.equal(evidence.status, "UNRESOLVED");
+  assert.equal(evidence.reason, "BODY_LENGTH_MISMATCH");
+  assert.equal(Object.keys(reader.snapshot().assetBodies).length, 0);
+});
 test("only the bounded native same-origin image-view shape is eligible, without guessing other tool endpoints", () => {
   assert.equal(
     classifyBrightspaceReferenceV110(imageViewPath, origin, origin).fetch,

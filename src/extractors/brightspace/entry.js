@@ -1,4 +1,6 @@
 import { createBrightspaceProgressPanelV110 } from "./progress.js";
+import { createBrightspaceBodyStoreV120 } from "./body-store.js";
+import { createBrightspaceArchiveV120 } from "./archive.js";
 import {
   createBrightspaceCheckpointV110,
   loadBrightspacePreviousRecoveryV111,
@@ -25,13 +27,13 @@ import {
   readBrightspaceJsonResponse,
 } from "./content-reader.js";
 
-/* CTI Brightspace v1.1.1. Bookmark entry: explicit on-page start, bounded GET-only
+/* CTI Brightspace v1.2.0. Bookmark entry: explicit on-page start, bounded GET-only
  * source observations, native identities, original bodies and honest gaps.
  * No learner attempts, submissions, posts, grades or tool launches are read. */
 (async () => {
   "use strict";
-  const VERSION = "v1.1.1",
-    BUILD_ID = "v1.1.1-native-image-view-20261017",
+  const VERSION = "v1.2.0",
+    BUILD_ID = "v1.2.0-blob-archive-20261017",
     SCHEMA_VERSION = 2;
   const MAX_REQUESTS = 1200,
     MAX_JSON_BYTES = 4 * 1024 * 1024,
@@ -98,6 +100,8 @@ import {
     lastCapture = null,
     previousFinishedCapture = null,
     previousFinishedCaptureRef = null,
+    preparedCapture = null,
+    preparedArchive = null,
     storageError = "",
     checkpointReady;
   const checkpoint = createBrightspaceCheckpointV110({
@@ -117,14 +121,43 @@ import {
       origin,
       finishedOnly,
     });
-  function exportCapture(capture) {
+  async function exportCapture(capture) {
     if (!capture) throw Error("There is no retained capture to download yet.");
-    const json = JSON.stringify(capture),
-      bytes = new TextEncoder().encode(json).byteLength;
-    if (bytes > MAX_EXPORT_BYTES)
+    const json = JSON.stringify(capture), manifest = new Blob([json], {
+      type: "application/json;charset=utf-8",
+    });
+    if (manifest.size > MAX_EXPORT_BYTES)
       throw Error(
         "Capture exceeds the 128 MiB export bound. Its recovery checkpoint and in-memory observations are retained; content was not silently truncated.",
       );
+    if (capture.originalBodyTransport?.format === "CTI_BRIGHTSPACE_ARCHIVE_V1") {
+      if (preparedCapture === capture && preparedArchive) {
+        progress.setDownloadArtifact(preparedArchive, capture.exportFileName).click();
+        return;
+      }
+      if (typeof CompressionStream !== "function")
+        throw Error("This browser cannot compress the capture manifest. Use current Chrome and keep this tab open; its saved originals remain retained.");
+      const store = createBrightspaceBodyStoreV120({
+        origin, courseId, buildId: capture.buildId,
+        runId: capture.originalBodyTransport.runId,
+      });
+      try {
+        const compressed = await new Response(manifest.stream().pipeThrough(new CompressionStream("gzip"))).blob(),
+          entries = [{ path: "capture.json.gz", blob: compressed }];
+        for (const [hash, body] of Object.entries(capture.assetBodies || {})) {
+          if (hash !== body.sha256) throw Error("BRIGHTSPACE_BODY_IDENTITY_INVALID");
+          entries.push({ path: body.archivePath, blob: await store.get(body) });
+        }
+        const archive = await createBrightspaceArchiveV120(entries);
+        preparedCapture = capture;
+        preparedArchive = archive;
+        // The URL remains on a real user-clickable link for browsers that block
+        // the automatic download after asynchronous archive preparation.
+        progress.setDownloadArtifact(archive, capture.exportFileName || "CTI__BRIGHTSPACE__ORG_" + courseId + "__v1.2.0.cti.zip").click();
+      } finally { store.close(); }
+      return;
+    }
+    // Earlier checkpoint downloads remain byte-equivalent historical JSON.
     download(
       capture.exportFileName ||
         "CTI__BRIGHTSPACE__ORG_" +
@@ -132,7 +165,7 @@ import {
           "__" +
           (capture.buildId === "v1.1.0-faithful-bookmark-20261016"
             ? "v1.1.0"
-            : VERSION) +
+            : capture.buildId === "v1.1.1-native-image-view-20261017" ? "v1.1.1" : VERSION) +
           "_s2__SOURCE_GROUND_TRUTH.json",
       json,
       "application/json;charset=utf-8",
@@ -145,9 +178,9 @@ import {
         (await previousRecovery(true));
       previousFinishedCapture = finished?.state?.capture || null;
     }
-    exportCapture(lastCapture || previousFinishedCapture);
+    await exportCapture(lastCapture || previousFinishedCapture);
   }
-  progress = createBrightspaceProgressPanelV110("CTI · Brightspace v1.1.1", {
+  progress = createBrightspaceProgressPanelV110("CTI · Brightspace v1.2.0", {
     key: "__CTI_BRIGHTSPACE_PROGRESS__",
     courseId,
     buildId: BUILD_ID,
@@ -219,6 +252,16 @@ import {
   async function runAttempt(signal) {
     const startedAt = now(),
       attemptId = crypto.randomUUID();
+    const bodyStore = createBrightspaceBodyStoreV120({
+      origin, courseId, buildId: BUILD_ID, runId: attemptId,
+      onError(error) {
+        storageError = "Original-file storage failed: " + String(error.code || error.message) +
+          ". Existing saved originals remain retained. Keep this tab open and download saved progress.";
+        activeController?.abort(Error("ORIGINAL_STORAGE_FAILED"));
+      },
+    });
+    try { await bodyStore.open(); }
+    catch (error) { bodyStore.close(); throw error; }
     const diagnostics = [],
       permissionBlocks = [],
       captureWarnings = [],
@@ -387,6 +430,10 @@ import {
       origin,
       signal,
       request,
+      maxAssetBytes: 64 * 1024 * 1024,
+      maxTotalBytes: 768 * 1024 * 1024,
+      maxRetainedBytes: 512 * 1024 * 1024,
+      retainOriginal: (bytes, hash) => bodyStore.put(bytes, hash),
       sha256: async (bytes) => {
         const digest = await crypto.subtle.digest("SHA-256", bytes);
         return Array.from(new Uint8Array(digest))
@@ -598,6 +645,10 @@ import {
         extractor:
           "CTI Source LMS Ground-Truth Extractor — Brightspace " + VERSION,
         buildId: BUILD_ID,
+        originalBodyTransport: {
+          format: "CTI_BRIGHTSPACE_ARCHIVE_V1", version: 1,
+          bodyEncoding: "archive", hashAlgorithm: "SHA-256", runId: attemptId,
+        },
         capturedAt: now(),
         startedAt,
         attempt: {
@@ -736,7 +787,7 @@ import {
           courseId +
           "__" +
           now().replace(/[:.]/g, "-") +
-          "__v1.1.1_s2__SOURCE_GROUND_TRUTH.json",
+          "__v1.2.0_s2__SOURCE_GROUND_TRUTH.cti.zip",
       };
     }
     async function saveCheckpoint(
@@ -1424,7 +1475,7 @@ import {
       }
       if (complete) {
         try {
-          exportCapture(capture);
+          await exportCapture(capture);
         } catch (error) {
           capture.exportError = String(error.message || error);
           progress.finish(
@@ -1432,6 +1483,7 @@ import {
             capture.exportError,
             "Recovery observations remain available.",
           );
+          bodyStore.close();
           return;
         }
         progress.finish(
@@ -1453,6 +1505,7 @@ import {
             " Saved and in-memory observations remain downloadable.",
           capture.summary.topics + " topics retained",
         );
+      bodyStore.close();
     }
   }
 })().catch((error) => {

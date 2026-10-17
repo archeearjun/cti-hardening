@@ -1,5 +1,5 @@
-export const CTI_DIRECT_DATA_VERSION_V1 = "1.7.3";
-export const CTI_DIRECT_DATA_BUILD_V1 = "v1.7.3-panopto-exact-body-length-20261017";
+export const CTI_DIRECT_DATA_VERSION_V1 = "1.7.4";
+export const CTI_DIRECT_DATA_BUILD_V1 = "v1.7.4-native-cml-block-boundaries-20261017";
 export const CTI_DIRECT_DATA_EXPORT_BYTES_V1 = 128 * 1024 * 1024;
 export const CTI_DIRECT_DATA_COMPRESSED_BYTES_V1 = 128 * 1024 * 1024;
 export const CTI_DIRECT_DATA_MEDIA_BYTES_V1 = 512 * 1024 * 1024;

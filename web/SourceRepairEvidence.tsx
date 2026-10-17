@@ -10,6 +10,7 @@ import {
   contentQuestionText,
 } from "../src/domain/content-evidence";
 import { choiceLabel } from "../src/domain/cti-answer-check";
+import { sourceVisibilityText } from "../src/domain/source-navigation";
 
 export default function SourceRepairEvidence({
   sources,
@@ -113,6 +114,10 @@ export default function SourceRepairEvidence({
           <div className="source-repair" key={i}>
             <h4>{source.title}</h4>
             <small>{source.path}</small>
+            {match?.sourceVisibility && <details className="scope">
+              <summary>Captured source placement and visibility</summary>
+              {sourceVisibilityText(match).map((line, index) => <p className="hint" key={index}>{line}</p>)}
+            </details>}
             <div className="action-links">
               {sourceUrl && (
                 <a href={sourceUrl} target="_blank" rel="noopener noreferrer">

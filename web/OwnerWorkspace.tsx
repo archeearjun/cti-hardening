@@ -284,10 +284,11 @@ export default function App() {
                 <h2 id="capture-title">Inspect a capture</h2>
               </div>
               <p>
-                Choose a CTI capture. Coursera .cti.zip archives open directly,
-                up to 640 MiB with a course-data manifest bounded to 128 MiB.
-                Earlier JSON and .json.gz captures remain supported up to 128
-                MiB. Brightspace JSON is limited to 128 MiB.
+                Choose a CTI capture. Coursera and Brightspace .cti.zip archives
+                open directly, up to 640 MiB with a course-data manifest bounded
+                to 128 MiB. Earlier JSON and .json.gz captures remain supported
+                up to 128 MiB. Original files stay separate from the course-data
+                manifest.
               </p>
               <label className="file-picker" htmlFor="capture-file">
                 <span className="file-icon" aria-hidden="true">
@@ -296,7 +297,7 @@ export default function App() {
                 <strong>
                   {file
                     ? file.name
-                    : "Choose Coursera .cti.zip/JSON/.json.gz or Brightspace JSON"}
+                    : "Choose a Coursera or Brightspace .cti.zip/JSON/.json.gz capture"}
                 </strong>
                 <span>
                   {file

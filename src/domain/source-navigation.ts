@@ -72,12 +72,40 @@ export function normalizeOwnerContext(context: EvidenceObject = {}) {
 export function buildOwnerContext(
   brightspace?: Uint8Array,
   mappings: EvidenceObject[] = [],
+  parsedBrightspaceCapture?: EvidenceObject,
 ) {
-  if (!brightspace) return undefined;
-  const data = JSON.parse(new TextDecoder().decode(brightspace));
+  if (!brightspace && parsedBrightspaceCapture === undefined) return undefined;
+  const data =
+    parsedBrightspaceCapture === undefined
+      ? JSON.parse(new TextDecoder().decode(brightspace))
+      : parsedBrightspaceCapture;
   const base = safeWebUrl(data.page?.url);
   const topics: EvidenceObject[] = [];
-  const walk = (nodes: EvidenceObject[], path: string) => {
+  const nativeFlag = (value: unknown): boolean | null =>
+    typeof value === "boolean" ? value : null;
+  const inheritedFlag = (
+    nodes: EvidenceObject[],
+    field: string,
+  ): boolean | null =>
+    nodes.some((node) => node[field] === true)
+      ? true
+      : nodes.every((node) => node[field] === false)
+        ? false
+        : null;
+  const combinedFlag = (
+    own: boolean | null,
+    inherited: boolean | null,
+  ): boolean | null =>
+    own === true || inherited === true
+      ? true
+      : own === false && inherited === false
+        ? false
+        : null;
+  const walk = (
+    nodes: EvidenceObject[],
+    path: string,
+    ancestors: EvidenceObject[],
+  ) => {
     for (const node of nodes || []) {
       let documentUrl = "";
       const raw = node.contentEvidence?.documentUrl || node.url;
@@ -89,21 +117,46 @@ export function buildOwnerContext(
         } catch {
           /* No observed source URL. */
         }
-      if (node.kind === "TOPIC" || raw)
+      if (node.kind === "TOPIC" || raw) {
+        const ownHidden = nativeFlag(node.isHidden),
+          ownLocked = nativeFlag(node.isLocked),
+          hiddenByAncestor = inheritedFlag(ancestors, "isHidden"),
+          lockedByAncestor = inheritedFlag(ancestors, "isLocked");
         topics.push({
           id: String(node.id || ""),
           name: node.title || node.name || "",
           path,
           url: documentUrl,
           documentUrl,
+          sourceVisibility: {
+            scope: "CAPTURED_NATIVE_FLAGS_ONLY",
+            ownHidden,
+            ownLocked,
+            hiddenByAncestor,
+            lockedByAncestor,
+            hiddenByCapturedFlags: combinedFlag(ownHidden, hiddenByAncestor),
+            lockedByCapturedFlags: combinedFlag(ownLocked, lockedByAncestor),
+            ancestors,
+          },
         });
+      }
       walk(
         node.children || node.topics || [],
         [path, node.title || node.name].filter(Boolean).join(" > "),
+        [
+          ...ancestors,
+          {
+            id: String(node.id || ""),
+            name: node.title || node.name || "",
+            kind: node.kind || "",
+            isHidden: nativeFlag(node.isHidden),
+            isLocked: nativeFlag(node.isLocked),
+          },
+        ],
       );
     }
   };
-  walk(data.contentTree || [], "");
+  walk(data.contentTree || [], "", []);
   return normalizeOwnerContext({
     schemaVersion: 2,
     sourcePageUrl: base,
@@ -113,6 +166,28 @@ export function buildOwnerContext(
     sourceTopics: topics,
     sourceTopicMappings: mappings,
   });
+}
+
+/** A captured hidden ancestor is retained as placement evidence. It does not
+ * decide whether the owner intended that item for the destination course. */
+export function sourceVisibilityText(topic: EvidenceObject): string[] {
+  const visibility = topic.sourceVisibility;
+  if (!visibility || visibility.scope !== "CAPTURED_NATIVE_FLAGS_ONLY")
+    return [];
+  const flag = (value: unknown) =>
+    typeof value === "boolean" ? String(value) : "unrecorded";
+  const ancestors: EvidenceObject[] = Array.isArray(visibility.ancestors)
+    ? visibility.ancestors
+    : [];
+  return [
+    `Captured source item flags: hidden=${flag(visibility.ownHidden)}; locked=${flag(visibility.ownLocked)}.`,
+    ...ancestors.map(
+      (ancestor) =>
+        `Captured ancestor: ${String(ancestor.name || "[Unnamed]")} [${String(ancestor.id || "ID unrecorded")}]; hidden=${flag(ancestor.isHidden)}; locked=${flag(ancestor.isLocked)}.`,
+    ),
+    `Inherited source flags: hidden=${flag(visibility.hiddenByAncestor)}; locked=${flag(visibility.lockedByAncestor)}.`,
+    "Captured native flags only. Actual learner access, dates and release conditions remain unverified; destination scope requires owner review.",
+  ];
 }
 
 /** Navigation identity is separate from fidelity. Never pick the first same-title

@@ -9,6 +9,7 @@ import {
 import { panoptoDeliveryFixture } from "./panopto-delivery-fixtures.mjs";
 import { capturedContent } from "../src/domain/content-evidence.ts";
 import { createHash } from "node:crypto";
+import { buildOwnerContext } from "../src/domain/source-navigation.ts";
 
 function fixture() {
   const course = {
@@ -140,6 +141,26 @@ function fixture() {
   };
   return { course, report, record, store, reads };
 }
+
+test("export retains captured inherited source hiding separately from owner review and audit findings", async () => {
+  const {course, report} = fixture();
+  report.ownerContext = buildOwnerContext(undefined, [], {
+    page:{url:'https://lms.example/d2l/home/187960'}, course:{orgUnitId:187960},
+    contentTree:[{id:5293619,title:'Archive',kind:'MODULE',isHidden:true,isLocked:false,children:[
+      {id:5624618,title:'Module 0 - Asynchronous Course',kind:'MODULE',isHidden:false,isLocked:false,children:[
+        {id:5624667,title:'Asynchronous Learning',kind:'TOPIC',isHidden:false,isLocked:false,url:'/content/enforced/187960/Asynchronous.html'},
+      ]},
+    ]}],
+  });
+  const original=structuredClone(report);
+  const exported=await prepareOwnerReportExport(report,'audit-a',course,{list:async()=>[],get:async()=>{throw Error('No review should be loaded');}});
+  assert.match(exported.text,/CAPTURED SOURCE PLACEMENT AND VISIBILITY/);
+  assert.match(exported.text,/Archive \[5293619\]/);
+  assert.equal(exported.followUp.sourcePlacement[0].sourceVisibility.ownHidden,false);
+  assert.equal(exported.followUp.sourcePlacement[0].sourceVisibility.hiddenByAncestor,true);
+  assert.match(exported.text,/Saved item reviews: 0/);
+  assert.deepEqual(report,original,'visibility context supplements but never changes audit findings');
+});
 
 test("exports full saved follow-ups for this audit only, preserving original evidence and uncertainty", async () => {
   const f = fixture(),

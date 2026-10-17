@@ -6,18 +6,19 @@ export const BRIGHTSPACE_CHECKPOINT_MAX_RUNS_V110 = 3;
  * download only. Never rewrite its build, dates, scope or run identity, and
  * never save new observations through the old checkpoint session. */
 export async function loadBrightspacePreviousRecoveryV111(options) {
-  if (options.buildId !== "v1.1.1-native-image-view-20261017") return null;
-  const previous = createBrightspaceCheckpointV110({
-    ...options,
-    buildId: "v1.1.0-faithful-bookmark-20261016",
-  });
-  try {
-    return options.finishedOnly
-      ? await previous.loadLatestFinished()
-      : await previous.load();
-  } finally {
-    await previous.close();
+  const builds = options.buildId === "v1.2.0-blob-archive-20261017"
+    ? ["v1.1.1-native-image-view-20261017", "v1.1.0-faithful-bookmark-20261016"]
+    : options.buildId === "v1.1.1-native-image-view-20261017"
+      ? ["v1.1.0-faithful-bookmark-20261016"] : [];
+  for (const buildId of builds) {
+    const previous = createBrightspaceCheckpointV110({ ...options, buildId });
+    try {
+      const saved = options.finishedOnly
+        ? await previous.loadLatestFinished() : await previous.load();
+      if (saved) return saved;
+    } finally { await previous.close(); }
   }
+  return null;
 }
 
 /** Local recovery evidence only. Saved observations retain their original dates;

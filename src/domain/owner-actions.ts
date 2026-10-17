@@ -19,6 +19,8 @@ import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
 import { ownerScope, type ItemRelevance } from "./owner-scope.ts";
 import type { TimeEstimate } from "./owner-time.ts";
 import { validatePanoptoDeliveryInfoCapture } from "./panopto-delivery-info.ts";
+import { nativeCourseOutlineEvidence } from "./native-course-outline.ts";
+import type { ContentEvidence } from "./content-evidence.ts";
 
 export type OwnerProgress =
   | "open"
@@ -124,6 +126,9 @@ export interface OwnerTask {
   key: string;
   id: string;
   name: string;
+  /** Retain the recorded shell label when its exact content snapshot differs. */
+  shellName?: string;
+  nativeAncestors?: { id: string; title: string }[];
   path: string;
   type: string;
   status: string;
@@ -199,12 +204,15 @@ export function buildOwnerTasks(
   override = "",
   contentItems: {
     id: string;
+    name?: string;
     path?: string;
-    content: { url: string; timeEstimate?: TimeEstimate };
+    content: { url: string; timeEstimate?: TimeEstimate } & Partial<ContentEvidence>;
   }[] = [],
 ): OwnerTask[] {
   const nodes = sourceEntries(tree),
     results: EvidenceObject[] = result.itemResults || [];
+  const nativeOutline = nativeCourseOutlineEvidence(result, override);
+  const nativeNodes = new Map(nativeOutline?.nativeHierarchy.map(node => [node.id, node]));
   const make = (
     item: EvidenceObject,
     sourceOnly: boolean,
@@ -304,12 +312,16 @@ export function buildOwnerTasks(
       if (/BROKEN_LINK/.test(claim.claimType || "") && safeWebUrl(claim.target))
         add("url", claim.target, "Link named in ingestion finding");
     }
-    const questionComparisons = (findings.length ? findings : [{}])
-      .map((r) => questionComparison(r, sourceFor(r, nodes), { ...item, id }))
-      .filter((row): row is QuestionComparison => row !== null);
     const contentMatches = contentItems.filter((entry) => entry.id === id);
     const contentItem =
       contentMatches.length === 1 ? contentMatches[0] : undefined;
+    const questionComparisons = (findings.length ? findings : [{}])
+      .map((r) => questionComparison(r, sourceFor(r, nodes), { ...item, id }, sourceOnly ? undefined : contentItem?.content))
+      .filter((row): row is QuestionComparison => row !== null);
+    const nativeItem = !sourceOnly ? nativeNodes.get(id) : undefined;
+    const nativeAncestors = nativeItem?.kind === "item"
+      ? nativeItem.ancestorIds.map(id => nativeNodes.get(id)!).map(node => ({ id: node.id, title: node.title }))
+      : undefined;
     const recordedPath = String(item.path || "");
     // Older reports dropped lesson metadata. An exact original item snapshot
     // can supply a deeper path only within that same recorded module.
@@ -318,8 +330,9 @@ export function buildOwnerTasks(
       !recordedPath.includes(">") &&
       capturedPath.includes(">") &&
       capturedPath.split(">")[0].trim() === recordedPath.trim();
-    const ownerPath =
-      !sourceOnly && item.lesson
+    const ownerPath = nativeAncestors?.length
+      ? nativeAncestors.map(node => node.title).join(" > ")
+      : !sourceOnly && item.lesson
         ? [recordedPath, item.lesson].filter(Boolean).join(" > ")
         : !sourceOnly && deeperSameModule
           ? capturedPath
@@ -340,7 +353,12 @@ export function buildOwnerTasks(
           : `source:${index}:${item.path}:${item.name}`
         : `item:${id || index}`,
       id,
-      name: item.name || "Unnamed item",
+      // The shell can retain "Untitled" while the bound draft has a real name.
+      // Exact item identity permits displaying both; neither observation is
+      // overwritten and this never joins similarly named copies.
+      name: !sourceOnly && contentItem?.name?.trim() ? contentItem.name : item.name || "Unnamed item",
+      ...(!sourceOnly && contentItem?.name?.trim() && item.name && contentItem.name !== item.name ? { shellName: String(item.name) } : {}),
+      ...(nativeAncestors ? { nativeAncestors } : {}),
       path: ownerPath || "Placement not recorded",
       type: item.type || "Source item",
       status: sourceOnly

@@ -125,7 +125,7 @@ export function createBrightspaceProgressPanelV110(title, options) {
     previous.dispose();
   } else if (previous && typeof previous.dispose === 'function') previous.dispose();
   window[runningKey] = false;
-  let host, root, timer, disposed = false, minimized = false, active = null, downloading = false;
+  let host, root, timer, disposed = false, minimized = false, active = null, downloading = false, preparedUrl = "";
   let started = 0, finished = 0, phaseStarted = 0, updated = 0;
   const durations = {};
   const state = {phase:'Ready',detail:'Click Capture/resume to read this course. Saved observations keep their original timestamps.',count:'',completed:null,total:null,outcome:'idle',running:false,pauseRequested:false,downloadAvailable:false,storageError:'',checkpointSavedAt:'',startedAt:'',courseId:String(options.courseId || ''),buildId:String(options.buildId || '')};
@@ -145,7 +145,8 @@ export function createBrightspaceProgressPanelV110(title, options) {
     node('storage').hidden=!state.storageError;node('storage').textContent=state.storageError;
     node('start').disabled=busy || downloading || typeof options.onStart!=='function';
     node('pause').disabled=!busy || state.pauseRequested || typeof options.onPause!=='function';
-    node('download').disabled=!state.downloadAvailable || downloading || typeof options.onDownload!=='function';
+    node('download').disabled=busy || !state.downloadAvailable || downloading || typeof options.onDownload!=='function';
+    node('prepared-download').hidden=busy || !preparedUrl;
     node('close').hidden=busy || downloading;node('body').hidden=minimized;
     node('toggle').textContent=minimized ? 'Expand' : 'Minimize';node('toggle').setAttribute('aria-expanded',String(!minimized));
     node('card').dataset.outcome=state.outcome;
@@ -191,16 +192,23 @@ export function createBrightspaceProgressPanelV110(title, options) {
     await options.onPause();return true;
   }
   async function downloadSaved() {
-    if(disposed || !state.downloadAvailable || downloading || typeof options.onDownload!=='function')return false;
+    if(disposed || active || state.running || !state.downloadAvailable || downloading || typeof options.onDownload!=='function')return false;
     downloading=true;draw();
     try{await options.onDownload();return true;}
     catch(error){update({storageError:'Download failed: '+String(error && error.message || error)+' Keep this page open and try again.'});throw error;}
     finally{downloading=false;draw();}
   }
   const controller={update,finish,snapshot,start,pause,download:downloadSaved,
+    setDownloadArtifact(blob,name){
+      if(disposed || !root || !(blob instanceof Blob))throw Error('Prepared capture download is unavailable.');
+      const next=URL.createObjectURL(blob),link=root.getElementById('prepared-download'),previous=preparedUrl;
+      preparedUrl=next;link.href=next;link.download=String(name);link.textContent='Save prepared capture file';link.hidden=false;
+      if(previous)URL.revokeObjectURL(previous);
+      return link;
+    },
     isRunning(){return !!active || state.running;},isAlive(){return !disposed && !!host;},
     reveal(){if(!disposed && host){minimized=false;if(!host.isConnected)document.documentElement.appendChild(host);draw();}return controller;},
-    dispose(){if(active || state.running || downloading)return false;disposed=true;if(timer)clearInterval(timer);if(host)host.remove();if(window[key]===controller)delete window[key];window[runningKey]=false;return true;}};
+    dispose(){if(active || state.running || downloading)return false;disposed=true;if(timer)clearInterval(timer);if(preparedUrl)URL.revokeObjectURL(preparedUrl);if(host)host.remove();if(window[key]===controller)delete window[key];window[runningKey]=false;return true;}};
   host=document.createElement('div');host.setAttribute('data-cti-progress','true');
   host.style.cssText='all:initial!important;position:fixed!important;right:18px!important;bottom:18px!important;z-index:2147483645!important;width:min(400px,calc(100vw - 36px))!important;display:block!important;';
   root=host.attachShadow({mode:'closed'});
@@ -211,10 +219,10 @@ export function createBrightspaceProgressPanelV110(title, options) {
     #body{padding:14px 16px}#phase{font-size:16px;font-weight:700;color:#1d4ed8}#detail,#count{margin:8px 0;overflow-wrap:anywhere}#detail{max-height:130px;overflow:auto}
     #count{font-weight:600}#activity,#foot,#checkpoint{font-size:12px;color:#526174;overflow-wrap:anywhere}#storage{color:#9f1239;overflow-wrap:anywhere}#bar{width:100%;height:8px;accent-color:#2563eb}
     #actions,footer{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}footer{justify-content:flex-end;border-top:1px solid #e2e8f0;padding:8px 12px;margin:0}
-    button{font:inherit;font-size:13px;color:#334155;background:#fff;border:1px solid #94a3b8;border-radius:6px;padding:7px 10px;cursor:pointer;min-height:36px}
+    button,#prepared-download{font:inherit;font-size:13px;color:#334155;background:#fff;border:1px solid #94a3b8;border-radius:6px;padding:7px 10px;cursor:pointer;min-height:36px}
     #start{background:#1d4ed8;color:#fff;border-color:#1d4ed8}button:disabled{opacity:.55;cursor:default}button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
     [data-outcome=error] #phase{color:#b91c1c}[data-outcome=review] #phase{color:#92400e}[data-outcome=success] #phase{color:#166534}
-  </style><section id="card" role="region" aria-label="CTI Brightspace capture"><header><div id="title"></div><div id="clock"></div></header><div id="body"><div id="phase" role="status" aria-live="polite"></div><p id="detail"></p><p id="count"></p><progress id="bar" aria-label="Current stage progress" hidden></progress><div id="activity"></div><p id="checkpoint"></p><p id="storage" role="alert" hidden></p><p id="foot">Captured, empty, unavailable and unverified are distinct. Saved progress is local to this browser and origin; keep a downloaded capture.</p><div id="actions"><button id="start" type="button">Capture/resume</button><button id="pause" type="button" disabled>Pause</button><button id="download" type="button" disabled>Download saved capture</button></div></div><footer><button id="toggle" type="button" aria-expanded="true">Minimize</button><button id="close" type="button">Dismiss</button></footer></section>`;
+  </style><section id="card" role="region" aria-label="CTI Brightspace capture"><header><div id="title"></div><div id="clock"></div></header><div id="body"><div id="phase" role="status" aria-live="polite"></div><p id="detail"></p><p id="count"></p><progress id="bar" aria-label="Current stage progress" hidden></progress><div id="activity"></div><p id="checkpoint"></p><p id="storage" role="alert" hidden></p><p id="foot">Captured, empty, unavailable and unverified are distinct. Saved progress is local to this browser and origin; keep a downloaded capture.</p><div id="actions"><button id="start" type="button">Capture/resume</button><button id="pause" type="button" disabled>Pause</button><button id="download" type="button" disabled>Download saved capture</button><a id="prepared-download" hidden>Save prepared capture file</a></div></div><footer><button id="toggle" type="button" aria-expanded="true">Minimize</button><button id="close" type="button">Dismiss</button></footer></section>`;
   root.getElementById('title').textContent=String(title || 'CTI · Brightspace capture');
   root.addEventListener('click',event=>event.stopPropagation());
   root.getElementById('start').onclick=()=>{void start().catch(()=>{});};

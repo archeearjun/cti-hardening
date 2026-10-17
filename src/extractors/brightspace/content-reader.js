@@ -5,13 +5,26 @@ export async function readBrightspaceBoundedBodyV110(response, options = {}) {
   const maxBytes = options.maxBytes || 4 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     throw Error("INVALID_BODY_LIMIT");
-  const declared = Number(response.headers.get("content-length") || 0);
   const fail = (code) => {
     const error = Error(code);
     error.code = code;
     return error;
   };
-  if (Number.isFinite(declared) && declared > maxBytes) {
+  const lengthHeader = response.headers.get("content-length"),
+    encoding = (response.headers.get("content-encoding") || "").trim().toLowerCase();
+  let declared = null;
+  // Fetch exposes decoded response bytes. A compressed wire Content-Length
+  // cannot establish their size; an identity length can detect a clean but
+  // incomplete EOF. Chunked responses need no invented expected length.
+  if ((!encoding || encoding === "identity") && lengthHeader !== null) {
+    const value = lengthHeader.trim();
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+      await response.body?.cancel().catch(() => {});
+      throw fail("INVALID_CONTENT_LENGTH");
+    }
+    declared = Number(value);
+  }
+  if (declared !== null && declared > maxBytes) {
     await response.body?.cancel().catch(() => {});
     throw fail("BODY_LIMIT_EXCEEDED");
   }
@@ -33,6 +46,7 @@ export async function readBrightspaceBoundedBodyV110(response, options = {}) {
       options.signal?.throwIfAborted();
       if (next.done) {
         finished = true;
+        if (declared !== null && length !== declared) throw fail("BODY_LENGTH_MISMATCH");
         break;
       }
       const bytes =
@@ -42,6 +56,7 @@ export async function readBrightspaceBoundedBodyV110(response, options = {}) {
       length += bytes.byteLength;
       options.onBytes?.(bytes.byteLength);
       if (length > maxBytes) throw fail("BODY_LIMIT_EXCEEDED");
+      if (declared !== null && length > declared) throw fail("BODY_LENGTH_MISMATCH");
       chunks.push(bytes);
     }
     const body = new Uint8Array(length);
@@ -539,12 +554,19 @@ export function createBrightspaceContentReader(options = {}) {
         if (!bodies[bodyHash]) {
           if (retainedBytes + bytes.byteLength > limits.maxRetainedBytes)
             throw Error("RETAINED_BODY_BUDGET_EXCEEDED");
-          bodies[bodyHash] = {
-            encoding: "base64",
-            base64: base64(bytes),
-            bytes: bytes.byteLength,
-            sha256: bodyHash,
-          };
+          // Archive delivery persists each immutable original independently.
+          // A storage failure never publishes a successful original receipt.
+          if (typeof options.retainOriginal === "function") {
+            const stored = await options.retainOriginal(bytes, bodyHash);
+            if (!stored || stored.encoding !== "archive" ||
+                stored.archivePath !== "files/" + bodyHash ||
+                stored.bytes !== bytes.byteLength || stored.sha256 !== bodyHash)
+              throw Error("ORIGINAL_STORAGE_IDENTITY_MISMATCH");
+            bodies[bodyHash] = { ...stored };
+          } else bodies[bodyHash] = {
+              encoding: "base64", base64: base64(bytes),
+              bytes: bytes.byteLength, sha256: bodyHash,
+            };
           retainedBytes += bytes.byteLength;
         }
         Object.assign(asset, {

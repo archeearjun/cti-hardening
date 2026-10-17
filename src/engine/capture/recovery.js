@@ -10,7 +10,13 @@ export function qaCourseraCaptureReadiness_(meta, itemResults) {
   meta=meta||{};
   var crawl=meta.activeSpaCrawl||{};
   var observed=String(crawl.buildId||meta.buildId||crawl.version||meta.extractor||'');
-  var expected=CTI_RELEASE_REGISTRY_.courseraExtractor.version;
+  // Version families are independent: the course bookmark's v1.x releases do
+  // not follow the retained renderer extractor's v6.x sequence. Select only
+  // from the exact native-mode marker, without rewriting captured metadata or
+  // turning this informational release comparison into source validation.
+  var directMode=meta.directDataCapture;
+  var direct=!!(directMode&&typeof directMode==='object'&&!Array.isArray(directMode)&&directMode.mode==='BOUND_AUTHORING_DRAFT_API'&&directMode.version===1);
+  var expected=(direct?CTI_RELEASE_REGISTRY_.directDataCourseraExtractor:CTI_RELEASE_REGISTRY_.courseraExtractor).version;
   function version(value){var m=String(value||'').match(/\bv?(\d+)\.(\d+)\.(\d+)(?:\b|[-_])/);return m?m.slice(1).map(Number):null;}
   var actual=version(observed),latest=version(expected),order=0;
   if(actual) for(var i=0;i<3;i++){if(actual[i]!==latest[i]){order=actual[i]<latest[i]?-1:1;break;}}

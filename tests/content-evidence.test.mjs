@@ -722,6 +722,25 @@ test("empty, missing and unbound image alt text cannot create invented source la
     undefined,
   );
 });
+test("content view verifies native heading projection versions without rewriting historical observations", () => {
+  const cmlValue = '<co-content><heading level="1">Technical Drawings</heading>' +
+    '<heading level="2">Introduction</heading><text>Observed body.</text></co-content>';
+  for (const version of [1, 2]) {
+    const f = directTextFixture({ cmlValue, textSample: version === 1
+      ? "Technical DrawingsIntroduction Observed body."
+      : "Technical Drawings Introduction Observed body." });
+    if (version === 2) f.payload.directDataEvidence.textProjectionVersion = version;
+    const before = JSON.stringify(f.payload), content = capturedContent(f.payload,
+      {basis: "direct", itemId: f.itemId});
+    assert.equal(content.textCoverage, "COMPLETE");
+    assert.equal(content.text, f.payload.textSample);
+    assert.equal(JSON.stringify(f.payload), before);
+    f.payload.directDataEvidence.textProjectionVersion = version === 1 ? 2 : 1;
+    assert.notEqual(capturedContent(f.payload, {basis: "direct", itemId: f.itemId}).textCoverage,
+      "COMPLETE");
+  }
+});
+
 test("direct text coverage recomputes raw CML, source stability and text hashes instead of trusting flags", () => {
   const hash = (value) => createHash("sha256").update(value).digest("hex");
   const mutations = [

@@ -26,6 +26,7 @@ export interface OwnerGroup {
   title: string;
   path: string[];
   sourceOnly: boolean;
+  nativeId?: string;
   children: (OwnerGroup | OwnerTask)[];
 }
 export function ownerHierarchy(tasks: OwnerTask[]): OwnerGroup[] {
@@ -33,14 +34,17 @@ export function ownerHierarchy(tasks: OwnerTask[]): OwnerGroup[] {
   // Consecutive equal paths share a group; repeated later paths are not moved
   // or collapsed across another module with the same title.
   for (const task of tasks) {
-    const path = task.path.split(/\s*>\s*/).filter(Boolean);
+    const path = task.nativeAncestors?.length
+      ? task.nativeAncestors.map(node => node.title)
+      : task.path.split(/\s*>\s*/).filter(Boolean);
     const parts = path.length ? path : ["Placement not recorded"];
     let siblings: (OwnerGroup | OwnerTask)[] = roots;
     for (let depth = 0; depth < parts.length; depth++) {
       const last = siblings.at(-1);
-      let group = last && "children" in last && last.title === parts[depth] && last.sourceOnly === task.sourceOnly ? last : undefined;
+      const nativeId = task.nativeAncestors?.[depth]?.id;
+      let group = last && "children" in last && last.title === parts[depth] && last.sourceOnly === task.sourceOnly && last.nativeId === nativeId ? last : undefined;
       if (!group) {
-        group = { key: `${task.key}:group:${depth}`, title: parts[depth], path: parts.slice(0, depth + 1), sourceOnly: task.sourceOnly, children: [] };
+        group = { key: `${task.key}:group:${depth}`, title: parts[depth], path: parts.slice(0, depth + 1), sourceOnly: task.sourceOnly, ...(nativeId ? { nativeId } : {}), children: [] };
         siblings.push(group);
       }
       siblings = group.children;

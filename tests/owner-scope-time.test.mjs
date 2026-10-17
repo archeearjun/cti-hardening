@@ -36,6 +36,29 @@ test('nesting preserves module/lesson order and separate repeated names',()=>{
   assert.deepEqual(groups[0].children.map(g=>g.title),['Lesson 1','Lesson 2']);
   assert.deepEqual(groups.flatMap(groupTasks).map(t=>t.id),['a','b','c','d','e']);
 });
+test('adjacent repeated module titles keep exact native identities and separate time totals',()=>{
+  const nativeHierarchy = [
+    {id:'module-a',title:'Orientation',kind:'module',ancestorIds:[],emptyContainer:false,sourceContentType:''},
+    {id:'item-a',title:'Untitled',kind:'item',ancestorIds:['module-a'],emptyContainer:false,sourceContentType:'staffGraded'},
+    {id:'module-b',title:'Orientation',kind:'module',ancestorIds:[],emptyContainer:false,sourceContentType:''},
+    {id:'item-b',title:'Untitled',kind:'item',ancestorIds:['module-b'],emptyContainer:false,sourceContentType:'staffGraded'},
+  ];
+  const result = {
+    nativeCourseOutlineEvidence:{kind:'VERIFIED_NATIVE_CAPTURE_INVENTORY',courseId:'course-native',materialHash:'a'.repeat(64),contentItemCount:2,inventoryEntryCount:2,moduleCount:2,lessonCount:0,emptyContainerCount:0,nativeHierarchy,independentWorkbook:false,completeContent:false},
+    ownerView:{items:['a','b'].map(s=>({id:`item-${s}`,name:'Untitled',path:'Orientation',type:'Assignment'}))},
+  };
+  const snapshot=buildContentSnapshot(new TextEncoder().encode(JSON.stringify({fingerprints:['a','b'].map((s,i)=>({id:`item-${s}`,name:`Quiz ${s}`,path:'Orientation',payload:{timeEstimateMinutes:(i+1)*10}}))})));
+  const before=structuredClone(result),tasks=buildOwnerTasks(result,[],'',snapshot.coursera);
+  const groups=ownerHierarchy(tasks);
+  assert.deepEqual(groups.map(g=>g.nativeId),['module-a','module-b']);
+  assert.deepEqual(groups.map(g=>groupTasks(g).map(t=>t.id)),[['item-a'],['item-b']]);
+  const times=moduleTimes(tasks,[]);
+  assert.deepEqual(times.map(t=>t.baseline.minutes),[10,20]);
+  assert.match(moduleTimesText(times),/Orientation \[native module module-a\]: baseline 10 min/);
+  assert.match(moduleTimesText(times),/Orientation \[native module module-b\]: baseline 20 min/);
+  assert.equal(tasks[0].name,'Quiz a'); assert.equal(tasks[0].shellName,'Untitled');
+  assert.deepEqual(result,before,'presentation must preserve native shell labels and raw audit');
+});
 test('XLSX lesson metadata reaches the checklist while matching still uses the module',()=>{
   const input=comparisonFixture(),output=createWorkflows(workerXml).compare(input);
   const row=output.result.ownerView.items[0];

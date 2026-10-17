@@ -17,6 +17,7 @@ export default function OwnerChecklistTree({ groups, visible, reviewFor, renderI
     return <details key={group.key} open className="owner-outline-group">
       <summary>
         <strong>{group.sourceOnly && depth === 0 ? "Source evidence · " : ""}{group.title}</strong>
+        {group.nativeId && <span className="hint">Native {depth === 0 ? "module" : "container"}: {group.nativeId}</span>}
         <span className="hint">{tasks.filter(t => visible.has(t.key)).length} displayed item(s)</span>
         {!group.sourceOnly && totals.latest.total > 0 && <span className="hint">
           Latest available: {totals.latest.captured ? formatMinutes(totals.latest.minutes) : "Not captured"}

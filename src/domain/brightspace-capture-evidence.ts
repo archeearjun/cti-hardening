@@ -4,6 +4,8 @@ import type { Finding } from "./types.ts";
 
 type Model = Record<string, any>;
 export const MAX_BRIGHTSPACE_ORIGINAL_BYTES = 64 * 1024 * 1024;
+export const MAX_BRIGHTSPACE_ARCHIVE_ORIGINAL_BYTES = 512 * 1024 * 1024;
+export const MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_TEXT_BYTES = 4 * 1024 * 1024;
 const MAX_PROJECTION_BYTES = 16 * 1024 * 1024;
@@ -18,6 +20,81 @@ const rows = (value: unknown): Model[] =>
 const text = (value: unknown) =>
   typeof value === "string" || typeof value === "number" ? String(value) : "";
 const digest = (value: string) => bytesToHex(sha256(encoder.encode(value)));
+
+export interface BrightspaceArchiveFile {
+  path: string;
+  sha256: string;
+  size: number;
+  blob: Blob;
+}
+interface VerifiedArchiveBody {
+  blob: Blob;
+  sha256: string;
+  size: number;
+  text: Map<string, string>;
+  prefix: Uint8Array;
+}
+// Blob bytes are immutable. Only this module can establish a verified resolver;
+// serialized descriptors and arbitrary properties cannot assert body integrity.
+const verifiedArchiveBodies = new WeakMap<object, VerifiedArchiveBody>();
+
+function usesArchiveBodies(capture: Model) {
+  const transport = capture.originalBodyTransport;
+  const descriptors = Object.values(object(capture.assetBodies)).some(
+    (body) => object(body).encoding === "archive",
+  );
+  if (transport == null && !descriptors) return false;
+  if (
+    Number(capture.schemaVersion) !== 2 ||
+    !transport ||
+    transport.format !== "CTI_BRIGHTSPACE_ARCHIVE_V1" ||
+    transport.version !== 1 ||
+    transport.bodyEncoding !== "archive" ||
+    transport.hashAlgorithm !== "SHA-256"
+  )
+    throw Error("Brightspace archive original-body transport is invalid.");
+  return true;
+}
+
+function archiveBodyDescriptor(key: string, body: Model) {
+  if (
+    !hashPattern.test(key) ||
+    body.sha256 !== key ||
+    body.encoding !== "archive" ||
+    body.archivePath !== "files/" + key ||
+    !Number.isSafeInteger(body.bytes) ||
+    body.bytes < 0 ||
+    body.bytes > MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES ||
+    Object.hasOwn(body, "base64")
+  )
+    throw Error(
+      "Brightspace archive original has an invalid path, SHA-256 or byte-length descriptor.",
+    );
+}
+
+/** Original Blobs are available only after independent asynchronous verification. */
+export function getBrightspaceOriginalBody(
+  value: unknown,
+  ref: string,
+): Blob | undefined {
+  const body = object(object(value).assetBodies)[ref],
+    proof = body && verifiedArchiveBodies.get(body);
+  if (!proof) return undefined;
+  archiveBodyDescriptor(ref, body);
+  if (proof.sha256 !== ref || proof.size !== body.bytes) return undefined;
+  return proof.blob;
+}
+
+/** Bounded decoded originals used by content views without decoding binary bodies. */
+export function getBrightspaceOriginalText(
+  value: unknown,
+  ref: string,
+  charset = "utf-8",
+): string | undefined {
+  const body = object(object(value).assetBodies)[ref];
+  if (!getBrightspaceOriginalBody(value, ref)) return undefined;
+  return verifiedArchiveBodies.get(body)?.text.get(charset.toLowerCase());
+}
 
 export interface BrightspaceCaptureEvidence {
   schemaVersion: 1;
@@ -587,11 +664,7 @@ function assertReceipt(
   return { request, response };
 }
 
-/** Validate actual base64 bytes in small chunks. No original-sized decoded
- * buffer or second copy of the complete base64 text is created. */
-export function assertBrightspaceCaptureIntegrity(
-  value: unknown,
-): BrightspaceCaptureEvidence {
+function prepareBrightspaceCaptureIntegrity(value: unknown) {
   const capture = object(value),
     report = inspectBrightspaceCaptureEvidence(capture),
     bodies = object(capture.assetBodies),
@@ -715,10 +788,85 @@ export function assertBrightspaceCaptureIntegrity(
         );
     }
   }
+  const archive = usesArchiveBodies(capture);
+  return {
+    capture,
+    report,
+    bodies,
+    textRefs,
+    referenced,
+    archive,
+    bodyMedia: archive
+      ? archiveBodyMedia(capture, nodes)
+      : new Map<string, string[]>(),
+  };
+}
+
+function assertOriginalProjection(
+  key: string,
+  textRefs: Map<string, Model[]>,
+  decoded: Map<string, string>,
+) {
+  for (const ev of textRefs.get(key) || []) {
+    const original = decoded.get(text(ev.charset || "utf-8").toLowerCase());
+    if (
+      original === undefined ||
+      (ev.format === "html"
+        ? typeof ev.html !== "string" || ev.html !== original
+        : ev.text !== original)
+    )
+      throw Error(
+        "Brightspace retained HTML or plain text differs from its original UTF-8 body.",
+      );
+  }
+}
+
+/** Validate legacy base64 in small chunks, or recheck independently verified
+ * immutable archive Blobs. Archive descriptors alone never establish bytes. */
+export function assertBrightspaceCaptureIntegrity(
+  value: unknown,
+): BrightspaceCaptureEvidence {
+  const { report, bodies, textRefs, referenced, archive, bodyMedia } =
+    prepareBrightspaceCaptureIntegrity(value);
   let total = 0;
   for (const [key, input] of Object.entries(bodies)) {
     const body = object(input),
       base64 = body.base64;
+    if (archive) {
+      archiveBodyDescriptor(key, body);
+      total += body.bytes;
+      if (total > MAX_BRIGHTSPACE_ARCHIVE_ORIGINAL_BYTES)
+        throw Error(
+          "Brightspace archive originals exceed the independent 512 MiB bound.",
+        );
+      if (!referenced.has(key))
+        throw Error(
+          "Brightspace original body has no retained source reference.",
+        );
+      const proof = verifiedArchiveBodies.get(body);
+      if (
+        !proof ||
+        proof.sha256 !== key ||
+        proof.size !== body.bytes ||
+        proof.blob.size !== body.bytes
+      )
+        throw Error(
+          "Brightspace archive originals require independently verified original Blob bodies.",
+        );
+      const mimes = bodyMedia.get(key) || [];
+      if (
+        mimes.some((mime) =>
+          /^(?:text\/|application\/(?:xhtml\+xml|json|x-subrip))/.test(mime),
+        ) &&
+        body.bytes > MAX_TEXT_BYTES
+      )
+        throw Error(
+          "Brightspace archive text original exceeds its independent 4 MiB bound.",
+        );
+      assertArchiveSignature(mimes, proof.prefix);
+      assertOriginalProjection(key, textRefs, proof.text);
+      continue;
+    }
     if (
       !hashPattern.test(key) ||
       body.sha256 !== key ||
@@ -778,19 +926,11 @@ export function assertBrightspaceCaptureIntegrity(
       throw Error(
         "Brightspace retained original SHA-256 or actual byte length does not match.",
       );
-    for (const ev of textRefs.get(key) || []) {
-      const decoded = decoders.get(
-        text(ev.charset || "utf-8").toLowerCase(),
-      )!.text;
-      if (
-        ev.format === "html"
-          ? typeof ev.html !== "string" || ev.html !== decoded
-          : ev.text !== decoded
-      )
-        throw Error(
-          "Brightspace retained HTML or plain text differs from its original UTF-8 body.",
-        );
-    }
+    assertOriginalProjection(
+      key,
+      textRefs,
+      new Map([...decoders].map(([charset, value]) => [charset, value.text])),
+    );
   }
   report.originalIntegrity = Object.keys(bodies).length
     ? "VERIFIED_RETAINED_ORIGINALS"
@@ -800,4 +940,213 @@ export function assertBrightspaceCaptureIntegrity(
 }
 export async function verifyBrightspaceCaptureEvidence(value: unknown) {
   return assertBrightspaceCaptureIntegrity(value);
+}
+
+function archiveBodyMedia(capture: Model, nodes: Model[]) {
+  const result = new Map<string, string[]>();
+  const category = (mime: string) =>
+    ({
+      "image/jpg": "image/jpeg",
+      "application/x-pdf": "application/pdf",
+      "application/x-zip-compressed": "application/zip",
+      "text/srt": "application/x-subrip",
+    })[mime] || mime;
+  const addReceipt = (ref: unknown, ...values: unknown[]) => {
+    if (typeof ref !== "string") return;
+    const declarations: string[] = [];
+    for (const value of values) {
+      if (value == null || value === "") continue;
+      if (
+        typeof value !== "string" ||
+        value.length > 1024 ||
+        /[\r\n\0]/.test(value) ||
+        !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+(?:\s*;[^\r\n\0]*)?$/.test(
+          value.trim(),
+        )
+      )
+        throw Error(
+          "Brightspace archive original has an invalid declared MIME type.",
+        );
+      const mime = value.split(";", 1)[0].trim().toLowerCase();
+      if (!["application/octet-stream", "binary/octet-stream"].includes(mime))
+        declarations.push(mime);
+    }
+    if (new Set(declarations.map(category)).size > 1)
+      throw Error(
+        "Brightspace archive original has contradictory native MIME declarations.",
+      );
+    // Identical bytes can be served by separate native URLs with different
+    // headers. Each individual receipt must remain internally consistent.
+    result.set(ref, [
+      ...new Set([...(result.get(ref) || []), ...declarations]),
+    ]);
+  };
+  for (const node of nodes) {
+    const ev = object(node.contentEvidence);
+    addReceipt(
+      ev.rawBodyRef || ev.originalRef,
+      ev.contentType,
+      ev.bodyReceipt?.contentType,
+    );
+  }
+  for (const asset of rows(capture.contentAcquisition?.assets))
+    addReceipt(asset.originalRef, asset.mediaType, asset.receipt?.contentType);
+  return result;
+}
+
+function assertArchiveSignature(mimes: string[], bytes: Uint8Array) {
+  const ascii = (at: number, value: string) =>
+    [...value].every((char, index) => bytes[at + index] === char.charCodeAt(0));
+  const prefix = (...values: number[]) =>
+    values.every((value, index) => bytes[index] === value);
+  for (const mime of mimes) {
+    let valid = true;
+    if (mime === "image/png") valid = prefix(137, 80, 78, 71, 13, 10, 26, 10);
+    else if (["image/jpeg", "image/jpg"].includes(mime))
+      valid = prefix(255, 216, 255);
+    else if (mime === "image/gif")
+      valid = ascii(0, "GIF87a") || ascii(0, "GIF89a");
+    else if (mime === "image/webp")
+      valid = ascii(0, "RIFF") && ascii(8, "WEBP");
+    else if (["application/pdf", "application/x-pdf"].includes(mime))
+      valid = ascii(0, "%PDF-");
+    else if (
+      /^(?:application\/(?:zip|x-zip-compressed|vnd\.openxmlformats-officedocument\..+))$/.test(
+        mime,
+      )
+    )
+      valid =
+        prefix(80, 75, 3, 4) || prefix(80, 75, 5, 6) || prefix(80, 75, 7, 8);
+    else if (["video/mp4", "audio/mp4"].includes(mime))
+      valid = ascii(4, "ftyp");
+    else if (["video/webm", "audio/webm"].includes(mime))
+      valid = prefix(0x1a, 0x45, 0xdf, 0xa3);
+    else if (["audio/wav", "audio/x-wav"].includes(mime))
+      valid = ascii(0, "RIFF") && ascii(8, "WAVE");
+    if (!valid)
+      throw Error(
+        "Brightspace archive original bytes contradict their declared MIME signature.",
+      );
+  }
+}
+
+/** Independently verify one immutable Blob at a time. This is also the worker
+ * reattachment boundary: a structured clone does not carry trusted proof. */
+export async function attachBrightspaceArchiveFileBlobs(
+  value: unknown,
+  archiveFiles: BrightspaceArchiveFile[],
+): Promise<unknown> {
+  const { capture, bodies, textRefs, referenced, archive, bodyMedia } =
+    prepareBrightspaceCaptureIntegrity(value);
+  if (!archive || !Array.isArray(archiveFiles))
+    throw Error(
+      "Brightspace archive original-body transport or Blob inventory is missing.",
+    );
+  const files = new Map<string, BrightspaceArchiveFile>();
+  let total = 0;
+  for (const file of archiveFiles) {
+    if (
+      !file ||
+      !hashPattern.test(file.sha256) ||
+      file.path !== "files/" + file.sha256 ||
+      files.has(file.path) ||
+      !(file.blob instanceof Blob) ||
+      !Number.isSafeInteger(file.size) ||
+      file.size < 0 ||
+      file.size > MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES ||
+      file.blob.size !== file.size
+    )
+      throw Error(
+        "Brightspace archive has an invalid or duplicate original Blob descriptor.",
+      );
+    total += file.size;
+    if (total > MAX_BRIGHTSPACE_ARCHIVE_ORIGINAL_BYTES)
+      throw Error(
+        "Brightspace archive originals exceed the independent 512 MiB bound.",
+      );
+    // Normalize away arbitrary Blob subclasses before retaining a resolver.
+    // This preserves immutable backing bytes without materializing a buffer.
+    const blob = new Blob([file.blob]);
+    if (blob.size !== file.size)
+      throw Error(
+        "Brightspace archive original Blob size differs from its descriptor.",
+      );
+    files.set(file.path, { ...file, blob });
+  }
+  if (files.size !== Object.keys(bodies).length)
+    throw Error(
+      "Brightspace archive original file inventory differs from its native body inventory.",
+    );
+  for (const [key, input] of Object.entries(bodies)) {
+    const body = object(input);
+    archiveBodyDescriptor(key, body);
+    const file = files.get(body.archivePath);
+    if (
+      !file ||
+      file.sha256 !== key ||
+      file.size !== body.bytes ||
+      !referenced.has(key)
+    )
+      throw Error(
+        "Brightspace archive original is absent, unreferenced or differs from its body receipt.",
+      );
+    const mimes = bodyMedia.get(key) || [];
+    if (
+      mimes.some((mime) =>
+        /^(?:text\/|application\/(?:xhtml\+xml|json|x-subrip))/.test(mime),
+      ) &&
+      body.bytes > MAX_TEXT_BYTES
+    )
+      throw Error(
+        "Brightspace archive text original exceeds its independent 4 MiB bound.",
+      );
+    const decoders = new Map<string, { decoder: TextDecoder; text: string }>();
+    for (const ev of textRefs.get(key) || []) {
+      const charset = text(ev.charset || "utf-8").toLowerCase();
+      if (!decoders.has(charset))
+        decoders.set(charset, {
+          decoder: new TextDecoder(charset, { fatal: true, ignoreBOM: true }),
+          text: "",
+        });
+    }
+    const hasher = sha256.create();
+    let first = new Uint8Array(),
+      length = 0;
+    for (let start = 0; start < file.size; start += 1024 * 1024) {
+      const chunk = new Uint8Array(
+        await file.blob
+          .slice(start, Math.min(file.size, start + 1024 * 1024))
+          .arrayBuffer(),
+      );
+      if (chunk.length !== Math.min(1024 * 1024, file.size - start))
+        throw Error(
+          "Brightspace archive original Blob could not be read completely.",
+        );
+      if (!start) first = chunk.subarray(0, 512);
+      length += chunk.length;
+      hasher.update(chunk);
+      for (const decoder of decoders.values())
+        decoder.text += decoder.decoder.decode(chunk, { stream: true });
+    }
+    if (length !== file.size || bytesToHex(hasher.digest()) !== key)
+      throw Error(
+        "Brightspace archive original SHA-256 or byte length does not match.",
+      );
+    for (const decoder of decoders.values())
+      decoder.text += decoder.decoder.decode();
+    assertArchiveSignature(mimes, first);
+    const decoded = new Map(
+      [...decoders].map(([charset, projection]) => [charset, projection.text]),
+    );
+    assertOriginalProjection(key, textRefs, decoded);
+    verifiedArchiveBodies.set(body, {
+      blob: file.blob,
+      sha256: key,
+      size: file.size,
+      text: decoded,
+      prefix: first.slice(),
+    });
+  }
+  assertBrightspaceCaptureIntegrity(capture);
+  return capture;
 }

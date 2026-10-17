@@ -20,7 +20,17 @@ return function qaParseBrightspaceGroundTruthCapture_(base64Value, fileName) {
   if (bytes.length > 128 * 1024 * 1024) throw new Error('Brightspace live-source JSON is larger than the 128 MiB safety limit.');
   var json = Utilities.newBlob(bytes).getDataAsString();
   var parsed = JSON.parse(json);
+  return qaParseBrightspaceGroundTruthModel_(parsed, {name:fileName,sha256:qaSha256Base64_(base64Value)});
+};
+}
+
+// The browser workflow has already independently validated the original-body
+// bytes and native bindings. This adapter preserves the exact manifest identity
+// without serializing it to Base64 or parsing the same large input a second time.
+// It is not an original-body integrity validator.
+export function qaParseBrightspaceGroundTruthModel_(parsed, identity) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Brightspace live-source JSON must contain one capture object.');
+  if (!identity || !/^[a-f0-9]{64}$/.test(String(identity.sha256 || ''))) throw new Error('Brightspace live-source manifest identity is missing or invalid.');
   var extractor = String(parsed.extractor || '');
   if (!/Brightspace/i.test(extractor)) throw new Error('The live-source file does not identify itself as a Brightspace CTI capture.');
   var schema = Number(parsed.schemaVersion || 0);
@@ -63,8 +73,8 @@ return function qaParseBrightspaceGroundTruthCapture_(base64Value, fileName) {
     });
   }
   return {
-    fileName:String(fileName || ''),
-    sha256:qaSha256Base64_(base64Value),
+    fileName:String(identity.name || ''),
+    sha256:identity.sha256,
     schemaVersion:schema,
     extractor:extractor,
     buildId:String(parsed.buildId || ''),
@@ -86,7 +96,6 @@ return function qaParseBrightspaceGroundTruthCapture_(base64Value, fileName) {
     interactiveEmbeds:interactiveEmbeds,
     warnings:Array.isArray(parsed.captureWarnings) ? parsed.captureWarnings.slice() : []
   };
-};
 }
 
 export function qaBrightspaceIdentityGuard_(liveCapture, packageMeta) {

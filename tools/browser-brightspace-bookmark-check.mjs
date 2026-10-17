@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "vite";
 import { chromium } from "playwright";
+import JSZip from "jszip";
+import { gunzipSync } from "node:zlib";
 
 // Synthetic, authenticated source fixtures only. This verifies the maintained
 // bookmark and browser mechanics, not the completeness of any private course.
@@ -65,6 +67,7 @@ const topics = [
 const requests = [];
 const unexpectedRequests = [];
 const errors = [];
+let retainedOriginals = new Map();
 let origin = "";
 let foreignOrigin = "";
 let foreignRequests = 0;
@@ -275,8 +278,10 @@ function assertOriginal(capture, reference, original) {
   );
   const body = capture.assetBodies[reference];
   assert(body, "Capture must include the referenced original body");
-  assert.equal(body.encoding, "base64");
-  const bytes = Buffer.from(body.base64, "base64");
+  assert.equal(body.encoding, "archive");
+  assert.equal(body.archivePath, "files/" + digest);
+  const bytes = retainedOriginals.get(digest);
+  assert(bytes, "An archive descriptor must resolve to its committed original Blob");
   assert.deepEqual(
     bytes,
     original,
@@ -643,7 +648,7 @@ try {
     const nodeText = (node) =>
       (node.nodeValue || "") + (node.children || []).map(nodeText).join("");
     function walk(node) {
-      if (node.nodeName === "BUTTON" && nodeText(node) === label) button = node;
+      if (["BUTTON", "A"].includes(node.nodeName) && nodeText(node) === label) button = node;
       for (const child of [
         ...(node.children || []),
         ...(node.shadowRoots || []),
@@ -755,6 +760,28 @@ try {
   assert.equal(terminal.phase, "Capture finished");
   assert.match(terminal.count, /original files retained/);
   assert.match(terminal.count, /unresolved references/);
+  const blobs = await page.evaluate(async (runId) => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("cti-brightspace-originals-v120", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const rows = await new Promise((resolve, reject) => {
+        const tx = db.transaction("bodies", "readonly"), request = tx.objectStore("bodies").getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const retained = [];
+      for (const row of rows) if (JSON.parse(row.scope)[3] === runId)
+        retained.push([row.sha256, Array.from(new Uint8Array(await row.blob.arrayBuffer()))]);
+      return retained;
+    } finally { db.close(); }
+  }, capture.attempt.id);
+  retainedOriginals = new Map(blobs.map(([hash, bytes]) => [hash, Buffer.from(bytes)]));
+  assert.equal(capture.originalBodyTransport.format, "CTI_BRIGHTSPACE_ARCHIVE_V1");
+  assert.equal(capture.originalBodyTransport.runId, capture.attempt.id);
+  assert(!JSON.stringify(capture.assetBodies).includes("base64"));
   verifyCapture(capture);
   const downloadEvent = page.waitForEvent("download");
   await clickControl(page, session, "Download saved capture");
@@ -764,11 +791,15 @@ try {
   assert.match(
     download.suggestedFilename(),
     new RegExp(
-      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__v1\\.1\\.1_s2__SOURCE_GROUND_TRUTH\\.json$`,
+      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__v1\\.2\\.0_s2__SOURCE_GROUND_TRUTH\\.cti\\.zip$`,
     ),
   );
   assert.equal(download.suggestedFilename(), capture.exportFileName);
-  const downloaded = JSON.parse(fs.readFileSync(downloadedPath, "utf8"));
+  const archive = await JSZip.loadAsync(fs.readFileSync(downloadedPath), { checkCRC32: true }),
+    downloaded = JSON.parse(gunzipSync(await archive.file("capture.json.gz").async("uint8array")));
+  assert.equal(Object.keys(archive.files).length, Object.keys(capture.assetBodies).length + 1);
+  for (const [hash, bytes] of retainedOriginals)
+    assert.deepEqual(Buffer.from(await archive.file("files/" + hash).async("uint8array")), bytes);
   verifyCapture(downloaded);
   assert.equal(downloaded.exportFileName, capture.exportFileName);
   assert.deepEqual(downloaded.contentTree, capture.contentTree);
@@ -795,6 +826,25 @@ try {
     path: path.join(outputDirectory, "finished-capture.png"),
     fullPage: true,
   });
+  await session.detach();
+
+  // A closed/reopened page must resolve persisted archive descriptors to the
+  // same original Blobs without rereading native definitions or file bodies.
+  await page.reload();
+  const recoveryRequestCount = requests.length;
+  session = await invoke(page);
+  const recoveredDownload = page.waitForEvent("download");
+  await clickControl(page, session, "Download saved capture");
+  const recovered = await recoveredDownload;
+  const recoveredPath = path.join(scratch, "recovered-" + recovered.suggestedFilename());
+  await recovered.saveAs(recoveredPath);
+  assert.equal(sha256(fs.readFileSync(recoveredPath)), sha256(fs.readFileSync(downloadedPath)));
+  assert.equal(requests.length, recoveryRequestCount, "Historical archive download must not create fresh source observations");
+  await pause(2200);
+  const linkDownload = page.waitForEvent("download");
+  await clickControl(page, session, "Save prepared capture file");
+  const linkSaved = await linkDownload;
+  assert.equal(linkSaved.suggestedFilename(), capture.exportFileName);
   await session.detach();
 
   // Browser storage denial must become a visible pause, never an unsupported
@@ -853,7 +903,7 @@ try {
         "on-page start and pause",
         "durable checkpoint reload",
         "visible pause on storage denial",
-        "actual JSON download",
+        "actual archive download, exact original files, persistent download link and page-reload recovery",
         "long HTML and literal captions",
         "original asset bytes and exact source placements",
         "inventory pagination",
