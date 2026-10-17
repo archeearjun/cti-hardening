@@ -9,8 +9,10 @@ import { qaClassifyExtraItem_ } from "../reporting/actions.js";
 import { qaBuildRepackagedMissingResult_ } from "../source/brightspace-assessment.js";
 import { qaMergeCourseraStructuredEvidence_ } from "../source/content.js";
 import { workSourceItemPolicy_ } from "../work/policy.js";
+import { inspectDirectNativeGrading } from "../assessment/native-grading.js";
+import { applyDirectNativeGrading } from "../assessment/native-grading-comparison.js";
 
-export function normalizeCourseraItem_(item) {
+export function normalizeCourseraItem_(item, expectedCourseId) {
     item = item || {};
     var payload = item.payload || {};
     var fileCandidates = [];
@@ -52,6 +54,8 @@ export function normalizeCourseraItem_(item) {
     var rawTimeEstimate=qaPayloadField_(payload,item,'timeEstimateMinutes',null);
     var rawNativeAssignment = qaPayloadField_(payload,item,'nativeAssignment',null);
     var nativeAssignment = qaNormalizeNativeAssignment_(rawNativeAssignment);
+    var nativeGradingInspection = inspectDirectNativeGrading(item, expectedCourseId);
+    var nativeGradingObservation = nativeGradingInspection && !nativeGradingInspection.projectionConflict?nativeGradingInspection.observation:null;
     if(rawCurrentState && rawCurrentState.grading && nativeAssignment && rawNativeAssignment &&
        JSON.stringify(rawCurrentState.grading.submission || {})===JSON.stringify(rawNativeAssignment.submission || {}) &&
        JSON.stringify(rawCurrentState.grading.settings || {})===JSON.stringify(rawNativeAssignment.settings || {})) {
@@ -103,6 +107,8 @@ export function normalizeCourseraItem_(item) {
         timeEstimateEvidence: qaCleanText_(payload.timeEstimateEvidence || item.timeEstimateEvidence || ''),
         structuredAssessment: structuredAssessment,
         nativeAssignment: nativeAssignment,
+        ...(nativeGradingInspection ? {nativeGradingCourseId:expectedCourseId} : {}),
+        ...(nativeGradingObservation ? {nativeGradingObservation:nativeGradingObservation} : {}),
         pluginEvidence:qaPayloadField_(payload,item,'pluginEvidence',null),
         readingEditorEvidence:qaPayloadField_(payload,item,'readingEditorEvidence',null),
         readingAttachmentEvidence:qaPayloadField_(payload,item,'readingAttachmentEvidence',null),
@@ -173,12 +179,14 @@ export function qaBuildGlobalMatchPlan_(sourceItems, courseraItems) {
 }
 
 export function qaBehaviorComparison_(source,coursera){
-  var src=source&&source.behavior, dst=coursera&&coursera.nativeAssignment;
+  var gradingSource=coursera&&(coursera.nativeGradingSource||coursera.original);
+  var src=source&&source.behavior, dst=applyDirectNativeGrading(gradingSource&&gradingSource.id===coursera.id?gradingSource:null,coursera&&coursera.nativeAssignment,coursera&&coursera.nativeGradingCourseId);
   var required=/Assignment|Assessment|Quiz|Exam/i.test(String(source&&source.type||''));
   function unknown(issue,reason){return {status:'UNVERIFIED',comparable:true,reviewRequired:true,mismatches:[],issues:[issue],sourceObserved:!!(src&&src.observed),destinationObserved:!!dst,reason:reason};}
   if(!src||src.observed!==true)return required?unknown('BEHAVIOR_SOURCE_UNVERIFIED','Source behavior was not observed.'): {status:'NOT_APPLICABLE',comparable:false,mismatches:[],issues:[]};
   if(!dst)return unknown('BEHAVIOR_DESTINATION_UNVERIFIED','Source behavior exists but destination behavior was not captured.');
   var s=src.settings||{},d=dst.settings||{},ss=src.submission||{},ds=dst.submission||{},mis=[],comp=[],missing=[];
+  var gradingConflict=!!(dst.currentStateEvidence&&dst.currentStateEvidence.nativeGradingConflict);
   function compare(key,a,b){if(a==null||a==='')return;if(b==null||b===''){missing.push(key);return;}comp.push(key);if(a!==b)mis.push(key+'_CHANGED');}
   function number(v){return v!=null&&v!==''&&Number.isFinite(Number(v))?Number(v):null;}
   function attempts(v){if(v==null||v==='')return null;var text=String(v).toLowerCase();if(/unlimited/.test(text))return 'UNLIMITED';var m=text.match(/\d+/);return m?String(Number(m[0])):null;}
@@ -191,9 +199,9 @@ export function qaBehaviorComparison_(source,coursera){
   if(sg===false&&dp!=null&&dp>0){comp.push('PASSING_THRESHOLD');mis.push('PASSING_THRESHOLD_ON_UNGRADED_SOURCE');}
   else compare('PASSING_THRESHOLD',sp,dp);
   compare('POINTS',number(s.points),number(d.points));compare('TIME_LIMIT',number(s.timeLimitMinutes),number(d.timeLimitMinutes));
-  return {status:mis.length?'MUTATED':(missing.length||!comp.length?'UNVERIFIED':'VERIFIED'),comparable:true,reviewRequired:!!(missing.length||!comp.length),
-    mismatches:mis,issues:mis.concat(missing.map(function(k){return k+'_UNVERIFIED';})),compared:comp,unverifiedDimensions:missing,source:src,coursera:dst,
-    reason:mis.length?'Explicitly observed behavior differs.':missing.length?'Required source settings are not all observed at the destination.':!comp.length?'No portable behavior settings were comparable.':'All observed source behavior dimensions match.'};
+  return {status:mis.length?'MUTATED':(missing.length||!comp.length||gradingConflict?'UNVERIFIED':'VERIFIED'),comparable:true,reviewRequired:!!(missing.length||!comp.length||gradingConflict),
+    mismatches:mis,issues:mis.concat(missing.map(function(k){return k+'_UNVERIFIED';})).concat(gradingConflict?['NATIVE_GRADING_OBSERVATIONS_CONFLICT']:[]),compared:comp,unverifiedDimensions:missing,source:src,coursera:dst,
+    reason:mis.length?'Explicitly observed behavior differs.':gradingConflict?'Captured native grading representations conflict; the graded setting remains unverified.':missing.length?'Required source settings are not all observed at the destination.':!comp.length?'No portable behavior settings were comparable.':'All observed source behavior dimensions match.'};
 }
 
 export function qaRuntimeReview_(source, coursera) {

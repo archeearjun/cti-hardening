@@ -112,6 +112,10 @@ authoring-draft configuration can be rebound independently. The boolean
 `configuration.isGraded` describes that retained draft setting. A lesson title
 such as “Practice” and an unlinked source gradebook do not establish an ungraded
 source policy, complete assessment behavior or a learner-facing state.
+Comparison uses this setting only with exact item and enclosing course binding.
+Conflicting native, projected or editor settings remain unverified and require
+review. Unknown source grading stays unknown; attempts and passing thresholds
+are not inferred from this flag.
 
 Small source-document originals are retained as text. Large original archives and
 capture binaries remain local files: workspace records retain identities and

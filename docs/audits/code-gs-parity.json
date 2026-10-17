@@ -2469,8 +2469,8 @@
       "status": "adapted",
       "path": "src/engine/capture/normalization.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "4c24f0eeffdb7f979bc9035700e7337ca25dead7c1b3a9582d5100a745511ab7",
-      "note": "Reject null, empty, boolean, negative and nonfinite durations instead of converting unknown to zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Preserve XLSX lesson metadata for owner hierarchy without changing the module-level source placement comparison. Regression: tests/owner-scope-time.test.mjs and tools/browser-owner-scope-check.mjs."
+      "reviewedCurrentHash": "499e4438e7a7dfb0a48ecc05caf9830efd2c08d84593e229a05f0e3d8aaf3dc4",
+      "note": "Reject null, empty, boolean, negative and nonfinite durations instead of converting unknown to zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Preserve XLSX lesson metadata for owner hierarchy without changing the module-level source placement comparison. Regression: tests/owner-scope-time.test.mjs and tools/browser-owner-scope-check.mjs. Retain an independently rebound native grading setting only with the enclosing capture course ID. Keep nativeAssignment and unrelated grader capabilities unchanged; explicit booleans only, with no inferred attempts or thresholds. Regression: tests/native-grading.test.mjs and tests/content-native-grading.test.mjs."
     },
     {
       "name": "qaMatchScore_",
@@ -2489,11 +2489,12 @@
     {
       "name": "qaBehaviorComparison_",
       "line": 8502,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/capture/normalization.js",
       "effectiveOverride": true,
       "basePath": null,
-      "note": "Original declaration is wholly superseded by the archived final override, which does not call its base."
+      "note": "Original declaration is wholly superseded by the archived final override, which does not call its base. Compare only the exact draft configuration.isGraded setting after independently checking retained native proof and enclosing course binding. Native, projected or editor contradictions remain unverified and require review; do not fall back to a contradictory alias. Unknown source grading and an unlinked gradebook remain unknown. The temporary grading-only comparison view does not mutate nativeAssignment, original inputs or other assessment capabilities. Regression: tests/native-grading.test.mjs; reviewed with independent full-workflow contradiction and foreign-course reproductions.",
+      "reviewedCurrentHash": "6fa77a17dfccc0f5225af520262e5f002abd0e7b4c01566d771aa7a28a80bfad"
     },
     {
       "name": "qaRuntimeReview_",
@@ -2891,8 +2892,8 @@
       "status": "adapted",
       "path": "src/engine/capture/recovery.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "3cfff4c9bfa9e8e388cce6424f5e2a9ec8b6376c44d286f44b5b5ff11a26b0b4",
-      "note": "Only merge observed numeric durations; a missing live estimate must not overwrite a recorded value with zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md."
+      "reviewedCurrentHash": "934615c782772abcdc5c267bb7ef292096dfb5756bab9e89373493fc0713dec3",
+      "note": "Only merge observed numeric durations; a missing live estimate must not overwrite a recorded value with zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Exact unique case-sensitive item enrichment may retain a minimal raw native grading proof bound to the enclosing capture course. Duplicate, foreign and title-only candidates cannot contribute that setting. The original workbook remains unchanged. Regression: tests/native-grading.test.mjs."
     },
     {
       "name": "qaAssertNotDiagnosticCapture_",
@@ -2913,8 +2914,8 @@
       "status": "adapted",
       "path": "src/engine/comparison/course.js",
       "effectiveOverride": false,
-      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits and structural authority. Payload enrichment now requires one unique case-sensitive native Coursera item ID on both XLSX and capture sides. Duplicate or conflicting native IDs and title-only suggestions never borrow payload; retained unresolved candidates are recomputed as diagnostics and unmatched fingerprints remain evidence-only. Standard uniquely identified comparisons retain full reference parity. See syllabus-readiness.test.mjs, workflows.test.mjs and strict-evidence-identity.test.mjs. The optional direct-capture structure adapter is explicitly tagged as retained native material inventory rather than an independent XLSX; canonical item IDs remain required and derived structure never certifies complete content. See unified-inputs.test.mjs and docs/unified-assignment-workspace.md. Reviewed Brightspace v1.1.0/schema2: source-preserving bookmark, explicit on-page start/pause/recovery, scoped native inventories and identity anomalies, raw HTML/literal captions and hashed original bytes, independent bounded importer checks. Native banks, external/runtime content and whole-course completeness remain unverified. Brightspace JSON transport/engine bounds are128MiB. See docs/brightspace-bookmark-capture.md and Brightspace regression fixtures.",
-      "reviewedCurrentHash": "b40a99996163f0148fe1c67f7cd5979d233b7eac42ffc12bc1614130f89882dc"
+      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits and structural authority. Payload enrichment now requires one unique case-sensitive native Coursera item ID on both XLSX and capture sides. Duplicate or conflicting native IDs and title-only suggestions never borrow payload; retained unresolved candidates are recomputed as diagnostics and unmatched fingerprints remain evidence-only. Standard uniquely identified comparisons retain full reference parity. See syllabus-readiness.test.mjs, workflows.test.mjs and strict-evidence-identity.test.mjs. The optional direct-capture structure adapter is explicitly tagged as retained native material inventory rather than an independent XLSX; canonical item IDs remain required and derived structure never certifies complete content. See unified-inputs.test.mjs and docs/unified-assignment-workspace.md. Reviewed Brightspace v1.1.0/schema2: source-preserving bookmark, explicit on-page start/pause/recovery, scoped native inventories and identity anomalies, raw HTML/literal captions and hashed original bytes, independent bounded importer checks. Native banks, external/runtime content and whole-course completeness remain unverified. Brightspace JSON transport/engine bounds are128MiB. See docs/brightspace-bookmark-capture.md and Brightspace regression fixtures. Pass the enclosing capture course ID into native-item normalization so grading evidence cannot select its own course context. Both native-only and independent-workbook comparisons reject foreign or missing binding and preserve unknown source grading. Regression: tests/native-grading.test.mjs.",
+      "reviewedCurrentHash": "b68519bd4ebdbf85f3b85ec0b75c8017ba35b9d57382adee00319e6a7b1fafc4"
     },
     {
       "name": "tokenJaccardSimilarity_",

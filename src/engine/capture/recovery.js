@@ -4,6 +4,7 @@ import { qaAssessmentAnswerEvidenceSide_, qaAssessmentAnswerOnlyGap_, qaConfirme
 import { qaUniqueAssetDescriptors_ } from "../matching/assets.js";
 import { qaCaptureTraversalSummary_ } from "../provenance/current-state.js";
 import { CTI_RELEASE_REGISTRY_ } from "../release.js";
+import { inspectDirectNativeGrading } from "../assessment/native-grading.js";
 
 export function qaCourseraCaptureReadiness_(meta, itemResults) {
   meta=meta||{};
@@ -65,6 +66,27 @@ export function qaMergeCourseraPayload_(excelItem, liveItem) {
     excelItem.pluginEvidence = excelItem.id && excelItem.id===liveItem.id && liveItem.pluginEvidence && liveItem.pluginEvidence.itemId===excelItem.id ? JSON.parse(JSON.stringify(liveItem.pluginEvidence)) : null;
     excelItem.readingEditorEvidence = excelItem.id && excelItem.id===liveItem.id ? liveItem.readingEditorEvidence || null : null;
     var sameEvidenceItem=Boolean(excelItem.id && excelItem.id===liveItem.id);
+    // Keep the independently rebound setting through canonical XLSX enrichment.
+    // This is a zero-copy internal source subset, not a replacement original or
+    // a question-definition payload. Title fallback cannot transfer this proof.
+    var gradingOriginal=liveItem.original;
+    var nativeGradingInspection=sameEvidenceItem && gradingOriginal && gradingOriginal.id===liveItem.id?inspectDirectNativeGrading(gradingOriginal,liveItem.nativeGradingCourseId):null;
+    if(nativeGradingInspection) {
+        var gradingPayload=gradingOriginal.payload,gradingSources=gradingPayload.directDataSources;
+        excelItem.nativeGradingCourseId=liveItem.nativeGradingCourseId;
+        if(!nativeGradingInspection.projectionConflict)excelItem.nativeGradingObservation=nativeGradingInspection.observation;
+        else delete excelItem.nativeGradingObservation;
+        excelItem.nativeGradingSource={id:gradingOriginal.id,atomId:gradingOriginal.atomId,contentId:gradingOriginal.contentId,payload:{
+            directDataSources:{atom:{elements:gradingSources.atom.elements},relation:{elements:gradingSources.relation.elements},receipts:gradingSources.receipts},
+            directDataEvidence:gradingPayload.directDataEvidence,
+            ...(gradingPayload.directResumeRevalidation?{directResumeRevalidation:gradingPayload.directResumeRevalidation}:{}),
+            ...(gradingPayload.structuredAssessment && gradingPayload.structuredAssessment.configuration!==undefined?{structuredAssessment:{configuration:gradingPayload.structuredAssessment.configuration}}:{})
+        }};
+    } else {
+        delete excelItem.nativeGradingObservation;
+        delete excelItem.nativeGradingSource;
+        delete excelItem.nativeGradingCourseId;
+    }
     excelItem.readingAttachmentEvidence=sameEvidenceItem && liveItem.readingAttachmentEvidence?JSON.parse(JSON.stringify(liveItem.readingAttachmentEvidence)):null;
     excelItem.textCaptureEvidence=sameEvidenceItem && liveItem.textCaptureEvidence?JSON.parse(JSON.stringify(liveItem.textCaptureEvidence)):null;
     excelItem.emptyEditorEvidence=sameEvidenceItem?qaObservedEmptyAssessmentReceipt_(liveItem):null;
