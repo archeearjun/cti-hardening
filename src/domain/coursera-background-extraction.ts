@@ -458,7 +458,12 @@ function directCmlMediaSourcesValid(
   evidence: Record<string, any>,
   value: string,
 ): boolean {
-  const inventory = directCmlMediaInventoryV1(value);
+  const inventory = directCmlMediaInventoryV1(
+    value,
+    evidence.textProjectionVersion === undefined
+      ? 1
+      : evidence.textProjectionVersion,
+  );
   if (!inventory.valid || payload.textSample !== inventory.text) return false;
   const media = directMediaEvidenceStructureV1(
     payload.directAssetEvidence,
@@ -899,7 +904,12 @@ function directDiscussionSourcesValid(
     raw = record(promptType?.definition),
     cml = record(raw?.prompt),
     body = record(cml?.definition);
-  const parsed = directCmlMediaInventoryV1(body?.value);
+  const parsed = directCmlMediaInventoryV1(
+    body?.value,
+    evidence.textProjectionVersion === undefined
+      ? 1
+      : evidence.textProjectionVersion,
+  );
   let retained = false;
   try {
     retained =

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { getExtractor } from "../src/domain/capture-review";
 import { inspectBrightspaceCaptureFile } from "../src/domain/brightspace-local-extraction";
+import { BRIGHTSPACE_CAPTURE_FILE_ACCEPT } from "../src/domain/capture-file.ts";
 import type { ExtractorDelivery, ReviewResult } from "../src/domain/types";
 import { download } from "./workspace-ui";
 import BrightspaceBookmarkSetup from "./BrightspaceBookmarkSetup";
@@ -150,10 +151,10 @@ export default function SourceLmsCapture({
         )}
       </details>
       <label>
-        Downloaded Brightspace source JSON
+        Downloaded Brightspace source capture (.cti.zip or JSON)
         <input
           type="file"
-          accept=".json"
+          accept={BRIGHTSPACE_CAPTURE_FILE_ACCEPT}
           disabled={disabled || !courseTitle}
           onChange={(event) => void inspect(event.target.files?.[0])}
         />
@@ -204,7 +205,7 @@ export default function SourceLmsCapture({
             onClick={() => {
               onUseCapture(inspection.file);
               setMessage(
-                "Brightspace JSON selected for comparison. It will be saved with the next successful comparison report.",
+                "Brightspace capture selected for comparison. It will be saved with the next successful comparison report.",
               );
             }}
           >

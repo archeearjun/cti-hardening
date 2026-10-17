@@ -10,7 +10,7 @@ export default function ModuleTimeSummary({ rows }: { rows: ReturnType<typeof mo
     <div className="table-wrap" tabIndex={0} role="region" aria-label="Module time estimates"><table>
       <thead><tr><th>Module</th><th>Baseline</th><th>Latest available</th><th>Coverage</th></tr></thead>
       <tbody>{included.map(r => <tr key={r.key}>
-        <th scope="row">{r.module}</th>
+        <th scope="row">{r.module}{r.nativeId && <small>Native module: {r.nativeId}</small>}{!r.nativeId && rows.some(other => other.key !== r.key && other.module === r.module) && <small>Outline occurrence {r.occurrence}; native ID not recorded</small>}</th>
         <td>{r.baseline.captured ? formatMinutes(r.baseline.minutes) : "Not captured"}{r.baseline.missing && r.baseline.captured ? " (partial)" : ""}</td>
         <td>{r.latest.captured ? formatMinutes(r.latest.minutes) : "Not captured"}{r.latest.missing && r.latest.captured ? " (partial)" : ""}</td>
         <td>{r.latest.captured}/{r.latest.total} captured · {r.refreshed} refreshed{r.excluded ? ` · ${r.excluded} excluded` : ""}</td>

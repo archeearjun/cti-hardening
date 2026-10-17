@@ -1,9 +1,9 @@
 # Brightspace bookmark capture
 
-The current Brightspace collector is **v1.1.1, schema 2**. Its primary delivery
+The current Brightspace collector is **v1.2.0, schema 2**. Its primary delivery
 is a saved **CTI Brightspace capture** bookmark. It reads supported source
-evidence in the operator’s existing signed-in Chrome tab and downloads one JSON
-file. It does not change the course or create replacement content.
+evidence in the operator’s existing signed-in Chrome tab and downloads one `.cti.zip`
+file containing a compressed manifest and the retained original files. It does not change the course or create replacement content.
 
 ## Operator workflow
 
@@ -17,8 +17,9 @@ file. It does not change the course or create replacement content.
    profile already signed in to that course. Use the saved bookmark, choose
    **Capture/resume** on its card, and keep
    the course tab open while capture runs. DevTools can stay closed.
-4. Return the downloaded source JSON to CTI. Inspect the course identity,
-   retained sources and gaps before selecting it for comparison.
+4. Return the downloaded source `.cti.zip` to CTI. Inspect the course identity,
+   retained sources and gaps before selecting it for comparison. Earlier source JSON
+   captures remain accepted as historical inputs; leave the new archive zipped.
 
 Clipboard denial does not shorten or remove the address. **Complete Brightspace
 bookmark address copy fallback** contains the full selectable address. The
@@ -41,6 +42,10 @@ same-origin file references can retain their binary originals within the
 bounds below. Each acquisition records its requested and observed response URL,
 HTTP status, observation time, actual byte length and SHA-256. Native source
 bindings identify the relevant topic, module, quiz, assignment or discussion.
+When an unencoded response supplies Content-Length, the reader requires the
+received body to match that declared length before retaining it as complete.
+Compressed wire lengths are not compared to Fetch's decoded response bytes;
+responses without a length still receive actual byte counting and bounds.
 The same body may be stored once by hash while its distinct course placements
 and source bindings remain separate. Matching titles do not supply identity.
 
@@ -72,6 +77,39 @@ banks, infer that they are empty, or turn the reported exam length into captured
 questions. An accessible definition API and current source evidence are needed
 to resolve them.
 
+## Original-file storage and archive delivery
+
+Version 1.2.0 removes the all-bodies-in-one-JSON bottleneck. Each original is
+verified and committed as an immutable IndexedDB Blob before its successful
+receipt is published. The compact JSON checkpoint retains its SHA-256, length,
+explicit archive path, native placement bindings and original observation dates;
+it does not contain large BASE64 copies. The storage scope includes the exact
+origin, native course ID, extractor build and attempt ID.
+
+One ZIP_STORE archive contains `capture.json.gz` and deduplicated
+`files/<sha256>` originals. Its checksums are written from bounded 1 MiB ranges;
+export does not join all original bodies into one JavaScript byte array. Before
+export, each saved Blob is checked against its descriptor and SHA-256. Missing,
+changed or unreadable storage fails visibly rather than exporting a falsely
+complete original. The capture card keeps a real **Save prepared capture file**
+link available after preparation for browsers that block an automatic download.
+
+The larger file, retention and read budgets below apply to this Blob/archive
+transport only. They allow supported static files previously omitted at the
+16 MiB file, 64 MiB retention and 96 MiB read bounds to be attempted without
+bloating the 128 MiB JSON. This is a storage/transport change, not evidence that
+those previously missing sources were captured. Update the bookmark and run a
+new current capture to make fresh observations. Individual limits, unavailable
+source URLs, dynamic tools, external providers and definition gaps remain
+explicit. No content is generated or borrowed from similarly named items.
+
+Original Blob storage is local to this browser and origin. Quota failures stop
+the current attempt and retain prior committed originals; no failed write is
+labelled successful. Browser storage availability is not guaranteed. Immutable
+originals from older attempts are not automatically deleted, including when
+old metadata checkpoints age out, so download captures and manage browser
+site storage when space is needed. Clearing that storage removes local recovery.
+
 ## Recovery and freshness
 
 Checkpoints are local to the Brightspace origin, native course ID, extractor
@@ -82,9 +120,10 @@ reported; the operator should download the in-memory evidence before closing
 the tab if checkpoint storage is unavailable or full.
 
 When the current build has no saved history, its recovery controls can offer
-the exact known v1.1.0 checkpoint as a historical download. That fallback is
+the exact known v1.1.1 checkpoint, or the v1.1.0 checkpoint when no v1.1.1 checkpoint exists as a historical download. That fallback is
 read-only: original build identities, payloads and dates remain unchanged, and
-current captures write into the new build's scope.
+current captures write into the new build's scope. An earlier checkpoint
+remains a JSON download; it is not relabelled or rewritten as a v1.2 archive.
 
 **Capture/resume re-reads metadata and original bodies on each current attempt.**
 The saved checkpoint is not a cache that certifies unchanged sources or makes
@@ -103,13 +142,14 @@ their own checkpoints.
 | --- | --- |
 | Complete encoded bookmark address | Strictly below 500 KiB |
 | One retained text original | 4 MiB |
-| One retained file original | 16 MiB |
-| Unique retained original bodies | 64 MiB, deduplicated by SHA-256 |
-| Original-content reader observed response bodies per attempt | 96 MiB |
+| One retained file original | 64 MiB (archive); legacy JSON remains 16 MiB |
+| Unique retained original bodies | 512 MiB (archive), deduplicated by SHA-256; legacy JSON remains 64 MiB |
+| Original-content reader observed response bodies per attempt | 768 MiB (archive collector) |
 | Decoded HTML and text projections combined | 16 MiB |
 | Original-content reader requests / discovered references | 800 / 2,000 |
 | Original-content request deadline | 30 seconds |
-| Exported JSON, inspection and checkpoint payload | 128 MiB |
+| Expanded manifest JSON and checkpoint payload | 128 MiB |
+| Complete archive artifact | 640 MiB |
 
 The content reader counts bytes exposed by the browser’s decoded response-body
 stream, including failed reads and the chunk that crosses a limit. This is not
@@ -120,7 +160,7 @@ Checkpoint success also depends on available browser storage.
 
 ## Import and verification
 
-CTI validates referenced original bodies against their base64 bytes, SHA-256,
+CTI validates referenced original bodies against their actual archive bytes (or legacy BASE64), SHA-256,
 length, receipts and native source bindings. It checks retained text metadata
 and original-body consistency before accepting current evidence. A valid body
 hash establishes consistency of the retained bytes; it is not a server
@@ -134,7 +174,7 @@ There is no external JavaScript loader, runtime `eval`, compression bootstrap or
 new extension dependency. `tools/generate-assets.mjs` validates the complete
 address size before the app builds; the copy fallback is not truncated.
 
-Relevant checks include `tests/brightspace-bookmark.test.mjs`, the bounded
+Relevant checks include `tests/brightspace-bookmark.test.mjs`, `tests/brightspace-body-archive.test.mjs`, the bounded
 content-reader and checkpoint tests, import-integrity tests, and
 `tools/browser-brightspace-bookmark-check.mjs`. Browser fixtures verify delivery,
 retention and failure behavior. They do not certify a private course’s coverage,

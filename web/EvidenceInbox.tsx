@@ -231,7 +231,7 @@ export default function EvidenceInbox({
     <section className="card evidence-inbox" aria-label="Evidence inbox">
       <h2>Add course evidence</h2>
       <p>
-        Add the files together. CTI detects Coursera captures, Brightspace JSON,
+        Add the files together. CTI detects Coursera and Brightspace captures,
         source packages, XLSX and source documents, then selects the accepted
         inputs for comparison.
       </p>

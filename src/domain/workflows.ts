@@ -17,6 +17,7 @@ import {
 } from "./capture-structure.ts";
 import { nativeCourseOutlineText } from "./native-course-outline.ts";
 import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
+import { attachBrightspaceArchiveFileBlobs } from "./brightspace-capture-archive.ts";
 import {
   applyDocumentComparisonScope,
   documentComparisonText,
@@ -184,6 +185,9 @@ export function createWorkflows(xmlService: unknown) {
       readCourseraCapture(_bytes: Uint8Array): EvidenceObject {
         throw new Error("Coursera capture was not supplied.");
       },
+      readBrightspaceCapture(_bytes: Uint8Array): EvidenceObject {
+        throw new Error("Brightspace capture was not supplied.");
+      },
     };
   }
   const base64 = (bytes?: Uint8Array) =>
@@ -194,19 +198,23 @@ export function createWorkflows(xmlService: unknown) {
           .map((n) => (n & 255).toString(16).padStart(2, "0"))
           .join("")
       : "";
-  function compare(input: ComparisonInput): ComparisonOutput {
+  function compare(
+    input: ComparisonInput,
+    parsedBrightspaceCapture?: EvidenceObject,
+  ): ComparisonOutput {
     if (input.course.kind !== "package" || !input.course.data.scan?.courseTree)
       throw new Error("Choose a scanned source package.");
     let brightspaceEvidence;
     if (input.brightspace) {
       if (input.brightspace.bytes.byteLength > 128 * 1024 * 1024)
         throw Error("Brightspace capture exceeds the 128 MiB limit.");
-      brightspaceEvidence = assertBrightspaceCaptureIntegrity(
-        JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(
-            input.brightspace.bytes,
-          ),
+      parsedBrightspaceCapture ??= JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(
+          input.brightspace.bytes,
         ),
+      );
+      brightspaceEvidence = assertBrightspaceCaptureIntegrity(
+        parsedBrightspaceCapture,
       );
     }
     if (
@@ -218,6 +226,15 @@ export function createWorkflows(xmlService: unknown) {
         "Ingestion generation must be a whole number from 0 (original import) through 99.",
       );
     const io = ioFor();
+    if (input.brightspace) {
+      io.readBrightspaceCapture = (bytes) => {
+        if (bytes !== input.brightspace?.bytes)
+          throw Error(
+            "Comparison source bytes do not match the selected input.",
+          );
+        return parsedBrightspaceCapture!;
+      };
+    }
     let parsedCourseraCapture: EvidenceObject | undefined;
     if (input.json) {
       io.readCourseraCapture = (bytes) => {
@@ -285,7 +302,7 @@ export function createWorkflows(xmlService: unknown) {
         generation: input.generation,
         ingestionCapabilityStatus: input.ingestionCapabilityStatus || "UNKNOWN",
       },
-      base64(input.brightspace?.bytes),
+      input.brightspace?.bytes || "",
       input.brightspace?.name || "",
       base64(input.recovery?.bytes),
       input.recovery?.name || "",
@@ -362,10 +379,12 @@ export function createWorkflows(xmlService: unknown) {
         input.json?.bytes,
         input.brightspace?.bytes,
         parsedCourseraCapture,
+        parsedBrightspaceCapture,
       ),
       ownerContext: buildOwnerContext(
         input.brightspace?.bytes,
         result.liveSourceGroundTruth?.sourceTopicMappings || [],
+        parsedBrightspaceCapture,
       ),
       report:
         (warnings.length
@@ -383,23 +402,32 @@ export function createWorkflows(xmlService: unknown) {
         brightspace: hash(input.brightspace?.bytes),
         recovery: hash(input.recovery?.bytes),
       },
-      ...(input.json?.transport
+      ...(input.json?.transport || input.brightspace?.transport
         ? {
             captureTransport: {
-              json: {
-                encoding: input.json.transport.encoding,
-                name: input.json.transport.name,
-                bytes: input.json.transport.bytes,
-                sha256: input.json.transport.sha256,
-                expandedBytes: input.json.transport.expandedBytes,
-                ...(archiveProof
-                  ? {
-                      originalBodyBytes: archiveProof.originalBodyBytes,
-                      fileCount: archiveProof.fileCount,
-                      files: archiveProof.files,
-                    }
-                  : {}),
-              },
+              ...(input.json?.transport
+                ? {
+                    json: {
+                      encoding: input.json.transport.encoding,
+                      name: input.json.transport.name,
+                      bytes: input.json.transport.bytes,
+                      sha256: input.json.transport.sha256,
+                      expandedBytes: input.json.transport.expandedBytes,
+                      ...(archiveProof
+                        ? {
+                            originalBodyBytes: archiveProof.originalBodyBytes,
+                            fileCount: archiveProof.fileCount,
+                            files: archiveProof.files,
+                          }
+                        : {}),
+                    },
+                  }
+                : {}),
+              ...(input.brightspace?.transport
+                ? {
+                    brightspace: { ...input.brightspace.transport },
+                  }
+                : {}),
             },
           }
         : {}),
@@ -614,5 +642,42 @@ export function createWorkflows(xmlService: unknown) {
           );
     return { result, book: io.books.get("local-master") };
   }
-  return { execute, compare, generationContext };
+  async function executeAsync(job: WorkflowJob): Promise<EvidenceObject> {
+    if (
+      job.kind === "compare" &&
+      job.input.brightspace?.brightspaceArchiveFiles
+    ) {
+      const original = job.input.brightspace;
+      // Hashing and Blob validation await I/O. Own the manifest and descriptor
+      // list before yielding so the compared model and its saved hash agree.
+      const source = {
+        ...original,
+        bytes: new Uint8Array(original.bytes),
+        transport: original.transport
+          ? structuredClone(original.transport)
+          : undefined,
+        brightspaceArchiveFiles: original.brightspaceArchiveFiles!.map(
+          (file) => ({ ...file }),
+        ),
+      };
+      const input = { ...job.input, brightspace: source };
+      if (source.bytes.byteLength > 128 * 1024 * 1024)
+        throw Error("Brightspace capture exceeds the 128 MiB manifest limit.");
+      const parsed = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(source.bytes),
+      );
+      await attachBrightspaceArchiveFileBlobs(
+        parsed,
+        source.brightspaceArchiveFiles!,
+      );
+      return compare(input, parsed);
+    }
+    return execute(job);
+  }
+  return {
+    execute,
+    executeAsync,
+    compare: (input: ComparisonInput) => compare(input),
+    generationContext,
+  };
 }

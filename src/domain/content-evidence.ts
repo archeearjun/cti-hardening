@@ -13,7 +13,11 @@ import {
   directPanoptoProjectionV1,
 } from "../extractors/coursera/direct-data-panopto.js";
 import { workerXml } from "../adapters/worker-xml.ts";
-import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
+import {
+  assertBrightspaceCaptureIntegrity,
+  getBrightspaceOriginalText,
+  MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES,
+} from "./brightspace-capture-evidence.ts";
 import {
   deriveBrightspaceHtmlStructure,
   validateBrightspaceHtmlStructure,
@@ -345,7 +349,7 @@ function validateBrightspaceSourceBody(value: unknown) {
     typeof body.descriptionTruncated !== "boolean" ||
     !(
       body.bytes === null ||
-      (integer(body.bytes) !== null && Number(body.bytes) <= 16 * 1024 * 1024)
+      (integer(body.bytes) !== null && Number(body.bytes) <= MAX_BRIGHTSPACE_ARCHIVE_FILE_BYTES)
     ) ||
     (body.sha256 !== "" && !hash.test(string(body.sha256))) ||
     (body.originalRef !== "" && !hash.test(string(body.originalRef))) ||
@@ -701,7 +705,14 @@ function verifiedDirectDraftText(p: Obj, itemId: string | undefined): boolean {
       p.textCaptureEvidence != null
     )
       return false;
-    const parsed = directCmlMediaInventoryV1(value);
+    const parsed = directCmlMediaInventoryV1(
+      value,
+      evidence.textProjectionVersion === undefined
+        ? 1
+        : typeof evidence.textProjectionVersion === "number"
+          ? evidence.textProjectionVersion
+          : 0,
+    );
     return (
       parsed.valid &&
       typeof parsed.text === "string" &&
@@ -1139,6 +1150,9 @@ function brightspaceSourceContent(
     bodies = contentObject(capture.assetBodies),
     ref = string(ce.rawBodyRef || ce.originalRef),
     body = contentObject(bodies[ref]),
+    originalHtml = body.encoding === "archive"
+      ? getBrightspaceOriginalText(capture, ref, string(ce.charset) || "utf-8")
+      : ce.html,
     originalVerified = /^[a-f0-9]{64}$/.test(ref) && body.sha256 === ref,
     bodyTextPresent = typeof ce.text === "string",
     description = qaBrightspaceText_(topic.description),
@@ -1245,10 +1259,10 @@ function brightspaceSourceContent(
     ce.status === "CAPTURED" &&
     ce.projectionStatus !== "UNRESOLVED" &&
     ce.format === "html" &&
-    typeof ce.html === "string" &&
+    typeof originalHtml === "string" &&
     sourceBody.originalUrl
   ) {
-    const structure = deriveBrightspaceHtmlStructure(ce.html, {
+    const structure = deriveBrightspaceHtmlStructure(originalHtml, {
       topicId: sourceBody.topicId,
       originalRef: ref,
       sourceUrl: sourceBody.originalUrl,
@@ -1322,6 +1336,7 @@ export function buildContentSnapshot(
   courseraBytes?: Uint8Array,
   brightspaceBytes?: Uint8Array,
   parsedCourseraCapture?: unknown,
+  parsedBrightspaceCapture?: unknown,
 ): ContentSnapshot {
   // The comparison's trusted byte adapter can reuse its parsed model, including
   // separately verified archive originals, without decoding the large JSON again.
@@ -1329,8 +1344,11 @@ export function buildContentSnapshot(
       parsedCourseraCapture === undefined
         ? parse(courseraBytes)
         : contentObject(parsedCourseraCapture),
-    bs = parse(brightspaceBytes);
-  if (brightspaceBytes) assertBrightspaceCaptureIntegrity(bs);
+    bs = parsedBrightspaceCapture === undefined
+      ? parse(brightspaceBytes)
+      : contentObject(parsedBrightspaceCapture);
+  if (brightspaceBytes || parsedBrightspaceCapture !== undefined)
+    assertBrightspaceCaptureIntegrity(bs);
   const fingerprints = array(raw.fingerprints),
     topics = qaBrightspaceFlattenTopics_(array(bs.contentTree));
   const coursera: ContentItem[] = fingerprints.map((v) => {

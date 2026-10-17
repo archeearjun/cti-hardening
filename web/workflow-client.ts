@@ -43,6 +43,7 @@ export function runWorkflow(
       const seen = new Set<ArrayBuffer>();
       for (const value of [
         job.input.json?.bytes,
+        job.input.brightspace?.bytes,
         ...(job.input.json?.archiveFiles || []).map((file) => file.bytes),
       ]) {
         if (value?.buffer instanceof ArrayBuffer && !seen.has(value.buffer)) {

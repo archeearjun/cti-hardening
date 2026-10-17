@@ -77,7 +77,9 @@ export default function BrightspaceBookmarkSetup({
           </span>
         </li>
         <li>
-          <strong>Bring the downloaded source JSON back to CTI.</strong>
+          <strong>
+            Bring the downloaded .cti.zip source capture back to CTI.
+          </strong>
           <span>
             Inspect the course identity and recorded gaps before using the
             capture in comparison. A finished download alone does not establish

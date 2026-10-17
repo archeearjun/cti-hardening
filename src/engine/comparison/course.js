@@ -17,7 +17,7 @@ import { qaApplyDestinationReadinessPolicy_, qaAssessDestinationReadiness_, qaAs
 import { qaClassifyExtraItem_, qaOwnerActionForResult_, workApplyPolicyAwareOperatorGuidance_ } from "../reporting/actions.js";
 import { qaEvidenceStrength_ } from "../reporting/evidence.js";
 import { qaBuildRepackagedMissingResult_ } from "../source/brightspace-assessment.js";
-import { create_qaParseBrightspaceGroundTruthCapture_, flattenTreeForQa_, qaApplyBrightspaceGroundTruth_, qaApplyLiveSourceReviewPolicy_ } from "../source/brightspace-matching.js";
+import { create_qaParseBrightspaceGroundTruthCapture_, flattenTreeForQa_, qaApplyBrightspaceGroundTruth_, qaApplyLiveSourceReviewPolicy_, qaParseBrightspaceGroundTruthModel_ } from "../source/brightspace-matching.js";
 import { create_normalizeSourceItem_, qaApplySourceTextGap_, qaApplyUnreachedCarrierGap_ } from "../source/content.js";
 import { qaApplyReadinessToSummary_, qaAttachReadinessActions_, qaAttachSourceAssetProvenance_, qaBuildDestinationOwnerView_, qaMissingReconciliationDiagnostic_ } from "../source/metrics.js";
 import { qaApplyIngestionActionabilityPolicy_, workBuildRawQaOperationalPolicy_ } from "../work/policy.js";
@@ -74,13 +74,15 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
         // that input intact rather than expanding it to a second Base64 copy.
         // The legacy Base64 entry remains compatible with its original bound.
         var jsonBytes = jsonBase64 instanceof Uint8Array ? jsonBase64 : null;
+        var sourceBytes = sourceLiveBase64 instanceof Uint8Array ? sourceLiveBase64 : null;
         if (!excelBase64) return { success: false, error: "Coursera Excel export is required as the authoritative structural inventory. Fingerprint JSON is optional payload enrichment." };
         if (String(excelBase64).length > 35000000) return { success:false, error:"Coursera Excel export is larger than the 25 MB QA safety limit." };
         if (readingRecoveryBase64 && !jsonBase64)return {success:false,error:'Attach the original full Coursera JSON together with its reading recovery JSON.'};
         if (readingRecoveryBase64 && String(readingRecoveryBase64).length>35000000)return {success:false,error:'Reading recovery JSON exceeds the 25 MB limit.'};
         if (jsonBytes && (!jsonBytes.byteLength || jsonBytes.byteLength > 128 * 1024 * 1024)) return { success:false, error:"Coursera fingerprint JSON must be non-empty and no larger than the 128 MiB expanded capture limit." };
         if (jsonBase64 && !jsonBytes && String(jsonBase64).length > 35000000) return { success:false, error:"Coursera fingerprint JSON is larger than the 25 MB QA safety limit." };
-        if (sourceLiveBase64 && String(sourceLiveBase64).length > 178956972) return { success:false, error:"Brightspace live-source JSON is larger than the 128 MiB QA safety limit." };
+        if (sourceBytes && (!sourceBytes.byteLength || sourceBytes.byteLength > 128 * 1024 * 1024)) return { success:false, error:"Brightspace live-source JSON must be non-empty and no larger than the 128 MiB QA safety limit." };
+        if (sourceLiveBase64 && !sourceBytes && String(sourceLiveBase64).length > 178956972) return { success:false, error:"Brightspace live-source JSON is larger than the 128 MiB QA safety limit." };
         targetUuid = validateUuid_(targetUuid);
 
         var dbData = io.loadPackage(targetUuid);
@@ -93,7 +95,12 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             else coreItems.push(normalizeSourceItem_(item));
         });
 
-        var liveSourceCapture = sourceLiveBase64 ? qaParseBrightspaceGroundTruthCapture_(sourceLiveBase64, sourceLiveName) : null;
+        var liveSourceCapture = null;
+        if (sourceBytes) {
+            var sourceModel = typeof io.readBrightspaceCapture === 'function' ? io.readBrightspaceCapture(sourceBytes) : JSON.parse(Utilities.newBlob(sourceBytes).getDataAsString());
+            var sourceSha256 = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sourceBytes).map(function(b) { return (b & 255).toString(16).padStart(2, '0'); }).join('');
+            liveSourceCapture = qaParseBrightspaceGroundTruthModel_(sourceModel, {name:sourceLiveName,sha256:sourceSha256});
+        } else if (sourceLiveBase64) liveSourceCapture = qaParseBrightspaceGroundTruthCapture_(sourceLiveBase64, sourceLiveName);
         var liveSourceGroundTruth = null;
         if (liveSourceCapture) {
             var liveApplied = qaApplyBrightspaceGroundTruth_(coreItems, liveSourceCapture, dbData.packageMeta || {}, bundledAssets);

@@ -30,6 +30,47 @@ test("CML text preserves block boundaries, inline text, entities and literal mar
   assert.deepEqual(result.references, []);
 });
 
+test("versioned native CML heading boundaries retain old projections and separate authored headings from body text", () => {
+  const cml =
+    '<co-content><heading level="1">Elevation and Roof Blueprint Reading</heading>' +
+    '<heading level="2">Description</heading><text>Read the plan.</text>' +
+    '<heading level="2">Guiding<strong> Questions</strong></heading>' +
+    '<list bulletType="numbers"><li><text>First</text></li><li><text>Second</text></li></list></co-content>';
+  assert.equal(
+    directCmlMediaInventoryV1(cml).text,
+    "Elevation and Roof Blueprint ReadingDescription Read the plan. Guiding Questions First Second",
+  );
+  const current = directCmlMediaInventoryV1(cml, 2);
+  assert.equal(current.valid, true);
+  assert.equal(
+    current.text,
+    "Elevation and Roof Blueprint Reading Description Read the plan. Guiding Questions First Second",
+  );
+  assert.deepEqual(current.references, []);
+  for (const version of [0, 3, "2", null])
+    assert.equal(directCmlMediaInventoryV1(cml, version).valid, false);
+});
+
+test("native blank image nodes remain missing pointers and never borrow another image's native identity", () => {
+  const missing = directCmlMediaInventoryV1(
+    '<co-content><heading level="2">Original Image</heading>' +
+      '<img alt="Assignment 1 schematic"/><img/><img alt=""/></co-content>',
+    2,
+  );
+  assert.equal(missing.valid, true);
+  assert.equal(missing.text, "Original Image");
+  assert.equal(missing.references.length, 3);
+  assert(
+    missing.references.every(
+      (reference) => reference.id === "" && reference.url === "",
+    ),
+  );
+  assert.equal(
+    directMediaEvidenceStructureV1(null, missing.references).reason,
+    "DIRECT_CML_MEDIA_REFERENCE_MISSING",
+  );
+});
+
 test("CML plain text rejects unsupported entities and malformed XML characters instead of certifying a different projection", () => {
   for (const body of [
     "<text>bare & text</text>",

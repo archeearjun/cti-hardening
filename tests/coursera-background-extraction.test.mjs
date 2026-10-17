@@ -18,14 +18,29 @@ function directWidgetCapture() {
   const { fp, bound } = widgetFixture();
   directWidgetContractV1(fp, bound);
   const materials = {
-    elements: [{
-      id: WIDGET_COURSE,
-      material: { elements: [{ id: "widget-module", name: "Module", elements: [{
-        id: fp.id, name: fp.name, atomId: fp.atomId, contentId: fp.contentId,
-        content: { typeName: "ungradedWidget", definition: {} },
-      }] }] },
-      conflictMetadata: { version: 1, courseBranchVersion: 1 },
-    }],
+    elements: [
+      {
+        id: WIDGET_COURSE,
+        material: {
+          elements: [
+            {
+              id: "widget-module",
+              name: "Module",
+              elements: [
+                {
+                  id: fp.id,
+                  name: fp.name,
+                  atomId: fp.atomId,
+                  contentId: fp.contentId,
+                  content: { typeName: "ungradedWidget", definition: {} },
+                },
+              ],
+            },
+          ],
+        },
+        conflictMetadata: { version: 1, courseBranchVersion: 1 },
+      },
+    ],
     paging: {},
   };
   const materialHash = modelHash(materials.elements[0]);
@@ -37,18 +52,33 @@ function directWidgetCapture() {
     meta: {
       baseFingerprintCount: 1,
       directDataCapture: {
-        mode: "BOUND_AUTHORING_DRAFT_API", version: 1,
-        sourceStable: true, acquisitionComplete: true, wholeCourseVerified: false,
-        initialMaterialHash: materialHash, finalMaterialHash: materialHash,
-        materialVersion: 1, courseBranchVersion: 1,
-        materials, finalMaterials: structuredClone(materials),
+        mode: "BOUND_AUTHORING_DRAFT_API",
+        version: 1,
+        sourceStable: true,
+        acquisitionComplete: true,
+        wholeCourseVerified: false,
+        initialMaterialHash: materialHash,
+        finalMaterialHash: materialHash,
+        materialVersion: 1,
+        courseBranchVersion: 1,
+        materials,
+        finalMaterials: structuredClone(materials),
         materialsReceipt: receipt("authoringCourseMaterials.v1", WIDGET_COURSE),
-        finalMaterialsReceipt: receipt("authoringCourseMaterials.v1", WIDGET_COURSE),
+        finalMaterialsReceipt: receipt(
+          "authoringCourseMaterials.v1",
+          WIDGET_COURSE,
+        ),
       },
       captureAccounting: {
-        inventoryCount: 1, completeCount: 0, unresolvedCount: 1,
-        unknownCount: 0, unvisitedCount: 0, externalContentUnverifiedCount: 1,
-        allInventoryAccounted: true, noSilentMisses: true, complete: false,
+        inventoryCount: 1,
+        completeCount: 0,
+        unresolvedCount: 1,
+        unknownCount: 0,
+        unvisitedCount: 0,
+        externalContentUnverifiedCount: 1,
+        allInventoryAccounted: true,
+        noSilentMisses: true,
+        complete: false,
       },
     },
     fingerprints: [fp],
@@ -56,63 +86,117 @@ function directWidgetCapture() {
 }
 
 test("bound widget configuration remains incomplete while its source proof validates independently", () => {
-  const capture = directWidgetCapture(), verdict = evaluateCourseraCapture(capture, WIDGET_COURSE);
+  const capture = directWidgetCapture(),
+    verdict = evaluateCourseraCapture(capture, WIDGET_COURSE);
   assert.equal(verdict.complete, false);
   assert.ok(verdict.reasons.includes("PLUGIN_BODY_UNVERIFIED:WidgetA"));
-  assert.ok(!verdict.reasons.some(reason => reason.includes("DIRECT_WIDGET_PROVIDER_SOURCE_INVALID")));
+  assert.ok(
+    !verdict.reasons.some((reason) =>
+      reason.includes("DIRECT_WIDGET_PROVIDER_SOURCE_INVALID"),
+    ),
+  );
 });
 
 test("incomplete widget source claims cannot bypass independent binding, hash or target checks", () => {
   const changes = [
-    ["wrong finder course", (fp, raw) => {
-      raw.final.receipt.requestQuery.find(pair => pair[0] === "courseId")[1] = "other-course";
-    }],
-    ["duplicate finder selector", (fp, raw) => {
-      raw.final.receipt.requestQuery.push(["courseId", WIDGET_COURSE]);
-    }],
-    ["action request", (fp, raw) => {
-      raw.initial.receipt.requestQuery.push(["action", "getConfiguration"]);
-    }],
-    ["wrong provider model", (fp, raw) => {
-      raw.initial.model.elements[0].id = "x".repeat(22);
-    }],
-    ["provider changed independently", (fp, raw) => {
-      raw.final.model.elements[0].metadata.updatedAt++;
-    }],
-    ["both provider copies edited without source hash", (fp, raw) => {
-      for (const read of [raw.initial, raw.final])
-        read.model.elements[0].draft.configuration.customSetting = "edited after capture";
-    }],
-    ["forged target", (fp, raw) => {
-      raw.targets[0].url = "https://other.example.test/not-observed";
-    }],
-    ["linked example promoted to target", (fp, raw) => {
-      raw.targets[0].url = raw.initial.model.linked["authoringWidgetSummaries.v1"][0]
-        .configurationExamples[0].configuration.url;
-    }],
-    ["retained credentials", (fp, raw) => {
-      raw.initial.model.elements[0].draft.configuration.access_token = "synthetic-secret";
-    }],
-    ["failed current atom check", fp => {
-      fp.payload.directResumeRevalidation = { verified: false };
-    }],
-    ["source claim without retained proof", fp => {
-      delete fp.payload.directWidgetProviderEvidence;
-    }],
-    ["provider proof without contract", fp => {
-      delete fp.captureContract;
-      delete fp.payload.captureContract;
-    }],
-    ["provider proof claims external body", fp => {
-      fp.captureContract.externalBodyVerified = true;
-    }],
+    [
+      "wrong finder course",
+      (fp, raw) => {
+        raw.final.receipt.requestQuery.find(
+          (pair) => pair[0] === "courseId",
+        )[1] = "other-course";
+      },
+    ],
+    [
+      "duplicate finder selector",
+      (fp, raw) => {
+        raw.final.receipt.requestQuery.push(["courseId", WIDGET_COURSE]);
+      },
+    ],
+    [
+      "action request",
+      (fp, raw) => {
+        raw.initial.receipt.requestQuery.push(["action", "getConfiguration"]);
+      },
+    ],
+    [
+      "wrong provider model",
+      (fp, raw) => {
+        raw.initial.model.elements[0].id = "x".repeat(22);
+      },
+    ],
+    [
+      "provider changed independently",
+      (fp, raw) => {
+        raw.final.model.elements[0].metadata.updatedAt++;
+      },
+    ],
+    [
+      "both provider copies edited without source hash",
+      (fp, raw) => {
+        for (const read of [raw.initial, raw.final])
+          read.model.elements[0].draft.configuration.customSetting =
+            "edited after capture";
+      },
+    ],
+    [
+      "forged target",
+      (fp, raw) => {
+        raw.targets[0].url = "https://other.example.test/not-observed";
+      },
+    ],
+    [
+      "linked example promoted to target",
+      (fp, raw) => {
+        raw.targets[0].url =
+          raw.initial.model.linked[
+            "authoringWidgetSummaries.v1"
+          ][0].configurationExamples[0].configuration.url;
+      },
+    ],
+    [
+      "retained credentials",
+      (fp, raw) => {
+        raw.initial.model.elements[0].draft.configuration.access_token =
+          "synthetic-secret";
+      },
+    ],
+    [
+      "failed current atom check",
+      (fp) => {
+        fp.payload.directResumeRevalidation = { verified: false };
+      },
+    ],
+    [
+      "source claim without retained proof",
+      (fp) => {
+        delete fp.payload.directWidgetProviderEvidence;
+      },
+    ],
+    [
+      "provider proof without contract",
+      (fp) => {
+        delete fp.captureContract;
+        delete fp.payload.captureContract;
+      },
+    ],
+    [
+      "provider proof claims external body",
+      (fp) => {
+        fp.captureContract.externalBodyVerified = true;
+      },
+    ],
   ];
   for (const [name, change] of changes) {
-    const capture = directWidgetCapture(), fp = capture.fingerprints[0];
+    const capture = directWidgetCapture(),
+      fp = capture.fingerprints[0];
     change(fp, fp.payload.directWidgetProviderEvidence);
     const verdict = evaluateCourseraCapture(capture, WIDGET_COURSE);
     assert.equal(verdict.complete, false, name);
-    assert.ok(verdict.reasons.includes("DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:WidgetA"), name);
+    assert.ok(
+      verdict.reasons.includes("DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:WidgetA"),
+      name,
+    );
   }
 });
 
@@ -1431,6 +1515,52 @@ function directDiscussionCapture() {
     elements: [],
   });
 }
+
+test("direct CML import verifies versioned native heading projections while preserving historical text and source receipts", () => {
+  for (const createCapture of [directReadingCapture, directDiscussionCapture]) {
+    for (const version of [1, 2]) {
+      const capture = createCapture(),
+        payload = capture.fingerprints[0].payload,
+        draft = structuredClone(
+          payload.directDataSources.atom.elements[0].draft,
+        ),
+        cml =
+          draft.content.typeName === "supplementDraft"
+            ? draft.content.definition.content
+            : draft.content.definition.promptType.definition.prompt;
+      cml.definition.value =
+        '<co-content><heading level="1">Technical Drawings</heading>' +
+        '<heading level="2">Introduction</heading><text>Original body.</text></co-content>';
+      replaceDirectFixtureDraft(capture, draft);
+      payload.directDraftCml = cml;
+      if (draft.content.typeName !== "supplementDraft")
+        payload.directDraftDiscussion =
+          draft.content.definition.promptType.definition;
+      payload.textSample =
+        version === 1
+          ? "Technical DrawingsIntroduction Original body."
+          : "Technical Drawings Introduction Original body.";
+      payload.textLength = payload.directDataEvidence.plainTextLength =
+        payload.textSample.length;
+      payload.textSha256 = sourceHash(payload.textSample);
+      payload.directDataEvidence.rawCmlLength = cml.definition.value.length;
+      payload.directDataEvidence.rawCmlSha256 = sourceHash(
+        cml.definition.value,
+      );
+      if (version === 2) payload.directDataEvidence.textProjectionVersion = 2;
+      const before = JSON.stringify(capture),
+        verdict = evaluateCourseraCapture(capture, directCourseId);
+      assert.equal(verdict.complete, true, verdict.reasons.join("\n"));
+      assert.equal(JSON.stringify(capture), before);
+      payload.directDataEvidence.textProjectionVersion = version === 1 ? 2 : 1;
+      assert.equal(
+        evaluateCourseraCapture(capture, directCourseId).complete,
+        false,
+        "An observation cannot claim a different projection version without recomputing the exact source text",
+      );
+    }
+  }
+});
 
 test("direct discussion importer verifies observed draft prompt, permissions and original CML independently", () => {
   const capture = directDiscussionCapture(),

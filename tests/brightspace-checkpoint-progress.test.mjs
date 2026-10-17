@@ -189,6 +189,27 @@ function session(storage, change = {}) {
     ...change,
   });
 }
+
+test("v1.2 archive collector prefers exact historical v1.1.1 JSON over v1.1.0 without rewriting either build or its dates", async () => {
+  const db = storageFixture(), priorBuild = "v1.1.1-native-image-view-20261017",
+    earlierBuild = "v1.1.0-faithful-bookmark-20261016";
+  const prior = structuredClone(observation);
+  prior.capture.buildId = priorBuild;
+  prior.capture.originalBodyTransport = undefined;
+  prior.capture.assetBodies = { syntheticHistorical: { encoding: "base64", base64: "AQID" } };
+  await session(db, { buildId: priorBuild }).save(prior, { status: "FINISHED" });
+  const earlier = structuredClone(prior);
+  earlier.capture.buildId = earlierBuild;
+  await session(db, { buildId: earlierBuild }).save(earlier, { status: "FINISHED" });
+  const before = structuredClone(db.rows());
+  const saved = await loadBrightspacePreviousRecoveryV111({ origin: "https://lms.example.test", courseId: "123",
+    buildId: "v1.2.0-blob-archive-20261017", indexedDB: db.indexedDB, IDBKeyRange: db.IDBKeyRange, finishedOnly: true });
+  assert.equal(saved.state.capture.buildId, priorBuild);
+  assert.deepEqual(saved.state, JSON.parse(JSON.stringify(prior)));
+  assert.equal(saved.state.capture.body.observedAt, prior.capture.body.observedAt);
+  assert.equal(saved.state.capture.assetBodies.syntheticHistorical.encoding, "base64");
+  assert.deepEqual(db.rows(), before);
+});
 const observation = {
   course: { orgUnitId: "123" },
   capture: {
@@ -242,10 +263,10 @@ test("course, build and origin scopes never read or prune one another", async ()
   assert.equal(db.rows().length, 1);
 });
 
-test("v1.1.1 can recover the exact earlier v1.1.0 observations read-only while new attempts retain their own build scope", async () => {
+for (const currentBuild of ["v1.1.1-native-image-view-20261017", "v1.2.0-blob-archive-20261017"])
+test(currentBuild + " can recover exact earlier v1.1.0 observations read-only while new attempts retain their own build scope", async () => {
   const db = storageFixture(),
     previousBuild = "v1.1.0-faithful-bookmark-20261016",
-    currentBuild = "v1.1.1-native-image-view-20261017",
     old = structuredClone(observation);
   old.capture.buildId = previousBuild;
   old.capture.attempt = { id: "previous-finished" };
@@ -622,6 +643,10 @@ test("launcher requires an explicit action, isolates its closed display, and rec
     await Promise.resolve();
     assert.equal(calls, 1);
     assert.equal(p.isRunning(), true);
+    p.update({ downloadAvailable: true });
+    assert.equal(dom.roots[0].getElementById("download").disabled, true);
+    assert.equal(await p.download(), false, "Pause before exporting a mutable in-progress manifest");
+    assert.equal(downloads, 0);
     assert.equal(p.dispose(), false);
     assert.throws(
       () =>

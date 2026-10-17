@@ -14,6 +14,7 @@ import {
 import { validateRecord } from "../src/domain/workspace-validation.ts";
 import { prepareOwnerReportExport } from "../src/domain/owner-report-export.ts";
 import { newRecord, recordSummary } from "../src/domain/workspace-store.ts";
+import { buildContentSnapshot } from "../src/domain/content-evidence.ts";
 const item = { id: "quiz", type: "Assignment", name: "External quiz" };
 const finding = {
   sourceId: "source-a",
@@ -40,6 +41,23 @@ function reference() {
     note: "Exact Percentage section, ten numbered question stems; live bank not inspected.",
   };
 }
+test('unmatched exact destinations show captured counts without inventing source alignment or empty state',()=>{
+  const raw={fingerprints:[
+    {id:'quiz-a',name:'Captured quiz name',payload:{structuredAssessment:{declaredQuestionCount:2,captureCompleteness:{declared:2,questionCoverageComplete:true},questions:[{id:'q1',prompt:'One?'},{id:'q2',prompt:'Two?'}]}}},
+    {id:'quiz-b',name:'Unverified quiz',payload:{structuredAssessment:{questions:[]}}},
+  ]};
+  const snapshot=buildContentSnapshot(new TextEncoder().encode(JSON.stringify(raw)));
+  const result={ownerView:{items:raw.fingerprints.map(f=>({id:f.id,name:'Untitled',type:'Assignment'}))}};
+  const original=structuredClone(result),tasks=buildOwnerTasks(result,[],'',snapshot.coursera),row=tasks[0].questionComparisons[0];
+  assert.equal(tasks[0].name,'Captured quiz name');assert.equal(tasks[0].shellName,'Untitled');
+  assert.equal(row.coursera.count,2);assert.equal(row.coursera.complete,true);
+  assert.equal(row.source.count,null);assert.equal(row.directMatch,false);assert.equal(row.aligned,null);
+  assert.match(questionDifference(row),/No direct source-to-destination/);
+  assert.equal(tasks[1].questionComparisons[0].coursera.count,null,'an absent question list does not establish zero');
+  assert.deepEqual(result,original);
+  const duplicate=buildOwnerTasks(result,[],'',[...snapshot.coursera,snapshot.coursera[0]])[0];
+  assert.equal(duplicate.name,'Untitled');assert.equal(duplicate.questionComparisons[0].coursera.count,null,'ambiguous snapshots cannot establish title or count');
+});
 
 test("external source wrapper is unknown, while exact empty destination is zero; no title-based counts", () => {
   const r = row();

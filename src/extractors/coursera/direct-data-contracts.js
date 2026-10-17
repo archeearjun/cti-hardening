@@ -157,7 +157,7 @@ export function directSourceBindingEvidenceV1(fp, bound) {
 }
 
 /** XML is parsed into an inert detached document; no source node is mounted. */
-export function directCmlTextV1(cml) {
+export function directCmlTextV1(cml, textProjectionVersion = 1) {
   if (
     typeof cml !== "string" ||
     cml.length > 4000000 ||
@@ -165,7 +165,7 @@ export function directCmlTextV1(cml) {
     typeof DOMParser === "undefined"
   )
     return null;
-  const mediaInventory = directCmlMediaInventoryV1(cml);
+  const mediaInventory = directCmlMediaInventoryV1(cml, textProjectionVersion);
   if (!mediaInventory.valid) return null;
   // Bound markup before the XML parser allocates a document. Body-byte limits
   // alone do not bound the number of tiny XML nodes in a supplied source.
@@ -228,6 +228,7 @@ export function directCmlTextV1(cml) {
     }
     return {
       text,
+      textProjectionVersion,
       references: mediaInventory.references,
       links: [...new Set(links)],
     };
@@ -324,6 +325,7 @@ export async function directCmlMediaPayloadV1(
     rawCmlLength: source.cml.length,
     rawCmlSha256: rawHash,
     plainTextLength: parsed.text.length,
+    textProjectionVersion: parsed.textProjectionVersion,
     assetReferenceCount: parsed.references.length,
     assetsBodyVerified: mediaVerified,
     unresolvedAssetReferences: unresolved,
@@ -354,7 +356,7 @@ export async function directReadingPayloadV1(fp, bound, source) {
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
       "DIRECT_READING_SOURCE_NOT_BOUND",
     ]);
-  const parsed = directCmlTextV1(source.cml);
+  const parsed = directCmlTextV1(source.cml, 2);
   payload.directDraftCml = raw;
   if (!parsed)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_READING", false, [
@@ -423,7 +425,7 @@ export async function directDiscussionPayloadV1(fp, bound, source) {
   payload.directDraftCml = raw;
   payload.discussionTitle = definition.title;
   payload.discussionPromptPermissions = definition.promptPermissions;
-  const parsed = directCmlTextV1(source.cml);
+  const parsed = directCmlTextV1(source.cml, 2);
   if (!parsed)
     return applyDirectContractV1(fp, "UNRESOLVED_DIRECT_DISCUSSION", false, [
       "DIRECT_CML_NOT_SUPPORTED",
