@@ -92,6 +92,128 @@ function first(capture) {
   return snapshot(capture).brightspace[0].content;
 }
 
+const tabbedHtml = `<!doctype html><html><body>
+<div class="d2l-element" data-type="horizontal"><div class="tabs-wrapper tabs-horizontal">
+<div class="list-group"><a class="list-group-item"><span data-itemprop="0|0">Introduction</span></a>
+<a class="list-group-item"><span data-itemprop="1|0">Hidden glossary</span></a></div>
+<div class="tab-content"><div class="tab-pane active show" data-itemprop="0|1"><p>Original introduction.</p></div>
+<div class="tab-pane fade" data-itemprop="1|1"><p>Static hidden words &amp; literal notation.</p>
+<table><tr><th>Term</th><th>Meaning</th></tr><tr><td>Scale</td><td>Original meaning</td></tr></table>
+<iframe src="/d2l/common/dialogs/quickLink/quickLink.d2l?ou=187960&amp;type=lti&amp;rCode=fixture" title="Original embedded lesson"></iframe>
+<img src="drawing.png?ou=1&amp;ou=2" alt=""><script>throw Error('Never execute source');</script>
+</div></div></div></div></body></html>`;
+
+test("static tabs and table evidence derives from the same verified native HTML without changing coverage or input dates", () => {
+  const input = sourceFixture(tabbedHtml, "html"),
+    before = structuredClone(input),
+    content = first(input),
+    body = content.sourceBody,
+    structure = body.htmlStructure;
+  assert.equal(content.textCoverage, "PARTIAL");
+  assert.equal(body.observedAt, at);
+  assert.equal(body.originalUrl, input.contentTree[0].url);
+  assert.equal(structure.topicId, "5624765");
+  assert.equal(structure.originalRef, body.originalRef);
+  assert.equal(structure.sourceUrl, body.originalUrl);
+  assert.equal(structure.scope, "STATIC_MARKUP_ONLY");
+  assert.equal(structure.groups.length, 1);
+  assert.deepEqual(
+    structure.groups[0].panels.map((p) => p.label),
+    ["Introduction", "Hidden glossary"],
+  );
+  const panel = structure.groups[0].panels[1];
+  assert.match(panel.text, /Static hidden words & literal notation/);
+  assert.doesNotMatch(panel.text, /Never execute source/);
+  assert.equal(panel.tables[0].rows[1].cells[0].text, "Scale");
+  assert.equal(
+    panel.resources.find((r) => r.tag === "iframe").title,
+    "Original embedded lesson",
+  );
+  assert.equal(panel.resources.find((r) => r.tag === "img").alt, "");
+  assert.match(panel.resources.find((r) => r.tag === "img").url, /ou=1&ou=2$/);
+  const exported = contentEvidenceText(content);
+  for (const retained of [
+    "Hidden glossary",
+    "Original meaning",
+    "Original embedded lesson",
+  ])
+    assert(exported.includes(retained));
+  assert.deepEqual(input, before);
+});
+
+test("unverified, forged or non-HTML bodies cannot supply native tab structure", () => {
+  const legacy = sourceFixture(tabbedHtml, "html");
+  delete legacy.contentTree[0].contentEvidence.rawBodyRef;
+  delete legacy.contentTree[0].contentEvidence.bodyReceipt;
+  legacy.assetBodies = {};
+  assert.equal(first(legacy).sourceBody.htmlStructure, undefined);
+  const forged = sourceFixture(tabbedHtml, "html");
+  forged.contentTree[0].contentEvidence.html += "<p>Invented panel</p>";
+  assert.throws(() => first(forged), /differs from its original/);
+  for (const change of [
+    { status: "NON_TEXT_ASSET" },
+    { projectionStatus: "UNRESOLVED" },
+  ]) {
+    const unbound = sourceFixture(tabbedHtml, "html");
+    Object.assign(unbound.contentTree[0].contentEvidence, change, {
+      html: tabbedHtml.replace("Hidden glossary", "Invented unbound label"),
+    });
+    assert.equal(first(unbound).sourceBody.htmlStructure, undefined);
+  }
+  assert.equal(
+    first(sourceFixture(tabbedHtml, "text")).sourceBody.htmlStructure,
+    undefined,
+  );
+});
+
+test("saved static HTML views require the same topic, original hash and source URL, while old snapshots remain valid", () => {
+  const value = snapshot(sourceFixture(tabbedHtml, "html"));
+  for (const [field, changed] of [
+    ["topicId", "different-topic"],
+    ["originalRef", "f".repeat(64)],
+    ["sourceUrl", "https://foreign.example.test/guide.html"],
+  ]) {
+    const wrong = structuredClone(value);
+    wrong.brightspace[0].content.sourceBody.htmlStructure[field] = changed;
+    assert.throws(() => validateContentSnapshot(wrong));
+  }
+  const legacy = structuredClone(value);
+  delete legacy.brightspace[0].content.sourceBody.htmlStructure;
+  delete legacy.brightspace[0].content.sourceBody.originalUrl;
+  validateContentSnapshot(legacy);
+  const unverified = structuredClone(value);
+  const body = unverified.brightspace[0].content.sourceBody;
+  body.originalIntegrity = "UNVERIFIED";
+  body.originalRef = body.sha256 = "";
+  body.bytes = null;
+  assert.throws(() => validateContentSnapshot(unverified));
+});
+
+test("matching titles do not transfer static tab evidence between native topics", () => {
+  const input = sourceFixture(tabbedHtml, "html");
+  input.contentTree.push({
+    kind: "TOPIC",
+    id: "different-topic",
+    title: input.contentTree[0].title,
+    path: [],
+    activityType: 1,
+    activityTypeLabel: "File",
+    url: "https://source.example.test/course/unread.html",
+    description: { text: "Original separate description" },
+    contentEvidence: { status: "READ_FAILED", reason: "HTTP_403" },
+  });
+  const value = snapshot(input);
+  assert(value.brightspace[0].content.sourceBody.htmlStructure);
+  assert.equal(
+    value.brightspace[1].content.sourceBody.htmlStructure,
+    undefined,
+  );
+  assert.equal(
+    value.brightspace[1].content.sourceBody.originalIntegrity,
+    "UNVERIFIED",
+  );
+});
+
 test("literal SRT and VTT originals retain timings, markup, native identity and body observation separately from export time", () => {
   for (const format of ["srt", "vtt", "text"]) {
     const input = sourceFixture(

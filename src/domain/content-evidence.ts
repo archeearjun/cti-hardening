@@ -15,6 +15,12 @@ import {
 import { workerXml } from "../adapters/worker-xml.ts";
 import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import {
+  deriveBrightspaceHtmlStructure,
+  validateBrightspaceHtmlStructure,
+  brightspaceHtmlStructureText,
+  type BrightspaceHtmlStructure,
+} from "./brightspace-html-structure.ts";
+import {
   capturedTime,
   validateTimeEstimate,
   type TimeEstimate,
@@ -62,6 +68,8 @@ export interface BrightspaceSourceBody {
   bytes: number | null;
   sha256: string;
   originalRef: string;
+  originalUrl?: string;
+  htmlStructure?: BrightspaceHtmlStructure;
   originalIntegrity: "VERIFIED_RETAINED_ORIGINAL" | "UNVERIFIED";
   textScope: "ORIGINAL_BODY" | "DESCRIPTION_FALLBACK" | "NO_TEXT";
   descriptionText: string;
@@ -362,6 +370,27 @@ function validateBrightspaceSourceBody(value: unknown) {
     throw Error(
       "Unverified Brightspace source-body evidence claims retained original identity.",
     );
+  if (
+    body.originalUrl !== undefined &&
+    (typeof body.originalUrl !== "string" ||
+      body.originalUrl.length > 32768 ||
+      safeWebUrl(body.originalUrl) !== body.originalUrl ||
+      body.originalIntegrity !== "VERIFIED_RETAINED_ORIGINAL")
+  )
+    throw Error("Invalid saved Brightspace original source URL.");
+  if (body.htmlStructure !== undefined) {
+    if (
+      body.originalIntegrity !== "VERIFIED_RETAINED_ORIGINAL" ||
+      body.format !== "html" ||
+      !body.originalUrl
+    )
+      throw Error("Static HTML structure requires a retained HTML original.");
+    validateBrightspaceHtmlStructure(body.htmlStructure, {
+      topicId: string(body.topicId),
+      originalRef: string(body.originalRef),
+      sourceUrl: string(body.originalUrl),
+    });
+  }
   let characters = 0;
   for (const value of body.references) {
     const reference = contentObject(value);
@@ -1192,6 +1221,9 @@ function brightspaceSourceContent(
     bytes: originalVerified ? Number(body.bytes) : null,
     sha256: originalVerified ? ref : "",
     originalRef: originalVerified ? ref : "",
+    ...(originalVerified && safeWebUrl(receipt.responseUrl)
+      ? { originalUrl: safeWebUrl(receipt.responseUrl) }
+      : {}),
     originalIntegrity: originalVerified
       ? "VERIFIED_RETAINED_ORIGINAL"
       : "UNVERIFIED",
@@ -1207,6 +1239,22 @@ function brightspaceSourceContent(
     projectionReason: string(ce.projectionReason),
     references,
   };
+  if (
+    originalVerified &&
+    ref === ce.rawBodyRef &&
+    ce.status === "CAPTURED" &&
+    ce.projectionStatus !== "UNRESOLVED" &&
+    ce.format === "html" &&
+    typeof ce.html === "string" &&
+    sourceBody.originalUrl
+  ) {
+    const structure = deriveBrightspaceHtmlStructure(ce.html, {
+      topicId: sourceBody.topicId,
+      originalRef: ref,
+      sourceUrl: sourceBody.originalUrl,
+    });
+    if (structure) sourceBody.htmlStructure = structure;
+  }
   validateBrightspaceSourceBody(sourceBody);
   content.sourceBody = sourceBody;
   const exactLiteralText =
@@ -1413,6 +1461,7 @@ export function contentEvidenceText(content: ContentEvidence): string {
       `Source-file format: ${body.format || "unrecorded"} | MIME: ${body.contentType || "unrecorded"}`,
       `Source-body observation: ${body.observedAt || "unrecorded"} | text scope: ${body.textScope}`,
       `Retained original bytes: ${body.bytes ?? "unverified"} | SHA-256: ${body.sha256 || "unverified"} | reference: ${body.originalRef || "unverified"}`,
+      ...(body.originalUrl ? [`Original source URL: ${body.originalUrl}`] : []),
       ...(body.descriptionText
         ? [
             body.textScope === "DESCRIPTION_FALLBACK"
@@ -1442,6 +1491,8 @@ export function contentEvidenceText(content: ContentEvidence): string {
           ? [`  Authored reference text: ${reference.text}`]
           : []),
       );
+    if (body.htmlStructure)
+      out.push(brightspaceHtmlStructureText(body.htmlStructure));
   }
   for (const q of content.questions) out.push(contentQuestionText(q));
   out.push(

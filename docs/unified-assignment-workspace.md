@@ -107,6 +107,15 @@ hashes identify evidence in the supplied extraction; the report does not contain
 a downloadable copy of those bytes. HTML-original retention alone does not
 certify its text projection, layout, interactive behavior or whole-course coverage.
 
+Supported Brightspace horizontal-tab markup can also produce **Captured tabs and
+tables** from the independently verified HTML original. The read-only view pairs
+labels and hidden panels by their explicit keys within the same widget, retains
+table cells and authored resource titles, and distinguishes empty image alt text
+from an absent alt attribute. Ambiguous bindings remain unresolved. It does not
+execute source scripts, mount embedded players or certify their contents. Existing
+verified originals can supply this view when compared again; saved historical
+reports and extractor delivery versions remain unchanged.
+
 Captured assessment grading is shown only when the exact item's native
 authoring-draft configuration can be rebound independently. The boolean
 `configuration.isGraded` describes that retained draft setting. A lesson title

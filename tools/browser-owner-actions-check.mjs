@@ -393,6 +393,15 @@ async function checkPanoptoMetadata(page, tab, shots) {
     { exact: true },
   );
   await imported.waitFor();
+  // The saved capture can render before parent persistence/refresh completes.
+  // File selection bypasses disabled controls in Playwright, so wait for the
+  // live input to accept another upload before testing wrong-recording rejection.
+  await page.waitForFunction(() => {
+    const input = document.querySelector(
+      '.action-card:has(a[href$="/item/plugin/WidgetA"]) [aria-label="Panopto media metadata"] input[type="file"]',
+    );
+    return input instanceof HTMLInputElement && !input.disabled;
+  });
   await panel.getByLabel("Upload Panopto response JSON or text").setInputFiles({
     name: "wrong-recording.json",
     mimeType: "application/json",
@@ -618,7 +627,30 @@ async function checkSourceShellEvidence(page, tab, shots) {
       "Separate native metadata about these source captions.",
     alt = "Authored <span> &amp; drawing label.",
     imageUrl = "https://source.example.test/course/authenticated-drawing.png",
-    externalUrl = "https://external.example.test/player",
+    externalUrl =
+      "https://source.example.test/d2l/common/dialogs/quickLink/quickLink.d2l?ou=700&type=lti&rcode=synthetic-guide",
+    guideHtml = [
+      "<!DOCTYPE html><html><head></head><body>",
+      '<div class="d2l-element" data-type="horizontal">',
+      '<div class="tabs-wrapper tabs-horizontal"><div class="list-group">',
+      '<a class="list-group-item active"><span data-itemprop="0|0">Overview</span></a>',
+      '<a class="list-group-item"><span data-itemprop="1|0">Hidden practice</span></a>',
+      '</div><div class="tab-content">',
+      '<div class="tab-pane active show" data-itemprop="0|1"><p>First widget visible panel.</p>',
+      '<img src="decorative-drawing.png" alt=""/><img src="unlabelled-drawing.png"/>',
+      '<table><caption>Authored learning outcomes</caption><thead><tr><th scope="col">Topic</th><th scope="col">Outcome</th></tr></thead>',
+      '<tbody><tr><th scope="row">Drawing</th><td>Read a drawing &amp; explain its symbols.</td></tr><tr><td></td><td colspan="2">Authored spanning cell</td></tr></tbody></table></div>',
+      '<div class="tab-pane" data-itemprop="1|1" hidden="hidden"><p>Hidden panel authored content.</p>',
+      '<img src="authenticated-drawing.png" alt="Authored &lt;span&gt; &amp;amp; drawing label."/>',
+      `<iframe title="Named synthetic LTI activity" src="${externalUrl.replaceAll("&", "&amp;")}"></iframe></div>`,
+      "</div></div></div>",
+      '<div class="d2l-element" data-type="horizontal"><div class="tabs-wrapper tabs-horizontal">',
+      '<div class="list-group"><a class="list-group-item"><span data-itemprop="0|0">Second widget</span></a></div>',
+      '<div class="tab-content"><div class="tab-pane" data-itemprop="0|1"><p>Second widget key-zero content.</p></div></div>',
+      "</div></div><p>Authored reading.</p>",
+      "<script>window.__ctiGuideHtmlExecuted = true;</script>",
+      "</body></html>",
+    ].join(""),
     specs = [
       {
         id: "caption-item",
@@ -648,7 +680,7 @@ async function checkSourceShellEvidence(page, tab, shots) {
         topic: "1004",
         title: "Synthetic authenticated resources",
         format: "html",
-        body: '<p>Authored reading.</p><img src="authenticated-drawing.png" alt="Authored &lt;span&gt; &amp;amp; drawing label."><iframe src="https://external.example.test/player"></iframe>',
+        body: guideHtml,
         text: "Authored reading.",
       },
     ],
@@ -792,6 +824,39 @@ async function checkSourceShellEvidence(page, tab, shots) {
       textLength: 38,
     },
   });
+  const htmlDecoy = structuredClone(
+      brightspace.contentTree[0].children.find((topic) => topic.id === "1004"),
+    ),
+    decoyHtml = guideHtml.replace(
+      "Hidden panel authored content.",
+      "DO NOT BORROW THIS SAME-TITLE HTML PANEL",
+    ),
+    decoyBytes = Buffer.from(decoyHtml),
+    decoyHash = await digest(decoyBytes);
+  htmlDecoy.id = "1998";
+  htmlDecoy.url = "https://source.example.test/course/other-copy.html";
+  htmlDecoy.contentEvidence.url = htmlDecoy.url;
+  htmlDecoy.contentEvidence.html = decoyHtml;
+  htmlDecoy.contentEvidence.text = "DO NOT BORROW THIS SAME-TITLE HTML PANEL";
+  htmlDecoy.contentEvidence.textLength = htmlDecoy.contentEvidence.text.length;
+  htmlDecoy.contentEvidence.textSha256 = await digest(
+    Buffer.from(htmlDecoy.contentEvidence.text),
+  );
+  htmlDecoy.contentEvidence.rawBodyRef = decoyHash;
+  htmlDecoy.contentEvidence.bodyReceipt = {
+    ...htmlDecoy.contentEvidence.bodyReceipt,
+    requestUrl: htmlDecoy.url,
+    responseUrl: htmlDecoy.url,
+    bytes: decoyBytes.length,
+    sha256: decoyHash,
+  };
+  brightspace.assetBodies[decoyHash] = {
+    encoding: "base64",
+    base64: decoyBytes.toString("base64"),
+    bytes: decoyBytes.length,
+    sha256: decoyHash,
+  };
+  brightspace.contentTree[0].children.push(htmlDecoy);
   source.course.data.scan.courseTree[0].children = specs.map((spec) => ({
     title: spec.title,
     type: "webcontent",
@@ -887,6 +952,39 @@ async function checkSourceShellEvidence(page, tab, shots) {
     report.contentEvidence.brightspace[2].content.sourceBody.originalIntegrity,
     "UNVERIFIED",
   );
+  const importedHtml = report.contentEvidence.brightspace.find(
+      (entry) => entry.id === "1004",
+    ).content,
+    importedStructure = importedHtml.sourceBody.htmlStructure;
+  assert.equal(
+    importedHtml.sourceBody.originalIntegrity,
+    "VERIFIED_RETAINED_ORIGINAL",
+  );
+  assert.equal(importedStructure.originalRef, importedHtml.sourceBody.sha256);
+  assert.equal(importedStructure.topicId, "1004");
+  assert.equal(
+    importedStructure.sourceUrl,
+    "https://source.example.test/course/html-item.html",
+  );
+  assert.equal(importedStructure.method, "STATIC_AUTHORED_HTML");
+  assert.equal(importedStructure.scope, "STATIC_MARKUP_ONLY");
+  assert.deepEqual(
+    importedStructure.groups.map((group) =>
+      group.panels.map((panel) => [panel.key, panel.label]),
+    ),
+    [
+      [
+        ["0", "Overview"],
+        ["1", "Hidden practice"],
+      ],
+      [["0", "Second widget"]],
+    ],
+  );
+  assert.deepEqual(importedStructure.issues, []);
+  assert.equal(importedStructure.truncated, false);
+  assert.equal(importedHtml.textCoverage, "PARTIAL");
+  assert.equal(importedHtml.capturedAt, capturedAt);
+  assert.equal(importedHtml.sourceBody.observedAt, observedAt);
   report.ownerContext = buildOwnerContext(
     source.brightspace.bytes,
     specs.map((spec) => ({
@@ -1035,6 +1133,16 @@ async function checkSourceShellEvidence(page, tab, shots) {
       .getByRole("heading", { name: "Coursera content view", exact: true })
       .waitFor();
   };
+  const externalRequests = [],
+    recordExternalRequest = (request) => {
+      const url = new URL(request.url());
+      if (
+        url.hostname === "source.example.test" ||
+        url.hostname === "external.example.test"
+      )
+        externalRequests.push(request.url());
+    };
+  page.on("request", recordExternalRequest);
   await openReport(savedAudit.title);
   const outline = page.getByTestId("native-course-outline");
   await outline.locator(":scope > summary").click();
@@ -1246,10 +1354,12 @@ async function checkSourceShellEvidence(page, tab, shots) {
       name: "Brightspace source file evidence",
       exact: true,
     });
-  await htmlBody
-    .getByText("Source file references and read outcomes (2)", { exact: true })
-    .click();
-  const references = htmlBody.locator("ol > li");
+  const referenceReadoutSummary = htmlBody.getByText(
+    "Source file references and read outcomes (2)",
+    { exact: true },
+  );
+  await referenceReadoutSummary.click();
+  const references = referenceReadoutSummary.locator("..").locator("ol > li");
   assert.equal(await references.count(), 2);
   assert(
     (await references.nth(0).innerText()).includes(
@@ -1282,6 +1392,187 @@ async function checkSourceShellEvidence(page, tab, shots) {
     .nth(1)
     .getByText("EXTERNAL_REFERENCE_NOT_FETCHED", { exact: true })
     .waitFor();
+  const htmlSnapshot = report.contentEvidence.brightspace.find(
+      (entry) => entry.id === "1004",
+    ).content,
+    structure = htmlBody.locator(
+      'details[aria-label="Captured tabs and tables"]',
+    );
+  assert.equal(htmlSnapshot.capturedAt, capturedAt);
+  assert.equal(htmlSnapshot.sourceBody.observedAt, observedAt);
+  assert.equal(htmlSnapshot.sourceBody.topicId, "1004");
+  assert.equal(
+    htmlSnapshot.textCoverage,
+    "PARTIAL",
+    "A verified static structure does not certify the collector's flat text projection or full source fidelity",
+  );
+  assert.equal(htmlSnapshot.text, specs[3].text);
+  assert.equal(htmlSnapshot.sourceBody.htmlStructure.groups.length, 2);
+  await structure.locator(":scope > summary").click();
+  assert.equal(await structure.locator("[data-html-group]").count(), 2);
+  const firstGroup = structure.locator('[data-html-group="1"]'),
+    secondGroup = structure.locator('[data-html-group="2"]'),
+    overviewPanel = firstGroup.locator('[data-html-panel="1:0"]'),
+    hiddenPanel = firstGroup.locator('[data-html-panel="1:1"]'),
+    secondWidgetPanel = secondGroup.locator('[data-html-panel="2:0"]');
+  assert.deepEqual(
+    await firstGroup
+      .locator("[data-html-panel]")
+      .evaluateAll((panels) =>
+        panels.map((panel) => panel.dataset.htmlPanelKey),
+      ),
+    ["0", "1"],
+  );
+  assert.deepEqual(
+    await secondGroup
+      .locator("[data-html-panel]")
+      .evaluateAll((panels) =>
+        panels.map((panel) => panel.dataset.htmlPanelKey),
+      ),
+    ["0"],
+    "Repeated panel keys belong to their own D2L widget",
+  );
+  assert.equal(
+    await overviewPanel.locator(":scope > summary").textContent(),
+    "Overview",
+  );
+  assert.equal(
+    await hiddenPanel.locator(":scope > summary").textContent(),
+    "Hidden practice",
+  );
+  assert.equal(
+    await secondWidgetPanel.locator(":scope > summary").textContent(),
+    "Second widget",
+  );
+  await overviewPanel.locator(":scope > summary").click();
+  await hiddenPanel.locator(":scope > summary").click();
+  await secondWidgetPanel.locator(":scope > summary").click();
+  await hiddenPanel
+    .getByText("Hidden panel authored content.", { exact: true })
+    .waitFor();
+  await secondWidgetPanel
+    .getByText("Second widget key-zero content.", { exact: true })
+    .waitFor();
+  assert.equal(
+    await overviewPanel
+      .getByText("Second widget key-zero content.", { exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await secondWidgetPanel
+      .getByText("First widget visible panel.", { exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await structure
+      .getByText("DO NOT BORROW THIS SAME-TITLE HTML PANEL", { exact: true })
+      .count(),
+    0,
+    "The static HTML projection stays bound to native topic 1004 despite a same-title source copy",
+  );
+  const table = overviewPanel.locator('[data-html-table="1:0:1"]');
+  await table.locator(":scope > summary").click();
+  assert.equal(
+    await table.locator("table > caption").textContent(),
+    "Authored learning outcomes",
+  );
+  assert.deepEqual(
+    await table
+      .locator("table tr")
+      .evaluateAll((rows) =>
+        rows.map((row) =>
+          Array.from(row.children).map((cell) => [
+            cell.tagName.toLowerCase(),
+            cell.textContent,
+          ]),
+        ),
+      ),
+    [
+      [
+        ["th", "Topic"],
+        ["th", "Outcome"],
+      ],
+      [
+        ["th", "Drawing"],
+        ["td", "Read a drawing & explain its symbols."],
+      ],
+      [
+        ["td", ""],
+        ["td", "Authored spanning cell"],
+      ],
+    ],
+    "Captured table headers, row order, literal cells and authored empty cells remain distinct",
+  );
+  await table
+    .getByText("Authored cell span attributes", { exact: true })
+    .click();
+  await table
+    .getByText('Row 3, cell 2 (td) · colspan="2"', { exact: true })
+    .waitFor();
+  await overviewPanel
+    .getByText("Authored resource references (2)", { exact: true })
+    .click();
+  const overviewResources = overviewPanel.locator("[data-html-resource]");
+  assert.equal(await overviewResources.count(), 2);
+  await overviewResources
+    .nth(0)
+    .getByText("Authored image alt: empty attribute", { exact: true })
+    .waitFor();
+  await overviewResources
+    .nth(1)
+    .getByText("Authored image alt: attribute absent", { exact: true })
+    .waitFor();
+  await hiddenPanel
+    .getByText("Authored resource references (2)", { exact: true })
+    .click();
+  const hiddenResources = hiddenPanel.locator("[data-html-resource]");
+  assert.equal(await hiddenResources.count(), 2);
+  await hiddenResources
+    .nth(0)
+    .getByText(`Authored image alt: ${alt}`, { exact: true })
+    .waitFor();
+  await hiddenResources.nth(0).getByText("HTTP_403", { exact: true }).waitFor();
+  await hiddenResources
+    .nth(1)
+    .getByText("Authored title: Named synthetic LTI activity", { exact: true })
+    .waitFor();
+  assert(
+    (await hiddenResources.nth(1).innerText()).includes(
+      "Read outcome: NOT_FETCHED",
+    ),
+  );
+  await hiddenResources
+    .nth(1)
+    .getByText("EXTERNAL_REFERENCE_NOT_FETCHED", { exact: true })
+    .waitFor();
+  await hiddenResources
+    .nth(1)
+    .getByText(`Authored URL: ${externalUrl}`, { exact: true })
+    .waitFor();
+  assert.equal(
+    await secondWidgetPanel.locator("[data-html-resource]").count(),
+    0,
+    "A repeated panel key cannot borrow another group's LTI or image references",
+  );
+  assert.equal(
+    await structure
+      .locator("a, iframe, img, script, style, video, audio, object, embed")
+      .count(),
+    0,
+    "Static HTML structure renders text and cells without source markup, executable content or runtime media nodes",
+  );
+  assert.equal(
+    await page.evaluate(() => window.__ctiGuideHtmlExecuted),
+    undefined,
+    "The authored script trap stays inert",
+  );
+  assert.deepEqual(
+    externalRequests,
+    [],
+    "Inspecting static source panels never requests the recorded image or LTI URLs",
+  );
   assert.equal(
     await htmlContent
       .locator("iframe, img, video, audio, object, embed")
@@ -1289,11 +1580,29 @@ async function checkSourceShellEvidence(page, tab, shots) {
     0,
     "Displaying saved references never loads or executes the external resources",
   );
+  await hiddenPanel.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "static-source-tabs-desktop.png"),
+  });
   await captionContent.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(shots, "literal-source-captions-desktop.png"),
   });
   await page.setViewportSize({ width: 390, height: 844 });
+  await table.scrollIntoViewIfNeeded();
+  assert(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    "Captured table cells remain within the mobile page while their own table can scroll",
+  );
+  await page.screenshot({
+    path: path.join(shots, "static-source-table-mobile.png"),
+  });
+  await hiddenResources.nth(1).scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(shots, "static-source-tab-resources-mobile.png"),
+  });
   await htmlBody.scrollIntoViewIfNeeded();
   assert(
     await page.evaluate(
@@ -1327,6 +1636,22 @@ async function checkSourceShellEvidence(page, tab, shots) {
   assert.equal(boundCaption.length, 1);
   assert.equal(boundCaption[0].sourceBody.topicId, "1001");
   assert.equal(boundCaption[0].text, captions);
+  const htmlView = exported.followUp.contentComparisons.find(
+      (entry) => entry.name === specs[3].title,
+    ).view,
+    boundHtml = htmlView.source.filter(
+      (entry) => entry.basis === "Original Brightspace extraction",
+    );
+  assert.equal(boundHtml.length, 1);
+  assert.equal(boundHtml[0].sourceBody.topicId, "1004");
+  assert.deepEqual(
+    boundHtml[0].sourceBody.htmlStructure,
+    htmlSnapshot.sourceBody.htmlStructure,
+    "Report exports retain the exact same native-topic-bound static HTML structure",
+  );
+  assert.equal(boundHtml[0].sourceBody.observedAt, observedAt);
+  assert.equal(boundHtml[0].capturedAt, capturedAt);
+  assert.equal(boundHtml[0].textCoverage, "PARTIAL");
   const reportEvent = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "Download complete report", exact: true })
@@ -1341,6 +1666,10 @@ async function checkSourceShellEvidence(page, tab, shots) {
   assert(text.includes("Collection outcome: EXTERNAL_REFERENCE_NOT_FETCHED"));
   assert(text.includes(alt));
   assert(!text.includes("DO NOT BORROW THIS SAME-TITLE TOPIC"));
+  assert(text.includes("Hidden panel authored content."));
+  assert(text.includes("Authored learning outcomes"));
+  assert(text.includes("Named synthetic LTI activity"));
+  assert(!text.includes("DO NOT BORROW THIS SAME-TITLE HTML PANEL"));
   await openReport(invalidAudit.title);
   await page.getByTestId("native-course-outline-error").waitFor();
   assert(
@@ -1353,6 +1682,12 @@ async function checkSourceShellEvidence(page, tab, shots) {
     await page.locator("[data-native-id]").count(),
     0,
     "A mismatched native course identity cannot appear as verified shell evidence",
+  );
+  page.off("request", recordExternalRequest);
+  assert.deepEqual(
+    externalRequests,
+    [],
+    "Read-only source-shell rendering never launches recorded external resources",
   );
 }
 function nativeGradingBrowserFixture() {
@@ -2796,6 +3131,7 @@ try {
           "hidden matched syllabus is discoverable without clearing search; template/live-source review remains visible in Needs attention",
           "Panopto response paste/file import, same-title wrong-recording rejection, failed refresh preservation, literal OCR/navigation labels, reported-only caption absence, review/reload persistence, complete metadata exports and unchanged audit at desktop and 390px",
           "verified literal source captions, retained binary versus failed-read outcomes, native topic identity, authored resource alt/read reasons, immutable exports, empty native shell folders, repeated-title Archive placements, unsupported-kind links and visible invalid-proof rejection at desktop and 390px",
+          "verified source HTML: hidden tab content, scoped repeated D2L keys, table headers/cell order/empty cells/spans, named LTI and authored image-alt distinctions, exact native topic exports, unchanged partial text coverage and observation times, inert scripts and zero external resource requests at desktop and 390px",
           "independently bound native graded and not-graded settings with identity/scope/time, foreign-course and missing-proof suppression, unchanged owner item counts and original findings, exact exported readouts and 390px layout",
         ],
         screenshots: shots,
