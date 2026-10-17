@@ -27,6 +27,14 @@ import {
   validateAdvisoryRecordData,
   validateAdvisoryAuditExample,
 } from "./advisory-learning.ts";
+import {
+  ingestionAttemptRecordId,
+  validateIngestionAttemptData,
+  validateIngestionAttemptReferences,
+  currentIngestionAttempt,
+  validateAutomaticIngestionBasisData,
+  validateAutomaticIngestionAuditReferences,
+} from "./ingestion-attempts.ts";
 const kinds = [
   "package",
   "audit",
@@ -55,6 +63,11 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
   if (!full) return;
   if (record.kind === "audit" && record.data.contentEvidence !== undefined)
     validateContentSnapshot(record.data.contentEvidence);
+  if (record.kind === "audit" && record.data.automaticIngestion !== undefined) {
+    const basis = validateAutomaticIngestionBasisData(record.data.automaticIngestion);
+    if (basis.courseId !== record.packageId || basis.generation !== record.data.generation)
+      throw Error("Automatic ingestion context belongs to another course or attempt.");
+  }
   if (record.kind === "item-review") {
     if (
       !record.packageId ||
@@ -163,10 +176,18 @@ export function validateRecord(record: WorkspaceRecord, full = true): void {
         "evidence-input",
         "assignment-deliverable",
         "advisory-model",
+        "ingestion-attempt",
       ].includes(type)
     )
       throw new Error("Invalid operations record type.");
-    if (type === "item-lifecycle") {
+    if (type === "ingestion-attempt") {
+      validateIngestionAttemptData(record.data);
+      if (
+        record.packageId !== record.data.courseId ||
+        record.id !== ingestionAttemptRecordId(record.packageId, record.data.generation)
+      )
+        throw Error("Invalid ingestion attempt course or generation identity.");
+    } else if (type === "item-lifecycle") {
       validateItemLifecycleData(record.data);
       if (
         record.packageId !== record.data.courseId ||
@@ -226,10 +247,11 @@ const immutableOperationTypes = [
   "evidence-input",
   "assignment-deliverable",
   "advisory-model",
+  "ingestion-attempt",
 ];
 const protectedOperation = (r: WorkspaceRecord | undefined) =>
   r?.kind === "operations" &&
-  [...immutableOperationTypes, "item-lifecycle"].includes(r.data.type);
+  [...immutableOperationTypes, "item-lifecycle", "lineage-repair"].includes(r.data.type);
 /** Called at both persistence boundaries, after optimistic version validation.
  * Keeping a previous version is not permission to rewrite its declared history. */
 export function validateWorkspaceTransition(
@@ -250,7 +272,7 @@ export function validateWorkspaceTransition(
     immutableOperationTypes.includes(prior.data.type)
   )
     throw Error(
-      "Saved evidence inputs, deliverables and advisory models are immutable. Create a new revision.",
+      "Saved evidence inputs, ingestion records, deliverables and advisory models are immutable. Create a new revision.",
     );
   if (prior.kind === "operations" && prior.data.type === "item-lifecycle") {
     validateItemLifecycleData(prior.data);
@@ -274,10 +296,37 @@ export async function validateOperationalReferences(
   prior?: WorkspaceRecord,
   records: WorkspaceRecord[] = [],
 ): Promise<void> {
-  if (!protectedOperation(next)) return;
+  const automaticAudit = next.kind === "audit" && next.data.automaticIngestion !== undefined;
+  if (!protectedOperation(next) && !automaticAudit) return;
   const course = await lookup(next.packageId);
   if (!course || course.kind !== "package")
     throw Error("The operation must reference a saved source course.");
+  if (automaticAudit) {
+    validateAutomaticIngestionAuditReferences(next, [
+      ...records.filter((record) => record.id !== course.id), course,
+    ]);
+    return;
+  }
+  if (next.data.type === "lineage-repair") {
+    if (records.some((record) => record.kind === "operations" &&
+      record.packageId === next.packageId && record.data.type === "ingestion-attempt")) {
+      try {
+        currentIngestionAttempt(next.packageId, [
+          ...records.filter((record) => record.id !== next.id), next,
+        ]);
+      } catch {
+        throw Error("This lineage repair would contradict recorded ingestion history. The saved reports and ingestion declarations were preserved.");
+      }
+    }
+    return;
+  }
+  if (next.data.type === "ingestion-attempt") {
+    validateIngestionAttemptReferences(next, [
+      ...records.filter((record) => record.id !== course.id),
+      course,
+    ]);
+    return;
+  }
   if (next.data.type === "advisory-model") {
     for (const example of next.data.dataset.examples)
       if (example.pairKind !== "owner-supplied")
@@ -457,12 +506,76 @@ export function prepareWorkspaceBackup(value: any): WorkspaceRecord[] {
   )
     throw new Error("Invalid workspace backup.");
   const seen = new Set<string>();
-  return value.records.map((r: WorkspaceRecord) => {
+  const records: WorkspaceRecord[] = value.records.map((r: WorkspaceRecord) => {
     validateRecord(r);
     if (seen.has(r.id)) throw new Error("Duplicate record IDs in backup.");
     seen.add(r.id);
     return { ...r, version: 0 };
   });
+  // Saves enforce causal references. An export's array order is not evidence
+  // of that order, so restore the explicit automatic-ingestion chain first.
+  const featureCourses = new Set(records.filter((r) =>
+    r.data.type === "ingestion-attempt" ||
+    (r.kind === "audit" && r.data.automaticIngestion !== undefined),
+  ).map((r) => r.packageId));
+  if (!featureCourses.size) return records;
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const dependencies = new Map(records.map((r) => [r.id, new Set<string>()]));
+  const requireReference = (
+    record: WorkspaceRecord,
+    id: string,
+    kind: "package" | "audit" | "operations",
+    type = "",
+  ) => {
+    const target = byId.get(id);
+    if (!target || target.kind !== kind ||
+      (kind === "package" ? target.id !== record.packageId : target.packageId !== record.packageId) ||
+      (type && target.data.type !== type))
+      throw Error(`Workspace backup is missing a valid ingestion-history reference: ${id || "source course"}.`);
+    dependencies.get(record.id)!.add(id);
+    return target;
+  };
+  for (const record of records) {
+    if (!featureCourses.has(record.packageId)) continue;
+    requireReference(record, record.packageId, "package");
+    if (record.data.type === "ingestion-attempt") {
+      requireReference(record, record.data.baseAuditId, "audit");
+      if (record.data.previousAttemptId)
+        requireReference(record, record.data.previousAttemptId, "operations", "ingestion-attempt");
+    } else if (record.kind === "audit" && record.data.automaticIngestion) {
+      const basis = record.data.automaticIngestion;
+      if (basis.baseAuditId) requireReference(record, basis.baseAuditId, "audit");
+      if (basis.attemptRecordId)
+        requireReference(record, basis.attemptRecordId, "operations", "ingestion-attempt");
+    } else if (record.data.type === "lineage-repair") {
+      requireReference(record, record.data.runId, "audit");
+    }
+  }
+  for (const record of records) {
+    const receipt = record.data.type === "ingestion-attempt";
+    const basis = record.kind === "audit" && record.data.automaticIngestion;
+    if (!receipt && !basis) continue;
+    const baseId = receipt ? record.data.baseAuditId : basis.baseAuditId;
+    for (const repair of records) {
+      if (repair.packageId !== record.packageId ||
+        repair.data.type !== "lineage-repair" || repair.data.runId !== baseId) continue;
+      const original = byId.get(baseId)!;
+      // A corrected legacy baseline must be restored before the declaration
+      // or comparison that uses that correction. No saved metadata is changed.
+      if (receipt || original.data.generation > basis.generation)
+        dependencies.get(record.id)!.add(repair.id);
+    }
+  }
+  const ordered: WorkspaceRecord[] = [];
+  const pending = new Set(records.map((r) => r.id));
+  while (pending.size) {
+    const ready = records.find((r) => pending.has(r.id) &&
+      [...dependencies.get(r.id)!].every((id) => !pending.has(id)));
+    if (!ready) throw Error("Workspace backup contains cyclic ingestion-history references.");
+    ordered.push(ready);
+    pending.delete(ready.id);
+  }
+  return ordered;
 }
 
 export const MAX_WORKSPACE_RECORD_BYTES = 32 * 1024 * 1024;

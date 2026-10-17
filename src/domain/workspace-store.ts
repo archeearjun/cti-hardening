@@ -90,6 +90,9 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
             generation: d.generation,
             hashes: d.hashes,
             sourceScanSha256: d.sourceScanSha256,
+            ...(d.automaticIngestion
+              ? { automaticIngestion: d.automaticIngestion }
+              : {}),
             summary: scalarSummary(d.result?.summary),
             stage: d.result?.snapshotContext?.mode,
           }
@@ -113,50 +116,63 @@ export function recordSummary(record: WorkspaceRecord): WorkspaceRecord {
           : record.kind === "checklist"
             ? d
             : record.kind === "operations"
-              ? {
-                  type: d.type,
-                  partner: d.partner,
-                  sourceName: d.sourceName,
-                  sourceSheet: d.sourceSheet,
-                  sourceUrl: d.sourceUrl,
-                  importedAt: d.importedAt,
-                  rowCount: Array.isArray(d.rows) ? d.rows.length : 0,
-                  runId: d.runId,
-                  platform: d.platform,
-                  sourceHash: d.sourceHash,
-                  toGeneration: d.toGeneration,
-                  schemaVersion: d.schemaVersion,
-                  courseId: d.courseId,
-                  eventCount: Array.isArray(d.events) ? d.events.length : 0,
-                  mappingReviewCount: Array.isArray(d.events)
-                    ? d.events.filter((e: any) =>
-                        ["mapping-confirmed", "mapping-rejected"].includes(
-                          e.kind,
-                        ),
-                      ).length
-                    : 0,
-                  lastEventAt: d.events?.at(-1)?.recordedAt,
-                  ...(d.type === "item-lifecycle"
-                    ? { declaredChanges: summarizeAssignmentChanges(d) }
-                    : {}),
-                  role: d.role,
-                  nativeCourseId: d.nativeCourseId,
-                  capturedAt: d.capturedAt,
-                  confirmedCourseId: d.confirmedCourseId,
-                  retention: d.original?.retention,
-                  deliverableId: d.deliverableId,
-                  deliverableKind: d.deliverableKind,
-                  revision: d.revision,
-                  previousRecordId: d.previousRecordId,
-                  event: d.event,
-                  basisHash: d.basisHash,
-                  auditId: d.auditId,
-                  auditVersion: d.auditVersion,
-                  createdAt: d.createdAt,
-                  datasetFingerprint: d.datasetFingerprint,
-                  modelStatus: d.modelStatus,
-                  exampleCount: d.exampleCount,
-                }
+              ? d.type === "ingestion-attempt"
+                ? {
+                    type: d.type,
+                    schemaVersion: d.schemaVersion,
+                    courseId: d.courseId,
+                    generation: d.generation,
+                    previousGeneration: d.previousGeneration,
+                    baseAuditId: d.baseAuditId,
+                    previousAttemptId: d.previousAttemptId,
+                    declaredAt: d.declaredAt,
+                    declaredBy: d.declaredBy,
+                    scope: d.scope,
+                  }
+                : {
+                    type: d.type,
+                    partner: d.partner,
+                    sourceName: d.sourceName,
+                    sourceSheet: d.sourceSheet,
+                    sourceUrl: d.sourceUrl,
+                    importedAt: d.importedAt,
+                    rowCount: Array.isArray(d.rows) ? d.rows.length : 0,
+                    runId: d.runId,
+                    platform: d.platform,
+                    sourceHash: d.sourceHash,
+                    toGeneration: d.toGeneration,
+                    schemaVersion: d.schemaVersion,
+                    courseId: d.courseId,
+                    eventCount: Array.isArray(d.events) ? d.events.length : 0,
+                    mappingReviewCount: Array.isArray(d.events)
+                      ? d.events.filter((e: any) =>
+                          ["mapping-confirmed", "mapping-rejected"].includes(
+                            e.kind,
+                          ),
+                        ).length
+                      : 0,
+                    lastEventAt: d.events?.at(-1)?.recordedAt,
+                    ...(d.type === "item-lifecycle"
+                      ? { declaredChanges: summarizeAssignmentChanges(d) }
+                      : {}),
+                    role: d.role,
+                    nativeCourseId: d.nativeCourseId,
+                    capturedAt: d.capturedAt,
+                    confirmedCourseId: d.confirmedCourseId,
+                    retention: d.original?.retention,
+                    deliverableId: d.deliverableId,
+                    deliverableKind: d.deliverableKind,
+                    revision: d.revision,
+                    previousRecordId: d.previousRecordId,
+                    event: d.event,
+                    basisHash: d.basisHash,
+                    auditId: d.auditId,
+                    auditVersion: d.auditVersion,
+                    createdAt: d.createdAt,
+                    datasetFingerprint: d.datasetFingerprint,
+                    modelStatus: d.modelStatus,
+                    exampleCount: d.exampleCount,
+                  }
               : record.kind === "legacy-backup" &&
                   d.kind === "CTI_MIGRATION_RECOVERY_CASE"
                 ? { kind: d.kind, sourceRunId: d.sourceRunId, issue: d.issue }
@@ -243,13 +259,17 @@ export function localStore(): WorkspaceStore {
       let validatedReferences: WorkspaceRecord[] | undefined;
       const validatedLookups = new Map<string, number | null>();
       if (
-        record.kind === "operations" &&
-        [
-          "item-lifecycle",
-          "evidence-input",
-          "assignment-deliverable",
-          "advisory-model",
-        ].includes(record.data.type)
+        (record.kind === "audit" &&
+          record.data.automaticIngestion !== undefined) ||
+        (record.kind === "operations" &&
+          [
+            "item-lifecycle",
+            "evidence-input",
+            "assignment-deliverable",
+            "advisory-model",
+            "ingestion-attempt",
+            "lineage-repair",
+          ].includes(record.data.type))
       ) {
         // Complete asynchronous validation before opening the write transaction.
         // IndexedDB may commit an idle transaction while awaited work continues.

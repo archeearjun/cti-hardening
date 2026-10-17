@@ -99,6 +99,28 @@ The existing capture/archive and workspace size limits remain enforced.
 
 ## Identity and item history
 
+The comparison screen derives **Ingestion attempt (automatic)** from the
+selected course's saved reports, confirmed lineage repairs and immutable
+completed-ingestion declarations. Rescans, exports and manual corrections keep
+the current number. Attempt 0 means the first baseline recorded in CTI; older
+external ingestion history remains unknown. Existing legacy attempt numbers are
+retained without inventing missing earlier attempts.
+
+After another ingestion actually completes in Coursera, select **A new ingestion
+completed in Coursera** once. CTI allocates the next number and saves the
+owner's declaration before processing the comparison. A failed comparison,
+retry, reload or course switch cannot consume that declaration twice. CTI does
+not receive a native Coursera ingestion-completion signal; the receipt records
+the owner's statement. Snapshot stage and Smart Ingestion capability remain
+separate. A later full comparison requires a fresh bookmark capture relative to
+known previous content observations; media enrichment alone cannot refresh it.
+Structural-only XLSX comparisons retain their existing evidence limits.
+
+New declarations invalidate older comparison-based handoff approval until a
+comparison for the current attempt is saved. Shared and local stores reject
+stale allocations and comparisons if another owner changes the history while
+they run. Prior raw baselines, reports and declarations remain retained.
+
 Coursera payload enrichment requires a unique, case-sensitive native item ID on
 both sides. Name-only candidates and duplicate/conflicting IDs remain review
 items; their bodies are not borrowed. Brightspace correspondence requires exact

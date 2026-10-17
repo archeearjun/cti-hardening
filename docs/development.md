@@ -36,6 +36,7 @@ concatenation, or dependency on Code.gs/Index.html in the Cloudflare build.
 | Assessment questions, answers, behaviour, rubrics | `src/engine/assessment/` | `npm run test:engine` |
 | Assets, links, text matching and repackaging | `src/engine/matching/` | `npm run test:engine` |
 | Ingestion claims and current-state resolution | `src/engine/provenance/` | `npm run test:engine` |
+| Automatic ingestion attempt allocation and immutable owner declarations | `src/domain/ingestion-attempts.ts`, `workspace-validation.ts`, `workspace-store.ts`, `server/api.ts`, `web/FullWorkspace.tsx` | `tests/ingestion-attempts.test.mjs`; `tests/item-lifecycle.test.mjs`; `npm run test:browser:ux` |
 | Comparison orchestration and lifecycle | `src/engine/comparison/`, `lifecycle/`, `src/domain/workflows.ts` | `npm run test:engine` |
 | Owner report text | `src/reporting/` | `npm run test:engine` |
 | Saved item work in report exports | `src/domain/owner-report-export.ts`, `web/FullWorkspace.tsx` | `tests/owner-report-export.test.mjs`; `npm run test:browser:owner` |

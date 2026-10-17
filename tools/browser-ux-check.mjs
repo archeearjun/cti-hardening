@@ -73,6 +73,18 @@ async function tab(name, p = page) {
 async function waitIdle(p = page) {
   await p.locator(".full-workspace .status").waitFor({ state: "hidden" });
 }
+async function workspaceBackup() {
+  await tab("Setup");
+  const exported = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download workspace backup", exact: true })
+    .click();
+  const saved = JSON.parse(
+    fs.readFileSync(await (await exported).path(), "utf8"),
+  );
+  await waitIdle();
+  return saved.records;
+}
 // Synthetic records only. This verifies navigation and input isolation, not course completeness.
 const courses = Array.from({ length: 62 }, (_, i) => {
   const code = `COURSE${String(i + 1).padStart(3, "0")}`;
@@ -151,7 +163,12 @@ const afterAudit = {
   ...structuredClone(audit),
   id: "ux-after-audit",
   title: "Later ingestion review (synthetic)",
-  data: { ...structuredClone(audited), generation: 2 },
+  data: workflows.compare({
+    ...input,
+    course: courses[0],
+    generation: 3,
+    history: [audit],
+  }),
 };
 backup.records = [...courses, audit, afterAudit, ...books];
 const localCapture = {
@@ -795,7 +812,20 @@ try {
   ])
     await page.getByLabel(label).setInputFiles(capture);
   await page.getByLabel("Snapshot stage").selectOption("raw");
-  await page.getByLabel("Ingestion generation").fill("3");
+  const automaticAttempt = page.getByLabel("Ingestion attempt (automatic)", {
+    exact: true,
+  });
+  const newIngestion = page.getByRole("checkbox", {
+    name: "A new ingestion completed in Coursera",
+    exact: true,
+  });
+  assert.equal(await automaticAttempt.inputValue(), "3",
+    "Existing legacy generation 3 remains the current attempt despite gaps in the saved history");
+  assert.equal(await automaticAttempt.evaluate((element) => element.readOnly), true,
+    "The ingestion attempt is read-only");
+  assert.equal(await page.getByRole("spinbutton", { name: /Ingestion/ }).count(), 0,
+    "An owner cannot enter an arbitrary ingestion number");
+  await newIngestion.check();
   await page
     .getByLabel("Smart Ingestion capability")
     .selectOption("LATEST_APPLIED");
@@ -822,15 +852,161 @@ try {
       .isDisabled(),
   );
   assert.equal(await page.getByLabel("Snapshot stage").inputValue(), "ops");
-  assert.equal(await page.getByLabel("Ingestion generation").inputValue(), "0");
+  assert.equal(await automaticAttempt.inputValue(), "0",
+    "A course without saved comparison history starts at attempt 0");
+  assert.equal(await newIngestion.isChecked(), false,
+    "A pending ingestion declaration cannot follow another course selection");
+  assert.equal(await newIngestion.isDisabled(), true,
+    "The first comparison must establish attempt 0 before another ingestion can be declared");
   assert.equal(
     await page.getByLabel("Smart Ingestion capability").inputValue(),
     "UNKNOWN",
   );
+
+  // This synthetic course has no audit history. Exercise the native comparison,
+  // declaration and backup controls; capture/report counts cannot advance it.
+  const saveComparison = async () => {
+    await page
+      .getByRole("button", { name: "Run and save full comparison", exact: true })
+      .click();
+    await page.getByRole("status").filter({ hasText: "Full report saved (" }).waitFor();
+    await waitIdle();
+  };
+  await page.getByLabel(/^Coursera XLSX/).setInputFiles(file);
+  await page.getByLabel("Coursera full capture JSON").setInputFiles(capture);
+  await saveComparison();
+  assert.equal(await automaticAttempt.inputValue(), "0");
+  assert.equal(await newIngestion.isEnabled(), true,
+    "A saved baseline permits the owner to declare a later completed ingestion");
+
+  const correctedCapture = JSON.parse(new TextDecoder().decode(input.json.bytes));
+  correctedCapture.extractedAt = "2026-10-16T12:00:00.000Z";
+  const correctedReading = correctedCapture.fingerprints[0].payload;
+  correctedReading.textSample += " Synthetic manual correction: compare the units in the worked example.";
+  correctedReading.textLength = correctedReading.textSample.length;
+  const correctedCaptureFile = {
+    name: "manual-correction-course.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(correctedCapture)),
+  };
+  await page.getByLabel("Coursera full capture JSON").setInputFiles(correctedCaptureFile);
+  assert.equal(await automaticAttempt.inputValue(), "0",
+    "Selecting a new capture after a manual correction keeps the same ingestion attempt");
+  await saveComparison();
+  assert.equal(await automaticAttempt.inputValue(), "0",
+    "A second report of manually corrected content remains in attempt 0");
+  await newIngestion.check();
+  assert.equal(await automaticAttempt.inputValue(), "1",
+    "Declaring one completed ingestion selects the next consecutive attempt");
+  await page.getByLabel("Coursera full capture JSON").setInputFiles({
+    name: "broken-capture.json.gz",
+    mimeType: "application/gzip",
+    buffer: Buffer.from("Synthetic invalid gzip capture"),
+  });
+  await page
+    .getByRole("button", { name: "Run and save full comparison", exact: true })
+    .click();
+  await page.getByRole("alert").filter({
+    hasText: "The selected .json.gz capture is not a gzip file.",
+  }).waitFor();
+  await waitIdle();
+  assert.equal(await newIngestion.isChecked(), false,
+    "A persisted declaration is consumed even when reading comparison evidence fails");
+  assert.equal(await automaticAttempt.inputValue(), "1",
+    "Comparison failure cannot discard the recorded ingestion attempt");
+
+  const failedComparisonRecords = await workspaceBackup();
+  const courseAttempts = (rows) => rows.filter((record) =>
+    record.kind === "operations" && record.packageId === courses[1].id &&
+    record.data.type === "ingestion-attempt",
+  );
+  const declarations = courseAttempts(failedComparisonRecords);
+  assert.equal(declarations.length, 1,
+    "The failed comparison retains exactly one durable ingestion declaration");
+  assert.equal(declarations[0].data.generation, 1);
+  assert.equal(declarations[0].data.previousGeneration, 0);
+  assert.equal(declarations[0].data.scope, "OWNER_DECLARED_EXTERNAL_INGESTION");
+  const baselineReports = failedComparisonRecords.filter((record) =>
+    record.kind === "audit" && record.packageId === courses[1].id,
+  );
+  assert.deepEqual(baselineReports.map((record) => record.data.generation), [0, 0]);
+  assert.notEqual(baselineReports[0].data.hashes.json, baselineReports[1].data.hashes.json,
+    "Distinct saved captures of manually corrected content share attempt 0");
+  assert(baselineReports.some((record) => record.id === declarations[0].data.baseAuditId),
+    "The declaration identifies an existing saved baseline");
+
+  await tab("Compare");
+  await page.getByLabel("Coursera full capture JSON").setInputFiles(correctedCaptureFile);
+  await page
+    .getByRole("button", { name: "Run and save full comparison", exact: true })
+    .click();
+  await page.getByRole("alert").filter({
+    hasText: "A fresh course bookmark capture is required for this completed ingestion:",
+  }).waitFor();
+  await waitIdle();
+  assert.equal(await automaticAttempt.inputValue(), "1",
+    "Rejecting a reused pre-ingestion capture preserves the recorded attempt");
+  for (const name of ["Download complete report", "Download full evidence", "Copy report"])
+    assert.equal(await page.getByRole("button", { name, exact: true }).isDisabled(), true,
+      "A rejected comparison cannot export through the earlier saved report identity");
+  const staleCaptureRecords = await workspaceBackup();
+  assert.deepEqual(staleCaptureRecords.filter((record) =>
+    record.kind === "audit" && record.packageId === courses[1].id,
+  ).map((record) => record.id).sort(), baselineReports.map((record) => record.id).sort(),
+  "A pre-ingestion capture cannot create a post-ingestion audit");
+  assert.deepEqual(courseAttempts(staleCaptureRecords), declarations,
+    "Rejecting stale content retains the same single ingestion declaration");
+
+  // A distinct synthetic post-ingestion observation advances the retained
+  // content date and content bytes; no live course observation is asserted.
+  const freshCapture = structuredClone(correctedCapture);
+  freshCapture.extractedAt = "2026-10-16T13:00:00.000Z";
+  const freshReading = freshCapture.fingerprints[0].payload;
+  freshReading.textSample += " Synthetic post-ingestion capture: review the same worked example with its units.";
+  freshReading.textLength = freshReading.textSample.length;
+  await tab("Compare");
+  await page.getByLabel("Coursera full capture JSON").setInputFiles({
+    name: "fresh-post-ingestion-course.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(freshCapture)),
+  });
+  await saveComparison();
+  await saveComparison();
+  assert.equal(await automaticAttempt.inputValue(), "1",
+    "Retrying comparison and saving another report do not allocate another ingestion");
+  assert.equal(await newIngestion.isChecked(), false);
+  await courseSelect.selectOption(courses[2].id);
+  await waitIdle();
+  assert.equal(await automaticAttempt.inputValue(), "0",
+    "Another course keeps its independent attempt 0");
+  assert.equal(await newIngestion.isDisabled(), true);
+  await courseSelect.selectOption(courses[1].id);
+  await waitIdle();
+  assert.equal(await automaticAttempt.inputValue(), "1",
+    "Returning to the course restores its recorded attempt");
+  await page.reload();
+  await page.getByRole("navigation", { name: "CTI workflows" }).waitFor();
+  await courseSelect.selectOption(courses[1].id);
+  await waitIdle();
+  await tab("Compare");
+  assert.equal(await automaticAttempt.inputValue(), "1",
+    "The attempt survives a browser reload with no comparison files selected");
+  assert.equal(await newIngestion.isChecked(), false);
+  const reloadedRecords = await workspaceBackup();
+  assert.deepEqual(courseAttempts(reloadedRecords), declarations,
+    "Repeated comparisons, course changes and reload preserve the single immutable declaration");
+  assert.deepEqual(reloadedRecords.filter((record) =>
+    record.kind === "audit" && record.packageId === courses[1].id,
+  ).map((record) => record.data.generation).sort((a, b) => a - b), [0, 0, 1, 1]);
+
+  await tab("Compare");
   await page
     .getByRole("combobox", { name: "Selected source course", exact: true })
     .selectOption(courses[0].id);
   await waitIdle();
+  assert.equal(await automaticAttempt.inputValue(), "3",
+    "Unrelated saved comparisons do not renumber the retained legacy attempt");
+  assert.equal(await newIngestion.isChecked(), false);
   await tab("History");
   await page.getByRole("button", { name: audit.title, exact: true }).click();
   await waitIdle();
@@ -1442,6 +1618,7 @@ try {
           "zero-cost local Coursera extractor download and strict capture verification",
           "capture review copies allowlisted diagnostic counters, omits private native content, and offers the same summary after clipboard denial without rereading the file",
           "all comparison inputs reset across courses",
+          "automatic ingestion attempts keep manual corrections and repeated reports at 0, consume one durable declaration despite comparison failure, reject stale pre-ingestion captures, accept a fresh synthetic observation at 1, retain 1 across retries/course changes/reload, and preserve legacy 3",
           "report focus and evidence-status filtering",
           "source-only actions participate in filters and downloads remain complete",
           "queue navigation and checklist isolation",

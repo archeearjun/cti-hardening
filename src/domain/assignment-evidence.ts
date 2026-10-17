@@ -118,6 +118,7 @@ export function nextAssignmentStep(
     };
   if (
     pending.changed ||
+    e.ingestionComparisonRequired ||
     !audit ||
     audit.data.sourceScanSha256 !== course.data.scan?.fileSha256 ||
     !audit.data.hashes?.json ||
