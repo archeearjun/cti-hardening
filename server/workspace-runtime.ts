@@ -20,6 +20,23 @@ export function isWorkspaceApiPath(path: string): boolean {
   return /^\/api\/(records|uploads)(?:\/|$)/.test(path);
 }
 
+export function isPanoptoApiPath(path: string): boolean {
+  return /^\/api\/provider\/panopto\/(metadata|podcast)$/.test(path);
+}
+
+export function isDelegatedApiPath(path: string): boolean {
+  return isWorkspaceApiPath(path) || isPanoptoApiPath(path);
+}
+
+function publicOrigin(value: string | null): string {
+  try {
+    const url = new URL(value || "");
+    if (url.origin === value && /^https?:$/.test(url.protocol) && !url.username && !url.password)
+      return value!;
+  } catch {}
+  return fail("The delegated provider public origin is invalid.", 403);
+}
+
 /** Only the authenticated Pages API calls this bridge. It forwards neither
  * browser credentials nor caller-supplied delegation headers. The destination
  * Worker has no public route, workers.dev or preview URL. */
@@ -30,8 +47,10 @@ export async function forwardWorkspaceApi(
 ): Promise<Response> {
   requireCtiOwner(user);
   const source = new URL(request.url);
-  if (!isWorkspaceApiPath(source.pathname))
+  if (!isDelegatedApiPath(source.pathname))
     fail("Invalid workspace runtime route.", 404);
+  if (isPanoptoApiPath(source.pathname) && request.method !== "POST")
+    fail("Provider reads require POST.", 405);
   if (request.method !== "GET") {
     if (request.headers.get("Origin") !== source.origin)
       fail("Cross-origin writes are not allowed.", 403);
@@ -50,6 +69,8 @@ export async function forwardWorkspaceApi(
   });
   const contentType = request.headers.get("Content-Type");
   if (contentType) headers.set("Content-Type", contentType);
+  if (isPanoptoApiPath(source.pathname))
+    headers.set("x-cti-public-origin", publicOrigin(source.origin));
   if (request.method !== "GET") headers.set("Origin", target.origin);
   return service.fetch(
     new Request(target, {
@@ -70,7 +91,7 @@ export function workspaceRuntimeCaller(request: Request): WorkspaceRuntimeUser {
   if (
     url.origin !== WORKSPACE_SERVICE_ORIGIN ||
     !url.pathname.startsWith(WORKSPACE_RUNTIME_PREFIX) ||
-    !isWorkspaceApiPath(url.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length))
+    !isDelegatedApiPath(url.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length))
   )
     fail("Invalid private workspace runtime route.", 404);
   if (request.headers.get("x-cti-workspace-runtime") !== "v1")
@@ -81,6 +102,10 @@ export function workspaceRuntimeCaller(request: Request): WorkspaceRuntimeUser {
     fail("Trusted workspace identity is missing.", 401);
   const user = { email, role };
   requireCtiOwner(user);
+  if (isPanoptoApiPath(url.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length))) {
+    if (request.method !== "POST") fail("Provider reads require POST.", 405);
+    publicOrigin(request.headers.get("x-cti-public-origin"));
+  }
   if (request.method !== "GET") {
     if (request.headers.get("Origin") !== url.origin)
       fail("Invalid delegated write origin.", 403);
@@ -93,10 +118,10 @@ export function workspaceRuntimeCaller(request: Request): WorkspaceRuntimeUser {
 export function workspaceRuntimeApiRequest(request: Request): Request {
   workspaceRuntimeCaller(request);
   const source = new URL(request.url);
-  const target = new URL(
-    source.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length),
-    WORKSPACE_RUNTIME_ORIGIN,
-  );
+  const path = source.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length);
+  const target = new URL(path, isPanoptoApiPath(path)
+    ? publicOrigin(request.headers.get("x-cti-public-origin"))
+    : WORKSPACE_RUNTIME_ORIGIN);
   target.search = source.search;
   const headers = new Headers();
   const contentType = request.headers.get("Content-Type");

@@ -432,6 +432,14 @@ during deployment; no database, paid plan or replacement evidence store is
 created. Local/test handlers still exercise the same maintained implementation.
 Memory, D1 query/storage limits and Free Durable Object quotas still apply.
 
+Panopto metadata and podcast endpoints also delegate to that private runtime,
+using a separate object instance so media transfers do not hold the workspace
+save queue. Public-provider requests retain the verified Pages service origin
+in their receipt headers. No Panopto cookies or browser session is forwarded.
+Stream read/count/framing work remains inside the Durable Object until EOF,
+error or cancellation, with bounded active streams; Pages and the Worker front
+door forward the response without running a JavaScript loop over media bytes.
+
 Use the focused commands above while implementing. Before publishing changes
 across feature boundaries, run `npm test` and `npm run build`. CI additionally
 runs the built app in Chromium for package scanning, workspace workflows,

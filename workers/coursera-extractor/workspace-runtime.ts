@@ -1,10 +1,17 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleAuthorized, type Database } from "../../server/api.ts";
+import { panoptoProviderErrorResponse } from "../../server/panopto-provider.ts";
 import {
+  isPanoptoApiPath,
+  WORKSPACE_RUNTIME_PREFIX,
   workspaceRuntimeCaller,
   workspaceRuntimeApiRequest,
   workspaceRuntimeError,
 } from "../../server/workspace-runtime.ts";
+
+export const WORKSPACE_RUNTIME_OBJECT_NAME = "cti-workspace-v1";
+export const PANOPTO_RUNTIME_OBJECT_NAME = "cti-panopto-public-v1";
+export const PANOPTO_RUNTIME_MAX_STREAMS = 8;
 
 export interface WorkspaceRuntimeEnvironment {
   CTI_DB?: Database;
@@ -35,7 +42,9 @@ export async function forwardWorkspaceRuntime(
         },
       );
     return await env.WORKSPACE_RUNTIME.get(
-      env.WORKSPACE_RUNTIME.idFromName("cti-workspace-v1"),
+      env.WORKSPACE_RUNTIME.idFromName(isPanoptoApiPath(
+        new URL(request.url).pathname.slice(WORKSPACE_RUNTIME_PREFIX.length),
+      ) ? PANOPTO_RUNTIME_OBJECT_NAME : WORKSPACE_RUNTIME_OBJECT_NAME),
     ).fetch(request);
   } catch (error) {
     return workspaceRuntimeError(error);
@@ -48,6 +57,79 @@ export async function forwardWorkspaceRuntime(
 export class WorkspaceRuntime extends DurableObject<WorkspaceRuntimeEnvironment> {
   private tail: Promise<void> = Promise.resolve();
   private pending = 0;
+  private providerActive = 0;
+
+  /** Provider streams use a dedicated object identity and never enter the
+   * workspace mutation queue. Keep the permit until EOF/cancel/error, rather
+   * than releasing it when the HTTP response headers become available. */
+  private async provider(request: Request): Promise<Response> {
+    const api = workspaceRuntimeApiRequest(request);
+    if (this.providerActive >= PANOPTO_RUNTIME_MAX_STREAMS)
+      return panoptoProviderErrorResponse("PANOPTO_PROVIDER_BUSY", 503, new URL(api.url).origin);
+    this.providerActive++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.providerActive--;
+    };
+    let response: Response;
+    try {
+      // The provider branch of this shared handler runs before any D1 access.
+      // It retains the exact public-origin receipt, ownership and source rules.
+      response = await handleAuthorized(api, this.env.CTI_DB!, workspaceRuntimeCaller(request));
+    } catch (error) {
+      release();
+      return workspaceRuntimeError(error);
+    }
+    if (!response.body) {release();return response;}
+    const reader = response.body.getReader();
+    let finished = false;
+    let onAbort = () => {};
+    let output: ReadableStreamDefaultController<Uint8Array>;
+    const finish = (cancel = false) => {
+      if (finished) return;
+      finished = true;
+      api.signal.removeEventListener("abort", onAbort);
+      if (cancel) void reader.cancel().catch(() => {});
+      try {reader.releaseLock();} catch {}
+      release();
+    };
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        output = controller;
+        onAbort = () => {
+          if (!finished) {
+            controller.error(Error("Provider transfer cancelled."));
+            finish(true);
+          }
+        };
+        if (api.signal.aborted) onAbort();
+        else api.signal.addEventListener("abort", onAbort, {once: true});
+      },
+      async pull(controller) {
+        try {
+          const next = await reader.read();
+          if (finished) return;
+          if (next.done) {controller.close();finish();}
+          else controller.enqueue(next.value);
+        } catch {
+          if (!finished) {
+            controller.error(Error("Provider transfer interrupted."));
+            finish(true);
+          }
+        }
+      },
+      cancel() {finish(true);},
+    }, {highWaterMark: 0});
+    // An upstream deadline can fail while the receiver is paused. Observe
+    // errors independently of pull so a failed stream cannot retain a permit.
+    // Normal reader closure is left to pull, preserving every buffered byte.
+    void reader.closed.catch(() => {
+      if (!finished) {output.error(Error("Provider transfer interrupted."));finish(true);}
+    });
+    return new Response(stream, {status: response.status, headers: response.headers});
+  }
 
   async fetch(request: Request): Promise<Response> {
     try {
@@ -55,6 +137,8 @@ export class WorkspaceRuntime extends DurableObject<WorkspaceRuntimeEnvironment>
     } catch (error) {
       return workspaceRuntimeError(error);
     }
+    if (isPanoptoApiPath(new URL(request.url).pathname.slice(WORKSPACE_RUNTIME_PREFIX.length)))
+      return this.provider(request);
     if (this.pending >= 8)
       return new Response(
         JSON.stringify({

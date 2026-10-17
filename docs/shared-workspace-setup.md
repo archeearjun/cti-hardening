@@ -246,6 +246,11 @@ quotas and Free Durable Object daily quotas remain in force. See
 [Durable Object limits](https://developers.cloudflare.com/durable-objects/platform/limits/)
 and [Free eligibility and quotas](https://developers.cloudflare.com/durable-objects/platform/pricing/).
 
+The same private runtime handles public Panopto metadata/media acquisition in
+a separate object instance. Its streamed byte checks therefore use the Durable
+Object allowance too. The source service still reads without Panopto cookies;
+this does not grant access to private recordings or establish playback.
+
 Official references: [D1 dashboard setup](https://developers.cloudflare.com/d1/get-started/),
 [Pages bindings](https://developers.cloudflare.com/pages/functions/bindings/),
 [Access token verification](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/),

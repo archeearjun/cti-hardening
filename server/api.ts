@@ -354,13 +354,16 @@ export function createApiHandler(
           ? "editor"
           : "viewer";
       const providerAction = panoptoProviderAction(request);
-      if (providerAction)
-        return await handlePanoptoProvider(
-          request,
-          { role },
-          providerAction,
-          providerFetcher,
-        );
+      if (providerAction) {
+        requireWriteAccess(request, { role });
+        if (request.method !== "POST")
+          return panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin);
+        if (!env.CTI_EXTRACTOR)
+          return panoptoProviderErrorResponse("PANOPTO_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin);
+        // Provider parsing, source hashing and streaming callbacks run inside
+        // the private Durable Object. Pages forwards the body without reading it.
+        return await forwardWorkspaceApi(request, { ...identity, role }, env.CTI_EXTRACTOR);
+      }
       if (!env.CTI_DB || !list(env.CTI_ADMINS).length)
         fail(
           "Shared workspace setup is incomplete. Configure D1 and Cloudflare Access first.",

@@ -9,8 +9,9 @@ import {chromium} from 'playwright';
 import {createHash} from 'node:crypto';
 import {build} from 'vite';
 import JSZip from 'jszip';
-import {createApiHandler} from '../server/api.ts';
+import {createApiHandler,handleAuthorized} from '../server/api.ts';
 import {CTI_OWNER_EMAIL} from '../server/access.ts';
+import {workspaceRuntimeApiRequest,workspaceRuntimeCaller} from '../server/workspace-runtime.ts';
 import {evaluateCourseraCapture} from '../src/domain/coursera-background-extraction.ts';
 import {readCourseraCaptureFileJson} from '../src/domain/coursera-capture-file.ts';
 import {panoptoDeliveryFixture} from '../tests/panopto-delivery-fixtures.mjs';
@@ -275,7 +276,9 @@ const helperApi=createApiHandler(async request=>{
   if(mode==='service-auth'&&url.pathname.startsWith('/api/provider/'))throw Object.assign(Error('Synthetic CTI authentication required'),{status:401});
   return {email:mode==='access-denied'?'fixture-observer@example.test':CTI_OWNER_EMAIL};
 },fixtureProviderFetch);
-const helperEnvironment={CTI_ADMINS:CTI_OWNER_EMAIL,CTI_DB:{prepare(){throw Error('Provider fixture must not read or write the workspace database');}}};
+const helperEnvironment={CTI_ADMINS:CTI_OWNER_EMAIL,CTI_DB:{prepare(){throw Error('Provider fixture must not read or write the workspace database');}},
+  CTI_EXTRACTOR:{fetch:request=>handleAuthorized(workspaceRuntimeApiRequest(request),helperEnvironment.CTI_DB,
+    workspaceRuntimeCaller(request),undefined,fixtureProviderFetch)}};
 async function writeHelperResponse(response,result){
   if(response.destroyed){await result.body?.cancel().catch(()=>{});return;}
   response.writeHead(result.status,Object.fromEntries(result.headers));
