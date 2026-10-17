@@ -66,7 +66,7 @@ function metadataResponse(url, f, options = {}) {
 }
 function bodyResponse(url, body = mp4, headers = {}) {
   return responseAt(url, body, {
-    headers: { "content-type": "video/mp4", ...headers },
+    headers: { "content-type": "video/mp4", ...(body instanceof Uint8Array ? { "content-length": String(body.length) } : {}), ...headers },
   });
 }
 function optionsFor(f, changes = {}) {
@@ -425,6 +425,42 @@ test("podcast rejects MIME, partial responses, short signatures and declared ove
   }
 });
 
+test("podcast requires an unencoded full source length and exposes it separately from streamed bytes", async () => {
+  const f = fixture();
+  for (const headers of [
+    {}, { "content-length": "0" }, { "content-length": "12.0" },
+    { "content-length": "-12" }, { "content-length": "9007199254740992" },
+    { "content-length": "12", "content-encoding": "gzip" },
+  ]) {
+    const result = await readPanoptoProviderPodcast(f.request, {
+      mediaHosts: [mediaHost], fetcher: async (url, init) => {
+        if (new URL(url).pathname === metadataPath) return metadataResponse(url, f);
+        assert.equal(new Headers(init.headers).get("Accept-Encoding"), "identity");
+        return responseAt(url, mp4, { headers: { "content-type": "video/mp4", ...headers } });
+      },
+    });
+    assert.equal(result.status, 502);
+    assert.match((await result.json()).error, /^PANOPTO_PROVIDER_PODCAST_(?:LENGTH_UNAVAILABLE|ENCODING)$/);
+  }
+  const { options } = optionsFor(f);
+  const result = await readPanoptoProviderPodcast(f.request, options);
+  assert.equal(result.headers.get("X-CTI-Upstream-Content-Length"), String(mp4.length));
+  assert.equal(result.headers.get("X-CTI-Upstream-Bytes"), "0");
+  assert.equal(result.headers.get("Content-Length"), null);
+  assert.deepEqual(new Uint8Array(await result.arrayBuffer()), mp4);
+});
+
+test("a clean short upstream EOF after a valid MP4 prefix errors the returned service stream", async () => {
+  const f = fixture();
+  const result = await readPanoptoProviderPodcast(f.request, {
+    mediaHosts: [mediaHost], fetcher: async url => new URL(url).pathname === metadataPath
+      ? metadataResponse(url, f) : bodyResponse(url, mp4, { "content-length": String(mp4.length + 1) }),
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("X-CTI-Upstream-Content-Length"), String(mp4.length + 1));
+  await assert.rejects(result.arrayBuffer(), /PANOPTO_PROVIDER_PODCAST_LENGTH/);
+});
+
 test(
   "streamed podcast overflow errors the consumer and cancels the source instead of buffering an oversized body",
   { timeout: 2000 },
@@ -448,6 +484,7 @@ test(
                   cancelled++;
                 },
               }),
+              { "content-length": "16" },
             ),
     });
     assert.equal(response.status, 200);
@@ -481,6 +518,7 @@ test(
               cancelled++;
             },
           }),
+          { "content-length": String(mp4.length * 2) },
         );
       },
     });
@@ -548,6 +586,7 @@ test(
                 cancelled++;
               },
             }),
+            { "content-length": String(mp4.length * 2) },
           );
         },
       });

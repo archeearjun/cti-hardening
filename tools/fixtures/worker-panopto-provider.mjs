@@ -35,6 +35,7 @@ export default {
     status(podcast, 200, 200, 2);
     equal(podcast.headers.get("X-CTI-Validation-Source-Hash"), input.sourceHash, "Fresh native source hash is bound to media");
     equal(podcast.headers.get("X-CTI-Validation-Bytes"), String(raw.length), "Fresh validation response bytes are counted");
+    equal(podcast.headers.get("X-CTI-Upstream-Content-Length"), String(mediaBytes.length), "The full source length survives streaming headers");
     const body = new Uint8Array(await podcast.arrayBuffer());
     equal([...body], [...mediaBytes], "Native rendition bytes survive unchanged");
     equal(await sha256(body), await sha256(mediaBytes), "Native rendition byte hash");

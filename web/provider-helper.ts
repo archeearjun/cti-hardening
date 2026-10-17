@@ -14,6 +14,7 @@ type Job = {
   chunkOffset: number;
   seq: number;
   bytes: number;
+  declaredBytes: number | null;
   limit: number;
   busy: boolean;
   timer: ReturnType<typeof setTimeout>;
@@ -113,7 +114,8 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
     if (!valid) { send("error", { ...identity, code: "PROVIDER_HELPER_INVALID_REQUEST" }); return; }
     const job: Job = {
       binding: identity, controller: new AbortController(), reader: null, chunk: null,
-      chunkOffset: 0, seq: 0, bytes: 0, limit: m.kind === "metadata" ? 512 * 1024 : 128 * 1024 * 1024,
+      chunkOffset: 0, seq: 0, bytes: 0, declaredBytes: null,
+      limit: m.kind === "metadata" ? 512 * 1024 : 128 * 1024 * 1024,
       busy: false, timer: setTimeout(() => {}, 0),
     };
     jobs.set(m.id, job);
@@ -133,6 +135,15 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
           Number(response.headers.get("content-length") || 0) > job.limit) {
         void response.body?.cancel().catch(() => {});
         fail(job, "PROVIDER_HELPER_INVALID_RESPONSE"); return;
+      }
+      if (m.kind === "podcast" && response.status === 200) {
+        const length = response.headers.get("X-CTI-Upstream-Content-Length");
+        const declared = /^[1-9]\d*$/.test(length || "") ? Number(length) : NaN;
+        if (!Number.isSafeInteger(declared) || declared > job.limit) {
+          void response.body.cancel().catch(() => {});
+          fail(job, "PROVIDER_HELPER_PODCAST_LENGTH_UNAVAILABLE"); return;
+        }
+        job.declaredBytes = declared;
       }
       job.reader = response.body.getReader();
       const headers = CTI_PROVIDER_HELPER_HEADERS_V1.split(",").flatMap((name: string) => {
@@ -157,6 +168,9 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
         const next = await job.reader.read();
         if (!jobs.has(job.binding.id)) return;
         if (next.done) {
+          if (job.declaredBytes !== null && job.bytes !== job.declaredBytes) {
+            fail(job, "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH"); return;
+          }
           send("end", { ...job.binding, seq: job.seq, offset: job.bytes }); finish(job); return;
         }
         if (!(next.value instanceof Uint8Array) || !next.value.byteLength || next.value.byteLength > job.limit) {
@@ -166,6 +180,9 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
         job.chunkOffset = 0;
       }
       const bytes = job.chunk.slice(job.chunkOffset, job.chunkOffset + 65536);
+      if (job.declaredBytes !== null && job.bytes + bytes.byteLength > job.declaredBytes) {
+        fail(job, "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH"); return;
+      }
       if (job.bytes + bytes.byteLength > job.limit || total + bytes.byteLength > 512 * 1024 * 1024) {
         fail(job, "PROVIDER_HELPER_BYTE_LIMIT"); return;
       }

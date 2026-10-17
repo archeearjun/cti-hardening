@@ -489,7 +489,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
       return failure(assetId, "FETCH_UNAVAILABLE");
     stats.requests++;
     notify();
-    let response, serviceReceipt;
+    let response, serviceReceipt, declaredBodyBytes;
     if (providerRequest) {serviceReceipt={role:"PODCAST_STREAM_RENDITION",targetUrl:providerRequest.targetUrl,canonicalUrl:binding.canonicalUrl,bytes:0};
       directProviderTransportReceiptV1(null,serviceReceipt);}
     const failed=reason=>failure(assetId,reason,serviceReceipt?{receipt:{...serviceReceipt}}:{});
@@ -544,6 +544,15 @@ export function createDirectDataMediaReaderV1(options = {}) {
             Number(response.headers.get("X-CTI-Upstream-Bytes"))!==0) {
           await discard(response);return failed("PROVIDER_HELPER_VALIDATION_INVALID");
         }
+        const declared=response.headers.get("X-CTI-Upstream-Content-Length");
+        declaredBodyBytes=/^[1-9]\d*$/.test(declared || "") ? Number(declared) : NaN;
+        if (!Number.isSafeInteger(declaredBodyBytes)) {
+          await discard(response);return failed("PANOPTO_PODCAST_LENGTH_UNAVAILABLE");
+        }
+        serviceReceipt.declaredBodyBytes=declaredBodyBytes;
+        if (declaredBodyBytes>bodyBytes) {
+          await discard(response);return failed("DIRECT_ASSET_BODY_BYTE_LIMIT");
+        }
         if (bodyBudgetExhausted || !jobCurrent(controller)) {
           await discard(response);return failed(bodyBudgetExhausted?"DIRECT_MEDIA_BYTE_LIMIT":jobStopReason(controller));
         }
@@ -557,6 +566,10 @@ export function createDirectDataMediaReaderV1(options = {}) {
       if (binding.role === "PODCAST_STREAM_RENDITION" && response.headers.get("content-range") !== null) {
         await discard(response);
         return failed("PANOPTO_PODCAST_PARTIAL_RESPONSE");
+      }
+      const encoding=response.headers.get("content-encoding");
+      if (binding.role === "PODCAST_STREAM_RENDITION" && encoding !== null && encoding.trim().toLowerCase() !== "identity") {
+        await discard(response);return failed("PANOPTO_PODCAST_ENCODING_UNSUPPORTED");
       }
       const actual = response.url || url;
       if (
@@ -587,6 +600,13 @@ export function createDirectDataMediaReaderV1(options = {}) {
       if (Number.isFinite(advertised) && advertised > bodyBytes) {
         await discard(response);
         return failed("DIRECT_ASSET_BODY_BYTE_LIMIT");
+      }
+      if (binding.role === "PODCAST_STREAM_RENDITION" && !providerRequest) {
+        const declared=response.headers.get("content-length");
+        declaredBodyBytes=/^[1-9]\d*$/.test(declared || "") ? Number(declared) : NaN;
+        if (!Number.isSafeInteger(declaredBodyBytes)) {
+          await discard(response);return failed("PANOPTO_PODCAST_LENGTH_UNAVAILABLE");
+        }
       }
       const chunks = [];
       let count = 0;
@@ -651,6 +671,8 @@ export function createDirectDataMediaReaderV1(options = {}) {
                 : "DIRECT_ASSET_BODY_BYTE_LIMIT"),
           );
       } else return failed("DIRECT_ASSET_BODY_UNAVAILABLE");
+      if (declaredBodyBytes !== undefined && count !== declaredBodyBytes)
+        return failed("PANOPTO_PODCAST_LENGTH_MISMATCH");
       const bytes = new Uint8Array(count);
       let offset = 0;
       for (const chunk of chunks) {
@@ -682,6 +704,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         receipt: {
           ...(binding.role === "PODCAST_STREAM_RENDITION" ? {role:"PODCAST_STREAM_RENDITION"} : {}),
           ...(serviceReceipt || {}),
+          ...(declaredBodyBytes !== undefined ? {declaredBodyBytes} : {}),
           status: serviceReceipt?.status || Number(response.status),
           bytes: count,
           mime,

@@ -232,6 +232,8 @@ const panoptoMetadataCors=makePanoptoCourse('Direct_panopto_metadata_cors_123','
 const panoptoBodyCors=makePanoptoCourse('Direct_panopto_body_cors_123','body-cors');
 const helperFailure=makePanoptoCourse('Direct_panopto_helper_failure_123','allowed');
 const helperForeign=makePanoptoCourse('Direct_panopto_helper_foreign_123','metadata-csp');
+const helperShort=makePanoptoCourse('Direct_panopto_helper_short_123','metadata-csp');
+helperShort.helperCleanShortEof=true;
 function helperMode(request){return /(?:^|;\s*)ctiFixtureMode=([a-z-]+)/.exec(request.headers.get('cookie')||'')?.[1]||'ready';}
 async function waitForHelperFixture(config,signal){
   if(!config.helperHold||config.helperReleased)return;
@@ -295,11 +297,22 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
         const headers=new Headers();for(const [key,value]of Object.entries(request.headers))if(typeof value==='string')headers.set(key,value);
         const input=new Request(helperOrigin+url.pathname,{method:request.method,headers,
           ...(body?{body}:{}),signal:controller.signal});
+        let providerConfig;
         if(url.pathname.startsWith('/api/provider/')){
           const payload=JSON.parse(body),identity=new URL(payload.targetUrl).searchParams.get('id'),config=panoptoDeliveries.get(identity);
           assert(config);helperRequests.push({courseId:config.id,kind:url.pathname.split('/').at(-1),mode:helperMode(input)});
+          providerConfig=config;
         }
-        await writeHelperResponse(response,await helperApi(input,helperEnvironment));
+        let result=await helperApi(input,helperEnvironment);
+        if(providerConfig?.helperCleanShortEof&&url.pathname.endsWith('/podcast')&&result.status===200){
+          // Simulate an intermediary converting a streamed failure into a clean
+          // EOF after a valid MP4 prefix. The original full byte declaration
+          // must still cross the actual popup channel and prevent acceptance.
+          const reader=result.body.getReader(),first=await reader.read();
+          await reader.cancel();reader.releaseLock();
+          result=new Response(first.value.subarray(0,12),{headers:result.headers});
+        }
+        await writeHelperResponse(response,result);
       })().catch(error=>{if(!response.destroyed){helperErrors.push(error.message);response.statusCode=500;response.end('Synthetic helper route failed');}});});return;
     }
     if(url.pathname==='/foreign-window.html'){response.setHeader('Content-Type','text/html');response.end('<!doctype html><title>Unrelated fixture window</title>');return;}
@@ -1108,6 +1121,7 @@ try{
       assert.equal(podcast.body.receipt.transport,'CTI_PUBLIC_BACKEND');assert.equal(podcast.body.receipt.serviceOrigin,helperOrigin);
       assert.equal(podcast.body.receipt.observedAtBasis,'UPSTREAM');assert.equal(podcast.body.receipt.upstreamRequests,2);
       assert.equal(podcast.body.receipt.validationSourceHash,delivery.initial.sourceHash);
+      assert.equal(podcast.body.receipt.declaredBodyBytes,mp4Bytes.length);
       assert(podcast.body.receipt.validationMetadataBytes>0);
       assert(Number.isFinite(Date.parse(podcast.body.receipt.observedAt)));
       assert.equal(delivery.failures.length,0);
@@ -1283,6 +1297,15 @@ try{
       'The cooperating public service reads the configured source without changing course-tab CORS policy');
     await target.context.close();
   }
+  const shortTransfer=await runFileCase(helperShort);
+  assertMixedNativeItems(helperShort,shortTransfer.capture);
+  for(const itemId of ['item_0003','item_0005']){
+    const retained=assertPanoptoMetadata(helperShort,shortTransfer.capture,false,itemId);
+    assert.equal(retained.podcast.body,undefined,'A valid MP4 prefix cannot be retained as a full rendition after short EOF');
+    assert.match(retained.podcast.reason,/PODCAST_LENGTH_MISMATCH/);
+  }
+  assert.equal(shortTransfer.state.state,'INCOMPLETE');
+  await shortTransfer.context.close();
   for(const scenario of [
     {helper:'popup-blocked',provider:'allowed'},
     {helper:'coop',provider:'allowed'},

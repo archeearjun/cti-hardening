@@ -2,7 +2,7 @@ import { directPanoptoAutomaticTargetV1 } from './direct-data-panopto.js';
 
 export const CTI_PROVIDER_HELPER_PROTOCOL_V1 = 'CTI_PROVIDER_HELPER_V1';
 export const CTI_PROVIDER_HELPER_ORIGIN_V1 = 'https://cti-hardening.pages.dev';
-export const CTI_PROVIDER_HELPER_HEADERS_V1 = 'content-type,content-length,content-range,x-cti-provider-transport,x-cti-provider-origin,x-cti-upstream-status,x-cti-upstream-observed-at,x-cti-upstream-bytes,x-cti-upstream-requests,x-cti-validation-bytes,x-cti-validation-source-hash,x-cti-validation-observed-at';
+export const CTI_PROVIDER_HELPER_HEADERS_V1 = 'content-type,content-length,content-range,content-encoding,x-cti-provider-transport,x-cti-provider-origin,x-cti-upstream-status,x-cti-upstream-observed-at,x-cti-upstream-bytes,x-cti-upstream-content-length,x-cti-upstream-requests,x-cti-validation-bytes,x-cti-validation-source-hash,x-cti-validation-observed-at';
 
 /** The click handler opens one authenticated CTI helper synchronously. Only
  * fixed Panopto operations cross this channel; no credentials cross it. */
