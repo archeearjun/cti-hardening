@@ -18,6 +18,7 @@ import {
   validateRecord,
   validateWorkspaceTransition,
   validateOperationalReferences,
+  prepareWorkspaceBackup,
 } from "../src/domain/workspace-validation.ts";
 import {
   digest,
@@ -36,6 +37,16 @@ import {
   createAdvisoryRecordData,
   reviewedMappingExample,
 } from "../src/domain/advisory-learning.ts";
+import {
+  createAutomaticIngestionBasis,
+  createIngestionAttemptRecord,
+  currentIngestionAttempt,
+} from "../src/domain/ingestion-attempts.ts";
+import {
+  assignmentBasis,
+  evaluateAssignment,
+  reconciliationCurrent,
+} from "../src/domain/assignment-plan.ts";
 
 function fixture() {
   const content = {
@@ -604,7 +615,12 @@ function apiFixture() {
       }
     },
   };
-  const call = async (path, method = "GET", body) => {
+  const call = async (
+    path,
+    method = "GET",
+    body,
+    actor = { role: "admin", email: "owner" },
+  ) => {
     try {
       return await handleAuthorized(
         new Request("https://cti.example.test/api/" + path, {
@@ -613,7 +629,7 @@ function apiFixture() {
           headers: { Origin: "https://cti.example.test" },
         }),
         db,
-        { role: "admin", email: "owner" },
+        actor,
       );
     } catch (error) {
       return new Response(JSON.stringify({ error: error.message }), {
@@ -621,30 +637,42 @@ function apiFixture() {
       });
     }
   };
-  const save = async (record) => {
+  const prepareSave = async (
+    record,
+    { summary = recordSummary(record), actor } = {},
+  ) => {
     const bytes = new TextEncoder().encode(JSON.stringify(record.data));
     const prepare = await call(
       "uploads",
       "POST",
       JSON.stringify({
-        record: recordSummary(record),
+        record: summary,
         bytes: bytes.length,
         parts: 1,
         sha256: await digest(bytes),
       }),
+      actor,
     );
-    if (!prepare.ok) return prepare;
+    if (!prepare.ok) return { response: prepare };
     const { id } = await prepare.json();
     assert.equal(
-      (await call("uploads/" + id + "/chunks/0", "PUT", bytes)).status,
+      (await call("uploads/" + id + "/chunks/0", "PUT", bytes, actor)).status,
       200,
     );
-    return call("uploads/" + id + "/commit", "POST", "{}");
+    return {
+      response: prepare,
+      commit: () => call("uploads/" + id + "/commit", "POST", "{}", actor),
+    };
+  };
+  const save = async (record, options) => {
+    const pending = await prepareSave(record, options);
+    return pending.commit ? pending.commit() : pending.response;
   };
   return {
     sql,
     call,
     save,
+    prepareSave,
     setBeforeBatch(hook) {
       beforeBatch = hook;
     },
@@ -829,9 +857,8 @@ for (const change of ["insert", "edit"]) {
   test(`a concurrent historical item review ${change} cannot approve a pre-edit assignment basis`, async () => {
     const { course, audit } = fixture();
     audit.id = "audit-current";
-    audit.data.result.ownerView.items = audit.data.result.ownerView.items.filter(
-      (item) => item.id,
-    );
+    audit.data.result.ownerView.items =
+      audit.data.result.ownerView.items.filter((item) => item.id);
     const historicalAudit = { ...structuredClone(audit), id: "audit-before" };
     const review = {
       id: "historical-owner-review",
@@ -865,7 +892,12 @@ for (const change of ["insert", "edit"]) {
       const artifact = generateAssignmentDeliverable(
         course,
         audit,
-        [course, historicalAudit, audit, ...(change === "edit" ? [review] : [])],
+        [
+          course,
+          historicalAudit,
+          audit,
+          ...(change === "edit" ? [review] : []),
+        ],
         "content-map",
       );
       const draftData = makeAssignmentDeliverableData(
@@ -1244,6 +1276,912 @@ test("local lifecycle validation finishes before the write transaction and reche
     else globalThis.indexedDB = previous;
   }
 });
+
+async function saveIngestionFixture(api, records) {
+  const saved = [];
+  for (const record of records) {
+    const response = await api.save({ ...record, version: 0 });
+    assert.equal(response.status, 200, await response.clone().text());
+    const { record: metadata } = await response.json();
+    saved.push({
+      ...record,
+      version: metadata.version,
+      updatedAt: metadata.updatedAt,
+      updatedBy: metadata.updatedBy,
+    });
+  }
+  return saved;
+}
+
+function modernIngestionBackup() {
+  const { course, audit } = fixture();
+  course.updatedAt = "2026-10-01T00:00:00.000Z";
+  audit.updatedAt = "2026-10-03T00:00:00.000Z";
+  audit.data.automaticIngestion = createAutomaticIngestionBasis(course.id, [
+    course,
+  ]);
+  audit.data.result.stats = {
+    extractorMeta: { capturedAt: "2026-10-01T00:00:00.000Z" },
+  };
+  const receipt = createIngestionAttemptRecord(
+    course,
+    [course, audit],
+    "original owner",
+    "2026-09-29T00:00:00.000Z",
+  );
+  receipt.version = 1;
+  receipt.updatedAt = "2026-10-04T00:00:00.000Z";
+  const nextAudit = structuredClone(audit);
+  nextAudit.id = "audit-after-ingestion";
+  nextAudit.updatedAt = "2026-10-06T00:00:00.000Z";
+  nextAudit.data.generation = 1;
+  nextAudit.data.hashes.json = "c".repeat(64);
+  nextAudit.data.result.stats.extractorMeta.capturedAt =
+    "2026-10-05T00:00:00.000Z";
+  nextAudit.data.automaticIngestion = createAutomaticIngestionBasis(course.id, [
+    course,
+    audit,
+    receipt,
+  ]);
+  return {
+    kind: "CTI_BROWSER_WORKSPACE",
+    schemaVersion: 1,
+    records: [nextAudit, receipt, audit, course],
+  };
+}
+
+test("local backup restore orders modern ingestion dependencies and preserves original declaration metadata", async () => {
+  const previous = globalThis.indexedDB;
+  try {
+    const backup = modernIngestionBackup();
+    const prepared = prepareWorkspaceBackup(backup);
+    assert.deepEqual(
+      prepared.map((record) => record.id),
+      backup.records.map((record) => record.id).reverse(),
+    );
+    assert.ok(prepared.every((record) => record.version === 0));
+    const fake = strictIndexedDb([]);
+    globalThis.indexedDB = fake;
+    const store = localStore();
+    for (const record of prepared) {
+      const restored = await store.save(record);
+      const original = backup.records.find((row) => row.id === restored.id);
+      assert.deepEqual(restored.data, original.data);
+      assert.notEqual(restored.updatedAt, original.updatedAt);
+    }
+    const restored = await Promise.all(
+      prepared.map((record) => store.get(record.id)),
+    );
+    const listed = await store.list();
+    assert.deepEqual(
+      currentIngestionAttempt("course", restored),
+      currentIngestionAttempt("course", backup.records),
+    );
+    assert.deepEqual(
+      currentIngestionAttempt("course", listed),
+      currentIngestionAttempt("course", restored),
+    );
+    const receipt = restored.find(
+      (record) => record.data.type === "ingestion-attempt",
+    );
+    assert.equal(receipt.data.declaredAt, "2026-09-29T00:00:00.000Z");
+    assert.equal(receipt.data.declaredBy, "original owner");
+    assert.equal(fake.tables.get("records").size, 4);
+  } finally {
+    if (previous === undefined) delete globalThis.indexedDB;
+    else globalThis.indexedDB = previous;
+  }
+});
+
+test("shared backup restore orders modern ingestion dependencies while retaining checksummed original payloads", async () => {
+  const api = apiFixture();
+  try {
+    const backup = modernIngestionBackup();
+    const prepared = prepareWorkspaceBackup(backup);
+    assert.deepEqual(
+      prepared.map((record) => record.id),
+      backup.records.map((record) => record.id).reverse(),
+    );
+    const saved = await saveIngestionFixture(api, prepared);
+    const restored = [];
+    for (const record of saved) {
+      const metadataResponse = await api.call("records/" + record.id);
+      assert.equal(metadataResponse.status, 200);
+      const { record: metadata } = await metadataResponse.json();
+      const payloadResponse = await api.call(
+        "records/" + record.id + "/chunks/0",
+      );
+      assert.equal(payloadResponse.status, 200);
+      const data = await payloadResponse.json();
+      const original = backup.records.find((row) => row.id === record.id);
+      assert.deepEqual(data, original.data);
+      assert.notEqual(metadata.updatedAt, original.updatedAt);
+      restored.push({ ...metadata, data });
+    }
+    assert.deepEqual(
+      currentIngestionAttempt("course", restored),
+      currentIngestionAttempt("course", backup.records),
+    );
+    const receipt = restored.find(
+      (record) => record.data.type === "ingestion-attempt",
+    );
+    assert.equal(receipt.data.declaredAt, "2026-09-29T00:00:00.000Z");
+    assert.equal(receipt.data.declaredBy, "original owner");
+    assert.equal(
+      api.sql.prepare("SELECT COUNT(*) AS count FROM documents").get().count,
+      4,
+    );
+  } finally {
+    api.sql.close();
+  }
+});
+
+test("local ingestion declarations persist immutable receipts without creating comparison reports", async () => {
+  const previous = globalThis.indexedDB;
+  try {
+    for (const generation of [0, 3]) {
+      const { course, audit } = fixture();
+      audit.data.generation = generation;
+      audit.updatedAt = "2026-10-01T00:00:00.000Z";
+      const fake = strictIndexedDb([course, audit]);
+      globalThis.indexedDB = fake;
+      const store = localStore();
+      const receipt = createIngestionAttemptRecord(
+        course,
+        [course, audit],
+        "owner",
+        "2026-10-02T00:00:00.000Z",
+      );
+      assert.equal(receipt.version, 0);
+      const saved = await store.save(receipt);
+      assert.equal(saved.version, 1);
+      assert.deepEqual((await store.get(saved.id)).data, receipt.data);
+      assert.equal(
+        currentIngestionAttempt(course.id, [course, audit, saved]).generation,
+        generation + 1,
+      );
+      assert.equal(
+        [...fake.tables.get("records").values()].filter(
+          (r) => r.kind === "audit",
+        ).length,
+        1,
+      );
+      const rewritten = structuredClone(saved);
+      rewritten.data.declaredBy = "another owner";
+      await assert.rejects(store.save(rewritten), /immutable/);
+      const recast = { ...saved, data: { type: "catalog", rows: [] } };
+      await assert.rejects(store.save(recast), /cannot change/);
+      const rebound = { ...receipt, id: "noncanonical-ingestion-receipt" };
+      await assert.rejects(
+        store.save(rebound),
+        /identity|noncanonical|record ID/i,
+      );
+      const backdated = createIngestionAttemptRecord(
+        course,
+        [course, audit, saved],
+        "owner",
+        new Date().toISOString(),
+      );
+      backdated.data.declaredAt = "2026-09-30T00:00:00.000Z";
+      const savedBackdated = await store.save(backdated);
+      assert.equal(savedBackdated.data.declaredAt, backdated.data.declaredAt);
+      const redated = structuredClone(savedBackdated);
+      redated.data.declaredAt = "2026-09-29T00:00:00.000Z";
+      await assert.rejects(store.save(redated), /immutable/);
+      assert.equal(fake.tables.get("versions").size, 2);
+      assert.deepEqual(
+        fake.tables.get("records").get(saved.id).data,
+        receipt.data,
+      );
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.indexedDB;
+    else globalThis.indexedDB = previous;
+  }
+});
+
+test("listed ingestion receipts preserve strict schema and the reloaded assignment evidence basis", () => {
+  const { course, audit } = fixture();
+  audit.data.generation = 3;
+  audit.updatedAt = "2026-10-01T00:00:00.000Z";
+  const repair = {
+    id: "listed-lineage-repair",
+    kind: "operations",
+    title: "Confirmed repeated export",
+    packageId: course.id,
+    version: 1,
+    updatedAt: "2026-10-02T00:00:00.000Z",
+    updatedBy: "owner",
+    data: {
+      type: "lineage-repair",
+      runId: audit.id,
+      toGeneration: 0,
+      note: "The owner confirmed this was another export of the same ingestion.",
+    },
+  };
+  const baseline = [course, audit, repair];
+  const previousBasis = assignmentBasis(course, audit, baseline);
+  course.data.assignmentPlan = {
+    route: "COURSE",
+    shellChangedAt: "",
+    reconciliation: {
+      basis: previousBasis,
+      note: "Reviewed the comparison before declaring another completed ingestion.",
+      recordedAt: "2026-10-02T00:00:00.000Z",
+      recordedBy: "owner",
+    },
+  };
+  assert.equal(reconciliationCurrent(course, audit, baseline), true);
+  const receipt = createIngestionAttemptRecord(
+    course,
+    baseline,
+    "owner",
+    "2026-10-03T00:00:00.000Z",
+  );
+  receipt.version = 1;
+  receipt.updatedAt = receipt.data.declaredAt;
+  assert.deepEqual(recordSummary(receipt).data, receipt.data);
+  const full = [...baseline, receipt];
+  const listed = full.map(recordSummary);
+  assert.deepEqual(
+    currentIngestionAttempt(course.id, listed),
+    currentIngestionAttempt(course.id, full),
+  );
+  assert.notEqual(assignmentBasis(course, audit, full), previousBasis);
+  assert.equal(
+    assignmentBasis(course, audit, listed),
+    assignmentBasis(course, audit, full),
+  );
+  assert.equal(reconciliationCurrent(course, audit, listed), false);
+  assert.deepEqual(
+    evaluateAssignment(course, audit, listed).blockers,
+    evaluateAssignment(course, audit, full).blockers,
+  );
+});
+
+test("shared ingestion receipts keep checksummed payloads and regenerate forged listing metadata", async () => {
+  const api = apiFixture();
+  try {
+    const [course, audit] = await saveIngestionFixture(
+      api,
+      Object.values(fixture()),
+    );
+    const receipt = createIngestionAttemptRecord(
+      course,
+      [course, audit],
+      "owner",
+      new Date().toISOString(),
+    );
+    const summary = recordSummary(receipt);
+    delete summary.data.generation;
+    delete summary.data.declaredAt;
+    summary.data.previousGeneration = 88;
+    summary.data.declaredBy = "forged listing actor";
+    summary.data.type = "catalog";
+    summary.data.rows = [];
+    const response = await api.save(receipt, { summary });
+    assert.equal(response.status, 200, await response.clone().text());
+    const saved = { ...receipt, version: 1 };
+    const listing = JSON.parse(
+      api.sql.prepare("SELECT summary FROM documents WHERE id=?").get(saved.id)
+        .summary,
+    );
+    for (const [field, value] of Object.entries(receipt.data))
+      assert.deepEqual(listing[field], value, `listing receipt field ${field}`);
+    const metadataResponse = await api.call("records/" + saved.id);
+    assert.equal(metadataResponse.status, 200);
+    const metadata = await metadataResponse.json();
+    for (const [field, value] of Object.entries(receipt.data))
+      assert.deepEqual(
+        metadata.record.data[field],
+        value,
+        `saved metadata ${field}`,
+      );
+    const payload = await api.call("records/" + saved.id + "/chunks/0");
+    assert.deepEqual(await payload.json(), receipt.data);
+    assert.equal(
+      api.sql
+        .prepare("SELECT COUNT(*) AS count FROM documents WHERE kind='audit'")
+        .get().count,
+      1,
+    );
+    const rewritten = structuredClone(saved);
+    rewritten.data.declaredBy = "another owner";
+    const rejected = await api.save(rewritten);
+    assert.equal(rejected.status, 400, await rejected.clone().text());
+    assert.match(await rejected.text(), /immutable/);
+    const recast = { ...saved, data: { type: "catalog", rows: [] } };
+    const typeResponse = await api.save(recast);
+    assert.equal(typeResponse.status, 400);
+    assert.match(await typeResponse.text(), /cannot change/);
+    const identityResponse = await api.save({
+      ...receipt,
+      id: "wrong-receipt-id",
+    });
+    assert.equal(identityResponse.status, 400);
+    const backdated = createIngestionAttemptRecord(
+      course,
+      [course, audit, saved],
+      "owner",
+      new Date().toISOString(),
+    );
+    backdated.data.declaredAt = "2020-01-01T00:00:00.000Z";
+    const dateResponse = await api.save(backdated);
+    assert.equal(dateResponse.status, 200, await dateResponse.clone().text());
+    const redated = { ...backdated, version: 1, data: { ...backdated.data } };
+    redated.data.declaredAt = "2020-01-02T00:00:00.000Z";
+    const redatedResponse = await api.save(redated);
+    assert.equal(redatedResponse.status, 400);
+    assert.match(await redatedResponse.text(), /immutable/);
+    assert.equal(
+      JSON.parse(
+        api.sql
+          .prepare("SELECT summary FROM documents WHERE id=?")
+          .get(backdated.id).summary,
+      ).declaredAt,
+      backdated.data.declaredAt,
+    );
+  } finally {
+    api.sql.close();
+  }
+});
+
+test("local automatic comparisons start at zero and cannot commit after a new ingestion declaration", async () => {
+  const previous = globalThis.indexedDB;
+  try {
+    const { course, audit } = fixture();
+    audit.version = 0;
+    audit.data.automaticIngestion = createAutomaticIngestionBasis(course.id, [
+      course,
+    ]);
+    const initial = strictIndexedDb([course]);
+    globalThis.indexedDB = initial;
+    const first = await localStore().save(audit);
+    assert.equal(first.data.generation, 0);
+    assert.equal(first.data.automaticIngestion.baseAuditId, "");
+    const receipt = createIngestionAttemptRecord(
+      course,
+      [course, first],
+      "owner",
+      new Date().toISOString(),
+    );
+    const stale = {
+      ...structuredClone(audit),
+      id: "automatic-comparison-before-declaration",
+    };
+    stale.data.automaticIngestion = createAutomaticIngestionBasis(course.id, [
+      course,
+      first,
+    ]);
+    const racing = strictIndexedDb([course, first], (tables) => {
+      tables.get("records").set(receipt.id, { ...receipt, version: 1 });
+    });
+    globalThis.indexedDB = racing;
+    await assert.rejects(localStore().save(stale), /changed during validation/);
+    assert.equal(racing.tables.get("records").has(stale.id), false);
+    assert.equal(racing.tables.get("versions").size, 0);
+  } finally {
+    if (previous === undefined) delete globalThis.indexedDB;
+    else globalThis.indexedDB = previous;
+  }
+});
+
+for (const change of [
+  "new ingestion declaration",
+  "existing repair revision",
+]) {
+  test(`shared automatic comparison atomically rejects ${change} after computing generation zero`, async () => {
+    const api = apiFixture();
+    try {
+      const input = fixture();
+      const [course] = await saveIngestionFixture(api, [input.course]);
+      input.audit.data.automaticIngestion = createAutomaticIngestionBasis(
+        course.id,
+        [course],
+      );
+      const [audit] = await saveIngestionFixture(api, [input.audit]);
+      assert.equal(audit.data.generation, 0);
+      assert.equal(audit.data.automaticIngestion.baseAuditId, "");
+      const records = [course, audit];
+      const repair = {
+        id: "automatic-comparison-repair",
+        kind: "operations",
+        title: "Confirmed export correction",
+        packageId: course.id,
+        version: 0,
+        updatedAt: "",
+        updatedBy: "owner",
+        data: { type: "lineage-repair", runId: audit.id, toGeneration: 0 },
+      };
+      if (change === "existing repair revision") {
+        const [savedRepair] = await saveIngestionFixture(api, [repair]);
+        records.push(savedRepair);
+      }
+      const stale = {
+        ...structuredClone(audit),
+        id: "automatic-comparison-stale",
+        version: 0,
+      };
+      stale.data.automaticIngestion = createAutomaticIngestionBasis(
+        course.id,
+        records,
+      );
+      const receipt = createIngestionAttemptRecord(
+        course,
+        records,
+        "owner",
+        new Date().toISOString(),
+      );
+      api.setBeforeBatch(() => {
+        if (change === "new ingestion declaration")
+          insertConcurrentSummary(api, receipt);
+        else
+          api.sql
+            .prepare("UPDATE documents SET version=version+1 WHERE id=?")
+            .run(repair.id);
+      });
+      const response = await api.save(stale);
+      assert.equal(response.status, 409, await response.clone().text());
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(stale.id).count,
+        0,
+      );
+      assert.equal(
+        api.sql
+          .prepare(
+            "SELECT COUNT(*) AS count FROM uploads WHERE document_id=? AND committed=1",
+          )
+          .get(stale.id).count,
+        0,
+      );
+    } finally {
+      api.sql.close();
+    }
+  });
+}
+
+for (const timing of ["already saved", "inserted during repair"]) {
+  test(`local lineage correction preserves an ingestion declaration ${timing}`, async () => {
+    const previous = globalThis.indexedDB;
+    try {
+      const { course, audit } = fixture();
+      audit.data.generation = 1;
+      const receipt = createIngestionAttemptRecord(
+        course,
+        [course, audit],
+        "owner",
+        new Date().toISOString(),
+      );
+      receipt.version = 1;
+      const repair = {
+        id: "repair-after-declaration",
+        kind: "operations",
+        title: "Repeated export correction",
+        packageId: course.id,
+        version: 0,
+        updatedAt: "",
+        updatedBy: "owner",
+        data: { type: "lineage-repair", runId: audit.id, toGeneration: 0 },
+      };
+      const fake = strictIndexedDb(
+        [course, audit, ...(timing === "already saved" ? [receipt] : [])],
+        (tables) => {
+          if (timing === "inserted during repair")
+            tables.get("records").set(receipt.id, receipt);
+        },
+      );
+      globalThis.indexedDB = fake;
+      await assert.rejects(
+        localStore().save(repair),
+        timing === "already saved"
+          ? /contradict recorded ingestion history/
+          : /changed during validation/,
+      );
+      assert.equal(fake.tables.get("records").has(repair.id), false);
+      assert.equal(fake.tables.get("records").get(audit.id).data.generation, 1);
+      assert.deepEqual(
+        fake.tables.get("records").get(receipt.id).data,
+        receipt.data,
+      );
+      assert.equal(fake.tables.get("versions").size, 0);
+    } finally {
+      if (previous === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = previous;
+    }
+  });
+
+  test(`shared lineage correction preserves an ingestion declaration ${timing}`, async () => {
+    const api = apiFixture();
+    try {
+      const input = fixture();
+      input.audit.data.generation = 1;
+      const [course, audit] = await saveIngestionFixture(
+        api,
+        Object.values(input),
+      );
+      const receipt = createIngestionAttemptRecord(
+        course,
+        [course, audit],
+        "owner",
+        new Date().toISOString(),
+      );
+      if (timing === "already saved") {
+        const response = await api.save(receipt);
+        assert.equal(response.status, 200, await response.clone().text());
+      } else {
+        api.setBeforeBatch(() => insertConcurrentSummary(api, receipt));
+      }
+      const repair = {
+        id: "repair-after-declaration",
+        kind: "operations",
+        title: "Repeated export correction",
+        packageId: course.id,
+        version: 0,
+        updatedAt: "",
+        updatedBy: "owner",
+        data: { type: "lineage-repair", runId: audit.id, toGeneration: 0 },
+      };
+      const response = await api.save(repair);
+      assert.equal(
+        response.status,
+        timing === "already saved" ? 400 : 409,
+        await response.clone().text(),
+      );
+      if (timing === "already saved")
+        assert.match(
+          await response.text(),
+          /contradict recorded ingestion history/,
+        );
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(repair.id).count,
+        0,
+      );
+      assert.equal(
+        JSON.parse(
+          api.sql
+            .prepare("SELECT summary FROM documents WHERE id=?")
+            .get(audit.id).summary,
+        ).generation,
+        1,
+      );
+      assert.deepEqual(
+        JSON.parse(
+          api.sql
+            .prepare("SELECT summary FROM documents WHERE id=?")
+            .get(receipt.id).summary,
+        ),
+        receipt.data,
+      );
+    } finally {
+      api.sql.close();
+    }
+  });
+}
+
+for (const tail of ["audit", "lineage-repair", "ingestion-attempt"]) {
+  test(`local ingestion allocation rejects a concurrent ${tail} insertion atomically`, async () => {
+    const previous = globalThis.indexedDB;
+    try {
+      const { course, audit } = fixture();
+      const receipt = createIngestionAttemptRecord(
+        course,
+        [course, audit],
+        "owner",
+        new Date().toISOString(),
+      );
+      const concurrent =
+        tail === "audit"
+          ? { ...structuredClone(audit), id: "concurrent-audit" }
+          : tail === "lineage-repair"
+            ? {
+                id: "concurrent-repair",
+                kind: "operations",
+                title: "Repair",
+                packageId: course.id,
+                version: 1,
+                updatedAt: "",
+                updatedBy: "owner",
+                data: {
+                  type: "lineage-repair",
+                  runId: audit.id,
+                  toGeneration: 0,
+                },
+              }
+            : { ...structuredClone(receipt), version: 1 };
+      const fake = strictIndexedDb([course, audit], (tables) => {
+        tables.get("records").set(concurrent.id, concurrent);
+      });
+      globalThis.indexedDB = fake;
+      await assert.rejects(
+        localStore().save(receipt),
+        /changed during validation|Another change was saved/,
+      );
+      assert.equal(fake.tables.get("versions").size, 0);
+      assert.equal(
+        fake.tables.get("records").has(receipt.id),
+        tail === "ingestion-attempt",
+      );
+    } finally {
+      if (previous === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = previous;
+    }
+  });
+
+  test(`shared ingestion allocation rejects a concurrent ${tail} insertion atomically`, async () => {
+    const api = apiFixture();
+    try {
+      const [course, audit] = await saveIngestionFixture(
+        api,
+        Object.values(fixture()),
+      );
+      const receipt = createIngestionAttemptRecord(
+        course,
+        [course, audit],
+        "owner",
+        new Date().toISOString(),
+      );
+      const concurrent =
+        tail === "audit"
+          ? { ...structuredClone(audit), id: "concurrent-audit" }
+          : tail === "lineage-repair"
+            ? {
+                id: "concurrent-repair",
+                kind: "operations",
+                title: "Repair",
+                packageId: course.id,
+                data: {
+                  type: "lineage-repair",
+                  runId: audit.id,
+                  toGeneration: 0,
+                },
+              }
+            : {
+                ...structuredClone(receipt),
+                data: { ...receipt.data, declaredBy: "other owner" },
+              };
+      api.setBeforeBatch(() => insertConcurrentSummary(api, concurrent));
+      const response = await api.save(receipt);
+      assert.equal(response.status, 409, await response.clone().text());
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(receipt.id).count,
+        tail === "ingestion-attempt" ? 1 : 0,
+      );
+      assert.equal(
+        api.sql
+          .prepare(
+            "SELECT COUNT(*) AS count FROM uploads WHERE document_id=? AND committed=1",
+          )
+          .get(receipt.id).count,
+        0,
+      );
+    } finally {
+      api.sql.close();
+    }
+  });
+}
+
+test("shared ingestion allocation follows repaired retained history and pins existing repair revisions", async () => {
+  const api = apiFixture();
+  try {
+    const fixtureRecords = fixture();
+    fixtureRecords.audit.data.generation = 3;
+    const [course, audit] = await saveIngestionFixture(
+      api,
+      Object.values(fixtureRecords),
+    );
+    const repair = {
+      id: "confirmed-lineage-repair",
+      kind: "operations",
+      title: "Confirmed repeated export correction",
+      packageId: course.id,
+      version: 0,
+      updatedAt: "",
+      updatedBy: "owner",
+      data: { type: "lineage-repair", runId: audit.id, toGeneration: 0 },
+    };
+    const forgedSummary = recordSummary(repair);
+    forgedSummary.data.toGeneration = 88;
+    const repairResponse = await api.save(repair, { summary: forgedSummary });
+    assert.equal(
+      repairResponse.status,
+      200,
+      await repairResponse.clone().text(),
+    );
+    const receipt = createIngestionAttemptRecord(
+      course,
+      [course, audit, { ...repair, version: 1 }],
+      "owner",
+      new Date().toISOString(),
+    );
+    assert.equal(receipt.data.previousGeneration, 0);
+    assert.equal(receipt.data.generation, 1);
+    api.setBeforeBatch(() =>
+      api.sql
+        .prepare("UPDATE documents SET version=version+1 WHERE id=?")
+        .run(repair.id),
+    );
+    const stale = await api.save(receipt);
+    assert.equal(stale.status, 409, await stale.clone().text());
+    assert.equal(
+      api.sql
+        .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+        .get(receipt.id).count,
+      0,
+    );
+    const response = await api.save(receipt);
+    assert.equal(response.status, 200, await response.clone().text());
+    const history = JSON.parse(
+      api.sql.prepare("SELECT summary FROM documents WHERE id=?").get(repair.id)
+        .summary,
+    );
+    assert.equal(history.toGeneration, 0);
+    assert.equal(
+      audit.data.generation,
+      3,
+      "the original report remains unchanged",
+    );
+  } finally {
+    api.sql.close();
+  }
+});
+
+test("two owners preparing the same ingestion generation can save only one canonical receipt", async () => {
+  const api = apiFixture();
+  try {
+    const [course, audit] = await saveIngestionFixture(
+      api,
+      Object.values(fixture()),
+    );
+    const receipts = ["first-owner", "second-owner"].map((owner) =>
+      createIngestionAttemptRecord(
+        course,
+        [course, audit],
+        owner,
+        new Date().toISOString(),
+      ),
+    );
+    assert.equal(receipts[0].id, receipts[1].id);
+    const uploads = [];
+    for (let index = 0; index < receipts.length; index++) {
+      const pending = await api.prepareSave(receipts[index], {
+        actor: { role: "admin", email: receipts[index].data.declaredBy },
+      });
+      assert.equal(pending.response.status, 200);
+      uploads.push(pending);
+    }
+    assert.equal((await uploads[0].commit()).status, 200);
+    const loser = await uploads[1].commit();
+    assert.ok([400, 409].includes(loser.status), await loser.clone().text());
+    const row = api.sql
+      .prepare("SELECT version,summary FROM documents WHERE id=?")
+      .get(receipts[0].id);
+    assert.equal(row.version, 1);
+    assert.equal(JSON.parse(row.summary).declaredBy, "first-owner");
+    assert.equal(
+      api.sql
+        .prepare(
+          "SELECT COUNT(*) AS count FROM uploads WHERE document_id=? AND committed=1",
+        )
+        .get(receipts[0].id).count,
+      1,
+    );
+  } finally {
+    api.sql.close();
+  }
+});
+
+for (const timing of ["before approval", "during approval commit"]) {
+  test(`an ingestion declaration ${timing} blocks a decision on the previous comparison basis`, async () => {
+    const api = apiFixture();
+    try {
+      const [course, audit] = await saveIngestionFixture(
+        api,
+        Object.values(fixture()),
+      );
+      const records = [course, audit];
+      const basis = assignmentBasis(course, audit, records);
+      course.data.assignmentPlan = {
+        route: "COURSE",
+        shellChangedAt: "",
+        reconciliation: {
+          basis,
+          note: "Reviewed the complete comparison before declaring another ingestion.",
+          recordedAt: new Date().toISOString(),
+          recordedBy: "owner",
+        },
+      };
+      assert.equal(reconciliationCurrent(course, audit, records), true);
+      const artifact = generateAssignmentDeliverable(
+        course,
+        audit,
+        records,
+        "content-map",
+      );
+      const draftData = makeAssignmentDeliverableData(
+        artifact,
+        [],
+        "draft",
+        "",
+        "owner",
+      );
+      const draft = {
+        id: assignmentDeliverableRecordId(draftData.deliverableId, 1),
+        kind: "operations",
+        title: "Content map",
+        packageId: course.id,
+        version: 0,
+        updatedAt: "",
+        updatedBy: "owner",
+        data: draftData,
+      };
+      const draftResponse = await api.save(draft);
+      assert.equal(
+        draftResponse.status,
+        200,
+        await draftResponse.clone().text(),
+      );
+      const approvalData = makeAssignmentDeliverableData(
+        artifact,
+        [draft],
+        "approved",
+        "Approved this exact map against its saved comparison.",
+        "owner",
+      );
+      const approval = {
+        ...draft,
+        id: assignmentDeliverableRecordId(approvalData.deliverableId, 2),
+        data: approvalData,
+      };
+      const receipt = createIngestionAttemptRecord(
+        course,
+        records,
+        "owner",
+        new Date().toISOString(),
+      );
+      assert.notEqual(
+        assignmentBasis(course, audit, [...records, receipt]),
+        basis,
+      );
+      assert.equal(
+        reconciliationCurrent(course, audit, [...records, receipt]),
+        false,
+      );
+      if (timing === "before approval") {
+        const response = await api.save(receipt);
+        assert.equal(response.status, 200, await response.clone().text());
+      } else {
+        api.setBeforeBatch(() => insertConcurrentSummary(api, receipt));
+      }
+      const response = await api.save(approval);
+      assert.equal(
+        response.status,
+        timing === "before approval" ? 400 : 409,
+        await response.clone().text(),
+      );
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(approval.id).count,
+        0,
+      );
+      assert.equal(
+        api.sql
+          .prepare("SELECT COUNT(*) AS count FROM documents WHERE id=?")
+          .get(draft.id).count,
+        1,
+        "the prior draft remains available for a later revised comparison",
+      );
+    } finally {
+      api.sql.close();
+    }
+  });
+}
 
 test("shared deliverable persistence reconstructs original evidence and rejects forged text even with recomputed hashes", async () => {
   const { course, audit } = fixture(),

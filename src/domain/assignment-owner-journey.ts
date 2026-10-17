@@ -46,6 +46,7 @@ export function assignmentOwnerJourney(
     !!audit &&
     audit.data.sourceScanSha256 === course.data.scan?.fileSha256;
   const comparisonRecorded =
+    !evaluation.ingestionComparisonRequired &&
     sameSource &&
     hasCoursera &&
     hasStructure &&

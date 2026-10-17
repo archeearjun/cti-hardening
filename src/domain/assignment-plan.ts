@@ -14,6 +14,8 @@ import type { WorkspaceStore } from "./workspace-store.ts";
 import { loadItemLifecycle } from "./item-lifecycle.ts";
 import { assignmentChangeFreshness } from "./assignment-change-freshness.ts";
 import { courseraContentObservedAt } from "./coursera-observation-time.ts";
+import { currentIngestionAttempt } from "./ingestion-attempts.ts";
+import { applyLineageRepairs } from "./operations.ts";
 import {
   assignmentDeliverableRecordId,
   deliverableIdentity,
@@ -157,6 +159,34 @@ function reviewsFor(
       r.data.auditId === audit.id,
   );
 }
+/** A completed-ingestion declaration changes which attempt is current. It
+ * records owner context, not proof that Coursera executed an import. */
+function ingestionComparisonBlocker(
+  courseId: string,
+  audit: WorkspaceRecord | null,
+  records: WorkspaceRecord[],
+) {
+  if (
+    !records.some(
+      (record) =>
+        record.kind === "operations" &&
+        record.packageId === courseId &&
+        record.data.type === "ingestion-attempt",
+    )
+  )
+    return "";
+  try {
+    const attempt = currentIngestionAttempt(courseId, records);
+    const corrected = audit ? applyLineageRepairs([audit], records)[0] : null;
+    return !corrected || corrected.data.generation !== attempt.generation
+      ? "A new ingestion is recorded. Save and review a comparison for the current ingestion attempt before handoff."
+      : "";
+  } catch (error) {
+    return error instanceof Error
+      ? error.message
+      : "Reload the ingestion history before handoff.";
+  }
+}
 // Content identity, not course record version: saving a map/owner must not undo
 // reconciliation. A changed scan, report, item review or declared shell edit does.
 export function assignmentBasis(
@@ -182,6 +212,15 @@ export function assignmentBasis(
     ])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const changes = assignmentChangeFreshness(course.id, audit, records);
+  const ingestionHistory = records.filter(
+    (record) =>
+      record.kind === "operations" &&
+      record.packageId === course.id &&
+      ["ingestion-attempt", "lineage-repair"].includes(record.data.type),
+  );
+  const hasDeclaredIngestion = ingestionHistory.some(
+    (record) => record.data.type === "ingestion-attempt",
+  );
   return bytesToHex(
     sha256(
       new TextEncoder().encode(
@@ -219,6 +258,30 @@ export function assignmentBasis(
                 ],
               ]
             : []),
+          ...(hasDeclaredIngestion
+            ? [
+                [
+                  "ingestion-history",
+                  ingestionHistory
+                    .map((record) => [
+                      record.id,
+                      record.version,
+                      record.updatedAt,
+                      record.data.type,
+                      record.data.generation,
+                      record.data.previousGeneration,
+                      record.data.baseAuditId,
+                      record.data.previousAttemptId,
+                      record.data.declaredAt,
+                      record.data.declaredBy,
+                      record.data.scope,
+                      record.data.runId,
+                      record.data.toGeneration,
+                    ])
+                    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+                ],
+              ]
+            : []),
         ]),
       ),
     ),
@@ -238,6 +301,7 @@ export function reconciliationCurrent(
     !!plan.reconciliation &&
     !assignmentChangeFreshness(course.id, audit, records).blockers.length &&
     !externalApplicationNeedsCapture(course.id, audit, records) &&
+    !ingestionComparisonBlocker(course.id, audit, records) &&
     !!course.data.scan?.fileSha256 &&
     audit.data.sourceScanSha256 === course.data.scan.fileSha256 &&
     plan.reconciliation.basis === assignmentBasis(course, audit, records)
@@ -290,6 +354,12 @@ export function evaluateAssignment(
   );
   const blockers: string[] = [];
   const changeFreshness = assignmentChangeFreshness(course.id, audit, records);
+  const ingestionBlocker = ingestionComparisonBlocker(
+    course.id,
+    audit,
+    records,
+  );
+  if (ingestionBlocker) blockers.push(ingestionBlocker);
   blockers.push(...changeFreshness.blockers);
   if (externalApplicationNeedsCapture(course.id, audit, records))
     blockers.push(
@@ -401,6 +471,7 @@ export function evaluateAssignment(
     attention,
     checked,
     changed,
+    ingestionComparisonRequired: !!ingestionBlocker,
     blockers,
     basis,
     reconciled,

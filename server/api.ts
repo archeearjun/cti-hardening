@@ -508,6 +508,7 @@ export async function handleAuthorized(
     return response({
       record: {
         ...JSON.parse(upload.metadata),
+        ...(revision === doc.revision ? { data: JSON.parse(doc.summary) } : {}),
         version: upload.expected_version + 1,
         updatedAt: upload.created_at,
         updatedBy: upload.actor,
@@ -686,6 +687,7 @@ export async function handleAuthorized(
       let latestDeliverableAuditId = "";
       let deliverableReviewCount: number | undefined;
       let deliverableSupplementCount: number | undefined;
+      let ingestionHistoryCount: number | undefined;
       try {
         validateRecord({ ...r, data: fullData as Record<string, unknown> });
         const protectedTypes = [
@@ -693,6 +695,8 @@ export async function handleAuthorized(
           "evidence-input",
           "assignment-deliverable",
           "advisory-model",
+          "ingestion-attempt",
+          "lineage-repair",
         ];
         const current =
           Number(u.expected_version) > 0
@@ -705,7 +709,19 @@ export async function handleAuthorized(
           ? JSON.parse(current.summary || "{}")
           : {};
         const next = { ...r, data: fullData as Record<string, any> };
+        // Derive listing metadata from the checksummed payload. It must not
+        // hide an ingestion declaration or lineage repair from history guards.
+        r.data = recordSummary(next).data;
+        const needsIngestionHistory =
+          [
+            "assignment-deliverable",
+            "ingestion-attempt",
+            "lineage-repair",
+          ].includes(next.data.type) ||
+          (next.kind === "audit" && next.data.automaticIngestion !== undefined);
         if (
+          (next.kind === "audit" &&
+            next.data.automaticIngestion !== undefined) ||
           next.kind === "item-review" ||
           current?.kind === "item-review" ||
           (r.kind === "operations" &&
@@ -721,18 +737,14 @@ export async function handleAuthorized(
           };
           const previous = current ? await lookup(r.id) : undefined;
           validateWorkspaceTransition(previous, next);
-          // Listing edit receipts must come from the checksummed full payload,
-          // never from an independently supplied prepare-envelope summary.
-          if (next.kind === "item-review") r.data = recordSummary(next).data;
-          const { results: summaries } =
-            next.data.type === "assignment-deliverable"
-              ? await db
-                  .prepare(
-                    "SELECT id,kind,title,package_id,version,updated_at,updated_by,summary FROM documents ORDER BY updated_at DESC",
-                  )
-                  .all()
-              : { results: [] };
-          const records = summaries.map((doc) => ({
+          const { results: summaries } = needsIngestionHistory
+            ? await db
+                .prepare(
+                  "SELECT id,kind,title,package_id,version,updated_at,updated_by,summary FROM documents ORDER BY updated_at DESC",
+                )
+                .all()
+            : { results: [] };
+          let records = summaries.map((doc) => ({
             id: doc.id,
             kind: doc.kind,
             title: doc.title,
@@ -742,18 +754,54 @@ export async function handleAuthorized(
             updatedBy: doc.updated_by,
             data: JSON.parse(doc.summary),
           })) as WorkspaceRecord[];
+          const historyRows = records.filter(
+            (row) =>
+              row.packageId === next.packageId &&
+              (row.kind === "audit" ||
+                (row.kind === "operations" &&
+                  ["ingestion-attempt", "lineage-repair"].includes(
+                    row.data.type,
+                  ))),
+          );
+          if (
+            needsIngestionHistory &&
+            next.data.type !== "assignment-deliverable"
+          ) {
+            // Allocation uses original saved payloads, including repaired
+            // legacy generations, rather than independently supplied summaries.
+            const originalHistory = await Promise.all(
+              historyRows.map((row) => lookup(row.id)),
+            );
+            if (originalHistory.some((row) => !row))
+              throw Error(
+                "Ingestion history changed. Refresh before recording another attempt.",
+              );
+            const ids = new Set(historyRows.map((row) => row.id));
+            records = [
+              ...records.filter((row) => !ids.has(row.id)),
+              ...(originalHistory as WorkspaceRecord[]),
+            ];
+          }
           await validateOperationalReferences(next, lookup, previous, records);
           operationDependencies = [...cache.entries()].map(([id, row]) => ({
             id,
             version: row?.version ?? null,
           }));
+          if (needsIngestionHistory) {
+            ingestionHistoryCount = historyRows.length;
+            operationDependencies.push(
+              ...historyRows.map((row) => ({
+                id: row.id,
+                version: row.version,
+              })),
+            );
+          }
           if (next.data.type === "assignment-deliverable") {
             // Edit receipts on earlier reports also affect this assignment's
             // basis. Pin their versions and guard newly inserted reviews.
             deliverableReviewCount = records.filter(
               (row) =>
-                row.kind === "item-review" &&
-                row.packageId === next.packageId,
+                row.kind === "item-review" && row.packageId === next.packageId,
             ).length;
             deliverableSupplementCount = records.filter(
               (row) =>
@@ -908,6 +956,10 @@ export async function handleAuthorized(
         deliverableSupplementCount !== undefined
           ? " AND (SELECT COUNT(*) FROM documents WHERE kind='operations' AND package_id=? AND json_extract(summary,'$.type')='report-content' AND json_extract(summary,'$.runId')=?)=?"
           : "";
+      const ingestionHistoryPredicate =
+        ingestionHistoryCount !== undefined
+          ? " AND (SELECT COUNT(*) FROM documents WHERE package_id=? AND (kind='audit' OR (kind='operations' AND json_extract(summary,'$.type') IN ('ingestion-attempt','lineage-repair'))))=?"
+          : "";
       const dependencyBindings: unknown[] = [
         ...(operationDependencies.length
           ? [JSON.stringify(operationDependencies)]
@@ -925,6 +977,9 @@ export async function handleAuthorized(
               deliverableSupplementCount,
             ]
           : []),
+        ...(ingestionHistoryCount !== undefined
+          ? [r.packageId, ingestionHistoryCount]
+          : []),
       ];
       let q: Statement;
       if (u.expected_version === 0)
@@ -935,6 +990,7 @@ export async function handleAuthorized(
               latestPredicate +
               reviewPredicate +
               supplementPredicate +
+              ingestionHistoryPredicate +
               " ON CONFLICT(id) DO NOTHING",
           )
           .bind(
@@ -955,7 +1011,8 @@ export async function handleAuthorized(
               referencePredicate +
               latestPredicate +
               reviewPredicate +
-              supplementPredicate,
+              supplementPredicate +
+              ingestionHistoryPredicate,
           )
           .bind(
             r.title,

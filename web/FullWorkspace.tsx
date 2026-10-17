@@ -53,6 +53,11 @@ import type {
 } from "../src/domain/workspace-types";
 import type { PackageScan } from "../src/domain/package-types";
 import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
+import {
+  createAutomaticIngestionBasis,
+  createIngestionAttemptRecord,
+  currentIngestionAttempt,
+} from "../src/domain/ingestion-attempts.ts";
 
 const steps = [
   ["sourceRescanned", "Original IMSCC rescanned"],
@@ -148,6 +153,28 @@ const dateLabel = (value: string) =>
   value && Number.isFinite(Date.parse(value))
     ? new Date(value).toLocaleString()
     : "Date not recorded";
+const ingestionHistoryRefs = (rows: WorkspaceRecord[], courseId: string) => {
+  const auditIds = new Set(
+    rows
+      .filter((record) => record.kind === "audit" && record.packageId === courseId)
+      .map((record) => record.id),
+  );
+  return rows.filter(
+    (record) =>
+      (record.kind === "audit" && record.packageId === courseId) ||
+      (record.kind === "operations" &&
+        ((record.data.type === "lineage-repair" &&
+          (record.packageId === courseId || auditIds.has(record.data.runId))) ||
+          (record.data.type === "ingestion-attempt" &&
+            (record.packageId === courseId || record.data.courseId === courseId)))),
+  );
+};
+const ingestionHistoryVersion = (rows: WorkspaceRecord[], courseId: string) =>
+  JSON.stringify(
+    ingestionHistoryRefs(rows, courseId)
+      .map((record) => [record.id, record.version, record.updatedAt])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  );
 export default function FullWorkspace({
   onBusyChange,
 }: {
@@ -188,9 +215,21 @@ export default function FullWorkspace({
       comparisonFiles.some((file, i) => file !== (comparedFiles[i] || null)),
   };
   const [mode, setMode] = useState<"raw" | "ops" | "published" | "auto">("ops"),
-    [generation, setGeneration] = useState(0),
     [before, setBefore] = useState(""),
     [after, setAfter] = useState("");
+  const [newIngestion, setNewIngestion] = useState<{
+    courseId: string;
+    historyVersion: string;
+    record: WorkspaceRecord;
+  } | null>(null);
+  const [attemptRecordingStatus, setAttemptRecordingStatus] = useState("");
+  const [attemptRecordingUncertain, setAttemptRecordingUncertain] =
+    useState(false);
+  useEffect(() => {
+    setNewIngestion(null);
+    setAttemptRecordingStatus("");
+    setAttemptRecordingUncertain(false);
+  }, [courseId]);
   const [historyQuery, setHistoryQuery] = useState("");
   const [query, setQuery] = useState(""),
     [partner, setPartner] = useState("NAIT"),
@@ -276,6 +315,22 @@ export default function FullWorkspace({
     return () => clearInterval(t);
   }, [busy]);
   const editable = !!store && store.role !== "viewer";
+  let ingestionAttempt = {
+    generation: 0,
+    hasHistory: false,
+    latestAuditId: "",
+    latestAttemptId: "",
+  };
+  let ingestionAttemptError = "";
+  try {
+    if (courseId)
+      ingestionAttempt = currentIngestionAttempt(courseId, records);
+  } catch (e) {
+    ingestionAttemptError = e instanceof Error ? e.message : String(e);
+  }
+  const generation = ingestionAttempt.generation;
+  const pendingIngestion =
+    newIngestion?.courseId === courseId ? newIngestion : null;
   const migrationRecoveries = records.filter(
     (r) =>
       r.kind === "legacy-backup" &&
@@ -392,7 +447,9 @@ export default function FullWorkspace({
     setScan(null);
     setDocumentBaselineFile(null);
     setDocumentConfirmed(false);
-    setGeneration(0);
+    setNewIngestion(null);
+    setAttemptRecordingStatus("");
+    setAttemptRecordingUncertain(false);
     setReport(null);
     setReportId("");
     setAnalysis(null);
@@ -480,6 +537,7 @@ export default function FullWorkspace({
       recovery,
       mode,
       generation,
+      newIngestion,
       ingestionCapabilityStatus,
     ],
   );
@@ -499,6 +557,8 @@ export default function FullWorkspace({
       return;
     }
     await act("Loading course", async () => {
+      const currentRecords = await store.list();
+      setRecords(currentRecords);
       const r = await store.get(id);
       setCourse(r);
       setPartner(r.data.partner || "");
@@ -507,19 +567,13 @@ export default function FullWorkspace({
       setAssignedDate(r.data.assignedDate || "");
       setDeadline(r.data.deadline || "");
       setDriveLink(r.data.driveLink || "");
-      const saved = records.find(
+      const saved = currentRecords.find(
         (x) => x.kind === "checklist" && x.packageId === id,
       );
       setChecklist(
         saved
           ? await store.get(saved.id)
           : newRecord("checklist", r.title, { evidence: {}, notes: "" }, id),
-      );
-      const prior = records.filter(
-        (x) => x.kind === "audit" && x.packageId === id,
-      );
-      setGeneration(
-        Math.max(0, ...prior.map((x) => Number(x.data.generation) || 0)),
       );
     });
   }
@@ -579,14 +633,6 @@ export default function FullWorkspace({
               saved.id,
             ),
       );
-      setGeneration(
-        Math.max(
-          0,
-          ...records
-            .filter((r) => r.kind === "audit" && r.packageId === saved.id)
-            .map((r) => Number(r.data.generation) || 0),
-        ),
-      );
       setTab("Assignment workspace");
       setNotice("Source scan saved. Previous saved versions are retained.");
     });
@@ -645,37 +691,154 @@ export default function FullWorkspace({
       setBusy("");
     }
   }
+  function declareNewIngestion(checked: boolean) {
+    setError("");
+    if (!checked) {
+      setNewIngestion(null);
+      return;
+    }
+    if (!store || !course || !editable || attemptRecordingUncertain) return;
+    try {
+      const record = createIngestionAttemptRecord(
+        course,
+        records,
+        store.email,
+        new Date().toISOString(),
+      );
+      setNewIngestion({
+        courseId: course.id,
+        historyVersion: ingestionHistoryVersion(records, course.id),
+        record,
+      });
+      setAttemptRecordingStatus("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
   async function compare(openSavedReport = false) {
     if (!store || !course || (!excel && !capture)) return;
+    const epoch = courseSelectionEpoch.current;
+    const declaration = pendingIngestion;
     await act("Comparing full source and Coursera evidence", async () => {
       setImportProgress("Loading saved audit history");
-      const history = await Promise.all(audits.map((a) => store.get(a.id)));
-      const repairRefs = records.filter(
-        (record) =>
-          record.kind === "operations" &&
-          record.packageId === course.id &&
-          record.data.type === "lineage-repair",
+      let currentRecords = await store.list();
+      setRecords(currentRecords);
+      setAttemptRecordingUncertain(false);
+      const assertDeclarationCurrent = () => {
+        if (epoch !== courseSelectionEpoch.current)
+          throw Error("The selected course changed. Run its comparison again.");
+        if (
+          declaration &&
+          declaration.historyVersion !==
+            ingestionHistoryVersion(currentRecords, course.id)
+        ) {
+          setNewIngestion(null);
+          throw Error(
+            "Saved ingestion history changed after the new ingestion was selected. The current attempt has been refreshed. Review it before declaring a new ingestion again.",
+          );
+        }
+      };
+      assertDeclarationCurrent();
+      let history = await Promise.all(
+        ingestionHistoryRefs(currentRecords, course.id).map((record) =>
+          store.get(record.id),
+        ),
       );
-      const repairs = await Promise.all(
-        repairRefs.map((record) => store.get(record.id)),
-      );
-      const repairedHistory = applyLineageRepairs(history, repairs);
+      let currentAttempt = currentIngestionAttempt(course.id, history);
+      if (attemptRecordingUncertain)
+        setAttemptRecordingStatus(
+          `Saved history refreshed. Current ingestion attempt ${currentAttempt.generation}. Further comparisons stay in this attempt.`,
+        );
+      if (declaration) {
+        // Recheck the exact saved history before committing the owner's
+        // declaration; the store also checks the references atomically.
+        currentRecords = await store.list();
+        setRecords(currentRecords);
+        assertDeclarationCurrent();
+        setImportProgress("Recording the completed ingestion attempt");
+        let savedAttempt: WorkspaceRecord;
+        try {
+          savedAttempt = await store.save(declaration.record);
+        } catch (e) {
+          // A lost response may still have committed the receipt. Consume the
+          // choice and reload before allowing another declaration.
+          setNewIngestion(null);
+          try {
+            const refreshed = await store.list();
+            setRecords(refreshed);
+            const recorded = refreshed.some(
+              (record) => record.id === declaration.record.id,
+            );
+            const refreshedAttempt = currentIngestionAttempt(
+              course.id,
+              refreshed,
+            );
+            setAttemptRecordingStatus(
+              recorded
+                ? `Ingestion attempt ${refreshedAttempt.generation} is recorded. Retry the comparison within this attempt.`
+                : "The new ingestion was not recorded. Review the current attempt before selecting the declaration again.",
+            );
+            setAttemptRecordingUncertain(false);
+          } catch {
+            setAttemptRecordingUncertain(true);
+            setAttemptRecordingStatus(
+              "Recording status could not be confirmed. Run the comparison again to refresh saved history before declaring another ingestion.",
+            );
+          }
+          throw e;
+        }
+        // Clear immediately after persistence, even if the following history
+        // refresh, evidence checks or comparison fails.
+        setNewIngestion(null);
+        setRecords((rows) => [
+          ...rows.filter((record) => record.id !== savedAttempt.id),
+          savedAttempt,
+        ]);
+        setAttemptRecordingStatus(
+          `Ingestion attempt ${savedAttempt.data.generation} recorded. Further comparisons and manual corrections stay in this attempt.`,
+        );
+        try {
+          currentRecords = await store.list();
+          setRecords(currentRecords);
+        } catch (e) {
+          setAttemptRecordingUncertain(true);
+          throw e;
+        }
+        history = await Promise.all(
+          ingestionHistoryRefs(currentRecords, course.id).map((record) =>
+            store.get(record.id),
+          ),
+        );
+        currentAttempt = currentIngestionAttempt(course.id, history);
+      }
+      const automaticIngestion = createAutomaticIngestionBasis(course.id, history);
       setImportProgress("Reading the selected evidence files");
-      const input = {
-        course,
+      const evidenceFiles = {
         excel: await inputFile(excel),
         json: await inputFile(capture, { courseraCapture: true }),
         brightspace: await inputFile(source),
         recovery: await inputFile(recovery),
+      };
+      const repairedHistory = applyLineageRepairs(
+        history.filter((record) => record.kind === "audit"),
+        history.filter((record) => record.data.type === "lineage-repair"),
+      );
+      const input = {
+        course,
+        ...evidenceFiles,
         mode,
-        generation,
+        generation: currentAttempt.generation,
         history: repairedHistory,
         ingestionCapabilityStatus,
       };
       setImportProgress(
         "Checking source, placement, content and policy evidence",
       );
-      const output = await job({ kind: "compare", input });
+      const output = {
+        ...(await job({ kind: "compare", input })),
+        automaticIngestion,
+      };
+      setReportId("");
       setReport(output);
       setImportProgress(
         "Comparison complete. Saving the full report and evidence",
@@ -683,7 +846,7 @@ export default function FullWorkspace({
       const saved = await store.save(
         newRecord(
           "audit",
-          `${course.title} · generation ${generation} · ${mode}`,
+          `${course.title} · generation ${currentAttempt.generation} · ${mode}`,
           output,
           course.id,
         ),
@@ -1773,14 +1936,17 @@ export default function FullWorkspace({
                   </select>
                 </label>
                 <label>
-                  Ingestion generation (0 = original import)
+                  Ingestion attempt (automatic)
                   <input
-                    type="number"
-                    min="0"
-                    max="99"
-                    step="1"
-                    value={generation}
-                    onChange={(e) => setGeneration(Number(e.target.value))}
+                    type="text"
+                    readOnly
+                    value={
+                      ingestionAttemptError || attemptRecordingUncertain
+                        ? "History needs refresh"
+                        : pendingIngestion
+                          ? pendingIngestion.record.data.generation
+                          : generation
+                    }
                   />
                 </label>
                 <label>
@@ -1806,10 +1972,53 @@ export default function FullWorkspace({
                 </label>
               </div>
               <p className="hint">
-                Increase the generation only after a new ingestion. Another
-                export or manual correction stays in the same attempt. Saving a
-                new report never overwrites a prior raw baseline.
+                CTI derives the current attempt number from saved history.
+                Rescans, exports, repeated comparisons and manual corrections
+                stay in the same attempt. Saving a new report retains every
+                prior raw baseline.
               </p>
+              {!ingestionAttempt.hasHistory && !ingestionAttemptError && (
+                <p className="hint">
+                  Attempt 0 is the first baseline recorded in CTI. It does not
+                  establish how many ingestions happened earlier in Coursera.
+                  Save this baseline before declaring a later ingestion.
+                </p>
+              )}
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={!!pendingIngestion}
+                  disabled={
+                    !ingestionAttempt.hasHistory ||
+                    generation >= 99 ||
+                    !!ingestionAttemptError ||
+                    attemptRecordingUncertain
+                  }
+                  onChange={(e) => declareNewIngestion(e.target.checked)}
+                />
+                A new ingestion completed in Coursera
+              </label>
+              <p className="hint">
+                Coursera does not send CTI an ingestion completion signal. Select
+                this only after a new ingestion actually completes; CTI records
+                your declaration when you run the comparison. Snapshot stage and
+                Smart Ingestion capability remain separate.
+              </p>
+              {pendingIngestion && (
+                <p className="hint" role="status">
+                  The next comparison will record ingestion attempt{" "}
+                  {pendingIngestion.record.data.generation}. Another export or
+                  manual correction does not need this declaration.
+                </p>
+              )}
+              {attemptRecordingStatus && (
+                <p className="hint" role="status">
+                  {attemptRecordingStatus}
+                </p>
+              )}
+              {ingestionAttemptError && (
+                <p role="alert">{ingestionAttemptError}</p>
+              )}
               <button
                 className="primary"
                 disabled={
