@@ -8,6 +8,7 @@ import { summarizeAssignmentChanges } from "./assignment-change-freshness.ts";
 import { normalizePartnerName, packageSemanticKey } from "./operations.ts";
 import {
   workspaceRequest as request,
+  workspaceBinaryRequest,
   type TransferOptions,
 } from "./workspace-http.ts";
 import type {
@@ -22,6 +23,50 @@ export interface SaveOptions extends TransferOptions {
    * never set this flag.
    */
   allowSemanticDuplicate?: boolean;
+}
+interface UploadSession {
+  id: string;
+  email: string;
+  record: WorkspaceRecord;
+  sha256: string;
+  nextPart: number;
+  commitUncertain: boolean;
+}
+// Session identifiers/progress only. Payload bytes remain owned by the caller;
+// an interrupted save is never persisted to disk or shared with another actor.
+const uploadSessions = new Map<string, UploadSession>();
+function transferProtocolError(message: string, phase: string) {
+  return Object.assign(new Error(message), {
+    code: "WORKSPACE_TRANSFER_PROTOCOL_INVALID",
+    context: "Workspace evidence transfer",
+    phase,
+  });
+}
+function knownMissingRecord(error: unknown) {
+  return (
+    (error as { status?: number })?.status === 404 &&
+    error instanceof Error &&
+    /(?:^|HTTP 404\. )Record not found\.(?: Cloudflare Ray ID: [A-Za-z0-9-]{1,120}\.)?$/.test(
+      error.message,
+    )
+  );
+}
+function sameSavedReceipt(
+  expected: WorkspaceRecord,
+  saved: WorkspaceRecord,
+  actualHash: string,
+  expectedHash: string,
+) {
+  return (
+    saved?.id === expected.id &&
+    saved.kind === expected.kind &&
+    saved.packageId === expected.packageId &&
+    saved.title === expected.title &&
+    saved.version === expected.version + 1 &&
+    !!saved.updatedAt &&
+    !!saved.updatedBy &&
+    actualHash === expectedHash
+  );
 }
 export interface WorkspaceStore {
   mode: "local" | "team";
@@ -466,6 +511,80 @@ export function localStore(): WorkspaceStore {
 }
 export async function teamStore(): Promise<WorkspaceStore> {
   const session = await request("session");
+  async function readSavedRecord(id: string, options: TransferOptions = {}) {
+    const m = await request(
+      `records/${encodeURIComponent(id)}`,
+      {},
+      {
+        ...options,
+        context: `Reading saved evidence (${id})`,
+        phase: "download",
+      },
+    );
+    if (
+      !m.record ||
+      m.record.id !== id ||
+      !Number.isInteger(m.parts) ||
+      m.parts < 1 ||
+      m.parts > 256 ||
+      !/^[a-f0-9]{64}$/.test(m.sha256) ||
+      typeof m.revision !== "string" ||
+      !/^[A-Za-z0-9_-]{1,120}$/.test(m.revision)
+    )
+      throw transferProtocolError(
+        "Saved evidence manifest is invalid.",
+        "download",
+      );
+    const buffers: Uint8Array[] = [];
+    for (let i = 0; i < m.parts; i++) {
+      const bytes = await workspaceBinaryRequest(
+        `records/${encodeURIComponent(id)}/chunks/${i}?revision=${encodeURIComponent(m.revision)}`,
+        {
+          ...options,
+          context: `Downloading saved evidence (${id}), chunk ${i + 1}/${m.parts}`,
+          phase: "download",
+          maxBytes: 128 * 1024,
+        },
+      );
+      if (!bytes.length)
+        throw transferProtocolError(
+          "Saved evidence chunk is empty.",
+          "download",
+        );
+      buffers.push(bytes);
+    }
+    const bytes = new Uint8Array(buffers.reduce((n, b) => n + b.length, 0));
+    let offset = 0;
+    for (const buffer of buffers) {
+      bytes.set(buffer, offset);
+      offset += buffer.length;
+    }
+    const hash = await digest(bytes);
+    if (hash !== m.sha256)
+      throw transferProtocolError(
+        "Saved evidence checksum failed.",
+        "download",
+      );
+    let data: EvidenceObject;
+    try {
+      data = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      );
+    } catch {
+      throw transferProtocolError(
+        "Saved evidence JSON is invalid.",
+        "download",
+      );
+    }
+    const record = { ...m.record, data } as WorkspaceRecord;
+    for (const [key, held] of uploadSessions)
+      if (
+        held.email === session.email &&
+        sameSavedReceipt(held.record, record, hash, held.sha256)
+      )
+        uploadSessions.delete(key);
+    return { record, sha256: hash };
+  }
   return {
     mode: "team",
     role: session.role,
@@ -478,28 +597,12 @@ export async function teamStore(): Promise<WorkspaceStore> {
         .versions;
     },
     async get(id) {
-      const m = await request(`records/${encodeURIComponent(id)}`);
-      const buffers: Uint8Array[] = [];
-      for (let i = 0; i < m.parts; i++) {
-        const r = await fetch(
-          `/api/records/${encodeURIComponent(id)}/chunks/${i}?revision=${encodeURIComponent(m.revision)}`,
-          { signal: AbortSignal.timeout(45000) },
-        );
-        if (!r.ok) throw new Error("Saved evidence could not be downloaded.");
-        buffers.push(new Uint8Array(await r.arrayBuffer()));
-      }
-      const bytes = new Uint8Array(buffers.reduce((n, b) => n + b.length, 0));
-      let offset = 0;
-      for (const b of buffers) {
-        bytes.set(b, offset);
-        offset += b.length;
-      }
-      const hash = await digest(bytes);
-      if (hash !== m.sha256) throw new Error("Saved evidence checksum failed.");
-      return { ...m.record, data: JSON.parse(new TextDecoder().decode(bytes)) };
+      return (await readSavedRecord(id)).record;
     },
     async save(record, options = {}) {
       validateRecord(record);
+      record = JSON.parse(JSON.stringify(record)) as WorkspaceRecord;
+      options = { ...options };
       if (session.role === "viewer")
         throw new Error("Your account has read-only access.");
       const bytes = new TextEncoder().encode(JSON.stringify(record.data));
@@ -509,29 +612,128 @@ export async function teamStore(): Promise<WorkspaceStore> {
         );
       const size = 128 * 1024,
         parts = Math.ceil(bytes.length / size);
+      const sha256 = await digest(bytes);
+      const summary = recordSummary(record);
+      const allowSemanticDuplicate = options.allowSemanticDuplicate === true;
+      const binding = JSON.stringify([
+        session.email,
+        summary,
+        bytes.length,
+        parts,
+        sha256,
+        allowSemanticDuplicate,
+      ]);
       const label = `"${record.title}" (${record.id})`;
-      options.onProgress?.(`Preparing ${label}`);
-      const init = await request(
-        "uploads",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            record: recordSummary(record),
-            bytes: bytes.length,
-            parts,
-            sha256: await digest(bytes),
-          }),
-        },
-        { ...options, context: `Preparing ${label}` },
+      let held = uploadSessions.get(binding);
+      if (held?.commitUncertain) {
+        // Even direct callers must resolve a lost commit response before a
+        // second finalization POST. A failed read is never proof of absence.
+        try {
+          const saved = await readSavedRecord(record.id, options);
+          if (!sameSavedReceipt(record, saved.record, saved.sha256, sha256))
+            throw transferProtocolError(
+              `Checking ${label}: this ID contains different saved evidence. No write was repeated.`,
+              "finalize",
+            );
+          uploadSessions.delete(binding);
+          return saved.record;
+        } catch (error) {
+          if (!knownMissingRecord(error)) throw error;
+        }
+      }
+      options.onProgress?.(
+        `${held ? "Checking interrupted upload for" : "Preparing"} ${label}`,
       );
+      const init = held
+        ? await request(
+            `uploads/${encodeURIComponent(held.id)}`,
+            {},
+            {
+              ...options,
+              context: `Checking interrupted upload for ${label}`,
+              phase: "upload",
+            },
+          )
+        : await request(
+            "uploads",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                record: summary,
+                bytes: bytes.length,
+                parts,
+                sha256,
+                allowSemanticDuplicate,
+              }),
+            },
+            {
+              ...options,
+              context: `Preparing ${label}`,
+              phase: "prepare",
+              comparisonRecovery: record.kind === "audit",
+            },
+          );
       if (
         typeof init.id !== "string" ||
-        !/^[A-Za-z0-9_-]{1,120}$/.test(init.id)
+        !/^[A-Za-z0-9_-]{1,120}$/.test(init.id) ||
+        (held && init.id !== held.id) ||
+        JSON.stringify(init.record) !== JSON.stringify(summary) ||
+        init.bytes !== bytes.length ||
+        init.parts !== parts ||
+        init.sha256 !== sha256 ||
+        init.allowSemanticDuplicate !== allowSemanticDuplicate ||
+        typeof init.committed !== "boolean" ||
+        !Array.isArray(init.receivedParts) ||
+        init.receivedParts.length > parts
       )
-        throw new Error(
-          `Preparing ${label}: the service did not return a valid upload ID.`,
+        throw transferProtocolError(
+          `Preparing ${label}: the service did not return an exact matching upload manifest.`,
+          "prepare",
         );
+      const received = new Set<number>();
+      for (const receipt of init.receivedParts) {
+        if (
+          !receipt ||
+          typeof receipt !== "object" ||
+          !Number.isInteger(receipt.part) ||
+          receipt.part < 0 ||
+          receipt.part >= parts ||
+          received.has(receipt.part) ||
+          receipt.bytes !==
+            Math.min(size, bytes.length - receipt.part * size) ||
+          !/^[a-f0-9]{64}$/.test(receipt.digest) ||
+          receipt.digest !==
+            (await digest(
+              bytes.slice(receipt.part * size, (receipt.part + 1) * size),
+            ))
+        )
+          throw transferProtocolError(
+            `Checking ${label}: an existing upload chunk receipt differs from the selected evidence. No conflicting chunk was overwritten.`,
+            "upload",
+          );
+        received.add(receipt.part);
+      }
+      if (init.committed) {
+        const saved = await readSavedRecord(record.id, options);
+        if (!sameSavedReceipt(record, saved.record, saved.sha256, sha256))
+          throw transferProtocolError(
+            `Checking ${label}: the saved report differs from this upload.`,
+            "finalize",
+          );
+        uploadSessions.delete(binding);
+        return saved.record;
+      }
+      held ||= {
+        id: init.id,
+        email: session.email,
+        record: summary,
+        sha256,
+        nextPart: 0,
+        commitUncertain: false,
+      };
+      uploadSessions.set(binding, held);
       for (let i = 0; i < parts; i++) {
+        if (received.has(i)) continue;
         const chunk = bytes.slice(i * size, (i + 1) * size);
         const context = `Uploading ${label}, chunk ${i + 1}/${parts}`;
         options.onProgress?.(context);
@@ -542,32 +744,36 @@ export async function teamStore(): Promise<WorkspaceStore> {
             headers: { "Content-Type": "application/octet-stream" },
             body: chunk,
           },
-          { ...options, context },
+          { ...options, context, phase: "upload" },
         );
         if (uploaded.success !== true)
           throw new Error(
             `${context}: the service did not confirm this chunk. Retry the import; saved records will be skipped.`,
           );
+        held.nextPart = i + 1;
       }
       options.onProgress?.(`Finalizing ${label}`);
+      held.commitUncertain = true;
       const saved = await request(
         `uploads/${init.id}/commit`,
         {
           method: "POST",
           body: JSON.stringify({
-            allowSemanticDuplicate: options.allowSemanticDuplicate === true,
+            allowSemanticDuplicate,
           }),
         },
-        { ...options, context: `Finalizing ${label}` },
+        {
+          ...options,
+          context: `Finalizing ${label}`,
+          phase: "finalize",
+          comparisonRecovery: record.kind === "audit",
+        },
       );
-      if (
-        !saved.record ||
-        saved.record.id !== record.id ||
-        saved.record.version !== record.version + 1
-      )
+      if (!sameSavedReceipt(record, saved.record, sha256, sha256))
         throw new Error(
           `Finalizing ${label}: the service did not confirm the saved record. Retry the import to check saved IDs first.`,
         );
+      uploadSessions.delete(binding);
       return { ...saved.record, data: record.data };
     },
   };

@@ -27,7 +27,7 @@ const parsed = ts.createSourceFile(
   true,
 );
 const maintained = parsed.statements
-  .filter((statement) => !ts.isImportDeclaration(statement))
+  .filter((statement) => !ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement))
   .map((statement) => statement.getFullText(parsed))
   .join("\n");
 const executable = ts
@@ -52,6 +52,7 @@ const load = new Function(
   "finalCaptureAccountingV6150",
   "evaluateCourseraCapture",
   "parseCourseraShellUrl",
+  "forwardWorkspaceRuntime",
   executable + ";return {CourseraExtractionWorkflow,worker};",
 );
 const payload = {
@@ -232,6 +233,7 @@ async function harness(captures, { launchError } = {}) {
     finalCaptureAccountingV6150,
     evaluateCourseraCapture,
     parseCourseraShellUrl,
+    () => { throw Error("Workspace routes use the independent Durable Object runtime fixture."); },
   );
   const workflow = new CourseraExtractionWorkflow(env);
   const run = () =>

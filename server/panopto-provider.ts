@@ -173,13 +173,26 @@ export async function readPanoptoProviderPodcast(input: {targetUrl: string; stre
         (url.port && url.port !== "443") || !/\.mp4$/i.test(url.pathname) ||
         !(url.origin === tenant.origin || (options.mediaHosts || PODCAST_HOSTS).includes(url.hostname)))
       throw codeError("PANOPTO_PROVIDER_MEDIA_DESTINATION");
-    const response = await upstream(url.href, {method: "GET", headers: {Accept: "video/mp4"}}, usage, options, scope);
+    const response = await upstream(url.href, {method: "GET", headers: {
+      Accept: "video/mp4", "Accept-Encoding": "identity",
+    }}, usage, options, scope);
     if (response.headers.get("content-range") !== null ||
         !/^video\/mp4(?:\s*;|$)/i.test(response.headers.get("content-type") || "")) {
       await discard(response);throw codeError("PANOPTO_PROVIDER_PODCAST_MIME_OR_RANGE");
     }
     const maximum = limit(options.limits?.podcastBytes, 128 * 1024 * 1024);
-    const declared = Number(response.headers.get("content-length") || 0);
+    // A streaming service failure can be exposed as a clean EOF by an
+    // intermediary. Retain the source's full byte declaration so the receiver
+    // can independently reject a shortened stream, even after HTTP 200.
+    const length = response.headers.get("content-length"),
+      encoding = response.headers.get("content-encoding");
+    if (encoding !== null && encoding.trim().toLowerCase() !== "identity") {
+      await discard(response);throw codeError("PANOPTO_PROVIDER_PODCAST_ENCODING");
+    }
+    const declared = /^[1-9]\d*$/.test(length || "") ? Number(length) : NaN;
+    if (!Number.isSafeInteger(declared)) {
+      await discard(response);throw codeError("PANOPTO_PROVIDER_PODCAST_LENGTH_UNAVAILABLE");
+    }
     if (declared > maximum) {await discard(response);throw codeError("PANOPTO_PROVIDER_PODCAST_BYTE_LIMIT");}
     bodyReader = response.body?.getReader();
     if (!bodyReader) throw codeError("PANOPTO_PROVIDER_BODY_UNAVAILABLE");
@@ -192,7 +205,8 @@ export async function readPanoptoProviderPodcast(input: {targetUrl: string; stre
         if (next.value.length) empty = 0;
         usage.bytes += next.value.byteLength;
         if (usage.bytes > maximum) throw codeError("PANOPTO_PROVIDER_PODCAST_BYTE_LIMIT");
-      } else if (declared > 0 && usage.bytes !== declared) throw codeError("PANOPTO_PROVIDER_PODCAST_LENGTH");
+        if (usage.bytes > declared) throw codeError("PANOPTO_PROVIDER_PODCAST_LENGTH");
+      } else if (usage.bytes !== declared) throw codeError("PANOPTO_PROVIDER_PODCAST_LENGTH");
       return next;
     }
     while (prefixBytes < 12) {
@@ -229,6 +243,7 @@ export async function readPanoptoProviderPodcast(input: {targetUrl: string; stre
       cancel() {scope.abort("PANOPTO_PROVIDER_ABORTED");cleanup(true);},
     }, {highWaterMark: 0});
     const headers = usageHeaders(usage, serviceOrigin, true);headers.set("Content-Type", "video/mp4");
+    headers.set("X-CTI-Upstream-Content-Length", String(declared));
     return new Response(stream, {headers});
   } catch (error) {
     if (bodyReader) {void bodyReader.cancel().catch(() => {});try {bodyReader.releaseLock();} catch {}}

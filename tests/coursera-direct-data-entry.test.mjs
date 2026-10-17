@@ -1612,7 +1612,7 @@ test("a failed final provider read preserves fresh podcast bytes without seeding
 });
 
 test("completed v1.5 and v1.6 gap captures continue in the original run without rereading saved assessment banks", async () => {
-  for (const buildId of ["v1.5.0-bound-widget-configuration-20261015", "v1.6.0-integrated-panopto-bookmark-20261015", "v1.6.1-provider-access-diagnostics-20261015"]) {
+  for (const buildId of ["v1.5.0-bound-widget-configuration-20261015", "v1.6.0-integrated-panopto-bookmark-20261015", "v1.6.1-provider-access-diagnostics-20261015", "v1.7.2-content-and-structure-coverage-20261017"]) {
     const app = harness({ ids: ["WidgetA", "AssessmentZ"], widgetIds: ["WidgetA"],
       assignmentIds: ["AssessmentZ"], assessmentInventory: () => ({}) });
     app.launch(); await app.idle();

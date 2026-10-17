@@ -1,5 +1,10 @@
 import { launch, limits as playwrightLimits } from "@cloudflare/playwright";
 import { WorkflowEntrypoint } from "cloudflare:workers";
+import {
+  forwardWorkspaceRuntime,
+  type WorkspaceRuntimeEnvironment,
+} from "./workspace-runtime.ts";
+export { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { courseraSource } from "../../src/generated/extractor-sources.js";
 import { CTI_RELEASE_REGISTRY_ } from "../../src/engine/release.js";
 import {
@@ -12,7 +17,7 @@ import {
   type CourseraExtractionStatus,
 } from "../../src/domain/coursera-background-extraction.ts";
 
-type Env = {
+type Env = WorkspaceRuntimeEnvironment & {
   BROWSER: any;
   ARTIFACTS: any;
   EXTRACTION_WORKFLOW: any;
@@ -1399,6 +1404,8 @@ async function createWorkflow(
 
 export default {
   async fetch(request: Request, env: Env) {
+    if (new URL(request.url).pathname.startsWith("/workspace/"))
+      return forwardWorkspaceRuntime(request, env);
     try {
       const caller = requireCaller(request),
         hash = await ownerHash(caller.email),
@@ -1413,6 +1420,8 @@ export default {
           browserBinding: !!env.BROWSER,
           artifactBinding: !!env.ARTIFACTS,
           workflowBinding: !!env.EXTRACTION_WORKFLOW,
+          workspaceRuntimeBinding: !!env.WORKSPACE_RUNTIME,
+          workspaceDatabaseBinding: !!env.CTI_DB,
           sessionEncryption: !!env.CTI_SESSION_KEY,
           editable: ["admin", "editor"].includes(caller.role),
         });

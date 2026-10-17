@@ -1,4 +1,4 @@
-name: Deploy Coursera background extractor
+name: Deploy private workspace and extractor runtime
 
 on:
   push:
@@ -20,6 +20,7 @@ on:
       - ".github/workflows/cti-checks.yml"
       - "tools/browser-*-check.mjs"
       - "tools/browser-item-refresh-ui.mjs"
+      - "tools/configure-workspace-runtime.mjs"
   workflow_dispatch:
 
 permissions:
@@ -91,12 +92,20 @@ jobs:
             npx --yes wrangler@4.143.0 r2 bucket create "${CF_R2_BUCKET}" --config "${WORKER_CONFIG}"
           fi
 
+      - name: Bind the workspace runtime to the existing Pages database
+        if: steps.preflight.outputs.configured == 'true'
+        run: node tools/configure-workspace-runtime.mjs
+
       - name: Deploy Browser Run Worker and Workflow
         if: steps.preflight.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
           npx --yes wrangler@4.143.0 deploy --config "${WORKER_CONFIG}"
+
+      - name: Verify the deployed private workspace bindings
+        if: steps.preflight.outputs.configured == 'true'
+        run: node tools/configure-workspace-runtime.mjs --verify
 
       - name: Ensure stable session-encryption secret
         if: steps.preflight.outputs.configured == 'true'

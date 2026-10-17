@@ -120,6 +120,59 @@ test("metadata operation sends only its fixed body and streams headers and bound
   } finally { f.close(); }
 });
 
+test("podcast helper preserves full upstream length and only ends an exact body", async () => {
+  const source = new Uint8Array(100000).fill(47);
+  for (const declared of [100000, 100001, 99999]) {
+    const f = fixture({ fetcher: async () => new Response(source, { headers: {
+      "content-type": "video/mp4", "X-CTI-Upstream-Content-Length": String(declared),
+      "content-encoding": "identity",
+    } }) });
+    try {
+      await nextTurn();f.emit({ type: "init" });
+      f.emit({ ...metadataRequest(), kind: "podcast", payload: {
+        targetUrl, itemId: identity.itemId, providerId: identity.providerId,
+        streamFileId: "59e8c889-654e-40f2-b073-b31c006c433b", sourceHash: "a".repeat(64),
+      } });
+      await nextTurn();
+      const head=f.messages.at(-1);
+      assert.equal(head.type,"head");
+      assert.equal(new Headers(head.headers).get("X-CTI-Upstream-Content-Length"),String(declared));
+      assert.equal(new Headers(head.headers).get("content-encoding"),"identity");
+      let offset=0;
+      for (let seq=0;seq<3;seq++) {
+        f.emit({type:"pull",...identity,seq,offset});await nextTurn();
+        const last=f.messages.at(-1);
+        if(last.type!=="chunk")break;
+        offset+=last.bytes.byteLength;
+      }
+      if(declared===source.length) {
+        assert.equal(f.messages.at(-1).type,"end");
+        assert.equal(f.messages.at(-1).offset,source.length);
+      } else {
+        assert.equal(f.messages.at(-1).type,"error");
+        assert.equal(f.messages.at(-1).code,"PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH");
+        assert(!f.messages.some(m=>m.type==="end"));
+      }
+    } finally { f.close(); }
+  }
+});
+
+test("a successful podcast response without a valid full source length never starts the relay", async () => {
+  for (const declared of [null,"0","12.0","9007199254740992"]) {
+    let cancelled=0;
+    const f=fixture({fetcher:async()=>new Response(new ReadableStream({cancel(){cancelled++;}}),
+      {headers:{"content-type":"video/mp4",...(declared===null?{}:{"X-CTI-Upstream-Content-Length":declared})}})});
+    try {
+      await nextTurn();f.emit({type:"init"});
+      f.emit({...metadataRequest(),kind:"podcast",payload:{targetUrl,itemId:identity.itemId,providerId:identity.providerId,
+        streamFileId:"59e8c889-654e-40f2-b073-b31c006c433b",sourceHash:"a".repeat(64)}});
+      await nextTurn();
+      assert.equal(f.messages.at(-1).code,"PROVIDER_HELPER_PODCAST_LENGTH_UNAVAILABLE");
+      assert(!f.messages.some(m=>m.type==="head"));assert.equal(cancelled,1);
+    } finally {f.close();}
+  }
+});
+
 test("arbitrary operations, URLs, headers and oversized envelopes do not reach the authenticated API", async () => {
   const f = fixture();
   try {

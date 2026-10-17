@@ -116,6 +116,7 @@ export function directPanoptoPodcastStructureV1(podcast, candidate, options = {}
       (bytes && directAssetBodyKindV1(bytes, body.mime) !== "MP4") ||
       receipt?.role !== "PODCAST_STREAM_RENDITION" || receipt.status !== 200 || receipt.bytes !== body.size || receipt.mime !== body.mime ||
       receipt.sha256 !== body.sha256 || receipt.canonicalUrl !== candidate.canonicalUrl ||
+      (receipt.declaredBodyBytes !== undefined && receipt.declaredBodyBytes !== body.size) ||
       receipt.bodyFormat !== (body.archivePath ? "ORIGINAL_BINARY_BYTES_ARCHIVE" : "ORIGINAL_BINARY_BYTES_BASE64") ||
       !Number.isFinite(Date.parse(receipt.observedAt || "")) ||
       !directPanoptoReceiptTransportValidV1(receipt, "PODCAST") ||

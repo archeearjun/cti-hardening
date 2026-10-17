@@ -5,6 +5,7 @@ import {
   rememberPendingComparison,
   sessionPendingComparison,
   forgetPendingComparison,
+  recordComparisonSaveFailure,
   recoverComparisonSave,
   unconfirmedComparisonExport,
 } from "../src/domain/comparison-save-recovery.ts";
@@ -332,4 +333,43 @@ test("memory-only remount recovery is scoped to the same account and workspace",
   assert.equal(sessionPendingComparison(f.store), f.pending);
   forgetPendingComparison(f.pending);
   assert.equal(sessionPendingComparison(f.store), null);
+});
+
+test("save diagnostics supplement recovery exports without changing computed audit bytes", async () => {
+  const f = await fixture();
+  const before = JSON.stringify(f.pending.record.data);
+  const failure = Object.assign(
+    new Error("Finalizing synthetic: HTTP 503. Gateway unavailable."),
+    {
+      code: "WORKSPACE_RESPONSE_INVALID",
+      context: "Finalizing synthetic",
+      phase: "finalize",
+      status: 503,
+      attempts: 1,
+      cloudflare: {
+        rayId: "synthetic-BOM",
+        errorType: "1102",
+        errorOrigin: "worker",
+        cookie: "never export",
+      },
+      responseBody: "<html>never export</html>",
+    },
+  );
+  assert.equal(recordComparisonSaveFailure(f.pending, failure), true);
+  const exported = unconfirmedComparisonExport(f.pending);
+  assert.equal(
+    exported.evidence.localComparisonRecovery.lastSaveFailure.status,
+    503,
+  );
+  assert.deepEqual(
+    exported.evidence.localComparisonRecovery.lastSaveFailure.cloudflare,
+    { rayId: "synthetic-BOM", errorType: "1102", errorOrigin: "worker" },
+  );
+  assert.equal(JSON.stringify(exported).includes("never export"), false);
+  assert.equal(JSON.stringify(f.pending.record.data), before);
+  assert.equal(f.pending.record.data.lastSaveFailure, undefined);
+  assert.equal(
+    recordComparisonSaveFailure(f.pending, new Error("unstructured")),
+    false,
+  );
 });

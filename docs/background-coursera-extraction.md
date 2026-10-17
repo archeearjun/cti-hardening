@@ -71,7 +71,9 @@ The maintained extractor can legitimately run far longer than a small free
 remote-browser allowance. Use the local Chrome path for a zero-cost deployment.
 Enable optional background extraction only when the organisation has deliberately
 provisioned adequate Browser Run capacity. The shared CTI workspace does not
-depend on that optional Worker.
+depend on launching a background browser. The shared-record workspace uses
+the same private Worker for its separate `WorkspaceRuntime` Durable Object;
+that required Free path does not launch Browser Run.
 
 Create the R2 bucket:
 

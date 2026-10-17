@@ -449,7 +449,7 @@ test("podcast capture retains hashed MP4 rendition bytes and scoped receipts wit
     archiveMode: true,
     fetchImpl: async (url, options) => {
       calls.push({ url, options });
-      return new Response(mp4, { headers: { "content-type": "video/mp4" } });
+      return new Response(mp4, { headers: { "content-type": "video/mp4", "content-length": String(mp4.length) } });
     },
   });
   const began = Date.now();
@@ -500,7 +500,7 @@ test("each podcast attempt makes a fresh GET and ignores a prior retained rendit
     archiveMode: true,
     fetchImpl: async () =>
       new Response(++calls === 1 ? mp4 : changed, {
-        headers: { "content-type": "video/mp4" },
+        headers: { "content-type": "video/mp4", "content-length": String(mp4.length) },
       }),
   });
   const first = await media.capturePanoptoPodcast(
@@ -545,7 +545,7 @@ test("podcast bodies require video/mp4, the MP4 signature and the exact podcast 
       apiReader,
       fetchImpl: async () =>
         new Response(bytes, {
-          headers: { "content-type": mime, ...extraHeaders },
+          headers: { "content-type": mime, "content-length": String(bytes.length), ...extraHeaders },
         }),
     });
     const result = await media.capturePanoptoPodcast(
@@ -587,6 +587,7 @@ test("podcast size limits are distinct from ordinary originals and reject actual
       new Response(url.includes(".png") ? png : mp4, {
         headers: {
           "content-type": url.includes(".png") ? "image/png" : "video/mp4",
+          "content-length": String(mp4.length),
         },
       }),
   });
@@ -624,7 +625,7 @@ test("podcast size limits are distinct from ordinary originals and reject actual
           {
             headers: {
               "content-type": "video/mp4",
-              ...(advertised ? { "content-length": "24" } : {}),
+              "content-length": advertised ? "24" : "16",
             },
           },
         ),
@@ -672,6 +673,7 @@ test(
         return new Response(url.includes(".png") ? png : mp4, {
           headers: {
             "content-type": url.includes(".png") ? "image/png" : "video/mp4",
+            "content-length": String(mp4.length),
           },
         });
       },
@@ -701,6 +703,7 @@ test(
         new Response(url.includes(".png") ? png : mp4, {
           headers: {
             "content-type": url.includes(".png") ? "image/png" : "video/mp4",
+            "content-length": String(mp4.length),
           },
         }),
     });

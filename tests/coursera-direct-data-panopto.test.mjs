@@ -164,6 +164,16 @@ test('explicit public CTI service transport retains native metadata and independ
  assert.equal(view.textCoverage,'PARTIAL');
 });
 
+test('a newly retained full source byte declaration must match the exact archived body size',()=>{
+ const f=backendFixture();f.body.receipt.declaredBodyBytes=f.body.size;
+ assert.equal(checked(f).valid,true);
+ for(const declared of [f.body.size+1,f.body.size-1,String(f.body.size),null]){
+  f.body.receipt.declaredBodyBytes=declared;assert.equal(checked(f).valid,false);
+ }
+ delete f.body.receipt.declaredBodyBytes;
+ assert.equal(checked(f).valid,true,'Historical receipts without the new declaration are preserved unchanged');
+});
+
 test('service origin, observation basis, timestamps and validation usage cannot replace native proof',()=>{
  for(const mutate of [f=>f.delivery.initial.receipt.transport='UNVERIFIED_PROXY',
   f=>f.delivery.initial.receipt.serviceOrigin='https://other.example.test',

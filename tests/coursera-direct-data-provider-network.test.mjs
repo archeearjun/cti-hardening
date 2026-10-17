@@ -33,7 +33,7 @@ function reader(providerTransport, options={}) {
 }
 function podcastResponse(sourceHash, validationBytes=100, extra={}, responseOptions={}) {
   return new Response(mp4,{...responseOptions,headers:headers(0,{'content-type':'video/mp4',
-    'X-CTI-Upstream-Requests':'2','X-CTI-Validation-Bytes':String(validationBytes),
+    'X-CTI-Upstream-Requests':'2','X-CTI-Upstream-Content-Length':String(mp4.length),'X-CTI-Validation-Bytes':String(validationBytes),
     'X-CTI-Validation-Source-Hash':sourceHash,'X-CTI-Validation-Observed-At':observedAt,...extra})});
 }
 
@@ -104,11 +104,46 @@ test('helper podcast request binds the exact native source and charges validatio
   assert.equal(result.body.sha256,sha(mp4));assert.equal(result.body.receipt.bytes,mp4.length);
   assert.equal(result.body.receipt.targetUrl,f.targetUrl);assert.equal(result.body.receipt.transport,'CTI_PUBLIC_BACKEND');
   assert.equal(result.body.receipt.observedAtBasis,'UPSTREAM');assert.equal(result.body.receipt.upstreamRequests,2);
+  assert.equal(result.body.receipt.declaredBodyBytes,mp4.length);
   assert.equal(result.body.receipt.validationMetadataBytes,100);
   assert.equal(result.body.receipt.validationSourceHash,calls[1].payload.sourceHash);
   assert.equal(result.body.receipt.validationObservedAt,observedAt);
   assert.equal(media.snapshot().bytes,100+mp4.length);assert.equal(media.snapshot().requests,2);
   assert.equal(result.body.originalUploadVerified,undefined);
+});
+
+test('a clean helper EOF cannot certify an MP4 shorter or longer than the declared upstream body',async()=>{
+  const f=fixture(),api=reader({request:async()=>responseFor(f)}),metadata=await api.readPanoptoDeliveryInfo(f.targetUrl);
+  for (const declared of [mp4.length+1,mp4.length-1,73841378]) {
+    const providerTransport={request:async(kind,payload)=>podcastResponse(payload.sourceHash,100,
+      {'X-CTI-Upstream-Content-Length':String(declared)})};
+    const media=createDirectDataMediaReaderV1({apiReader:api,providerTransport,archiveMode:true});
+    const result=await media.capturePanoptoPodcast(metadata,f.ids.D);
+    assert.equal(result.reason,'PANOPTO_PODCAST_LENGTH_MISMATCH');
+    assert.equal(result.body,undefined);
+    assert.equal(result.receipt.bytes,mp4.length);
+    assert.equal(result.receipt.declaredBodyBytes,declared);
+    assert.equal(media.snapshot().bytes,100+mp4.length,'Failed body bytes remain charged to the shared budget');
+    assert(!JSON.stringify(result).includes(secret));
+  }
+});
+
+test('missing or malformed full upstream length remains a body gap before consuming a helper stream',async()=>{
+  const f=fixture(),api=reader({request:async()=>responseFor(f)}),metadata=await api.readPanoptoDeliveryInfo(f.targetUrl);
+  for (const declared of [null,'','0','12.0','-12','9007199254740992']) {
+    let cancelled=0;
+    const providerTransport={request:async(kind,payload)=>{
+      const source=podcastResponse(payload.sourceHash).headers;
+      if (declared===null) source.delete('X-CTI-Upstream-Content-Length');
+      else source.set('X-CTI-Upstream-Content-Length',declared);
+      return new Response(new ReadableStream({cancel(){cancelled++;}}),{headers:source});
+    }};
+    const media=createDirectDataMediaReaderV1({apiReader:api,providerTransport});
+    const result=await media.capturePanoptoPodcast(metadata,f.ids.D);
+    assert.equal(result.reason,'PANOPTO_PODCAST_LENGTH_UNAVAILABLE');
+    assert.equal(result.body,undefined);assert.equal(cancelled,1);
+    assert.equal(media.snapshot().bytes,100,'Only the observed metadata validation bytes were read');
+  }
 });
 
 test('helper podcast failures retain actual changed-source proof and account failed upstream work',async()=>{

@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { workspaceRequest } from "../src/domain/workspace-http.ts";
+import {
+  workspaceRequest,
+  workspaceBinaryRequest,
+  workspaceFailureDiagnostic,
+} from "../src/domain/workspace-http.ts";
 
 const path = "uploads/synthetic/chunks/0";
 function mockFetch(t, fn) {
@@ -120,4 +124,78 @@ test("HTML success pages and authentication redirects are not accepted as saved 
     /redirected.*sign in/,
   );
   assert.equal(calls, 2);
+});
+
+test("structured failure diagnostics retain only bounded allowlisted Cloudflare headers", async (t) => {
+  mockFetch(
+    t,
+    async () =>
+      new Response("<html>Never export this body</html>", {
+        status: 503,
+        headers: {
+          "cf-ray": "diagnostic-BOM",
+          "cf-error-type": "1102",
+          "cf-error-origin": "worker",
+          "x-private-value": "Do not retain",
+        },
+      }),
+  );
+  let failure;
+  try {
+    await workspaceRequest(
+      "uploads/id/commit",
+      { method: "POST" },
+      {
+        context: "Finalizing synthetic audit",
+        phase: "finalize",
+        comparisonRecovery: true,
+      },
+    );
+  } catch (error) {
+    failure = error;
+  }
+  const diagnostic = workspaceFailureDiagnostic(failure);
+  assert.equal(diagnostic.code, "WORKSPACE_RESPONSE_INVALID");
+  assert.equal(diagnostic.phase, "finalize");
+  assert.equal(diagnostic.context, "Finalizing synthetic audit");
+  assert.equal(diagnostic.status, 503);
+  assert.equal(diagnostic.attempts, 1);
+  assert.deepEqual(diagnostic.cloudflare, {
+    rayId: "diagnostic-BOM",
+    errorType: "1102",
+    errorOrigin: "worker",
+  });
+  assert.match(diagnostic.message, /Check save \/ retry/);
+  assert.equal(
+    JSON.stringify(diagnostic).includes("Never export this body"),
+    false,
+  );
+  assert.equal(JSON.stringify(diagnostic).includes("Do not retain"), false);
+  const forged = workspaceFailureDiagnostic({
+    ...diagnostic,
+    cloudflare: {
+      errorType: "x".repeat(121),
+      errorOrigin: "<html>",
+      cookie: "secret",
+    },
+  });
+  assert.equal(forged.cloudflare, undefined);
+});
+
+test("binary reads enforce the chunk bound and reject login/error pages", async (t) => {
+  let response = new Response(new Uint8Array(129), {
+    headers: { "content-type": "application/octet-stream" },
+  });
+  mockFetch(t, async () => response);
+  await assert.rejects(
+    workspaceBinaryRequest("records/id/chunks/0", { maxBytes: 128 }),
+    (error) => error.code === "WORKSPACE_BINARY_BOUND_EXCEEDED",
+  );
+  response = new Response("<html>Sign in</html>", {
+    headers: { "content-type": "text/html" },
+  });
+  await assert.rejects(
+    workspaceBinaryRequest("records/id/chunks/0", { maxBytes: 128 }),
+    /HTTP 200.*invalid response/,
+  );
 });

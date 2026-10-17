@@ -5,7 +5,8 @@ new workspace. The migrated workflows can already run in **local mode**. Local
 mode saves only in that browser; it is not shared with colleagues.
 
 This setup uses the existing Cloudflare Pages project, Cloudflare D1 and
-Cloudflare Access. Use **Free** plans only. No installation is required on a
+Cloudflare Access, plus a private SQLite Durable Object for shared-record
+validation. Use **Free** plans only. No installation is required on a
 work laptop. Free services have request, storage and user limits; this is not
 an unlimited-storage promise. Do not select a paid subscription to continue.
 
@@ -64,6 +65,17 @@ Keep the existing Pages build settings: branch `codex/typescript-pages-migration
 build `npm run build`, output **`dist`**, repository root blank. Save the binding
 and variables, then create a new deployment of the latest commit.
 
+The maintained **Deploy private workspace and extractor runtime** GitHub
+workflow must also succeed for that same `main` release. It reads Pages'
+existing `CTI_DB` binding, deploys the private `WorkspaceRuntime` Durable Object
+in `cti-coursera-extractor`, and verifies the final Pages `CTI_EXTRACTOR` service
+binding. Configure its existing `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` repository secrets when setting up a new deployment.
+The runtime has no public Workers or preview URL. It uses the same D1 tables
+and does not migrate or delete original records. Missing private runtime
+configuration is an explicit error; record processing does not fall back to
+the ordinary Pages CPU limit. Local browser storage still works independently.
+
 Open the site, sign in and choose **Full CTI workspace → Setup → Connect shared
 workspace**. The banner must say **Shared team workspace**, your email and your
 role. A local-mode banner is not confirmation of shared storage. The selected
@@ -74,9 +86,10 @@ records are shared. Do not remove authentication to make the error disappear.
 
 ## Optional: background Coursera extraction
 
-The shared catalogue, D1 and Access setup above can remain on the current free
-configuration. Background Coursera extraction is an optional additional service
-with Browser Run/Workflows/R2 requirements and different usage limits. Do not
+The private shared-record runtime above is required for shared storage and
+remains on Free. Launching background Coursera extraction is optional: its
+Browser Run/Workflows/R2 paths have different usage limits. The same Worker
+hosts both routes, but shared-record processing never launches a browser. Do not
 enable it by weakening Access or making the extractor Worker public.
 
 If your organisation approves that capability, follow
@@ -202,8 +215,11 @@ DELETE FROM uploads WHERE committed=0
 ```
 
 If an import stops halfway, reconnect, reload the catalogue and import the same
-file again. Preserved IDs make completed records safe to skip. Keep the original
-export until reconciliation is finished.
+file again. Preserved IDs make completed records safe to skip. The same actor,
+record metadata/version, payload checksum/bytes and commit options reuse the
+same staged upload; the client verifies existing chunk digests before skipping
+them. Changed evidence starts a separate upload. Keep the original export until
+reconciliation is finished.
 
 Uploads retry temporary network, timeout, HTTP 429 and server failures up to three
 attempts for each evidence chunk. A repeated chunk is checked against its saved
@@ -213,7 +229,27 @@ Cloudflare Ray ID when available. If the service asks for a delay over 30 second
 the import stops and reports that delay instead of retrying early. Stop also
 cancels active uploads and retry waits. A generic failure from an older deployment
 does not establish whether the cause was connectivity, authentication or a service
-limit; retry with the updated client to retain the diagnostic details.
+limit; retry with the updated client to retain the diagnostic details. Supported
+Cloudflare error-type and error-origin headers are retained when present, without
+copying arbitrary error-page HTML. Binary saved-record chunk downloads also retry
+temporary failures. Unconfirmed finalizations read the exact saved record before
+another finalization, and explicit retry reuses the fully uploaded session.
+
+Production shared-record processing runs in the private `WorkspaceRuntime`
+Durable Object behind the existing authenticated Pages service. It uses the
+same D1 database, original-byte validation and concurrency guards, with no
+browser session. SQLite Durable Objects are available on Free and have a
+documented 30-second CPU budget per invocation, compared with 10 ms for an
+ordinary Free HTTP Worker. Deployment binds the existing Pages database;
+it does not change the account plan. The 128 MB memory bound, D1 query/storage
+quotas and Free Durable Object daily quotas remain in force. See
+[Durable Object limits](https://developers.cloudflare.com/durable-objects/platform/limits/)
+and [Free eligibility and quotas](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+
+The same private runtime handles public Panopto metadata/media acquisition in
+a separate object instance. Its streamed byte checks therefore use the Durable
+Object allowance too. The source service still reads without Panopto cookies;
+this does not grant access to private recordings or establish playback.
 
 Official references: [D1 dashboard setup](https://developers.cloudflare.com/d1/get-started/),
 [Pages bindings](https://developers.cloudflare.com/pages/functions/bindings/),
