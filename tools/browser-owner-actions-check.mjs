@@ -393,6 +393,15 @@ async function checkPanoptoMetadata(page, tab, shots) {
     { exact: true },
   );
   await imported.waitFor();
+  // The saved capture can render before parent persistence/refresh completes.
+  // File selection bypasses disabled controls in Playwright, so wait for the
+  // live input to accept another upload before testing wrong-recording rejection.
+  await page.waitForFunction(() => {
+    const input = document.querySelector(
+      '.action-card:has(a[href$="/item/plugin/WidgetA"]) [aria-label="Panopto media metadata"] input[type="file"]',
+    );
+    return input instanceof HTMLInputElement && !input.disabled;
+  });
   await panel.getByLabel("Upload Panopto response JSON or text").setInputFiles({
     name: "wrong-recording.json",
     mimeType: "application/json",
