@@ -4,6 +4,7 @@ import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-d
 import { directCmlMediaInventoryV1 } from "../src/extractors/coursera/direct-data-media-contracts.js";
 import { directInlineWidgetBindingsV1, directSourceBindingEvidenceV1 } from "../src/extractors/coursera/direct-data-contracts.js";
 import { directInlineWidgetProviderSourceV1, directInlineWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
+import { directPublisherMediaInventoryV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 import { widgetFixture, WIDGET_COURSE, WIDGET_SLUG, WIDGET_PROVIDER } from "./coursera-direct-widget-fixtures.mjs";
 
 const hashBytes = bytes => createHash("sha256").update(bytes).digest("hex"),
@@ -121,4 +122,52 @@ export function createInlinePublisherContentFixture({ keepHistoricalHtml = false
   provider.publisherPages = [{ targetUrl: f.targetUrl, sourceFields: provider.targets.map(target => target.sourceField),
     observation: publisherObservation, failures: [] }];
   return { ...f, publisherObservation, publisherChapter: chapter, publisherRawJson: rawJson };
+}
+
+/** Synthetic part contract fixture. This does not establish the response shape
+ * of any live publisher; release acceptance requires the separate live probe. */
+export function createInlinePublisherPartContentFixture(options = {}) {
+  const f = createInlinePublisherContentFixture(options), observation = f.publisherObservation,
+    chapterReceipt = structuredClone(observation.receipt),
+    part = { ...structuredClone(f.publisherChapter), type: "part", link: f.finalUrl.replace("/chapter/", "/part/") },
+    rawJson = JSON.stringify(part, null, 2) + "\n", bytes = new TextEncoder().encode(rawJson),
+    endpointUrl = observation.model.endpointUrl.replace("/chapters/", "/parts/");
+  Object.assign(chapterReceipt, { observedAt: "2027-01-15T08:00:00.004Z", receivedAt: "", status: 404,
+    bytes: 0, originalResponseSha256: "", attempts: [{ credentials: "omit", observedAt: "2027-01-15T08:00:00.004Z",
+      status: 404, responseType: "cors", bytes: 0, reason: "PUBLISHER_BROWSER_HTTP_404" }] });
+  Object.assign(observation.model, { kind: "CTI_BROWSER_PUBLISHER_PART", endpointUrl,
+    bytes: bytes.length, sha256: hashBytes(bytes), rawJson });
+  Object.assign(observation.receipt, { resource: "PublisherPart", endpointUrl,
+    requestPath: new URL(endpointUrl).pathname, bytes: bytes.length, originalResponseSha256: observation.model.sha256,
+    resolution: { method: "CHAPTER_404_TO_PART", chapterReceipt } });
+  observation.receipt.attempts[0].bytes = bytes.length;
+  return { ...f, publisherPart: part, publisherRawJson: rawJson, publisherPartObservation: observation };
+}
+
+/** Synthetic owned images with archive descriptors. The non-enumerable bytes
+ * model archive hydration and deliberately disappear from report JSON. */
+export function createInlinePublisherMediaContentFixture({ part = false, outcomes = ["CAPTURED", "PUBLISHER_IMAGE_BLOCKED_OR_FAILED"], ...options } = {}) {
+  const f = part ? createInlinePublisherPartContentFixture(options) : createInlinePublisherContentFixture(options),
+    resource = structuredClone(part ? f.publisherPart : f.publisherChapter), observation = f.publisherObservation,
+    urls = outcomes.map((_, index) => "https://opentextbc.ca/synthetic-book/wp-content/uploads/2027/01/drawing-" + index + ".png"),
+    html = "<p>Original publisher drawing references.</p>" + urls.map(url => '<img src="' + url + '">').join("");
+  resource.content = { raw: html, rendered: html, protected: false };
+  const rawJson = JSON.stringify(resource, null, 2) + "\n", jsonBytes = new TextEncoder().encode(rawJson);
+  Object.assign(observation.model, { rawJson, bytes: jsonBytes.length, sha256: hashBytes(jsonBytes) });
+  observation.receipt.bytes = observation.receipt.attempts[0].bytes = jsonBytes.length;
+  observation.receipt.originalResponseSha256 = observation.model.sha256;
+  const inventory = directPublisherMediaInventoryV1(observation, f.targetUrl),
+    png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==", "base64")),
+    resources = inventory.resources.map((entry, index) => {
+      if (outcomes[index] !== "CAPTURED") return { ...entry, reason: outcomes[index] };
+      const sha256 = hashBytes(png), body = { archivePath: "files/" + sha256, sha256, size: png.length,
+        mime: "image/png", canonicalUrl: entry.url, receipt: { resource: "PublisherImage", transport: "BROWSER_PUBLISHER_IMAGE",
+          sourceSha256: observation.model.sha256, requestedUrl: entry.url, finalUrl: entry.url, method: "GET", credentials: "omit",
+          responseType: "cors", status: 200, bytes: png.length, mime: "image/png", sha256,
+          observedAt: "2027-01-15T08:00:00.008Z", originalContentType: "image/png", bodyFormat: "ORIGINAL_BINARY_BYTES_ARCHIVE" } };
+      Object.defineProperty(body, "bytes", { value: png, configurable: true });
+      return { ...entry, body };
+    }), media = { ...inventory, resources };
+  f.fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0].media = media;
+  return { ...f, publisherResource: resource, publisherRawJson: rawJson, publisherMedia: media, publisherMediaBytes: png, publisherImageUrls: urls };
 }

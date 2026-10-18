@@ -1,6 +1,11 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { directPanoptoArchiveBodiesV1 } from "../extractors/coursera/direct-data-panopto-contracts.js";
+import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
+import { directInlineWidgetEvidenceV1 } from "../extractors/coursera/direct-data-contracts.js";
+import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
+import { directPublisherResourceEvidenceV1 } from "../extractors/coursera/direct-data-publisher.js";
+import { directPublisherMediaStructureV1, directPublisherImageKindV1 } from "../extractors/coursera/direct-data-publisher-media.js";
 
 export const MAX_COURSERA_ARCHIVE_BYTES = 640 * 1024 * 1024;
 export const MAX_COURSERA_ARCHIVE_ORIGINAL_BYTES = 512 * 1024 * 1024;
@@ -88,6 +93,41 @@ function validPath(path: string): boolean {
   return path === "capture.json.gz" || /^files\/[a-f0-9]{64}$/.test(path);
 }
 
+/** A failed current refresh cannot revoke independently proven historical file
+ * ownership. Omitting that marker here makes no current-content claim. */
+function publisherOwnedBodies(fp: any, courseId: string): Set<any> {
+  const result = new Set<any>(), hashBytes = (bytes: Uint8Array) => bytesToHex(sha256(bytes)),
+    hashValue = (value: unknown) => hashBytes(new TextEncoder().encode(directCanonicalSourceTextV1(value)));
+  try {
+    const payload = { ...fp.payload };
+    delete payload.directResumeRevalidation;
+    const retained = {...fp,payload}, sources = payload.directDataSources,
+      branch = sources.relation.elements[0].branchRelationMap[courseId + "~" + fp.id],
+      bound = bindDirectAuthoringDraftV1(retained,courseId,branch.courseSlug,sources.atom,sources.relation),
+      checked = directInlineWidgetEvidenceV1(retained,bound,hashValue);
+    if (!checked) return result;
+    for (const proof of payload.directInlineWidgetProviderEvidence.providers || []) {
+      const valid = checked.providers.find((value: any) => value.binding.providerId === proof.providerId);
+      if (!valid || !Array.isArray(proof.publisherPages) || proof.publisherPages.length > 64) continue;
+      const seen = new Set<string>();
+      for (const page of proof.publisherPages) {
+        if (!page?.media) continue;
+        const fields = [...new Set(valid.targets.filter((target: any) => target.url === page.targetUrl).map((target: any) => target.sourceField))],
+          observation = page.observation || page.retainedObservation;
+        if (!fields.length || seen.has(page.targetUrl) || hashValue(fields) !== hashValue(page.sourceFields) ||
+            !directPublisherResourceEvidenceV1(observation,page.targetUrl,hashBytes) ||
+            !directPublisherMediaStructureV1(observation,page.targetUrl,page.media)) return new Set();
+        seen.add(page.targetUrl);
+        for (const group of [{observation,resources:page.media.resources},...(page.media.retained || [])]) {
+          if (!directPublisherResourceEvidenceV1(group.observation,page.targetUrl,hashBytes)) return new Set();
+          for (const resource of group.resources) if (resource.body) result.add(resource.body);
+        }
+      }
+    }
+    return result;
+  } catch (_) { return new Set(); }
+}
+
 function nativeBodyReferences(capture: unknown) {
   if (!capture || typeof capture !== "object" || Array.isArray(capture))
     archiveError("the capture metadata is not an object.");
@@ -128,6 +168,15 @@ function nativeBodyReferences(capture: unknown) {
         add(asset?.retainedEvidence?.body, false);
       }
     }
+    const publisherBodies = publisherOwnedBodies(fp,courseId);
+    for (const evidence of [fp?.payload?.directInlineWidgetProviderEvidence,fp?.payload?.directInlineWidgetProviderAttempt])
+      for (const provider of evidence?.providers || [])
+        for (const page of provider.publisherPages || [])
+          for (const group of [{resources:page.media?.resources || []},...(page.media?.retained || [])])
+            for (const resource of group.resources || []) if (resource.body) {
+              if (!publisherBodies.has(resource.body)) archiveError("a publisher image has no independently verified native source binding.");
+              add(resource.body,false);
+            }
     const deliveries = fp?.payload?.directPanoptoEvidence?.deliveries;
     if (deliveries == null) continue;
     if (!Array.isArray(deliveries))
@@ -214,6 +263,8 @@ export function attachCourseraArchiveFileBytes(
       );
     if (podcast && !mp4(file.bytes))
       archiveError("a Panopto podcast body is not an MP4 rendition.");
+    if (body.receipt?.resource === "PublisherImage" && !directPublisherImageKindV1(file.bytes,body.mime))
+      archiveError("a publisher image original differs from its recorded raster format.");
     if (Object.hasOwn(body, "bytes")) {
       const prior = Object.getOwnPropertyDescriptor(body, "bytes");
       if (

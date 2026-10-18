@@ -12,11 +12,13 @@ import BrightspaceHtmlStructureEvidence from "./BrightspaceHtmlStructure";
 import { choiceLabel, ctiAnswerCheck } from "../src/domain/cti-answer-check";
 import {
   courseraInlineWidgetPage,
-  courseraInlinePublisherPage,
+  courseraInlinePublisherResource,
   inlineWidgetStaticHtmlText,
   type CourseraInlineWidgetContent,
   type InlineWidgetPublicPage,
   type InlineWidgetPublisherPage,
+  type InlineWidgetPublisherMedia,
+  type InlineWidgetPublisherFileReference,
 } from "../src/domain/coursera-inline-widget-content";
 const labels = {
   COMPLETE: "Complete captured field",
@@ -50,27 +52,60 @@ function InlineWidgetPageEvidence({ content, providerId, page }: {
     {page.failures.map((reason, index) => <p className="hint" key={index}>Current read outcome: {reason}</p>)}
   </details>;
 }
+function PublisherOriginalReferences({ media }: { media: InlineWidgetPublisherMedia }) {
+  const sourceFiles = (resources: InlineWidgetPublisherFileReference[]) => <ul>{resources.map((resource, index) => <li key={index}>
+    <p>{resource.status === "CAPTURED_ORIGINAL_FILE_REFERENCE" ? "Captured original file reference" : "Image read unresolved"}</p>
+    <p className="captured-text">Source: {safeWebUrl(resource.url)
+      ? <a href={safeWebUrl(resource.url)} target="_blank" rel="noopener noreferrer">{resource.url}</a> : resource.url}</p>
+    {resource.originalRef && <>
+      <p className="captured-text">Archive reference: {resource.originalRef}</p>
+      <p className="hint">Original read observed: {resource.observedAt} · {resource.bytes?.toLocaleString()} bytes · {resource.mime}</p>
+      <p className="captured-text">SHA-256: {resource.sha256}</p>
+    </>}
+    {resource.references.map((reference, referenceIndex) => <p className="captured-text" key={referenceIndex}>
+      Authored {reference.tag}.{reference.attribute} in {reference.field}, reference {reference.ordinal}: {reference.attributeValue}
+    </p>)}
+    {resource.reason && <p className="hint">Image read outcome: {resource.reason}</p>}
+  </li>)}</ul>;
+  return <details>
+    <summary>Publisher image sources and original file references</summary>
+    <p className="hint">Original bytes are not embedded in this report snapshot. These records retain source ownership, file identity and read outcomes. Images are not loaded while displaying this report.</p>
+    <p className="captured-text">Owning publisher JSON SHA-256: {media.sourceSha256}</p>
+    {sourceFiles(media.resources)}
+    {media.retainedSources.map(source => <section key={source.sourceSha256}>
+      <h6>Earlier publisher source</h6>
+      <p className="hint">Source observed: {source.observedAt}</p>
+      <p className="captured-text">Source JSON SHA-256: {source.sourceSha256}</p>
+      {sourceFiles(source.resources)}
+    </section>)}
+    {media.failures.map((reason, index) => <p className="hint" key={index}>Image source outcome: {reason}</p>)}
+  </details>;
+}
 function InlinePublisherPageEvidence({ content, providerId, page }: {
   content: CourseraInlineWidgetContent;
   providerId: string;
   page: InlineWidgetPublisherPage;
 }) {
   const [open, setOpen] = useState(false),
-    original = open && page.status !== "UNRESOLVED" ? courseraInlinePublisherPage(content, providerId, page.targetUrl) : null;
+    original = open && page.status !== "UNRESOLVED" ? courseraInlinePublisherResource(content, providerId, page.targetUrl) : null,
+    isPart = "resourceType" in page,
+    historical = page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" || page.status === "HISTORICAL_RETAINED_PUBLISHER_API_PART";
   return <details onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>{page.status === "CAPTURED_PUBLISHER_API_CHAPTER" ? "Publisher API chapter · partial content" : page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" ? "Earlier publisher API response retained · no current chapter response" : "Publisher API read unresolved"}</summary>
+    <summary>{page.status === "UNRESOLVED" ? "Publisher API read unresolved" : historical
+      ? `Earlier publisher API response retained · no current ${isPart ? "book section" : "chapter"} response`
+      : `Publisher API ${isPart ? "book section" : "chapter"} · partial content`}</summary>
     <p className="captured-text">Configured target: {page.targetUrl}</p>
     {page.status !== "UNRESOLVED" && <>
-      {page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" && <p className="hint">This is an earlier response for this exact configured target and publisher API endpoint. No current chapter response is established; its original timestamp remains below.</p>}
+      {historical && <p className="hint">This is an earlier response for this exact configured target and publisher API endpoint. No current {isPart ? "book section" : "chapter"} response is established; its original timestamp remains below.</p>}
       <p className="captured-text">Publisher API endpoint: {page.endpointUrl}</p>
-      <p className="captured-text">Published chapter {page.chapterId}: {page.chapterLink}</p>
+      <p className="captured-text">{isPart ? `Published book section ${page.resourceId}: ${page.resourceLink}` : `Published chapter ${page.chapterId}: ${page.chapterLink}`}</p>
       <p className="hint">Observed: {page.observedAt} · {page.bytes.toLocaleString()} original JSON UTF-8 bytes</p>
       <p className="captured-text">SHA-256: {page.sha256}</p>
       <p className="hint">The browser exposed this JSON response through CORS; credentials mode: {page.credentials}. This is a publisher API response, separate from an original webpage HTML response.</p>
       <p className="hint">Publisher-provided fields appear below. Rendered-field previews are inert text approximations. Mathematical notation, images, media, interactive activities and whole-widget completeness remain unverified.</p>
       {original && <>
         {["title", "content", "excerpt"].flatMap(field => ["raw", "rendered"].map(format => {
-          const value = original.chapter[field]?.[format];
+          const value = original.resource[field]?.[format];
           if (typeof value !== "string") return null;
           const preview = format === "rendered" ? inlineWidgetStaticHtmlText(value) : value;
           return <section key={`${field}.${format}`} aria-label={`Publisher ${field}.${format}`}>
@@ -83,6 +118,8 @@ function InlinePublisherPageEvidence({ content, providerId, page }: {
         <details><summary>Literal original publisher JSON</summary><pre className="captured-text">{original.rawJson}</pre></details>
       </>}
     </>}
+    {page.media && <PublisherOriginalReferences media={page.media} />}
+    {page.mediaFailures?.map((reason, index) => <p className="hint" key={index}>Image collection outcome: {reason}</p>)}
     {page.failures.map((reason, index) => <p className="hint" key={index}>Current publisher read outcome: {reason}</p>)}
   </details>;
 }
@@ -91,7 +128,7 @@ function InlineWidgetContentEvidence({ content }: { content: CourseraInlineWidge
     <h6>Captured embedded pages</h6>
     <p className="hint">These are this item's native widget configurations and separately retained publisher sources. They remain separate from the reading's native text and completion status. Complete widget content and learner interactions remain unverified.</p>
     {content.providers.map(provider => <details key={provider.providerId}>
-      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current HTML observations{provider.publisherPages ? ` · ${provider.publisherPages.filter(page => page.status === "CAPTURED_PUBLISHER_API_CHAPTER").length} publisher API chapter responses` : ""}{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
+      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current HTML observations{provider.publisherPages ? ` · ${provider.publisherPages.filter(page => page.status === "CAPTURED_PUBLISHER_API_CHAPTER" || page.status === "CAPTURED_PUBLISHER_API_PART").length} publisher API ${provider.publisherPages.some(page => "resourceType" in page) ? "responses" : "chapter responses"}` : ""}{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
       <p className="hint">Native response base ID: {provider.providerBaseId}. Requested version {provider.requestedVersion} comes from the exact CML selector; the response does not echo that version.</p>
       <p className="hint">Configuration observed: {provider.configurationObservedAt} · {provider.occurrences} placement{provider.occurrences === 1 ? "" : "s"} in this item</p>
       {provider.configuredTargets.map((target, index) => <p className="captured-text" key={index}>
@@ -99,8 +136,8 @@ function InlineWidgetContentEvidence({ content }: { content: CourseraInlineWidge
       </p>)}
       {!provider.publicPages.length && <p className="hint">No retained public HTML is established for these configured targets.</p>}
       {provider.publicPages.map(page => <InlineWidgetPageEvidence key={page.targetUrl} content={content} providerId={provider.providerId} page={page} />)}
-      {!!provider.publisherPages?.length && <section className="scope" aria-label="Publisher API chapter content">
-        <h6>Publisher API chapter content</h6>
+      {!!provider.publisherPages?.length && <section className="scope" aria-label={provider.publisherPages.some(page => "resourceType" in page) ? "Publisher API content" : "Publisher API chapter content"}>
+        <h6>{provider.publisherPages.some(page => "resourceType" in page) ? "Publisher API content" : "Publisher API chapter content"}</h6>
         {provider.publisherPages.map(page => <InlinePublisherPageEvidence key={page.targetUrl} content={content} providerId={provider.providerId} page={page} />)}
       </section>}
     </details>)}

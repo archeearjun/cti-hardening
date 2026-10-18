@@ -6,7 +6,7 @@ import { directPanoptoAutomaticTargetV1, sanitizeDirectPanoptoModelV1,
 import { createDirectProviderDiagnosticsV1 } from './direct-data-provider-diagnostics.js';
 import { directPublicPageTargetV1, directPublicPageSourceValidV1,
   directPublicPageEnvelopeBytesV1, CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 } from './direct-data-public-page.js';
-import { directPublisherTargetV1, directPublisherSourceValidV1, directPublisherContentTypeV1,
+import { directPublisherTargetV1, directPublisherResourceTargetV1, directPublisherResourceSourceValidV1, directPublisherContentTypeV1,
   CTI_DIRECT_PUBLISHER_BODY_BYTES_V1 } from './direct-data-publisher.js';
 
 /** A cooperating CTI service observes the upstream response; the browser only
@@ -169,7 +169,7 @@ export function createDirectDataReaderV1(options = {}) {
     return {resource,id,url,all,responseId:resource === 'authoringWidgetSessionProviders.v1' ? id.split('@')[0] : id};
   }
   function receiptFor(d) {
-    if (d.publisher) return {transport:'BROWSER_PUBLISHER_API',resource:'PublisherChapter',id:d.targetUrl,
+    if (d.publisher) return {transport:'BROWSER_PUBLISHER_API',resource:d.resource,id:d.targetUrl,
       requestedUrl:d.targetUrl,endpointUrl:d.url.href,origin:d.url.origin,requestPath:d.url.pathname,requestQuery:[],
       method:'GET',bodyFormat:'ORIGINAL_PUBLISHER_JSON',responseType:'unreadable',credentials:'omit',
       observedAtBasis:'BROWSER_ATTEMPT',observedAt:new Date().toISOString(),receivedAt:'',status:0,bytes:0,
@@ -379,9 +379,12 @@ export function createDirectDataReaderV1(options = {}) {
   async function attemptPublisherPage(job) {
     const d=job.descriptor,controller=new AbortController();job.controller=controller;controllers.add(controller);
     job.receipt=receiptFor(d);
+    let resourceType='chapter';
     try {
-      for (const credentials of ['omit','include']) {
+      for (let requestIndex=0;requestIndex<2;requestIndex++) {
+        const credentials=requestIndex && resourceType==='chapter'?'include':'omit';
         if (!current() || controller.signal.aborted) return failure(job,stopReason || job.cancelReason || 'PUBLISHER_BROWSER_ABORTED');
+        if (Date.now()>=job.deadline) {controller.abort();return failure(job,'PUBLISHER_BROWSER_TIMEOUT');}
         if (stats.requests>=limits.requests) {abort('COURSE_API_REQUEST_LIMIT');return failure(job,stopReason);}
         stats.requests++;stats.byResource[d.resource]=(stats.byResource[d.resource] || 0)+1;notify();
         const attempted={credentials,observedAt:new Date().toISOString(),status:0,responseType:'unreadable',bytes:0,reason:''};
@@ -396,7 +399,7 @@ export function createDirectDataReaderV1(options = {}) {
           attempted.observedAt=new Date().toISOString();job.receipt.observedAt=attempted.observedAt;
           attempted.reason='PUBLISHER_BROWSER_BLOCKED_OR_FAILED';
           if (controller.signal.aborted || !current()) return failure(job,stopReason || job.cancelReason || 'PUBLISHER_BROWSER_ABORTED');
-          if (credentials==='omit') continue;
+          if (!requestIndex && resourceType==='chapter' && credentials==='omit') continue;
           return failure(job,attempted.reason);
         }
         if (controller.signal.aborted || !current()) {await discard(response);return failure(job,stopReason || job.cancelReason || 'PUBLISHER_BROWSER_ABORTED');}
@@ -407,7 +410,15 @@ export function createDirectDataReaderV1(options = {}) {
         if (response.redirected || response.url!==d.url.href) {await discard(response);attempted.reason='PUBLISHER_BROWSER_RESPONSE_URL';return failure(job,attempted.reason);}
         if (response.status!==200 || !response.ok) {
           await discard(response);attempted.reason='PUBLISHER_BROWSER_HTTP_'+attempted.status;
-          if (credentials==='omit' && response.status===403) continue;
+          if (!requestIndex && resourceType==='chapter' && credentials==='omit' && response.status===404) {
+            const chapterReceipt={...job.receipt,attempts:job.receipt.attempts.map(value=>({...value}))};
+            resourceType='part';d.resource='PublisherPart';d.url=new URL(directPublisherResourceTargetV1(d.targetUrl,'part').endpointUrl);
+            job.receipt=receiptFor(d);job.receipt.resolution={method:'CHAPTER_404_TO_PART',chapterReceipt};
+            continue;
+          }
+          if (!requestIndex && resourceType==='chapter' && credentials==='omit' && response.status===403) continue;
+          if (requestIndex && resourceType==='chapter' && response.status===404)
+            return failure(job,'PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT');
           return failure(job,attempted.reason);
         }
         const contentType=response.headers.get('content-type') || '';
@@ -419,10 +430,10 @@ export function createDirectDataReaderV1(options = {}) {
         try {rawJson=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(body.bytes);}
         catch {attempted.reason='PUBLISHER_BROWSER_UTF8';return failure(job,attempted.reason);}
         const hash=await crypto.subtle.digest('SHA-256',body.bytes),sha256=[...new Uint8Array(hash)].map(value=>value.toString(16).padStart(2,'0')).join('');
-        const model={kind:'CTI_BROWSER_PUBLISHER_CHAPTER',schemaVersion:1,statusCoverage:'PARTIAL_PUBLISHER_API_ONLY',
+        const model={kind:resourceType==='part'?'CTI_BROWSER_PUBLISHER_PART':'CTI_BROWSER_PUBLISHER_CHAPTER',schemaVersion:1,statusCoverage:'PARTIAL_PUBLISHER_API_ONLY',
           requestedUrl:d.targetUrl,endpointUrl:d.url.href,observedAt:attempted.observedAt,status:200,mime:'application/json',
           contentType,encoding:'UTF8',bytes:body.bytes.length,sha256,rawJson};
-        if (!directPublisherSourceValidV1(model,d.targetUrl)) {attempted.reason='PUBLISHER_BROWSER_SOURCE_INVALID';return failure(job,attempted.reason);}
+        if (!directPublisherResourceSourceValidV1(model,d.targetUrl)) {attempted.reason='PUBLISHER_BROWSER_SOURCE_INVALID';return failure(job,attempted.reason);}
         if (controller.signal.aborted || !current()) return failure(job,stopReason || job.cancelReason || 'PUBLISHER_BROWSER_ABORTED');
         job.receipt.originalResponseSha256=sha256;job.receipt.receivedAt=new Date().toISOString();
         return {ok:true,data:model,receipt:{...job.receipt,attempts:job.receipt.attempts.map(value=>({...value}))},reason:'',authenticationFailed:false};

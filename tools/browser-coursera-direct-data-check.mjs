@@ -22,7 +22,8 @@ import {bindDirectAuthoringDraftV1} from '../src/extractors/coursera/direct-data
 import {directInlineWidgetEvidenceV1} from '../src/extractors/coursera/direct-data-contracts.js';
 import {directCanonicalSourceTextV1} from '../src/extractors/coursera/direct-data-canonical.js';
 import {directPublicHtmlEvidenceV1} from '../src/extractors/coursera/direct-data-public-page.js';
-import {directPublisherEvidenceV1,directPublisherChapterV1} from '../src/extractors/coursera/direct-data-publisher.js';
+import {directPublisherEvidenceV1,directPublisherChapterV1,directPublisherResourceEvidenceV1,directPublisherResourceV1} from '../src/extractors/coursera/direct-data-publisher.js';
+import {directPublisherMediaInventoryV1,directPublisherMediaEvidenceV1} from '../src/extractors/coursera/direct-data-publisher-media.js';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -51,10 +52,17 @@ const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),a
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 const panoptoDeliveries=new Map(),panoptoRequests=[];
 const publicPages=new Map(),publicPageRequests=[];
-const publisherRequests=[],publisherCases=new Map(),publisherOpaqueRequests=[];
+const publisherRequests=[],publisherCases=new Map(),publisherOpaqueRequests=[],publisherImageRequests=[],publisherImages=new Map();
 const helperRequests=[],helperUpstreamRequests=[],helperErrors=[];
 const readerFixtureEntry=path.join(scratch,'direct-reader-entry.js');
-fs.writeFileSync(readerFixtureEntry,"import {createDirectDataReaderV1} from "+JSON.stringify(path.resolve('src/extractors/coursera/direct-data-network.js'))+";window.fixtureReadDirectProvider=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPanoptoDeliveryInfo(targetUrl);return{ok:result.ok,reason:result.reason,receipt:result.receipt};}finally{reader.abort('FIXTURE_FINISHED');}};window.fixtureReadPublisher=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPublisherPage(targetUrl,{itemId:'item_0002',providerId:'abcdefghijklmnopqrstuv@1'});return{ok:result.ok,data:result.data,reason:result.reason,receipt:result.receipt,stats:reader.snapshot()};}finally{reader.abort('FIXTURE_FINISHED');}};");
+fs.writeFileSync(readerFixtureEntry,`
+import {createDirectDataReaderV1} from ${JSON.stringify(path.resolve('src/extractors/coursera/direct-data-network.js'))};
+import {createDirectDataMediaReaderV1} from ${JSON.stringify(path.resolve('src/extractors/coursera/direct-data-media.js'))};
+import {directPublisherMediaInventoryV1} from ${JSON.stringify(path.resolve('src/extractors/coursera/direct-data-publisher-media.js'))};
+window.fixtureReadDirectProvider=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPanoptoDeliveryInfo(targetUrl);return{ok:result.ok,reason:result.reason,receipt:result.receipt};}finally{reader.abort('FIXTURE_FINISHED');}};
+window.fixtureReadPublisher=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPublisherPage(targetUrl,{itemId:'item_0002',providerId:'abcdefghijklmnopqrstuv@1'});return{ok:result.ok,data:result.data,reason:result.reason,receipt:result.receipt,stats:reader.snapshot()};}finally{reader.abort('FIXTURE_FINISHED');}};
+window.fixtureReadPublisherImage=async(observation,targetUrl,url)=>{const reader=createDirectDataMediaReaderV1({archiveMode:true});try{const inventory=directPublisherMediaInventoryV1(observation,targetUrl),resource=inventory?.resources.find(value=>value.url===url);const result=await reader.readPublisherImage(observation,targetUrl,resource);return{result,bodyBytes:result.body?.bytes?Array.from(result.body.bytes):null,stats:reader.snapshot()};}finally{reader.abort('FIXTURE_FINISHED');}};
+`);
 const directReaderBundle=await build({configFile:false,logLevel:'silent',publicDir:false,
   build:{write:false,emptyOutDir:false,minify:false,lib:{entry:readerFixtureEntry,name:'ctiDirectReaderFixture',formats:['iife']}}});
 const directReaderSource=(Array.isArray(directReaderBundle)?directReaderBundle[0]:directReaderBundle).output.find(file=>file.type==='chunk').code;
@@ -241,6 +249,10 @@ function makePublisherCase(chapterId,mode){
   if(mode==='draft')chapter.status='draft';
   if(mode==='body-limit')chapter.content.raw='x'.repeat(1048576);
   if(mode==='escaped-credential')chapter.content.raw='https://example.test/?access_token=synthetic-sensitive-value';
+  if(mode.startsWith('part-')){
+    chapter.type=mode==='part-wrong-type'?'chapter':'part';chapter.link=publisherOrigin+'/'+publisherBook+'/part/unit-'+chapterId+'/';
+    chapter._links={self:[{href:publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/parts/'+chapterId}]};
+  }
   config.rawJson='\ufeff'+JSON.stringify(chapter,null,2)+'\n';
   if(mode==='escaped-credential')config.rawJson=config.rawJson.replace('access_token','access_\\u0074oken');
   config.bytes=mode==='invalid-utf8'?Buffer.from([0xc3,0x28]):Buffer.from(config.rawJson);
@@ -251,6 +263,7 @@ const publisherFixtures=[
   'wrong-id','wrong-book','invalid-utf8','http-403','redirect','protected','draft','wrong-mime','http-429',
   'body-limit','escaped-credential',
 ].map((mode,index)=>makePublisherCase(179+index,mode));
+const publisherPartFixtures=['part-success','part-wrong-type','part-missing','include-404','http-401'].map((mode,index)=>makePublisherCase(1100+index,mode));
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 for(const row of definitions.values())if(row.courseId===complete.id){
@@ -299,6 +312,31 @@ assets.set(publisherOriginalId,{courseId:publisherInlineCourse.id,name:publisher
 for(const row of atoms.values())if(row.courseId===publisherInlineCourse.id&&row.atom.draft.content.typeName==='supplementDraft')
   row.atom.draft.content.definition.content.definition.value=row.atom.draft.content.definition.content.definition.value.replace('</co-content>',
     '<img assetId="'+publisherOriginalId+'"/></co-content>');
+const publisherPartCase=makePublisherCase(1199,'part-success');
+const publisherPartCourse=makeInlineWidgetCourse('Direct_inline_publisher_part_123','publisher-part',true);
+publisherPartCourse.publisherReaderCase=true;
+providers.get(publisherPartCourse.inlineProviderId).value.draft.configuration.url=publisherPartCase.targetUrl;
+providers.get(publisherPartCourse.inlineProviderId).value.draft.pageSrc=publisherPartCase.targetUrl;
+const publisherImageCase=makePublisherCase(1299,'omit-wildcard');
+const publisherImageBase=publisherOrigin+'/'+publisherBook+'/wp-content/uploads/2026/10/';
+for(const [name,mode,body] of [['main.png','allowed',pngBytes],['no-cors.png','no-cors',pngBytes],
+  ['redirect.png','redirect',pngBytes],['wrong-mime.png','wrong-mime',pngBytes],['bad-magic.png','bad-magic',pdfBytes]])
+  publisherImages.set(publisherImageBase+name,{name,mode,body,requests:0});
+const ignoredPublisherSrcset=Array.from({length:64},(_,i)=>publisherImageBase+'never-srcset-'+i+'.png '+(i+1)+'w').join(', ');
+publisherImageCase.chapter.content.raw='<p>Literal original image source.</p><img src="'+publisherImageBase+'main.png" srcset="'+ignoredPublisherSrcset+'">'+
+  '<a href="'+publisherImageBase+'main.png">Original drawing</a>'+['no-cors','redirect','wrong-mime','bad-magic'].map(name=>'<img src="'+publisherImageBase+name+'.png">').join('')+
+  '<iframe src="https://example.test/never-read"></iframe><iframe src="https://cdnapisec.kaltura.com/p/never-read"></iframe>'+
+  '<script>window.__CTI_PUBLISHER_IMAGE_EXECUTED=true;const ignored="<img src=\"'+publisherImageBase+'never-script.png\">";</script>';
+publisherImageCase.chapter.content.rendered='<p>Rendered source stays separate.</p><img src="'+publisherImageBase+'main.png">';
+publisherImageCase.rawJson='\ufeff'+JSON.stringify(publisherImageCase.chapter,null,2)+'\n';
+publisherImageCase.bytes=Buffer.from(publisherImageCase.rawJson);
+const publisherImageCourse=makeInlineWidgetCourse('Direct_inline_publisher_image_123','publisher-image',true);
+publisherImageCourse.publisherReaderCase=true;
+providers.get(publisherImageCourse.inlineProviderId).value.draft.configuration.url=publisherImageCase.targetUrl;
+providers.get(publisherImageCourse.inlineProviderId).value.draft.pageSrc=publisherImageCase.targetUrl;
+const publisherFlagLeaf=publisherInlineCourse.material.material.elements[0].elements[0].elements[0];
+publisherFlagLeaf.content.typeName='ungradedAssignment';
+publisherFlagLeaf.content.definition.assignmentFeatures=['LIMITED_SUBMISSIONS','TAKE_LATEST_GRADE','SHOW_GRADE_ON_RELEASE'];
 const inlineDiscussionRow=[...atoms.values()].find(row=>row.courseId===inlineWidgetDiscussion.id&&row.itemId==='item_0002');
 const inlineDiscussionCml=inlineDiscussionRow.atom.draft.content.definition.content;
 inlineDiscussionRow.atom.draft.content={typeName:'discussionPromptDraft',definition:{promptType:{typeName:'questionPerSession',definition:{
@@ -456,9 +494,21 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       response.setHeader('X-Content-Type-Options','nosniff');response.setHeader('Cache-Control','no-store');
       response.end(pngBytes);return;
     }
-    const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/([1-9]\\d*)$').exec(url.pathname);
+    if(publisherImages.has(publisherOrigin+url.pathname)){
+      const image=publisherImages.get(publisherOrigin+url.pathname);assert.equal(url.search,'');
+      assert.equal(request.method,'GET');assert.equal(request.headers['sec-fetch-mode'],'cors');assert.equal(request.headers.origin,origin);
+      assert.equal(request.headers.cookie,undefined);assert.equal(request.headers.authorization,undefined);assert.equal(request.headers.referer,undefined);
+      publisherImageRequests.push({url:publisherOrigin+url.pathname,mode:image.mode,method:request.method});image.requests++;
+      response.setHeader('Cache-Control','no-store');response.setHeader('X-Content-Type-Options','nosniff');
+      if(image.mode!=='no-cors')response.setHeader('Access-Control-Allow-Origin','*');
+      response.setHeader('Content-Type',image.mode==='wrong-mime'?'text/html':'image/png');
+      if(image.mode==='redirect'){response.statusCode=302;response.setHeader('Location',publisherImageBase+'never-follow.png');response.end();return;}
+      response.setHeader('Content-Length',String(image.body.length));response.end(image.body);return;
+    }
+    const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(chapters|parts)/([1-9]\\d*)$').exec(url.pathname);
     assert(match,'Only the configured public chapter endpoint is requested; redirects are not followed');
-    const config=publisherCases.get(Number(match[1]));assert(config,'Only a synthetic native chapter ID is requested');
+    const endpointType=match[1],config=publisherCases.get(Number(match[2]));assert(config,'Only a synthetic native publisher ID is requested');
+    if(endpointType==='parts')assert(config.mode.startsWith('part-'),'Only an exposed chapter-404 transition may request a part endpoint');
     assert.equal(url.search,'');assert.equal(request.method,'GET');
     assert.equal(request.headers.origin,origin);
     assert.equal(request.headers['sec-fetch-mode'],'cors');assert.equal(request.headers.authorization,undefined);
@@ -467,18 +517,20 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     assert.equal(request.headers['content-type'],undefined,'A simple public GET has no copied JSON/auth request headers');
     assert(!String(request.headers.cookie||'').includes(secrets[0]),'Coursera cookies cannot reach the publisher');
     const attempt=++config.requests;
-    publisherRequests.push({chapterId:config.chapterId,mode:config.mode,attempt,method:request.method,
+    publisherRequests.push({chapterId:config.chapterId,endpointType,path:url.pathname,mode:config.mode,attempt,method:request.method,
       cookiePresent:!!request.headers.cookie,authorizationPresent:!!request.headers.authorization});
     response.setHeader('Cache-Control','no-store');response.setHeader('Vary','Origin, Cookie');
-    const initialDenied=['include-exact','include-wildcard','missing-acac','http-403'].includes(config.mode)&&attempt===1;
+    const initialDenied=['include-exact','include-wildcard','missing-acac','http-403','include-404'].includes(config.mode)&&attempt===1;
     const cors=config.mode==='no-cors'?'none':config.mode==='wrong-origin'?'wrong':
-      ['include-exact','missing-acac','http-403'].includes(config.mode)&&attempt>1?'exact':'wildcard';
+      ['include-exact','missing-acac','http-403','include-404'].includes(config.mode)&&attempt>1?'exact':'wildcard';
     if(cors!=='none')response.setHeader('Access-Control-Allow-Origin',cors==='exact'?origin:cors==='wrong'?'https://another.example.test':'*');
-    if(['include-exact','include-wildcard','http-403'].includes(config.mode)&&attempt>1)response.setHeader('Access-Control-Allow-Credentials','true');
+    if(['include-exact','include-wildcard','http-403','include-404'].includes(config.mode)&&attempt>1)response.setHeader('Access-Control-Allow-Credentials','true');
     response.setHeader('Content-Type',config.mode==='wrong-mime'?'text/html; charset=utf-8':'application/json; charset=utf-8');
     if(config.mode==='redirect'){
       response.statusCode=302;response.setHeader('Location',publisherOrigin+'/'+publisherBook+'/chapter/never-follow/');response.end();return;
     }
+    if(config.mode==='http-401'){response.statusCode=401;response.end('{\"error\":\"synthetic public access required\"}');return;}
+    if((config.mode.startsWith('part-')&&endpointType==='chapters')||config.mode==='part-missing'||config.mode==='include-404'&&attempt>1){response.statusCode=404;response.end('{\"error\":\"synthetic missing chapter or part\"}');return;}
     if(initialDenied||config.mode==='http-403'){response.statusCode=403;response.end('{"error":"synthetic public denial"}');return;}
     if(config.mode==='http-429'){response.statusCode=429;response.end('{"error":"synthetic public rate limit"}');return;}
     response.setHeader('Content-Length',String(config.bytes.length));response.end(config.bytes);return;
@@ -599,6 +651,10 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     if(config.mode==='media-first-atom-failed'&&binding.itemId==='item_0002'){
       response.statusCode=503;response.end('{"error":"current atom read failed before media acquisition"}');return;
     }
+    if(config.mode==='publisher-final-binding-failed'&&['item_0002','item_0003'].includes(binding.itemId)&&
+        count>config.failFinalAtomAfter.get(reference)){
+      response.statusCode=503;response.end('{"error":"synthetic final native atom read failed"}');return;
+    }
     if(config.mode==='media-final-atom-failed'&&binding.itemId==='item_0002'&&count>1){
       response.statusCode=503;response.end('{"error":"final atom consistency read interrupted"}');return;
     }
@@ -700,6 +756,16 @@ try{
           bytes:m.bytes instanceof ArrayBuffer?m.bytes.byteLength:0});});
     });
     context.on('page',target=>{target.on('pageerror',error=>errors.push(error.message));target.on('download',download=>contextDownloads.push({page:target,download}));popups.push(target);});
+    if(config===publisherImageCourse)await context.addInitScript(()=>{
+      window.fixturePublisherImageBodies=[];
+      const original=Object.defineProperty;
+      Object.defineProperty=function(object,key,descriptor){
+        const result=Reflect.apply(original,this,[object,key,descriptor]);
+        if(key==='bytes'&&object?.receipt?.transport==='BROWSER_PUBLISHER_IMAGE'&&object.archivePath&&descriptor.value instanceof Uint8Array)
+          window.fixturePublisherImageBodies.push(object);
+        return result;
+      };
+    });
     const page=await context.newPage();
     if(config.helperMode)await context.addCookies([{name:'ctiFixtureMode',value:config.helperMode,url:helperOrigin,httpOnly:true,secure:true,sameSite:'None'}]);
     await context.addCookies([{name:'ctiFixtureSession',value:secrets[4],url:helperOrigin,httpOnly:true,secure:true,sameSite:'None'}]);
@@ -726,12 +792,30 @@ try{
       const body=config.mode==='media-body-limit'?Buffer.concat([pngBytes,Buffer.alloc(17*1024*1024)]):asset.body;
       await route.fulfill({status:200,headers:responseHeaders,body});
     });
+    let publisherImageStageChecked=false;
     await context.route(publisherOrigin+'/**',async route=>{
       const request=route.request(),url=new URL(request.url());
       assert.equal(request.method(),'GET');
-      if(url.href!==publisherOpaqueUrl){
-        assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/[1-9]\\d*$'));
+      if(url.href!==publisherOpaqueUrl&&!publisherImages.has(url.href)){
+        assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(?:chapters|parts)/[1-9]\\d*$'));
         assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
+      }
+      if(config===publisherImageCourse&&!publisherImageStageChecked&&url.href===publisherImageBase+'no-cors.png'){
+        const staged=await page.evaluate(async imageUrl=>{
+          const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__,observed=window.fixturePublisherImageBodies.find(body=>body.canonicalUrl===imageUrl);
+          const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+          const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['bodies','items'],'readonly'),out={};
+            for(const name of ['bodies','items']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result.filter(row=>row.runId===state.runId);};}
+            transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});database.close();
+          const blob=rows.bodies.find(row=>row.sha256===observed?.sha256);
+          const owns=(value,sha)=>{if(!value||typeof value!=='object')return false;if(value.body?.sha256===sha&&value.body.archivePath)return true;return Object.values(value).some(child=>owns(child,sha));};
+          return{observed:!!observed,released:observed?!Object.hasOwn(observed,'bytes'):false,sha256:observed?.sha256,
+            staged:blob?.blob instanceof Blob,stagedBytes:blob?.blob?.size,acceptedSavedItemOwnsBody:rows.items.some(row=>owns(row.fingerprint,observed?.sha256))};
+        },publisherImageBase+'main.png');
+        assert.equal(staged.observed,true);assert.equal(staged.released,true,'An acquired image releases its transient byte array before the next image request');
+        assert.equal(staged.staged,true);assert.equal(staged.stagedBytes,pngBytes.length);assert.equal(staged.sha256,createHash('sha256').update(pngBytes).digest('hex'));
+        assert.equal(staged.acceptedSavedItemOwnsBody,false,'Early local Blob staging is separate from accepted final native item ownership');
+        publisherImageStageChecked=true;config.publisherImageStagingChecked=true;
       }
       // Fulfilled browser interceptions can synthesize CORS approval. Let the
       // native fetch reach the mapped HTTPS server so the browser enforces the
@@ -1139,6 +1223,7 @@ try{
   for(const historical of [
     {version:'1.8.0',buildId:'v1.8.0-inline-widget-public-html-20261018'},
     {version:'1.8.1',buildId:'v1.8.1-browser-publisher-api-20261018'},
+    {version:'1.8.2',buildId:'v1.8.2-historical-publisher-checkpoint-20261018'},
   ]){
     const seeded=await publisherIntegrated.page.evaluate(async ({seed,historical})=>{
       const rows=structuredClone(seed),run=rows.runs[0];
@@ -1191,7 +1276,191 @@ try{
     assert.deepEqual(await checkpointSnapshot(publisherIntegrated.page),historicalBefore,
       'Historical run metadata, native items, questions, original receipts, timestamps and original-byte hashes remain unchanged');
   }
+  const beforeFlagResume=await checkpointSnapshot(publisherIntegrated.page),
+    priorFlagRun=beforeFlagResume.runs.find(run=>run.runId===publisherIntegrated.state.runId),
+    priorFlagAssignments=beforeFlagResume.items.filter(row=>['item_0000','item_0001'].includes(row.itemId)),
+    flagResumeNativeStart=requests.length,flagResumeMediaStart=mediaRequests.length;
+  assert.equal(priorFlagRun.buildId,'v1.8.2-historical-publisher-checkpoint-20261018');
+  const initialFlagOrder=[...publisherFlagLeaf.content.definition.assignmentFeatures];
+  publisherFlagLeaf.content.definition.assignmentFeatures.reverse();
+  const flagDownloading=publisherIntegrated.page.waitForEvent('download',{timeout:180000});
+  await publisherIntegrated.page.reload();await launch(publisherIntegrated.page,publisherIntegrated.context);
+  const flagState=await terminal(publisherIntegrated.page),flagCapture=await readFile(await flagDownloading);
+  assert.equal(flagState.runId,priorFlagRun.runId,'Known assignment flag reordering keeps the real completed v1.8.2 checkpoint');
+  assert.equal(flagCapture.meta.directDataCapture.resumed,true);
+  assert.equal(flagCapture.meta.directDataCapture.recoveredFromBuild,'v1.8.2-historical-publisher-checkpoint-20261018');
+  assert.equal(flagCapture.meta.directDataCapture.mediaEnrichment.retainedAssessmentObservations,true);
+  const afterFlagResume=await checkpointSnapshot(publisherIntegrated.page);
+  assert.deepEqual(afterFlagResume.items.filter(row=>['item_0000','item_0001'].includes(row.itemId)),priorFlagAssignments,
+    'Continuing source acquisition retains original assessment models, answer evidence and observation times');
+  assert.deepEqual(afterFlagResume.definitions,beforeFlagResume.definitions);
+  assert.deepEqual(afterFlagResume.groups,beforeFlagResume.groups);
+  assert.deepEqual(afterFlagResume.bodies,beforeFlagResume.bodies,'The retained native PNG and original-byte Blob hash remain unchanged');
+  assert(!requests.slice(flagResumeNativeStart).some(request=>[groupResource,definitionResource].includes(request.resource)),
+    'Known flag ordering cannot cause verified question groups or definitions to be read again');
+  assert.equal(mediaRequests.length,flagResumeMediaStart,'Matching native originals are validated without downloading their bytes again');
+  assert(flagCapture.meta.directDataCapture.stats.requests>priorFlagRun.budget.requests);
+  assert.equal(flagCapture.meta.directDataCapture.stats.media.bytes,priorFlagRun.budget.media.bytes);
+  assert.equal(flagCapture.meta.directDataCapture.stats.media.requests,priorFlagRun.budget.media.requests);
+  assert.notEqual(flagCapture.meta.directDataCapture.initialMaterialHash,priorFlagRun.materialHash);
+  assert.equal(flagCapture.meta.directDataCapture.materialStability.initialSha256,
+    priorFlagRun.captureMeta.directDataCapture.materialStability.initialSha256);
+  assert.deepEqual(publisherFlagLeaf.content.definition.assignmentFeatures,[...initialFlagOrder].reverse(),
+    'The native response flag order is not normalized in place');
+  publisherFlagLeaf.content.definition.assignmentFeatures=initialFlagOrder;
   await publisherIntegrated.context.close();
+  const partIntegratedStart=publisherRequests.length,partIntegratedHelperStart=helperRequests.length;
+  const partIntegrated=await runFileCase(publisherPartCourse);
+  const partPlacements=partIntegrated.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+  assert.equal(partIntegrated.state.state,'INCOMPLETE');assert.equal(partPlacements.length,2);
+  assert.equal(evaluateCourseraCapture(partIntegrated.capture,publisherPartCourse.id).complete,false);
+  for(const fp of partPlacements){
+    const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0];
+    assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);assert.equal(fp.captureContract.complete,false);
+    assert.equal(page.observation.model.kind,'CTI_BROWSER_PUBLISHER_PART');assert.equal(page.observation.model.rawJson,publisherPartCase.rawJson);
+    assert.equal(page.observation.receipt.resource,'PublisherPart');assert.equal(page.observation.receipt.credentials,'omit');
+    assert.equal(page.observation.receipt.resolution.method,'CHAPTER_404_TO_PART');
+    assert.equal(page.observation.receipt.resolution.chapterReceipt.status,404);
+    assert.equal(page.observation.receipt.resolution.chapterReceipt.attempts.length,1);
+    assert.equal(page.observation.receipt.resolution.chapterReceipt.attempts[0].credentials,'omit');
+    assert(directPublisherResourceEvidenceV1(page.observation,page.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    assert.equal(directPublisherEvidenceV1(page.observation,page.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')),null,
+      'A part is accepted only by the explicit typed dispatcher, never relabeled as a chapter');
+    assert.deepEqual(fp.payload.directDraftCml,atoms.get(fp.atomId).atom.draft.content.definition.content);
+  }
+  assert.deepEqual(publisherRequests.slice(partIntegratedStart).map(request=>request.endpointType),['chapters','parts'],
+    'Two native placements share one bounded chapter-404/part-200 acquisition');
+  assert.equal(helperRequests.length,partIntegratedHelperStart);
+  assert.equal(partIntegrated.capture.meta.directDataCapture.stats.byResource.PublisherChapter,1);
+  assert.equal(partIntegrated.capture.meta.directDataCapture.stats.byResource.PublisherPart,1);
+  assert.equal(partIntegrated.capture.meta.directDataCapture.coverage.questions,10);
+  await partIntegrated.context.close();
+
+  const imageIntegratedStart=publisherImageRequests.length,imageApiStart=publisherRequests.length,imageHelperStart=helperRequests.length;
+  const imageIntegrated=await runFileCase(publisherImageCourse);
+  function assertPublisherImageCapture(capture){
+    const placements=capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+    assert.equal(placements.length,2);assert.equal(evaluateCourseraCapture(capture,publisherImageCourse.id).complete,false);
+    const bodies=[];
+    for(const fp of placements){
+      const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0],media=page.media;
+      assert.equal(page.observation.model.rawJson,publisherImageCase.rawJson,'Publisher JSON remains exactly the observed UTF-8 source');
+      assert.equal(page.observation.model.sha256,createHash('sha256').update(publisherImageCase.bytes).digest('hex'));
+      assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,media,bytes=>createHash('sha256').update(bytes).digest('hex')),
+        'Saved projection independently validates the publisher source, literal references and attached original bytes');
+      assert.equal(media.resources.length,5);assert.equal(media.sourceSha256,page.observation.model.sha256);
+      const original=media.resources.find(resource=>resource.url===publisherImageBase+'main.png');
+      assert.equal(original.references.length,3,'The literal img/href references across raw and rendered fields share one source-bound URL');
+      assert(original.body?.bytes instanceof Uint8Array);assert.deepEqual(Buffer.from(original.body.bytes),pngBytes);
+      assert.equal(original.body.sha256,createHash('sha256').update(pngBytes).digest('hex'));
+      assert.equal(original.body.archivePath,'files/'+original.body.sha256);assert.equal(original.body.receipt.transport,'BROWSER_PUBLISHER_IMAGE');
+      assert.equal(original.body.receipt.sourceSha256,page.observation.model.sha256);assert.equal(original.body.receipt.responseType,'cors');
+      assert.equal(original.body.receipt.credentials,'omit');assert.equal(original.body.receipt.requestedUrl,original.url);
+      assert.equal(media.resources.find(resource=>resource.url.endsWith('/no-cors.png')).reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');
+      assert.equal(media.resources.find(resource=>resource.url.endsWith('/redirect.png')).reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');
+      assert.equal(media.resources.find(resource=>resource.url.endsWith('/wrong-mime.png')).reason,'PUBLISHER_IMAGE_MIME_OR_RANGE_UNSUPPORTED');
+      assert.equal(media.resources.find(resource=>resource.url.endsWith('/bad-magic.png')).reason,'PUBLISHER_IMAGE_MAGIC_INVALID');
+      assert(media.resources.filter(resource=>resource.reason).every(resource=>!resource.body),'Unreadable or unsupported bytes are never retained');
+      assert(media.failures.some(failure=>failure.reason==='PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED'));
+      assert.equal(fp.captureContract.complete,false);assert.equal(provider.wholeWidgetVerified,false);assert.equal(provider.bodyVerified,false);
+      bodies.push(original.body);
+    }
+    assert.deepEqual(bodies[0],bodies[1],'Repeated placements retain the same actual image observation and byte descriptor');
+    assert.equal(capture.meta.directDataCapture.coverage.questions,10);return bodies[0];
+  }
+  const firstPublisherImage=assertPublisherImageCapture(imageIntegrated.capture);
+  assert.equal(imageIntegrated.state.state,'INCOMPLETE');assert.equal(publisherImageRequests.length-imageIntegratedStart,5);
+  assert.equal(publisherImageCourse.publisherImageStagingChecked,true,'The generated bookmark stages and releases one original before requesting the next');
+  assert.equal(publisherRequests.length-imageApiStart,1);assert.equal(helperRequests.length,imageHelperStart);
+  assert(publisherImageRequests.slice(imageIntegratedStart).every(request=>publisherImages.has(request.url)),
+    'Iframes, Kaltura, script text and 64 srcset alternatives produce no guessed media requests');
+  assert.equal(await imageIntegrated.page.evaluate(()=>window.__CTI_PUBLISHER_IMAGE_EXECUTED===true),false);
+  const imageCheckpoint=await checkpointSnapshot(imageIntegrated.page);
+  assert.equal(imageCheckpoint.bodies.length,1,'The exact PNG is stored once across both native placements');
+  assert.equal(imageCheckpoint.bodies[0].blob.sha256,firstPublisherImage.sha256);
+  const imageArchive=await JSZip.loadAsync(fs.readFileSync(await imageIntegrated.contextDownloads[0].download.path()),{checkCRC32:true});
+  assert.deepEqual(await imageArchive.file(firstPublisherImage.archivePath).async('nodebuffer'),pngBytes);
+  const corruptImageBytes=Buffer.from(pngBytes);corruptImageBytes[corruptImageBytes.length-1]^=1;
+  imageArchive.file(firstPublisherImage.archivePath,corruptImageBytes);
+  const corruptImageArchive=await imageArchive.generateAsync({type:'nodebuffer',compression:'DEFLATE'});
+  await assert.rejects(()=>readCourseraCaptureFileJson(new File([corruptImageArchive],'publisher-image-corrupt.cti.zip',{type:'application/zip'})),/original file SHA-256 differs from its path/,
+    'Recomputed ZIP CRC cannot conceal a changed archived original image');
+  const imageResumeNativeStart=requests.length,imageResumeMediaStart=publisherImageRequests.length;
+  const imageResumeDownload=imageIntegrated.page.waitForEvent('download',{timeout:180000});
+  await imageIntegrated.page.reload();await launch(imageIntegrated.page,imageIntegrated.context);
+  const imageResumeState=await terminal(imageIntegrated.page),imageResumeCapture=await readFile(await imageResumeDownload);
+  assert.equal(imageResumeState.runId,imageIntegrated.state.runId);
+  const resumedPublisherImage=assertPublisherImageCapture(imageResumeCapture);
+  assert.notEqual(resumedPublisherImage.receipt.observedAt,firstPublisherImage.receipt.observedAt,
+    'A mutable publisher URL receives fresh image bytes and a fresh observation on a new attempt');
+  assert.equal(publisherImageRequests.length-imageResumeMediaStart,5);
+  const imageResumedCheckpoint=await checkpointSnapshot(imageIntegrated.page);
+  assert.deepEqual(imageResumedCheckpoint.bodies,imageCheckpoint.bodies);
+  assert.deepEqual(imageResumedCheckpoint.definitions,imageCheckpoint.definitions);assert.deepEqual(imageResumedCheckpoint.groups,imageCheckpoint.groups);
+  assert(!requests.slice(imageResumeNativeStart).some(request=>[groupResource,definitionResource].includes(request.resource)));
+  const mainPublisherImage=publisherImages.get(publisherImageBase+'main.png');mainPublisherImage.mode='no-cors';
+  const failedImageRefreshStart=publisherImageRequests.length,failedImageDownload=imageIntegrated.page.waitForEvent('download',{timeout:180000});
+  await imageIntegrated.page.reload();await launch(imageIntegrated.page,imageIntegrated.context);
+  const failedImageState=await terminal(imageIntegrated.page),failedImageCapture=await readFile(await failedImageDownload);
+  assert.equal(failedImageState.runId,imageIntegrated.state.runId);assert.equal(publisherImageRequests.length-failedImageRefreshStart,5);
+  for(const fp of failedImageCapture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
+    const page=fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+    assert.equal(page.observation.model.rawJson,publisherImageCase.rawJson);assert.equal(page.failures.length,0,
+      'A failed raster request never discards the separately captured publisher JSON');
+    assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    const current=page.media.resources.find(resource=>resource.url===publisherImageBase+'main.png');
+    assert.equal(current.reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(current.body,undefined);
+    assert.equal(page.media.retained.length,1);const retained=page.media.retained[0];
+    assert.equal(retained.observation.model.rawJson,publisherImageCase.rawJson);
+    const old=retained.resources.find(resource=>resource.url===publisherImageBase+'main.png').body;
+    assert.deepEqual(old,resumedPublisherImage,'A failed fresh request keeps the exact prior body descriptor and receipt date');
+    assert.deepEqual(Buffer.from(old.bytes),pngBytes);assert.equal(fp.captureContract.complete,false);
+  }
+  const failedImageCheckpoint=await checkpointSnapshot(imageIntegrated.page);
+  assert.deepEqual(failedImageCheckpoint.bodies,imageResumedCheckpoint.bodies);
+  const failedImageZip=await JSZip.loadAsync(fs.readFileSync(await imageIntegrated.contextDownloads.at(-1).download.path()),{checkCRC32:true});
+  assert.deepEqual(await failedImageZip.file(firstPublisherImage.archivePath).async('nodebuffer'),pngBytes);
+
+  // A fresh image response acquired before a failed final native consistency
+  // read is diagnostic only. Its local staged Blob cannot own an archive entry, and must not
+  // prevent exporting the independently valid earlier primary observation.
+  mainPublisherImage.mode='allowed';const oldPublisherImageBytes=mainPublisherImage.body;
+  mainPublisherImage.body=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
+  const unownedImageHash=createHash('sha256').update(mainPublisherImage.body).digest('hex');assert.notEqual(unownedImageHash,firstPublisherImage.sha256);
+  publisherImageCourse.mode='publisher-final-binding-failed';
+  publisherImageCourse.failFinalAtomAfter=new Map([...publisherImageCourse.atomGets].map(([id,count])=>[id,count+1]));
+  const failedNativeImageStart=publisherImageRequests.length,failedNativeImageDownload=imageIntegrated.page.waitForEvent('download',{timeout:180000});
+  await imageIntegrated.page.reload();await launch(imageIntegrated.page,imageIntegrated.context);
+  const failedNativeState=await terminal(imageIntegrated.page),failedNativeCapture=await readFile(await failedNativeImageDownload);
+  assert.equal(failedNativeState.runId,imageIntegrated.state.runId);assert.equal(failedNativeState.state,'INCOMPLETE');
+  assert.equal(publisherImageRequests.length-failedNativeImageStart,5);
+  for(const fp of failedNativeCapture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
+    assert.equal(fp.payload.directResumeRevalidation.verified,false);assert.equal(fp.captureContract.complete,false);
+    const saved=fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0],attempt=fp.payload.directInlineWidgetProviderAttempt.providers[0].publisherPages[0];
+    assert.equal(saved.observation.model.rawJson,publisherImageCase.rawJson);assert.equal(attempt.observation.model.rawJson,publisherImageCase.rawJson);
+    const retained=saved.media.retained.flatMap(group=>group.resources).find(resource=>resource.url===publisherImageBase+'main.png');
+    assert.deepEqual(retained.body,resumedPublisherImage);assert.deepEqual(Buffer.from(retained.body.bytes),pngBytes);
+    const unowned=attempt.media.resources.find(resource=>resource.url===publisherImageBase+'main.png');
+    assert.equal(unowned.reason,'PUBLISHER_IMAGE_NATIVE_BINDING_UNVERIFIED');assert.equal(unowned.body,undefined);
+    assert.equal(unowned.unretainedBody.sha256,unownedImageHash);assert.equal(unowned.unretainedBody.archivePath,undefined);
+    assert.equal(unowned.unretainedBody.receipt.sourceSha256,attempt.observation.model.sha256);
+    assert(attempt.observation.receipt.originalResponseSha256&&fp.payload.directResumeRevalidation.atomReceipt,
+      'The failed current native/source observations remain available without promoting an unowned body');
+  }
+  const failedNativeZip=await JSZip.loadAsync(fs.readFileSync(await imageIntegrated.contextDownloads.at(-1).download.path()),{checkCRC32:true});
+  assert.equal(failedNativeZip.file('files/'+unownedImageHash),null);assert.deepEqual(await failedNativeZip.file(firstPublisherImage.archivePath).async('nodebuffer'),pngBytes);
+  const stagedFailedNative=await checkpointSnapshot(imageIntegrated.page),unownedLocal=stagedFailedNative.bodies.filter(row=>row.sha256===unownedImageHash);
+  assert.equal(unownedLocal.length,1,'A locally staged immutable Blob may remain after final native validation fails');
+  assert.equal(unownedLocal[0].blob.sha256,unownedImageHash);assert.equal(unownedLocal[0].metadata.kind,'PUBLISHER_IMAGE');
+  assert.deepEqual(stagedFailedNative.bodies.filter(row=>row.sha256!==unownedImageHash),imageResumedCheckpoint.bodies,
+    'Early staging preserves the valid earlier original Blob and metadata');
+  const acceptedFileRefs=[];
+  const collectAcceptedFileRefs=value=>{if(!value||typeof value!=='object')return;if(value.body?.archivePath)acceptedFileRefs.push(value.body);for(const child of Object.values(value))collectAcceptedFileRefs(child);};
+  for(const row of stagedFailedNative.items)collectAcceptedFileRefs(row.fingerprint);
+  assert(!acceptedFileRefs.some(body=>body.sha256===unownedImageHash),
+    'A staged local Blob is not an accepted item/file ownership reference or export claim');
+  mainPublisherImage.body=oldPublisherImageBytes;publisherImageCourse.mode='complete';
+  await assertNoEditor(imageIntegrated.page,imageIntegrated.destinations);await imageIntegrated.context.close();
   for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
     const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
     assert.equal(result.state.state,'INCOMPLETE');assert.equal(fp.captureContract.complete,false);assert(proof);
@@ -1748,6 +2017,54 @@ try{
       if(config.mode==='body-limit')assert.match(result.reason,/BYTE_LIMIT/);
     }
   }
+  for(const config of publisherPartFixtures){
+    const start=publisherRequests.length;
+    const result=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),config.targetUrl),actual=publisherRequests.slice(start);
+    const resolvesPart=config.mode.startsWith('part-');
+    assert.equal(actual.length,config.mode==='http-401'?1:2,'Typed resolution and credential retry share a hard two-GET budget');
+    assert.deepEqual(actual.map(request=>request.endpointType),resolvesPart?['chapters','parts']:config.mode==='http-401'?['chapters']:['chapters','chapters']);
+    assert.equal(actual[0].cookiePresent,false);assert(actual.every(request=>!request.authorizationPresent));
+    if(resolvesPart){
+      assert.equal(result.stats.byResource.PublisherChapter,1);assert.equal(result.stats.byResource.PublisherPart,1);
+      assert.equal(result.receipt.resource,'PublisherPart');assert.equal(result.receipt.credentials,'omit');assert.equal(result.receipt.attempts.length,1);
+      const prior=result.receipt.resolution.chapterReceipt;
+      assert.equal(result.receipt.resolution.method,'CHAPTER_404_TO_PART');assert.equal(prior.status,404);assert.equal(prior.responseType,'cors');
+      assert.equal(prior.resource,'PublisherChapter');assert.equal(prior.credentials,'omit');assert.equal(prior.attempts.length,1);
+      assert.equal(prior.endpointUrl,publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/chapters/'+config.chapterId);
+      assert.equal(result.receipt.endpointUrl,publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/parts/'+config.chapterId);
+      assert.equal(actual[1].cookiePresent,false,'Part resolution never adds a third or credentialed GET');
+    }
+    if(config.mode==='part-success'){
+      assert.equal(result.ok,true);assert.equal(result.data.kind,'CTI_BROWSER_PUBLISHER_PART');assert.equal(result.data.rawJson,config.rawJson);
+      assert(directPublisherResourceEvidenceV1({model:result.data,receipt:result.receipt},config.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')));
+      assert.equal(directPublisherResourceV1(result.data.rawJson,config.targetUrl,'part').type,'part');
+    }else{
+      assert.equal(result.ok,false);assert.equal(result.data,null);
+      assert.equal(result.reason,config.mode==='part-wrong-type'?'PUBLISHER_BROWSER_SOURCE_INVALID':config.mode==='http-401'?'PUBLISHER_BROWSER_HTTP_401':config.mode==='include-404'?'PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT':'PUBLISHER_BROWSER_HTTP_404');
+      if(config.mode==='http-401'){assert.equal(result.receipt.status,401);assert.equal(result.receipt.attempts.length,1);assert.equal(result.receipt.resolution,undefined);}
+      if(config.mode==='include-404'){assert.equal(result.receipt.resource,'PublisherChapter');assert.equal(result.receipt.attempts.length,2);assert.equal(result.receipt.resolution,undefined);}
+    }
+  }
+  const imageSourceResult=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),publisherImageCase.targetUrl);
+  assert.equal(imageSourceResult.ok,true);const imageSource={model:imageSourceResult.data,receipt:imageSourceResult.receipt};
+  const imageInventory=directPublisherMediaInventoryV1(imageSource,publisherImageCase.targetUrl);assert.equal(imageInventory.resources.length,5);
+  for(const resource of imageInventory.resources){
+    const start=publisherImageRequests.length;
+    const result=await publisherPolicy.page.evaluate(({observation,targetUrl,url})=>window.fixtureReadPublisherImage(observation,targetUrl,url),
+      {observation:imageSource,targetUrl:publisherImageCase.targetUrl,url:resource.url});
+    assert.equal(publisherImageRequests.length-start,1,'Each literal original image receives one CORS request without a credential or proxy retry');
+    assert.equal(result.stats.requests,1);
+    if(resource.url.endsWith('/main.png')){
+      assert.deepEqual(Buffer.from(result.bodyBytes),pngBytes);assert.equal(result.result.body.receipt.responseType,'cors');
+      assert.equal(result.result.body.receipt.sourceSha256,imageSource.model.sha256);assert.equal(result.result.reason,undefined);
+    }else{assert.equal(result.bodyBytes,null);assert.equal(result.result.body,undefined);assert(result.result.reason);}
+  }
+  const forgedImageSource=structuredClone(imageSource);forgedImageSource.model.sha256='0'.repeat(64);forgedImageSource.receipt.originalResponseSha256='0'.repeat(64);
+  const beforeForgedImage=publisherImageRequests.length;
+  const forgedImage=await publisherPolicy.page.evaluate(({observation,targetUrl,url})=>window.fixtureReadPublisherImage(observation,targetUrl,url),
+    {observation:forgedImageSource,targetUrl:publisherImageCase.targetUrl,url:publisherImageBase+'main.png'});
+  assert.equal(forgedImage.result.reason,'PUBLISHER_IMAGE_SOURCE_HASH_INVALID');assert.equal(publisherImageRequests.length,beforeForgedImage,
+    'A changed publisher source hash is rejected before a binary network request');
   assert(successfulPublisherObservation);
   for(const responseType of ['basic','opaque']){
     const changed=structuredClone(successfulPublisherObservation);changed.receipt.responseType=responseType;
@@ -1904,7 +2221,10 @@ try{
     directReaderPreservesGenuineCspAndCorsFailures:true,popupBlockedAndCoopAndAccessDeniedRemainExplicitGaps:true,
     publisherBrowserCorsAndCredentialModesEnforced:true,publisherApiRetainsExactUtf8JsonAndDistinctRawRenderedFields:true,
     publisherApiWrongIdentityProtectedDraftMimeUtf8AndBodyLimitRemainGaps:true,publisherBrowserBlockedResponseNeverInventsHttpStatus:true,
-    completedV180AndV181CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
+    completedV180V181AndV182CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
+    v182FlagOrderOnlyResumePreservesNativeOriginalsAssessmentsAndCumulativeBudgets:true,
+    syntheticTypedPartResolutionPreservesChapter404HistoryAndTwoGetBound:true,
+    publisherImagesUseActualCorsAndExactSourceBoundOriginalArchiveBytes:true,
     foreignSameOriginWindowCannotForgeProviderResult:true,cancelClosesHelperAndPreservesNativeAndHistoricalBytes:true,
     accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createDirectDataReaderV1 } from "../src/extractors/coursera/direct-data-network.js";
 import {
   directPublisherTargetV1,
@@ -9,11 +10,19 @@ import {
   directPublisherEvidenceV1,
   directPublisherChapterV1,
   directPublisherJsonBytesV1,
+  directPublisherResourceV1,
+  directPublisherResourceTargetV1,
+  directPublisherResourceSourceValidV1,
+  directPublisherResourceObservationValidV1,
+  directPublisherResourceEvidenceV1,
 } from "../src/extractors/coursera/direct-data-publisher.js";
+import { directPublisherMediaInventoryV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 
 const target = "https://opentextbc.ca/syntheticbook/?p=225/#main";
 const endpoint =
   "https://opentextbc.ca/syntheticbook/wp-json/pressbooks/v2/chapters/225";
+const partEndpoint =
+  "https://opentextbc.ca/syntheticbook/wp-json/pressbooks/v2/parts/225";
 const binding = { itemId: "nativeItem", providerId: "p".repeat(22) + "@3" };
 const secret = "SYNTHETIC_PRIVATE_PUBLISHER_DETAIL";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,7 +50,104 @@ function chapter(extra = {}) {
     ...extra,
   };
 }
+function part(extra = {}) {
+  return chapter({
+    type: "part",
+    link: "https://opentextbc.ca/syntheticbook/part/original-part/",
+    _links: { self: [{ href: partEndpoint }] },
+    ...extra,
+  });
+}
+
+test("the user-observed part 125 schema retains its four outcomes and one literal image without choosing srcset renditions", async () => {
+  // These are user-pasted publisher fields. The controlled CORS responses below
+  // verify the adapter; they are not live HTTP receipts for the observed file.
+  const original = await readFile(
+      new URL(
+        "./fixtures/pressbooks-part125-observed-20261018.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+    targetUrl = "https://opentextbc.ca/mathfortrades2/?p=125/#main",
+    chapterUrl =
+      "https://opentextbc.ca/mathfortrades2/wp-json/pressbooks/v2/chapters/125",
+    partUrl =
+      "https://opentextbc.ca/mathfortrades2/wp-json/pressbooks/v2/parts/125",
+    imageUrl =
+      "https://opentextbc.ca/oerdiscipline/wp-content/uploads/sites/347/2020/11/perimeter-outcomes.jpg",
+    calls = [],
+    reader = createDirectDataReaderV1({
+      fetchImpl: async (url, init) => {
+        calls.push({ url, credentials: init.credentials });
+        assert([chapterUrl, partUrl].includes(url));
+        return corsResponse(
+          url,
+          url === chapterUrl
+            ? '{"error":"synthetic chapter lookup 404"}'
+            : original,
+          { status: url === chapterUrl ? 404 : 200 },
+        );
+      },
+    });
+  const result = await reader.readPublisherPage(targetUrl, binding),
+    observation = wrapper(result);
+  assert.equal(
+    directPublisherResourceEvidenceV1(observation, targetUrl, hashBytes),
+    observation,
+  );
+  assert.equal(
+    directPublisherEvidenceV1(observation, targetUrl, hashBytes),
+    null,
+  );
+  assert.equal(result.data.rawJson, original);
+  const resource = directPublisherResourceV1(
+    result.data.rawJson,
+    targetUrl,
+    "part",
+  );
+  assert.equal(resource.id, 125);
+  assert.equal(resource.type, "part");
+  assert.equal(resource.status, "publish");
+  assert.equal(resource.title.raw, "Perimeter and Area");
+  assert.equal(
+    resource.link,
+    "https://opentextbc.ca/mathfortrades2/part/perimeter-and-area/",
+  );
+  assert.equal(resource.content.raw.match(/<li\b/g).length, 4);
+  assert.equal(resource.content.rendered.match(/<li\b/g).length, 4);
+  assert(
+    resource.content.raw.includes(
+      "Calculate the perimeter of a square, rectangle, and polygon",
+    ),
+  );
+  assert(
+    resource.content.raw.includes(
+      "Calculate the area of a circle and cylinder",
+    ),
+  );
+  const media = directPublisherMediaInventoryV1(observation, targetUrl);
+  assert.equal(media.resources.length, 1);
+  assert.equal(media.resources[0].url, imageUrl);
+  assert.deepEqual(
+    media.resources[0].references.map((value) => value.field),
+    ["content.raw", "content.rendered"],
+  );
+  assert.equal(
+    media.failures.filter(
+      (value) =>
+        value.reason === "PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED",
+    ).length,
+    1,
+  );
+  assert.equal(result.data.statusCoverage, "PARTIAL_PUBLISHER_API_ONLY");
+  assert.deepEqual(calls, [
+    { url: chapterUrl, credentials: "omit" },
+    { url: partUrl, credentials: "omit" },
+  ]);
+});
 const rawJson = "\ufeff \n" + JSON.stringify(chapter(), null, 2) + "\n";
+const partJson = "\ufeff \n" + JSON.stringify(part(), null, 2) + "\n";
 function corsResponse(url, body = rawJson, options = {}) {
   return Object.defineProperties(
     new Response(body, {
@@ -308,7 +414,7 @@ test("only an unreadable first fetch or a readable exact 403 permits one credent
 
 test("other HTTP statuses, non-CORS responses, redirects and MIME failures never trigger a credential retry", async () => {
   const cases = [
-    ...[401, 404, 405, 429, 500, 503].map((status) => [
+    ...[401, 405, 429, 500, 503].map((status) => [
       (url) => corsResponse(url, secret, { status }),
       "PUBLISHER_BROWSER_HTTP_" + status,
     ]),
@@ -327,6 +433,20 @@ test("other HTTP statuses, non-CORS responses, redirects and MIME failures never
     ],
     [
       (url) => corsResponse(url, rawJson, { redirected: true }),
+      "PUBLISHER_BROWSER_RESPONSE_URL",
+    ],
+    [
+      (url) =>
+        corsResponse(url, secret, { status: 404, responseType: "basic" }),
+      "PUBLISHER_BROWSER_RESPONSE_TYPE",
+    ],
+    [
+      (url) =>
+        corsResponse(url, secret, { status: 404, responseUrl: partEndpoint }),
+      "PUBLISHER_BROWSER_RESPONSE_URL",
+    ],
+    [
+      (url) => corsResponse(url, secret, { status: 404, redirected: true }),
       "PUBLISHER_BROWSER_RESPONSE_URL",
     ],
     [
@@ -927,4 +1047,412 @@ test("retained model, endpoint, native response hashes and credential-attempt re
     before,
     "Validation does not rewrite retained content or receipts",
   );
+});
+
+test("synthetic part support derives only the same native-ID resource route and keeps strict chapter parsing unchanged", () => {
+  assert.deepEqual(directPublisherResourceTargetV1(target, "part"), {
+    ...directPublisherTargetV1(target),
+    resourceType: "part",
+    endpointUrl: partEndpoint,
+  });
+  assert.deepEqual(directPublisherResourceTargetV1(target, "chapter"), {
+    ...directPublisherTargetV1(target),
+    resourceType: "chapter",
+  });
+  assert.equal(directPublisherResourceTargetV1(target, "front-matter"), null);
+  assert.equal(directPublisherResourceTargetV1(target, "slug"), null);
+  assert.deepEqual(directPublisherResourceV1(partJson, target, "part"), part());
+  assert.deepEqual(
+    directPublisherResourceV1(rawJson, target, "chapter"),
+    chapter(),
+  );
+  assert.equal(directPublisherChapterV1(partJson, target), null);
+  assert.equal(directPublisherResourceV1(partJson, target, "chapter"), null);
+  assert.equal(directPublisherResourceV1(rawJson, target, "part"), null);
+});
+
+test("synthetic part bodies require a published native part, exact optional self links and matching book ownership", () => {
+  for (const extra of [
+    { id: 226 },
+    { id: "225" },
+    { status: "private" },
+    { type: "chapter" },
+    { type: "front-matter" },
+    { link: "https://opentextbc.ca/anotherbook/part/original-part/" },
+    { content: { rendered: "private", protected: true } },
+    { metadata: { access_token: secret } },
+    { _links: { self: [] } },
+    { _links: { self: [{ href: endpoint }] } },
+    { _links: { self: [{ href: partEndpoint + "?context=edit" }] } },
+    { _links: { self: [{ href: partEndpoint.replace("/225", "/226") }] } },
+    { _links: { self: [{ href: partEndpoint }, { href: endpoint }] } },
+    { _links: { self: Array(9).fill({ href: partEndpoint }) } },
+    { _links: { self: "not an array" } },
+  ])
+    assert.equal(
+      directPublisherResourceV1(JSON.stringify(part(extra)), target, "part"),
+      null,
+    );
+  assert.deepEqual(
+    directPublisherResourceV1(
+      JSON.stringify(part({ _links: {} })),
+      target,
+      "part",
+    ),
+    part({ _links: {} }),
+    "An optional self link is not invented when the source omits it",
+  );
+});
+
+test("an exposed first chapter 404 resolves a synthetic same-ID part with exact raw bytes and separate typed proof", async () => {
+  let firstCancelled = false;
+  let firstBodyRead = false;
+  const f = fixture((url, _init, count) =>
+    count === 1
+      ? corsResponse(
+          url,
+          new ReadableStream(
+            {
+              pull() {
+                firstBodyRead = true;
+              },
+              cancel() {
+                firstCancelled = true;
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { status: 404 },
+        )
+      : corsResponse(url, partJson),
+  );
+  const observation = wrapper(
+    await f.reader.readPublisherPage(target, binding),
+  );
+  assert.deepEqual(
+    f.calls.map(({ url, init }) => ({ url, credentials: init.credentials })),
+    [
+      { url: endpoint, credentials: "omit" },
+      { url: partEndpoint, credentials: "omit" },
+    ],
+  );
+  assert.equal(firstCancelled, true);
+  assert.equal(firstBodyRead, false);
+  assert.equal(observation.model.kind, "CTI_BROWSER_PUBLISHER_PART");
+  assert.equal(observation.model.statusCoverage, "PARTIAL_PUBLISHER_API_ONLY");
+  assert.equal(observation.model.rawJson, partJson);
+  assert.equal(observation.model.sha256, hashBytes(bytesOf(partJson)));
+  assert.equal(observation.model.bytes, bytesOf(partJson).length);
+  assert.equal(observation.model.endpointUrl, partEndpoint);
+  assert.equal(observation.receipt.resource, "PublisherPart");
+  assert.equal(
+    observation.receipt.requestPath,
+    "/syntheticbook/wp-json/pressbooks/v2/parts/225",
+  );
+  assert.equal(
+    observation.receipt.originalResponseSha256,
+    observation.model.sha256,
+  );
+  assert.equal(observation.receipt.credentials, "omit");
+  assert.equal(observation.receipt.attempts.length, 1);
+  assert.equal(observation.receipt.attempts[0].status, 200);
+  assert.equal(observation.receipt.attempts[0].credentials, "omit");
+  assert.equal(observation.receipt.resolution.method, "CHAPTER_404_TO_PART");
+  const first = observation.receipt.resolution.chapterReceipt;
+  assert.equal(first.resource, "PublisherChapter");
+  assert.equal(first.endpointUrl, endpoint);
+  assert.equal(
+    first.requestPath,
+    "/syntheticbook/wp-json/pressbooks/v2/chapters/225",
+  );
+  assert.equal(first.requestedUrl, target);
+  assert.equal(first.status, 404);
+  assert.equal(first.responseType, "cors");
+  assert.equal(first.observedAtBasis, "BROWSER_RESPONSE");
+  assert.equal(first.receivedAt, "");
+  assert.equal(first.bytes, 0);
+  assert.equal(first.originalResponseSha256, "");
+  assert.deepEqual(first.attempts, [
+    {
+      credentials: "omit",
+      observedAt: first.observedAt,
+      status: 404,
+      responseType: "cors",
+      bytes: 0,
+      reason: "PUBLISHER_BROWSER_HTTP_404",
+    },
+  ]);
+  assert(
+    Date.parse(first.observedAt) <= Date.parse(observation.model.observedAt),
+  );
+  assert.equal(
+    directPublisherResourceSourceValidV1(observation.model, target),
+    true,
+  );
+  assert.equal(
+    directPublisherResourceObservationValidV1(observation, target),
+    true,
+  );
+  assert.equal(
+    directPublisherResourceEvidenceV1(observation, target, hashBytes),
+    observation,
+  );
+  assert.equal(directPublisherSourceValidV1(observation.model, target), false);
+  assert.equal(directPublisherObservationValidV1(observation, target), false);
+  assert.equal(directPublisherEvidenceV1(observation, target, hashBytes), null);
+  assert.equal(f.reader.snapshot().requests, 2);
+  assert.equal(f.reader.snapshot().bytes, bytesOf(partJson).length);
+  assert.equal(f.reader.snapshot().byResource.PublisherChapter, 1);
+  assert.equal(f.reader.snapshot().byResource.PublisherPart, 1);
+  assert.equal(f.reader.snapshot().completed, 1);
+});
+
+test("two exposed 404s remain a typed acquisition gap with the first chapter history retained", async () => {
+  const f = fixture((url) => corsResponse(url, secret, { status: 404 }));
+  const result = await f.reader.readPublisherPage(target, binding);
+  failed(result, "PUBLISHER_BROWSER_HTTP_404");
+  assert.deepEqual(
+    f.calls.map(({ url }) => url),
+    [endpoint, partEndpoint],
+  );
+  assert(f.calls.every(({ init }) => init.credentials === "omit"));
+  assert.equal(result.receipt.resource, "PublisherPart");
+  assert.equal(result.receipt.status, 404);
+  assert.equal(result.receipt.bytes, 0);
+  assert.equal(result.receipt.originalResponseSha256, "");
+  assert.equal(result.receipt.resolution.chapterReceipt.status, 404);
+  assert.equal(result.receipt.resolution.chapterReceipt.endpointUrl, endpoint);
+  assert.equal(result.receipt.attempts.length, 1);
+  assert.equal(f.reader.snapshot().requests, 2);
+  assert.equal(f.reader.snapshot().bytes, 0);
+  assert.equal(f.reader.snapshot().stopped, false);
+});
+
+test("part fallback cannot follow a 401, consumed credential retry or blocked part, and never gets a third GET", async () => {
+  for (const scenario of [
+    {
+      first: 401,
+      second: null,
+      routes: [endpoint],
+      reason: "PUBLISHER_BROWSER_HTTP_401",
+    },
+    {
+      first: 403,
+      second: 403,
+      routes: [endpoint, endpoint],
+      reason: "PUBLISHER_BROWSER_HTTP_403",
+    },
+    {
+      first: 403,
+      second: 404,
+      routes: [endpoint, endpoint],
+      reason: "PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT",
+    },
+    {
+      first: "blocked",
+      second: 404,
+      routes: [endpoint, endpoint],
+      reason: "PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT",
+    },
+    {
+      first: 404,
+      second: 403,
+      routes: [endpoint, partEndpoint],
+      reason: "PUBLISHER_BROWSER_HTTP_403",
+    },
+    {
+      first: 404,
+      second: "blocked",
+      routes: [endpoint, partEndpoint],
+      reason: "PUBLISHER_BROWSER_BLOCKED_OR_FAILED",
+    },
+  ]) {
+    const f = fixture((url, _init, count) => {
+      const status = count === 1 ? scenario.first : scenario.second;
+      if (status === "blocked") throw Error(secret);
+      return corsResponse(url, secret, { status: status || 500 });
+    });
+    const result = await f.reader.readPublisherPage(target, binding);
+    failed(result, scenario.reason);
+    assert.deepEqual(
+      f.calls.map(({ url }) => url),
+      scenario.routes,
+    );
+    assert.equal(f.reader.snapshot().requests, scenario.routes.length);
+    assert.equal(f.reader.snapshot().bytes, 0);
+    if (scenario.first === 404) {
+      assert(f.calls.every(({ init }) => init.credentials === "omit"));
+      assert.equal(result.receipt.resolution.chapterReceipt.status, 404);
+      assert.equal(result.receipt.resource, "PublisherPart");
+      if (scenario.second === "blocked") {
+        assert.equal(result.receipt.status, 0);
+        assert.equal(result.receipt.responseType, "unreadable");
+        assert.equal(result.receipt.observedAtBasis, "BROWSER_ATTEMPT");
+      }
+    } else assert.equal(result.receipt.resolution, undefined);
+  }
+});
+
+test("a chapter 404 does not grant the part request a fresh global request or job-time budget", async () => {
+  const bound = fixture((url) => corsResponse(url, secret, { status: 404 }), {
+    limits: { requests: 1 },
+  });
+  failed(
+    await bound.reader.readPublisherPage(target, binding),
+    "COURSE_API_REQUEST_LIMIT",
+  );
+  assert.deepEqual(
+    bound.calls.map(({ url }) => url),
+    [endpoint],
+  );
+  assert.equal(bound.reader.snapshot().requests, 1);
+  let partSignal;
+  const timed = fixture(
+    async (url, init, count) => {
+      if (count === 1) {
+        await pause(25);
+        return corsResponse(url, secret, { status: 404 });
+      }
+      partSignal = init.signal;
+      await pause(25);
+      return corsResponse(url, partJson);
+    },
+    { limits: { requestMs: 40, concurrentRequests: 1 } },
+  );
+  const result = await timed.reader.readPublisherPage(target, binding);
+  failed(result, "PUBLISHER_BROWSER_TIMEOUT");
+  assert.deepEqual(
+    timed.calls.map(({ url }) => url),
+    [endpoint, partEndpoint],
+  );
+  assert.equal(partSignal.aborted, true);
+  assert.equal(result.receipt.resolution.chapterReceipt.status, 404);
+  assert.equal(timed.reader.snapshot().requests, 2);
+  assert.equal(timed.reader.snapshot().stopped, false);
+});
+
+test("synthetic part proof rejects altered types, hashes, endpoint identity and invented 404 resolution history", async () => {
+  const f = fixture((url, _init, count) =>
+    count === 1
+      ? corsResponse(url, secret, { status: 404 })
+      : corsResponse(url, partJson),
+  );
+  const original = wrapper(await f.reader.readPublisherPage(target, binding));
+  const before = structuredClone(original);
+  const changes = [
+    (o) => {
+      o.model.kind = "CTI_BROWSER_PUBLISHER_CHAPTER";
+    },
+    (o) => {
+      o.model.endpointUrl = endpoint;
+    },
+    (o) => {
+      o.model.sha256 = "0".repeat(64);
+    },
+    (o) => {
+      o.model.rawJson += " ";
+    },
+    (o) => {
+      o.model.rawJson = o.model.rawJson.replace(
+        "original-part",
+        "invented-part",
+      );
+      o.model.sha256 = hashBytes(bytesOf(o.model.rawJson));
+    },
+    (o) => {
+      o.receipt.resource = "PublisherChapter";
+    },
+    (o) => {
+      o.receipt.endpointUrl = endpoint;
+    },
+    (o) => {
+      o.receipt.credentials = "include";
+      o.receipt.attempts[0].credentials = "include";
+    },
+    (o) => {
+      o.receipt.attempts.push({ ...o.receipt.attempts[0] });
+    },
+    (o) => {
+      delete o.receipt.resolution;
+    },
+    (o) => {
+      o.receipt.resolution.method = "ASSUMED_PART";
+    },
+    (o) => {
+      o.receipt.resolution.body = secret;
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.status = 403;
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.id += "other";
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.endpointUrl = partEndpoint;
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.requestPath =
+        "/anotherbook/wp-json/pressbooks/v2/chapters/225";
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.requestQuery = [["p", "225"]];
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.transport = "CTI_PUBLIC_BACKEND";
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.credentials = "include";
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.responseType = "unreadable";
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.bytes = 1;
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.originalResponseSha256 = "0".repeat(
+        64,
+      );
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.receivedAt = o.receipt.receivedAt;
+    },
+    (o) => {
+      const time = new Date(Date.parse(o.model.observedAt) + 1).toISOString();
+      o.receipt.resolution.chapterReceipt.observedAt = time;
+      o.receipt.resolution.chapterReceipt.attempts[0].observedAt = time;
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.attempts[0].status = 200;
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.attempts[0].reason =
+        "PUBLISHER_BROWSER_HTTP_403";
+    },
+    (o) => {
+      o.receipt.resolution.chapterReceipt.attempts.push({
+        ...o.receipt.resolution.chapterReceipt.attempts[0],
+      });
+    },
+  ];
+  for (const change of changes) {
+    const bad = structuredClone(original);
+    change(bad);
+    assert.equal(
+      directPublisherResourceEvidenceV1(bad, target, hashBytes),
+      null,
+    );
+  }
+  assert.equal(directPublisherResourceEvidenceV1(original, target), null);
+  assert.equal(
+    directPublisherResourceEvidenceV1(original, target, () =>
+      Promise.resolve(original.model.sha256),
+    ),
+    null,
+  );
+  assert.equal(
+    directPublisherResourceEvidenceV1(original, target, hashBytes),
+    original,
+  );
+  assert.deepEqual(original, before);
 });
