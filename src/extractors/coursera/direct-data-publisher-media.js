@@ -5,6 +5,47 @@ import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 export const CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 = 16777216;
 export const CTI_DIRECT_PUBLISHER_IMAGE_URLS_V1 = 128;
 
+export function directPublisherImageDateV1(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+
+/** Failure context is never source/body verification or an HTTP attestation. */
+export function directPublisherImageAttemptsV1(attempts) {
+  if (!Array.isArray(attempts) || attempts.length !== 2) return null;
+  const [browser,service] = attempts;
+  if (!browser || Object.keys(browser).some(key => !["transport","observedAt","status","responseType","reason"].includes(key)) ||
+      browser.transport !== "BROWSER_PUBLISHER_IMAGE" || !directPublisherImageDateV1(browser.observedAt) || browser.status !== 0 ||
+      browser.responseType !== "unreadable" || !["PUBLISHER_IMAGE_BLOCKED_OR_FAILED","PUBLISHER_IMAGE_RESPONSE_UNREADABLE"].includes(browser.reason) ||
+      !service || Object.keys(service).some(key => !["transport","observedAt","serviceOrigin","serviceStatus","upstreamStatus","upstreamObservedAt","upstreamRequests","upstreamBytes","reason"].includes(key)) ||
+      service.transport !== "CTI_SERVICE_PUBLIC_IMAGE" || service.serviceOrigin !== "https://cti-hardening.pages.dev" ||
+      !directPublisherImageDateV1(service.observedAt) || Date.parse(service.observedAt) < Date.parse(browser.observedAt) ||
+      !Number.isSafeInteger(service.serviceStatus) || !(service.serviceStatus === 0 || service.serviceStatus >= 200 && service.serviceStatus <= 599) ||
+      !Number.isSafeInteger(service.upstreamStatus) || !(service.upstreamStatus === 0 || service.upstreamStatus >= 100 && service.upstreamStatus <= 599) ||
+      ![0,1].includes(service.upstreamRequests) || !Number.isSafeInteger(service.upstreamBytes) || service.upstreamBytes < 0 || service.upstreamBytes > 33554432 ||
+      (service.upstreamStatus ? service.upstreamRequests !== 1 || !directPublisherImageDateV1(service.upstreamObservedAt) : service.upstreamObservedAt !== "") ||
+      typeof service.reason !== "string" || !/^[A-Z0-9_]{1,96}$/.test(service.reason)) return null;
+  return attempts;
+}
+
+/** These headers declare what CTI's public reader observed. They do not prove
+ * a Coursera login or that the service validated the parent publisher JSON. */
+export function directPublisherImageServiceHeadersV1(response, sourceSha256) {
+  const h = response?.headers, integer = name => {
+    const value = h?.get(name); return /^(?:0|[1-9]\d*)$/.test(value || "") ? Number(value) : NaN;
+  };
+  if (response?.status !== 200 || h?.get("x-cti-provider-transport") !== "CTI_SERVICE_PUBLIC_IMAGE" ||
+      h.get("x-cti-provider-origin") !== "https://cti-hardening.pages.dev" ||
+      h.get("x-cti-publisher-source-hash") !== sourceSha256 ||
+      integer("x-cti-upstream-status") !== 200 || integer("x-cti-upstream-requests") !== 1 ||
+      !directPublisherImageDateV1(h.get("x-cti-upstream-observed-at"))) return null;
+  const size = integer("x-cti-upstream-content-length"), sha256 = h.get("x-cti-upstream-sha256");
+  if (!Number.isSafeInteger(size) || size < 1 || size > CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 ||
+      integer("x-cti-upstream-bytes") !== size || !/^[a-f0-9]{64}$/.test(sha256 || "")) return null;
+  return {serviceOrigin:"https://cti-hardening.pages.dev",serviceStatus:200,upstreamStatus:200,
+    upstreamObservedAt:h.get("x-cti-upstream-observed-at"),upstreamRequests:1,upstreamBytes:size,
+    declaredBodyBytes:size,upstreamSha256:sha256,publisherSourceHash:sourceSha256};
+}
+
 /** Only a literal public upload reference is eligible; no rendition guessing. */
 export function directPublisherImageUrlV1(value, base) {
   if (typeof value !== "string" || !value || value.length > 4000 ||
@@ -111,14 +152,22 @@ export function directPublisherImageBodyStructureV1(body, url, sourceSha256) {
       body.canonicalUrl !== url || !Number.isSafeInteger(body.size) || body.size < 1 || body.size > CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 ||
       !["image/png","image/jpeg","image/jpg","image/gif","image/webp"].includes(body.mime)) return false;
   const r = body.receipt;
+  const service = r?.transport === "CTI_SERVICE_PUBLIC_IMAGE";
   return !!r && typeof r === "object" && !Array.isArray(r) &&
-    Object.keys(r).every(key => ["resource","transport","sourceSha256","requestedUrl","finalUrl","method","credentials","responseType","status","bytes","mime","sha256","observedAt","originalContentType","bodyFormat"].includes(key)) &&
-    r.resource === "PublisherImage" && r.transport === "BROWSER_PUBLISHER_IMAGE" && r.sourceSha256 === sourceSha256 &&
-    r.requestedUrl === url && r.finalUrl === url && r.method === "GET" && r.credentials === "omit" && r.responseType === "cors" &&
+    Object.keys(r).every(key => ["resource","transport","sourceSha256","requestedUrl","finalUrl","method","credentials","responseType","status","bytes","mime","sha256","observedAt","originalContentType","bodyFormat",
+      ...(service ? ["observedAtBasis","serviceOrigin","serviceStatus","upstreamStatus","upstreamObservedAt","upstreamRequests","upstreamBytes","declaredBodyBytes","upstreamSha256","publisherSourceHash","browserAttempt"] : [])].includes(key)) &&
+    r.resource === "PublisherImage" && (service || r.transport === "BROWSER_PUBLISHER_IMAGE") && r.sourceSha256 === sourceSha256 &&
+    r.requestedUrl === url && r.finalUrl === url && r.method === "GET" && r.credentials === "omit" && r.responseType === (service ? "service" : "cors") &&
     r.status === 200 && r.bytes === body.size && r.mime === body.mime && r.sha256 === body.sha256 &&
     typeof r.originalContentType === "string" && r.originalContentType.length <= 256 && !/[\u0000-\u001f\u007f]/.test(r.originalContentType) &&
     r.originalContentType.split(";")[0].trim().toLowerCase() === body.mime &&
-    typeof r.observedAt === "string" && Number.isFinite(Date.parse(r.observedAt)) && new Date(r.observedAt).toISOString() === r.observedAt &&
+    directPublisherImageDateV1(r.observedAt) &&
+    (!service || r.observedAtBasis === "BROWSER_RESPONSE" && r.serviceOrigin === "https://cti-hardening.pages.dev" && r.serviceStatus === 200 &&
+      r.upstreamStatus === 200 && directPublisherImageDateV1(r.upstreamObservedAt) && r.upstreamRequests === 1 &&
+      r.upstreamBytes === body.size && r.declaredBodyBytes === body.size && r.upstreamSha256 === body.sha256 && r.publisherSourceHash === sourceSha256 &&
+      !!directPublisherImageAttemptsV1([r.browserAttempt,{transport:"CTI_SERVICE_PUBLIC_IMAGE",observedAt:r.observedAt,
+        serviceOrigin:r.serviceOrigin,serviceStatus:200,upstreamStatus:200,upstreamObservedAt:r.upstreamObservedAt,
+        upstreamRequests:1,upstreamBytes:body.size,reason:"PUBLISHER_IMAGE_SERVICE_CAPTURED"}])) &&
     r.bodyFormat === "ORIGINAL_BINARY_BYTES_ARCHIVE";
 }
 
@@ -130,10 +179,11 @@ export function directPublisherMediaStructureV1(observation, targetUrl, media) {
         Object.keys(media).some(key => !["schemaVersion","sourceSha256","resources","failures","retained"].includes(key)) ||
         canonical(media.failures) !== canonical(current.failures) || !Array.isArray(media.resources) || media.resources.length !== current.resources.length) return null;
     const check = (resource, expected, sourceHash, historical) => resource &&
-      Object.keys(resource).every(key => ["url","references","body","reason"].includes(key)) && resource.url === expected.url &&
+      Object.keys(resource).every(key => ["url","references","body","reason","attempts"].includes(key)) && resource.url === expected.url &&
       canonical(resource.references) === canonical(expected.references) &&
-      (resource.body ? !resource.reason && directPublisherImageBodyStructureV1(resource.body, resource.url, sourceHash) :
-        !historical && typeof resource.reason === "string" && /^[A-Z0-9_]{1,96}$/.test(resource.reason));
+      (resource.body ? !resource.reason && resource.attempts === undefined && directPublisherImageBodyStructureV1(resource.body, resource.url, sourceHash) :
+        !historical && typeof resource.reason === "string" && /^[A-Z0-9_]{1,96}$/.test(resource.reason) &&
+        (resource.attempts === undefined || directPublisherImageAttemptsV1(resource.attempts) && resource.attempts[1].reason === resource.reason));
     if (!media.resources.every((resource,i) => check(resource,current.resources[i],current.sourceSha256,false))) return null;
     if (media.retained !== undefined && (!Array.isArray(media.retained) || media.retained.length > 128)) return null;
     let count = 0, sourceBytes = observation.model.bytes;

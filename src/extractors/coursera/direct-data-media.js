@@ -2,7 +2,8 @@ import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directPanoptoSourceV1, directPanoptoPodcastBindingsV1 } from "./direct-data-panopto.js";
 import { directProviderTransportReceiptV1, directProviderTransportErrorV1 } from "./direct-data-network.js";
-import { directPublisherMediaInventoryV1, directPublisherImageKindV1 } from "./direct-data-publisher-media.js";
+import { directPublisherMediaInventoryV1, directPublisherImageKindV1,
+  directPublisherImageServiceHeadersV1, directPublisherImageDateV1 } from "./direct-data-publisher-media.js";
 
 /** Only locations returned by the bound asset API are eligible for downloads. */
 export function canonicalDirectAssetUrlV1(value) {
@@ -837,16 +838,85 @@ export function createDirectDataMediaReaderV1(options = {}) {
     }
   }
   async function capturePublisherImage(job, controller) {
-    const failed = reason => failure(job.assetId, reason, {url:job.url});
+    let response, serviceContext = null, browserAttempt = null,
+      serviceFailure = {serviceOrigin:"https://cti-hardening.pages.dev",serviceStatus:0,
+        upstreamStatus:0,upstreamObservedAt:"",upstreamRequests:0,upstreamBytes:0};
+    const failed = reason => failure(job.assetId, reason, {url:job.url,
+      ...(browserAttempt ? {attempts:[browserAttempt,{transport:"CTI_SERVICE_PUBLIC_IMAGE",observedAt:new Date().toISOString(),
+        ...serviceFailure,reason}]} : {})});
+    job.publisherFailure = failed;
     if (!jobCurrent(controller)) return failed(jobStopReason(controller));
     if (stats.bytes >= limits.totalBytes) return failed("DIRECT_MEDIA_BYTE_LIMIT");
-    let response;
+    async function fallback(reason, observedAt) {
+      const helper = options.providerTransport;
+      if (!helper) return failed(reason);
+      browserAttempt = {transport:"BROWSER_PUBLISHER_IMAGE",observedAt,status:0,responseType:"unreadable",reason};
+      try {
+        if (typeof helper.ready === "function") await helper.ready();
+        if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+        if (typeof helper.supports !== "function" || !helper.supports("publisherImage"))
+          return failed("PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED");
+        stats.requests++; notify();
+        response = await helper.request("publisherImage",{targetUrl:job.targetUrl,imageUrl:job.url,sourceSha256:job.sourceSha256},controller.signal);
+        serviceFailure.serviceStatus = Number(response?.status || 0);
+        const h = response?.headers, integer = name => {
+          const value = h?.get(name); return /^(?:0|[1-9]\d*)$/.test(value || "") ? Number(value) : NaN;
+        };
+        if (h?.get("x-cti-provider-transport") === "CTI_SERVICE_PUBLIC_IMAGE" &&
+            h.get("x-cti-provider-origin") === serviceFailure.serviceOrigin) {
+          const status = integer("x-cti-upstream-status"), requests = integer("x-cti-upstream-requests"),
+            bytes = integer("x-cti-upstream-bytes"), at = h.get("x-cti-upstream-observed-at") || "";
+          if (Number.isSafeInteger(status) && (status === 0 || status >= 100 && status <= 599) && [0,1].includes(requests) &&
+              Number.isSafeInteger(bytes) && bytes >= 0 && bytes <= 33554432 &&
+              (status ? requests === 1 && directPublisherImageDateV1(at) : at === ""))
+            Object.assign(serviceFailure,{upstreamStatus:status,upstreamObservedAt:at,upstreamRequests:requests,upstreamBytes:bytes});
+        }
+        if (!jobCurrent(controller)) { await discard(response); return failed(jobStopReason(controller)); }
+        serviceContext = directPublisherImageServiceHeadersV1(response,job.sourceSha256);
+        if (!serviceContext) {
+          stats.bytes += serviceFailure.upstreamBytes; notify();
+          if (stats.bytes > limits.totalBytes) {
+            bodyBudgetExhausted = true;
+            for (const activeController of controllers) activeController.abort("DIRECT_MEDIA_BYTE_LIMIT");
+          }
+          await discard(response);
+          return failed(bodyBudgetExhausted ? "DIRECT_MEDIA_BYTE_LIMIT" : serviceFailure.upstreamStatus && serviceFailure.upstreamStatus !== 200
+            ? "PUBLISHER_IMAGE_UPSTREAM_HTTP_" + serviceFailure.upstreamStatus : response?.status !== 200
+              ? "PUBLISHER_IMAGE_SERVICE_HTTP_" + Number(response?.status || 0) : "PUBLISHER_IMAGE_SERVICE_RECEIPT_INVALID");
+        }
+        // The buffered service has already read these upstream bytes, even if
+        // browser delivery or later MIME verification fails. Charge once here;
+        // matching delivered chunks below must not charge the same read twice.
+        stats.bytes += serviceContext.upstreamBytes; notify();
+        if (stats.bytes > limits.totalBytes) {
+          bodyBudgetExhausted = true;
+          for (const activeController of controllers) activeController.abort("DIRECT_MEDIA_BYTE_LIMIT");
+          await discard(response); return failed("DIRECT_MEDIA_BYTE_LIMIT");
+        }
+        return null;
+      } catch (error) {
+        return failed(!jobCurrent(controller) ? jobStopReason(controller) :
+          /^[A-Z0-9_]{1,80}$/.test(error?.code || "") ? "PUBLISHER_IMAGE_" + error.code : "PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED");
+      }
+    }
     try {
+      const browserObservedAt = new Date().toISOString();
       stats.requests++; notify();
-      response = await fetchImpl(job.url, {method:"GET", mode:"cors", credentials:"omit",
-        redirect:"error", referrerPolicy:"no-referrer", signal:controller.signal});
+      try {
+        response = await fetchImpl(job.url, {method:"GET", mode:"cors", credentials:"omit",
+          redirect:"error", referrerPolicy:"no-referrer", signal:controller.signal});
+      } catch (_) {
+        if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+        const unavailable = await fallback("PUBLISHER_IMAGE_BLOCKED_OR_FAILED",browserObservedAt);
+        if (unavailable) return unavailable;
+      }
       if (!jobCurrent(controller)) { await discard(response); return failed(jobStopReason(controller)); }
-      if (response?.type !== "cors" || response.url !== job.url || response.status !== 200) {
+      if (!serviceContext && response?.type !== "cors") {
+        await discard(response);
+        const unavailable = await fallback("PUBLISHER_IMAGE_RESPONSE_UNREADABLE",browserObservedAt);
+        if (unavailable) return unavailable;
+      }
+      if (!serviceContext && (response.url !== job.url || response.status !== 200)) {
         await discard(response); return failed(response?.type === "cors" && response.status !== 200
           ? "PUBLISHER_IMAGE_HTTP_" + Number(response.status) : "PUBLISHER_IMAGE_RESPONSE_UNREADABLE");
       }
@@ -868,34 +938,43 @@ export function createDirectDataMediaReaderV1(options = {}) {
           if (!jobCurrent(controller)) return failed(jobStopReason(controller));
           if (part.done) break;
           if (!(part.value instanceof Uint8Array)) return failed("PUBLISHER_IMAGE_BODY_UNREADABLE");
-          stats.bytes += part.value.byteLength; count += part.value.byteLength; notify();
+          const priorCount = count;
+          count += part.value.byteLength;
+          stats.bytes += serviceContext
+            ? Math.max(0,count - serviceContext.declaredBodyBytes) - Math.max(0,priorCount - serviceContext.declaredBodyBytes)
+            : part.value.byteLength;
+          notify();
           if (stats.bytes > limits.totalBytes) {
             bodyBudgetExhausted = true;
             for (const activeController of controllers) activeController.abort("DIRECT_MEDIA_BYTE_LIMIT");
             return failed("DIRECT_MEDIA_BYTE_LIMIT");
           }
           if (count > limits.bodyBytes) return failed("PUBLISHER_IMAGE_BODY_BYTE_LIMIT");
+          if (serviceContext && count > serviceContext.declaredBodyBytes) return failed("PUBLISHER_IMAGE_SERVICE_LENGTH_MISMATCH");
           if (part.value.length) chunks.push(part.value);
           if (chunks.length > 8192) return failed("PUBLISHER_IMAGE_CHUNK_LIMIT");
         }
       } finally { try { await reader.cancel(); } catch (_) {} }
       if (!count) return failed("PUBLISHER_IMAGE_BODY_EMPTY");
+      if (serviceContext && count !== serviceContext.declaredBodyBytes) return failed("PUBLISHER_IMAGE_SERVICE_LENGTH_MISMATCH");
       const bytes = new Uint8Array(count); let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.length; }
       if (!directPublisherImageKindV1(bytes,mime)) return failed("PUBLISHER_IMAGE_MAGIC_INVALID");
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),
         sha256 = [...digest].map(v => v.toString(16).padStart(2,"0")).join("");
       if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+      if (serviceContext && sha256 !== serviceContext.upstreamSha256) return failed("PUBLISHER_IMAGE_SERVICE_HASH_MISMATCH");
       const body = {archivePath:"files/" + sha256, sha256,size:count,mime,canonicalUrl:job.url,
-        receipt:{resource:"PublisherImage",transport:"BROWSER_PUBLISHER_IMAGE",sourceSha256:job.sourceSha256,
-          requestedUrl:job.url,finalUrl:job.url,method:"GET",credentials:"omit",responseType:"cors",status:200,
+        receipt:{resource:"PublisherImage",transport:serviceContext ? "CTI_SERVICE_PUBLIC_IMAGE" : "BROWSER_PUBLISHER_IMAGE",sourceSha256:job.sourceSha256,
+          requestedUrl:job.url,finalUrl:job.url,method:"GET",credentials:"omit",responseType:serviceContext ? "service" : "cors",status:200,
           bytes:count,mime,sha256,observedAt:new Date().toISOString(),originalContentType,
+          ...(serviceContext ? {...serviceContext,observedAtBasis:"BROWSER_RESPONSE",browserAttempt} : {}),
           bodyFormat:"ORIGINAL_BINARY_BYTES_ARCHIVE"}};
       Object.defineProperty(body,"bytes",{value:bytes,enumerable:false,configurable:true});
       return {url:job.url,body};
     } catch (_) {
       if (response) await discard(response);
-      return failed(jobCurrent(controller) ? "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" : jobStopReason(controller));
+      return failed(jobCurrent(controller) ? serviceContext ? "PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED" : "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" : jobStopReason(controller));
     }
   }
   async function work(job, controller) {
@@ -1027,12 +1106,14 @@ export function createDirectDataMediaReaderV1(options = {}) {
   async function execute(job) {
     const controller = new AbortController();
     controllers.add(controller);
+    const failed = reason => typeof job.publisherFailure === "function"
+      ? job.publisherFailure(reason) : failure(job.assetId,reason);
     let timer, listener;
     const cancelled = new Promise((resolve) => {
       const durationRemaining = limits.durationMs - (Date.now() - startedAt),
         durationDeadline = durationRemaining <= limits.requestMs;
       listener = () =>
-        resolve(failure(job.assetId, stopReason || "OPERATOR_STOPPED"));
+        resolve(failed(stopReason || "OPERATOR_STOPPED"));
       cancellation.signal.addEventListener("abort", listener, { once: true });
       timer = setTimeout(
         () => {
@@ -1041,7 +1122,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
             return;
           }
           controller.abort("DIRECT_MEDIA_REQUEST_TIMEOUT");
-          resolve(failure(job.assetId, "DIRECT_MEDIA_REQUEST_TIMEOUT"));
+          resolve(failed("DIRECT_MEDIA_REQUEST_TIMEOUT"));
         },
         Math.max(1, Math.min(limits.requestMs, durationRemaining)),
       );
@@ -1171,7 +1252,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
     const key = "PUBLISHER_IMAGE:" + inventory.sourceSha256 + ":" + resource.url;
     if (pending.has(key)) return pending.get(key).promise;
     const promise = new Promise(resolve => {
-      queue.push({kind:"PUBLISHER_IMAGE",assetId:resource.url,url:resource.url,sourceSha256:inventory.sourceSha256,resolve});
+      queue.push({kind:"PUBLISHER_IMAGE",assetId:resource.url,url:resource.url,targetUrl,sourceSha256:inventory.sourceSha256,resolve});
       notify(); pump();
     });
     pending.set(key,{promise});

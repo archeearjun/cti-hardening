@@ -7,6 +7,7 @@ import { CTI_OWNER_EMAIL } from "../../server/access.ts";
 import { forwardWorkspaceRuntime, WorkspaceRuntime } from "../../workers/coursera-extractor/workspace-runtime.ts";
 import { expectedForm, mediaBytes, metadataPath, source, stateUrl,
   publicHtmlBytes, publicHtmlRaw, publicHtmlUrl, publicHtmlOrigin, publicHtmlPath } from "./worker-panopto-source.mjs";
+import { publisherImageRuntimeChecks } from "./worker-publisher-image.mjs";
 
 export { WorkspaceRuntime };
 
@@ -183,6 +184,7 @@ export default {
     await new Promise(resolve => setTimeout(resolve, 10));
 
     await publicHtmlRuntimeChecks(env);
+    await publisherImageRuntimeChecks(env);
 
     const observed = await state();
     assert(observed.calls.every(call => !call.url.startsWith("https://never-follow.invalid/")), "Neither metadata nor media redirects are followed");

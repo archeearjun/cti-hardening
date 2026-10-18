@@ -52,7 +52,7 @@ const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),a
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 const panoptoDeliveries=new Map(),panoptoRequests=[];
 const publicPages=new Map(),publicPageRequests=[];
-const publisherRequests=[],publisherCases=new Map(),publisherOpaqueRequests=[],publisherImageRequests=[],publisherImages=new Map();
+const publisherRequests=[],publisherCases=new Map(),publisherOpaqueRequests=[],publisherImageRequests=[],publisherImages=new Map(),publisherServiceImages=new Map();
 const helperRequests=[],helperUpstreamRequests=[],helperErrors=[];
 const readerFixtureEntry=path.join(scratch,'direct-reader-entry.js');
 fs.writeFileSync(readerFixtureEntry,`
@@ -331,9 +331,27 @@ publisherImageCase.chapter.content.rendered='<p>Rendered source stays separate.<
 publisherImageCase.rawJson='\ufeff'+JSON.stringify(publisherImageCase.chapter,null,2)+'\n';
 publisherImageCase.bytes=Buffer.from(publisherImageCase.rawJson);
 const publisherImageCourse=makeInlineWidgetCourse('Direct_inline_publisher_image_123','publisher-image',true);
-publisherImageCourse.publisherReaderCase=true;
+publisherImageCourse.publisherReaderCase=true;publisherImageCourse.helperMode='legacy-image-unsupported';
 providers.get(publisherImageCourse.inlineProviderId).value.draft.configuration.url=publisherImageCase.targetUrl;
 providers.get(publisherImageCourse.inlineProviderId).value.draft.pageSrc=publisherImageCase.targetUrl;
+// A valid PNG with a large ancillary text chunk exercises several real bridge
+// pulls and EOF while retaining exact original bytes, without claiming playback.
+function fixturePngTextChunk(text){
+  const data=Buffer.from('Comment\0'+text),type=Buffer.from('tEXt'),content=Buffer.concat([type,data]);let crc=0xffffffff;
+  for(const value of content){crc^=value;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}
+  const chunk=Buffer.alloc(data.length+12);chunk.writeUInt32BE(data.length,0);type.copy(chunk,4);data.copy(chunk,8);chunk.writeUInt32BE((crc^0xffffffff)>>>0,data.length+8);return chunk;
+}
+const publisherServiceBytes=Buffer.concat([pngBytes.subarray(0,-12),fixturePngTextChunk('Synthetic original image context. '+ 'x'.repeat(160*1024+17)),pngBytes.subarray(-12)]);
+const publisherServiceCase=makePublisherCase(1399,'omit-wildcard'),publisherServiceImageUrl=publisherImageBase+'service-original.png';
+publisherServiceCase.chapter.content.raw='<p>Literal service-backed original.</p><img src="'+publisherServiceImageUrl+'">';
+publisherServiceCase.chapter.content.rendered='<p>Rendered field stays literal.</p><a href="'+publisherServiceImageUrl+'">Original raster</a>';
+publisherServiceCase.rawJson='\ufeff'+JSON.stringify(publisherServiceCase.chapter,null,2)+'\n';publisherServiceCase.bytes=Buffer.from(publisherServiceCase.rawJson);
+const publisherServiceCourse=makeInlineWidgetCourse('Direct_inline_public_image_service_123','publisher-service-image',true);
+publisherServiceCourse.publisherReaderCase=true;publisherServiceCourse.publisherServiceMode='ready';
+providers.get(publisherServiceCourse.inlineProviderId).value.draft.configuration.url=publisherServiceCase.targetUrl;
+providers.get(publisherServiceCourse.inlineProviderId).value.draft.pageSrc=publisherServiceCase.targetUrl;
+publisherImages.set(publisherServiceImageUrl,{name:'service-original.png',mode:'no-cors',body:publisherServiceBytes,requests:0});
+publisherServiceImages.set(publisherServiceImageUrl,publisherServiceCourse);
 const publisherFlagLeaf=publisherInlineCourse.material.material.elements[0].elements[0].elements[0];
 publisherFlagLeaf.content.typeName='ungradedAssignment';
 publisherFlagLeaf.content.definition.assignmentFeatures=['LIMITED_SUBMISSIONS','TAKE_LATEST_GRADE','SHOW_GRADE_ON_RELEASE'];
@@ -397,6 +415,16 @@ async function fixtureProviderFetch(address,init){
   assert.equal(init.credentials,'omit');assert.equal(init.redirect,'manual');
   assert.equal(headers.get('cookie'),null);assert.equal(headers.get('authorization'),null);
   if(url.origin==='https://opentextbc.ca'){
+    if(publisherServiceImages.has(url.href)){
+      const config=publisherServiceImages.get(url.href),image=publisherImages.get(url.href);
+      assert.equal(init.method,'GET');assert.equal(headers.get('accept'),'image/png, image/jpeg, image/gif, image/webp');assert.equal(headers.get('accept-encoding'),'identity');
+      assert.equal(headers.get('origin'),null);assert.equal(headers.get('referer'),null);
+      helperUpstreamRequests.push({courseId:config.id,role:'PUBLISHER_IMAGE',url:url.href});
+      if(config.publisherServiceMode==='upstream-denied')return new Response('synthetic public failure',{status:403,headers:{'Content-Type':'text/plain'}});
+      const pieces=[image.body.subarray(0,70001),image.body.subarray(70001)];
+      return new Response(new ReadableStream({pull(controller){if(pieces.length)controller.enqueue(pieces.shift());else controller.close();}}),
+        {headers:{'Content-Type':config.publisherServiceMode==='wrong-upstream-mime'?'text/html':'image/png','Content-Length':String(image.body.length)}});
+    }
     assert.equal(init.method,'GET');const config=publicPages.get(url.href);assert(config);
     publicPageRequests.push({courseId:config.id,url:url.href,method:init.method});
     return new Response(config.inlineMode==='public-html-error'?'<html><body><input type="password"></body></html>':config.publicHtml,
@@ -454,11 +482,31 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
         let providerConfig;
         if(url.pathname.startsWith('/api/provider/')){
           const payload=JSON.parse(body),target=new URL(payload.targetUrl),identity=target.searchParams.get('id'),
-            config=url.pathname==='/api/provider/public-html'?publicPages.get(target.href.split('#')[0]):panoptoDeliveries.get(identity);
+            config=url.pathname==='/api/provider/publisher-image'?publisherServiceImages.get(payload.imageUrl):url.pathname==='/api/provider/public-html'?publicPages.get(target.href.split('#')[0]):panoptoDeliveries.get(identity);
           assert(config);helperRequests.push({courseId:config.id,kind:url.pathname.split('/').at(-1),mode:helperMode(input)});
           providerConfig=config;
         }
         let result=await helperApi(input,helperEnvironment);
+        if(providerConfig&&url.pathname==='/api/provider/publisher-image'){
+          const payload=JSON.parse(body);assert.deepEqual(Object.keys(payload).sort(),['imageUrl','sourceSha256','targetUrl']);
+          assert.equal(payload.targetUrl,publisherServiceCase.targetUrl);assert.equal(payload.imageUrl,publisherServiceImageUrl);
+          assert.equal(payload.sourceSha256,createHash('sha256').update(publisherServiceCase.bytes).digest('hex'));
+          assert(request.headers.cookie?.includes('ctiFixtureSession='+secrets[4]),'The helper API request is authenticated on its own origin');
+          assert.equal(request.headers.origin,helperOrigin);assert.equal(request.headers['sec-fetch-site'],'same-origin');
+          assert.equal(request.headers['content-type'],'application/json');
+          if(result.status===200&&providerConfig.publisherServiceMode!=='ready'){
+            const originalBytes=new Uint8Array(await result.arrayBuffer()),changed=new Headers(result.headers),mode=providerConfig.publisherServiceMode;
+            let output=originalBytes;
+            if(mode==='source-hash-tamper')changed.set('X-CTI-Publisher-Source-Hash','0'.repeat(64));
+            if(mode==='mime-header-tamper')changed.set('Content-Type','text/html');
+            if(mode==='missing-sha-header')changed.delete('X-CTI-Upstream-Sha256');
+            if(mode==='sha-header-tamper')changed.set('X-CTI-Upstream-Sha256','0'.repeat(64));
+            if(mode==='length-tamper'){changed.set('X-CTI-Upstream-Content-Length',String(originalBytes.length+1));changed.set('X-CTI-Upstream-Bytes',String(originalBytes.length+1));changed.delete('Content-Length');changed.delete('Content-Encoding');}
+            if(mode==='clean-short-eof'){output=originalBytes.subarray(0,originalBytes.length-1);changed.delete('Content-Length');changed.delete('Content-Encoding');}
+            if(mode==='body-sha-tamper'){output=originalBytes.slice();output[output.length-1]^=1;}
+            result=new Response(output,{status:200,headers:changed});
+          }
+        }
         if(providerConfig?.helperCleanShortEof&&url.pathname.endsWith('/podcast')&&result.status===200){
           // Simulate an intermediary converting a streamed failure into a clean
           // EOF after a valid MP4 prefix. The original full byte declaration
@@ -469,6 +517,11 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
         }
         await writeHelperResponse(response,result);
       })().catch(error=>{if(!response.destroyed){helperErrors.push(error.message);response.statusCode=500;response.end('Synthetic helper route failed');}});});return;
+    }
+    if(url.pathname==='/provider-helper.html'&&/(?:^|;\s*)ctiFixtureMode=legacy-image-unsupported(?:;|$)/.test(request.headers.cookie||'')){
+      assert(request.headers.cookie?.includes('ctiFixtureSession='+secrets[4]));
+      response.setHeader('Content-Type','text/html');response.setHeader('Cache-Control','no-store');
+      response.end('<!doctype html><title>Synthetic legacy CTI helper</title><script>const p=new URLSearchParams(location.hash.slice(1)),nonce=p.get("nonce"),courseId=p.get("courseId");let authorized=false;fetch("/api/access",{credentials:"same-origin"}).then(async r=>{authorized=r.ok&&(await r.json()).fullCti===true});addEventListener("message",e=>{const m=e.data;if(e.origin!=="'+origin+'"||e.source!==opener||m?.protocol!=="CTI_PROVIDER_HELPER_V1"||m.nonce!==nonce||m.courseId!==courseId)return;if(m.type==="init"&&authorized)opener.postMessage({protocol:m.protocol,nonce,courseId,type:"ready"},e.origin);if(m.type==="request")opener.postMessage({protocol:m.protocol,nonce,courseId,type:"error",id:m.id,itemId:m.itemId,providerId:m.providerId,code:"PROVIDER_HELPER_OPERATION_UNSUPPORTED"},e.origin);});</script>');return;
     }
     if(url.pathname==='/foreign-window.html'){response.setHeader('Content-Type','text/html');response.end('<!doctype html><title>Unrelated fixture window</title>');return;}
     const file=path.resolve('dist','.'+url.pathname);
@@ -651,7 +704,7 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     if(config.mode==='media-first-atom-failed'&&binding.itemId==='item_0002'){
       response.statusCode=503;response.end('{"error":"current atom read failed before media acquisition"}');return;
     }
-    if(config.mode==='publisher-final-binding-failed'&&['item_0002','item_0003'].includes(binding.itemId)&&
+    if(['publisher-final-binding-failed','publisher-service-final-binding-failed'].includes(config.mode)&&['item_0002','item_0003'].includes(binding.itemId)&&
         count>config.failFinalAtomAfter.get(reference)){
       response.statusCode=503;response.end('{"error":"synthetic final native atom read failed"}');return;
     }
@@ -753,7 +806,7 @@ try{
       window.addEventListener('message',event=>{const m=event.data;if(m?.protocol==='CTI_PROVIDER_HELPER_V1')
         window.fixtureProviderFrames.push({type:m.type,id:m.id,kind:m.kind,nonce:m.nonce,courseId:m.courseId,
           itemId:m.itemId,providerId:m.providerId,origin:event.origin,seq:m.seq,offset:m.offset,
-          bytes:m.bytes instanceof ArrayBuffer?m.bytes.byteLength:0});});
+          bytes:m.bytes instanceof ArrayBuffer?m.bytes.byteLength:0,operations:Array.isArray(m.operations)?m.operations:undefined});});
     });
     context.on('page',target=>{target.on('pageerror',error=>errors.push(error.message));target.on('download',download=>contextDownloads.push({page:target,download}));popups.push(target);});
     if(config===publisherImageCourse)await context.addInitScript(()=>{
@@ -1223,6 +1276,8 @@ try{
   for(const historical of [
     {version:'1.8.0',buildId:'v1.8.0-inline-widget-public-html-20261018'},
     {version:'1.8.1',buildId:'v1.8.1-browser-publisher-api-20261018'},
+    {version:'1.8.3',buildId:'v1.8.3-publisher-sections-original-images-20261018'},
+    // Leave v1.8.2 seeded for the separate flag-order continuation below.
     {version:'1.8.2',buildId:'v1.8.2-historical-publisher-checkpoint-20261018'},
   ]){
     const seeded=await publisherIntegrated.page.evaluate(async ({seed,historical})=>{
@@ -1356,11 +1411,15 @@ try{
       assert.equal(original.body.archivePath,'files/'+original.body.sha256);assert.equal(original.body.receipt.transport,'BROWSER_PUBLISHER_IMAGE');
       assert.equal(original.body.receipt.sourceSha256,page.observation.model.sha256);assert.equal(original.body.receipt.responseType,'cors');
       assert.equal(original.body.receipt.credentials,'omit');assert.equal(original.body.receipt.requestedUrl,original.url);
-      assert.equal(media.resources.find(resource=>resource.url.endsWith('/no-cors.png')).reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');
-      assert.equal(media.resources.find(resource=>resource.url.endsWith('/redirect.png')).reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');
+      assert.equal(media.resources.find(resource=>resource.url.endsWith('/no-cors.png')).reason,'PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED');
+      assert.equal(media.resources.find(resource=>resource.url.endsWith('/redirect.png')).reason,'PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED');
       assert.equal(media.resources.find(resource=>resource.url.endsWith('/wrong-mime.png')).reason,'PUBLISHER_IMAGE_MIME_OR_RANGE_UNSUPPORTED');
       assert.equal(media.resources.find(resource=>resource.url.endsWith('/bad-magic.png')).reason,'PUBLISHER_IMAGE_MAGIC_INVALID');
       assert(media.resources.filter(resource=>resource.reason).every(resource=>!resource.body),'Unreadable or unsupported bytes are never retained');
+      for(const unavailable of media.resources.filter(resource=>resource.reason==='PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED')){
+        assert.equal(unavailable.attempts.length,2);assert.equal(unavailable.attempts[0].transport,'BROWSER_PUBLISHER_IMAGE');
+        assert.equal(unavailable.attempts[0].reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(unavailable.attempts[1].serviceStatus,0);assert.equal(unavailable.attempts[1].upstreamRequests,0);
+      }
       assert(media.failures.some(failure=>failure.reason==='PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED'));
       assert.equal(fp.captureContract.complete,false);assert.equal(provider.wholeWidgetVerified,false);assert.equal(provider.bodyVerified,false);
       bodies.push(original.body);
@@ -1409,7 +1468,7 @@ try{
       'A failed raster request never discards the separately captured publisher JSON');
     assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
     const current=page.media.resources.find(resource=>resource.url===publisherImageBase+'main.png');
-    assert.equal(current.reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(current.body,undefined);
+    assert.equal(current.reason,'PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED');assert.equal(current.attempts[0].reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(current.body,undefined);
     assert.equal(page.media.retained.length,1);const retained=page.media.retained[0];
     assert.equal(retained.observation.model.rawJson,publisherImageCase.rawJson);
     const old=retained.resources.find(resource=>resource.url===publisherImageBase+'main.png').body;
@@ -1461,6 +1520,114 @@ try{
     'A staged local Blob is not an accepted item/file ownership reference or export claim');
   mainPublisherImage.body=oldPublisherImageBytes;publisherImageCourse.mode='complete';
   await assertNoEditor(imageIntegrated.page,imageIntegrated.destinations);await imageIntegrated.context.close();
+  const serviceImageBrowserStart=publisherImageRequests.length,serviceImageApiStart=helperRequests.length,serviceImageUpstreamStart=helperUpstreamRequests.length;
+  const serviceImage=await runFileCase(publisherServiceCourse);
+  function servicePublisherPage(capture){return capture.fingerprints.find(fp=>fp.id==='item_0002').payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];}
+  function assertServicePublisherOriginal(capture){
+    const placements=capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);assert.equal(placements.length,2);
+    for(const fp of placements){
+      const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0],resource=page.media.resources[0],body=resource.body;
+      assert.equal(page.observation.model.rawJson,publisherServiceCase.rawJson);assert.equal(page.failures.length,0);
+      assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+      assert.equal(resource.url,publisherServiceImageUrl);assert.equal(resource.references.length,2);assert.equal(resource.reason,undefined);
+      assert(body?.bytes instanceof Uint8Array);assert.deepEqual(Buffer.from(body.bytes),publisherServiceBytes);
+      assert.equal(body.size,publisherServiceBytes.length);assert.equal(body.sha256,createHash('sha256').update(publisherServiceBytes).digest('hex'));
+      assert.equal(body.archivePath,'files/'+body.sha256);const receipt=body.receipt;
+      assert.equal(receipt.transport,'CTI_SERVICE_PUBLIC_IMAGE');assert.equal(receipt.responseType,'service');assert.equal(receipt.credentials,'omit');
+      assert.equal(receipt.sourceSha256,page.observation.model.sha256);assert.equal(receipt.publisherSourceHash,page.observation.model.sha256);
+      assert.equal(receipt.serviceOrigin,helperOrigin);assert.equal(receipt.serviceStatus,200);assert.equal(receipt.upstreamStatus,200);assert.equal(receipt.upstreamRequests,1);
+      assert.equal(receipt.declaredBodyBytes,body.size);assert.equal(receipt.upstreamBytes,body.size);assert.equal(receipt.upstreamSha256,body.sha256);
+      assert.equal(receipt.browserAttempt.transport,'BROWSER_PUBLISHER_IMAGE');assert.equal(receipt.browserAttempt.status,0);
+      assert.equal(receipt.browserAttempt.responseType,'unreadable');assert.equal(receipt.browserAttempt.reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');
+      assert.equal(receipt.observedAtBasis,'BROWSER_RESPONSE');assert(Number.isFinite(Date.parse(receipt.upstreamObservedAt)));
+      assert.equal(fp.captureContract.complete,false);assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);
+    }
+    assert.equal(capture.meta.directDataCapture.coverage.questions,10);assert.equal(evaluateCourseraCapture(capture,publisherServiceCourse.id).complete,false);
+    return servicePublisherPage(capture).media.resources[0].body;
+  }
+  const serviceOriginal=assertServicePublisherOriginal(serviceImage.capture);
+  assert.equal(publisherImageRequests.length-serviceImageBrowserStart,1,'The browser first makes one real CORS-denied literal image request');
+  const firstServiceCalls=helperRequests.slice(serviceImageApiStart).filter(request=>request.courseId===publisherServiceCourse.id);
+  assert.equal(firstServiceCalls.length,1);assert.equal(firstServiceCalls[0].kind,'publisher-image');
+  assert.equal(helperUpstreamRequests.slice(serviceImageUpstreamStart).filter(request=>request.role==='PUBLISHER_IMAGE').length,1,
+    'The maintained service uses one public credentialless GET, shared across the two native placements');
+  const serviceFrames=await serviceImage.page.evaluate(()=>window.fixtureProviderFrames),chunks=serviceFrames.filter(frame=>frame.type==='chunk'),jobs=new Map();
+  for(const frame of chunks){if(!jobs.has(frame.id))jobs.set(frame.id,[]);jobs.get(frame.id).push(frame);}
+  const imageChunks=[...jobs.values()].find(frames=>frames.reduce((sum,frame)=>sum+frame.bytes,0)===publisherServiceBytes.length);
+  assert(imageChunks?.length>=3,'The actual authenticated helper streams the original raster over several bounded postMessage pulls');
+  let imageOffset=0;for(const [index,frame] of imageChunks.entries()){assert.equal(frame.seq,index);assert.equal(frame.offset,imageOffset);assert(frame.bytes>0&&frame.bytes<=65536);assert.equal(frame.origin,helperOrigin);imageOffset+=frame.bytes;}
+  assert(serviceFrames.some(frame=>frame.type==='ready'&&frame.operations?.includes('publisherImage')),
+    'The new helper explicitly advertises image support before an image job starts');
+  assert.equal(serviceImage.contextDownloads.length,1,'Only the owning Coursera tab creates one complete capture ZIP');
+  const serviceCheckpoint=await checkpointSnapshot(serviceImage.page);assert.equal(serviceCheckpoint.bodies.length,1);
+  assert.equal(serviceCheckpoint.bodies[0].blob.sha256,serviceOriginal.sha256);
+  const serviceZip=await JSZip.loadAsync(fs.readFileSync(await serviceImage.contextDownloads[0].download.path()),{checkCRC32:true});
+  assert.deepEqual(await serviceZip.file(serviceOriginal.archivePath).async('nodebuffer'),publisherServiceBytes);
+  const serviceSavedAssessments=serviceImage.capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence);
+  const serviceFailures=[
+    ['source-hash-tamper','PUBLISHER_IMAGE_PROVIDER_HELPER_INVALID_RESPONSE'],
+    ['missing-sha-header','PUBLISHER_IMAGE_PROVIDER_HELPER_INVALID_RESPONSE'],
+    ['sha-header-tamper','PUBLISHER_IMAGE_SERVICE_HASH_MISMATCH'],
+    ['body-sha-tamper','PUBLISHER_IMAGE_SERVICE_HASH_MISMATCH'],
+    ['mime-header-tamper','PUBLISHER_IMAGE_MIME_OR_RANGE_UNSUPPORTED'],
+    ['length-tamper','PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED'],
+    ['clean-short-eof','PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED'],
+    ['upstream-denied','PUBLISHER_IMAGE_UPSTREAM_HTTP_403'],
+  ];
+  for(const [mode,reason] of serviceFailures){
+    publisherServiceCourse.publisherServiceMode=mode;
+    const browserStart=publisherImageRequests.length,apiStart=helperRequests.length,upstreamStart=helperUpstreamRequests.length,nativeStart=requests.length;
+    const downloading=serviceImage.page.waitForEvent('download',{timeout:180000});
+    await serviceImage.page.reload();await launch(serviceImage.page,serviceImage.context);
+    const state=await terminal(serviceImage.page),capture=await readFile(await downloading);
+    assert.equal(state.runId,serviceImage.state.runId);assert.equal(state.state,'INCOMPLETE');
+    assert.equal(publisherImageRequests.length-browserStart,1);assert.equal(helperRequests.length-apiStart,1);
+    assert.equal(helperUpstreamRequests.length-upstreamStart,1,'A failed service frame never causes a second upstream GET');
+    for(const fp of capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
+      const page=fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0],current=page.media.resources[0];
+      assert.equal(page.observation.model.rawJson,publisherServiceCase.rawJson);assert.equal(page.failures.length,0);
+      assert.equal(current.body,undefined);assert.equal(current.reason,reason,'Exact service trust-boundary failure for '+mode);
+      assert.equal(current.attempts.length,2);assert.equal(current.attempts[0].status,0);assert.equal(current.attempts[0].reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');
+      assert.equal(current.attempts[1].transport,'CTI_SERVICE_PUBLIC_IMAGE');assert.equal(current.attempts[1].reason,reason);
+      assert.equal(page.media.retained.length,1);assert.deepEqual(page.media.retained[0].resources[0].body,serviceOriginal,
+        'A failed current service read preserves original native-bound image bytes and observation date');
+      assert.deepEqual(Buffer.from(page.media.retained[0].resources[0].body.bytes),publisherServiceBytes);
+      assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+      assert.equal(fp.captureContract.complete,false);
+    }
+    assert.deepEqual(capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence),serviceSavedAssessments);
+    assert(!requests.slice(nativeStart).some(request=>[groupResource,definitionResource].includes(request.resource)));
+    const saved=await checkpointSnapshot(serviceImage.page);assert.deepEqual(saved.bodies,serviceCheckpoint.bodies);
+    const archive=await JSZip.loadAsync(fs.readFileSync(await serviceImage.contextDownloads.at(-1).download.path()),{checkCRC32:true});
+    assert.deepEqual(await archive.file(serviceOriginal.archivePath).async('nodebuffer'),publisherServiceBytes);
+  }
+  publisherServiceCourse.publisherServiceMode='ready';
+  const actualServiceImage=publisherImages.get(publisherServiceImageUrl),priorServiceBytes=actualServiceImage.body;
+  actualServiceImage.body=Buffer.concat([pngBytes.subarray(0,-12),fixturePngTextChunk('Different unowned service image.'),pngBytes.subarray(-12)]);
+  const unownedServiceHash=createHash('sha256').update(actualServiceImage.body).digest('hex');assert.notEqual(unownedServiceHash,serviceOriginal.sha256);
+  publisherServiceCourse.mode='publisher-service-final-binding-failed';
+  publisherServiceCourse.failFinalAtomAfter=new Map([...publisherServiceCourse.atomGets].map(([id,count])=>[id,count+1]));
+  const failedServiceNativeDownload=serviceImage.page.waitForEvent('download',{timeout:180000});
+  await serviceImage.page.reload();await launch(serviceImage.page,serviceImage.context);
+  const failedServiceState=await terminal(serviceImage.page),failedServiceCapture=await readFile(await failedServiceNativeDownload);
+  assert.equal(failedServiceState.runId,serviceImage.state.runId);assert.equal(failedServiceState.state,'INCOMPLETE');
+  for(const fp of failedServiceCapture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
+    assert.equal(fp.payload.directResumeRevalidation.verified,false);
+    const old=fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0],attempt=fp.payload.directInlineWidgetProviderAttempt.providers[0].publisherPages[0];
+    assert.equal(old.observation.model.rawJson,publisherServiceCase.rawJson);assert.equal(attempt.observation.model.rawJson,publisherServiceCase.rawJson);
+    assert.deepEqual(old.media.retained[0].resources[0].body,serviceOriginal);
+    const unowned=attempt.media.resources[0];assert.equal(unowned.body,undefined);assert.equal(unowned.reason,'PUBLISHER_IMAGE_NATIVE_BINDING_UNVERIFIED');
+    assert.equal(unowned.unretainedBody.sha256,unownedServiceHash);assert.equal(unowned.unretainedBody.archivePath,undefined);
+    assert.equal(unowned.unretainedBody.receipt.transport,'CTI_SERVICE_PUBLIC_IMAGE');assert.equal(unowned.unretainedBody.receipt.publisherSourceHash,attempt.observation.model.sha256);
+  }
+  const failedServiceZip=await JSZip.loadAsync(fs.readFileSync(await serviceImage.contextDownloads.at(-1).download.path()),{checkCRC32:true});
+  assert.equal(failedServiceZip.file('files/'+unownedServiceHash),null);assert.deepEqual(await failedServiceZip.file(serviceOriginal.archivePath).async('nodebuffer'),publisherServiceBytes);
+  const stagedService=await checkpointSnapshot(serviceImage.page),unownedServiceRows=stagedService.bodies.filter(row=>row.sha256===unownedServiceHash);
+  assert.equal(unownedServiceRows.length,1);assert.equal(unownedServiceRows[0].blob.sha256,unownedServiceHash);
+  const serviceOwnership=[];for(const row of stagedService.items){const walk=value=>{if(!value||typeof value!=='object')return;if(value.body?.archivePath)serviceOwnership.push(value.body);for(const child of Object.values(value))walk(child);};walk(row.fingerprint);}
+  assert(!serviceOwnership.some(body=>body.sha256===unownedServiceHash),'Public-service staging cannot assign ownership after a failed native consistency read');
+  actualServiceImage.body=priorServiceBytes;publisherServiceCourse.mode='complete';
+  await assertNoEditor(serviceImage.page,serviceImage.destinations);await serviceImage.context.close();
   for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
     const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
     assert.equal(result.state.state,'INCOMPLETE');assert.equal(fp.captureContract.complete,false);assert(proof);
@@ -2221,10 +2388,11 @@ try{
     directReaderPreservesGenuineCspAndCorsFailures:true,popupBlockedAndCoopAndAccessDeniedRemainExplicitGaps:true,
     publisherBrowserCorsAndCredentialModesEnforced:true,publisherApiRetainsExactUtf8JsonAndDistinctRawRenderedFields:true,
     publisherApiWrongIdentityProtectedDraftMimeUtf8AndBodyLimitRemainGaps:true,publisherBrowserBlockedResponseNeverInventsHttpStatus:true,
-    completedV180V181AndV182CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
+    completedV180V181V182AndV183CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
     v182FlagOrderOnlyResumePreservesNativeOriginalsAssessmentsAndCumulativeBudgets:true,
     syntheticTypedPartResolutionPreservesChapter404HistoryAndTwoGetBound:true,
     publisherImagesUseActualCorsAndExactSourceBoundOriginalArchiveBytes:true,
+    publisherServiceImagesUseAuthenticatedHelperAndBoundedPublicBytesWithoutCorsForgery:true,
     foreignSameOriginWindowCannotForgeProviderResult:true,cancelClosesHelperAndPreservesNativeAndHistoricalBytes:true,
     accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,

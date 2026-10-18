@@ -21,6 +21,8 @@ export function assertWorkspaceRuntimeBindings(config, settings) {
     throw Error('The deployed private runtime does not use the configured Pages database.');
   if (!bindings.some(value => value.type === 'durable_object_namespace' && value.name === 'WORKSPACE_RUNTIME' && value.class_name === 'WorkspaceRuntime' && typeof value.namespace_id === 'string' && value.namespace_id.length > 0))
     throw Error('The deployed private runtime Durable Object binding is missing.');
+  if (!Array.isArray(settings?.compatibility_flags) || !config.compatibility_flags?.every(flag => settings.compatibility_flags.includes(flag)))
+    throw Error('The deployed private runtime compatibility flags do not preserve request cancellation.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -39,6 +41,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (data?.success !== true) throw Error('Reading deployed runtime bindings did not succeed.');
     assertWorkspaceRuntimeBindings(JSON.parse(fs.readFileSync(configPath, 'utf8')), data.result);
     console.log('Verified deployed WorkspaceRuntime and the unchanged Pages CTI_DB identity.');
+    console.log('Verified deployed private runtime request-signal compatibility flags.');
     process.exit(0);
   }
   const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/pages/projects/${projectName}`, {

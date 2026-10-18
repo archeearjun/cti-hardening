@@ -66,6 +66,13 @@ identity, stage, freshness and owner decisions remain separate.
 
 ## Engine and service boundaries
 
+The native Coursera bookmark's public publisher-image fallback is documented in
+[the v1.8.4 audit](audits/coursera-public-publisher-images-2026-10-19.md).
+`server/publisher-image-provider.ts` owns the single bounded public GET; both
+helper ends, the original-media reader and archive intake retain independent
+protocol, byte and native-source checks. This route never receives publisher
+cookies and cannot establish native or whole-widget completeness by itself.
+
 `src/engine/index.js` composes the existing public API from independently imported
 feature modules. Most functions operate directly on supplied evidence. The ten
 functions needing byte/XML services use explicit factories; `bind-services.js`

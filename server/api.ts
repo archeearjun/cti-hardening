@@ -5,6 +5,7 @@ import {
   panoptoProviderErrorResponse,
 } from "./panopto-provider.ts";
 import { readPublicHtmlProvider, publicHtmlProviderErrorResponse } from "./public-html-provider.ts";
+import { readPublisherImageProvider, publisherImageProviderErrorResponse } from "./publisher-image-provider.ts";
 import {
   validateRecord,
   validateWorkspaceTransition,
@@ -34,6 +35,7 @@ import {
 import {
   isWorkspaceApiPath,
   isPublicHtmlApiPath,
+  isPublisherImageApiPath,
   forwardWorkspaceApi,
 } from "./workspace-runtime.ts";
 interface Statement {
@@ -292,6 +294,18 @@ async function handlePublicHtmlProvider(request: Request, user: { role: string }
   } catch { return publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_INVALID_REQUEST", 400, origin); }
   return readPublicHtmlProvider(input.targetUrl as string, { fetcher: providerFetcher, signal: request.signal, serviceOrigin: origin });
 }
+async function handlePublisherImageProvider(request: Request, user: { role: string }, providerFetcher: typeof fetch): Promise<Response> {
+  requireWriteAccess(request, user);
+  const origin = new URL(request.url).origin;
+  if (request.method !== "POST") return publisherImageProviderErrorResponse("PUBLISHER_IMAGE_PROVIDER_METHOD_NOT_ALLOWED", 405, origin);
+  let input: { targetUrl: string; imageUrl: string; sourceSha256: string };
+  try {
+    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await boundedBody(request, 16384)));
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 3 ||
+        ["targetUrl", "imageUrl", "sourceSha256"].some(key => typeof (input as unknown as Record<string, unknown>)[key] !== "string")) throw Error();
+  } catch { return publisherImageProviderErrorResponse("PUBLISHER_IMAGE_PROVIDER_INVALID_REQUEST", 400, origin); }
+  return readPublisherImageProvider(input, { fetcher: providerFetcher, signal: request.signal, serviceOrigin: origin });
+}
 async function handlePanoptoProvider(
   request: Request,
   user: { role: string },
@@ -368,12 +382,13 @@ export function createApiHandler(
           : "viewer";
       const providerAction = panoptoProviderAction(request);
       const publicHtmlAction = isPublicHtmlApiPath(new URL(request.url).pathname);
-      if (providerAction || publicHtmlAction) {
+      const publisherImageAction = isPublisherImageApiPath(new URL(request.url).pathname);
+      if (providerAction || publicHtmlAction || publisherImageAction) {
         requireWriteAccess(request, { role });
         if (request.method !== "POST")
-          return publicHtmlAction ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin);
+          return publisherImageAction ? publisherImageProviderErrorResponse("PUBLISHER_IMAGE_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin) : publicHtmlAction ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin);
         if (!env.CTI_EXTRACTOR)
-          return publicHtmlAction ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin);
+          return publisherImageAction ? publisherImageProviderErrorResponse("PUBLISHER_IMAGE_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin) : publicHtmlAction ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin);
         // Provider parsing, source hashing and streaming callbacks run inside
         // the private Durable Object. Pages forwards the body without reading it.
         return await forwardWorkspaceApi(request, { ...identity, role }, env.CTI_EXTRACTOR);
@@ -432,6 +447,7 @@ export async function handleAuthorized(
       .filter(Boolean),
     method = request.method;
   const providerAction = panoptoProviderAction(request);
+  if (isPublisherImageApiPath(url.pathname)) return handlePublisherImageProvider(request, user, providerFetcher);
   if (isPublicHtmlApiPath(url.pathname)) return handlePublicHtmlProvider(request, user, providerFetcher);
   if (providerAction)
     return handlePanoptoProvider(

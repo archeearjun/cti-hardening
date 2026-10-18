@@ -2,9 +2,11 @@ import { DurableObject } from "cloudflare:workers";
 import { handleAuthorized, type Database } from "../../server/api.ts";
 import { panoptoProviderErrorResponse } from "../../server/panopto-provider.ts";
 import { publicHtmlProviderErrorResponse } from "../../server/public-html-provider.ts";
+import { publisherImageProviderErrorResponse } from "../../server/publisher-image-provider.ts";
 import {
   isProviderApiPath,
   isPublicHtmlApiPath,
+  isPublisherImageApiPath,
   WORKSPACE_RUNTIME_PREFIX,
   workspaceRuntimeCaller,
   workspaceRuntimeApiRequest,
@@ -14,12 +16,13 @@ import {
 export const WORKSPACE_RUNTIME_OBJECT_NAME = "cti-workspace-v1";
 export const PANOPTO_RUNTIME_OBJECT_NAME = "cti-panopto-public-v1";
 export const PANOPTO_RUNTIME_MAX_STREAMS = 8;
+export const PUBLISHER_IMAGE_RUNTIME_MAX_STREAMS = 1;
 
 export interface WorkspaceRuntimeEnvironment {
   CTI_DB?: Database;
   WORKSPACE_RUNTIME?: {
     idFromName(name: string): unknown;
-    get(id: unknown): { fetch(request: Request): Promise<Response> };
+    get(id: unknown): { fetch(request: Request, init?: RequestInit): Promise<Response> };
   };
 }
 
@@ -47,7 +50,7 @@ export async function forwardWorkspaceRuntime(
       env.WORKSPACE_RUNTIME.idFromName(isProviderApiPath(
         new URL(request.url).pathname.slice(WORKSPACE_RUNTIME_PREFIX.length),
       ) ? PANOPTO_RUNTIME_OBJECT_NAME : WORKSPACE_RUNTIME_OBJECT_NAME),
-    ).fetch(request);
+    ).fetch(request, { signal: request.signal });
   } catch (error) {
     return workspaceRuntimeError(error);
   }
@@ -60,20 +63,26 @@ export class WorkspaceRuntime extends DurableObject<WorkspaceRuntimeEnvironment>
   private tail: Promise<void> = Promise.resolve();
   private pending = 0;
   private providerActive = 0;
+  private publisherImageActive = 0;
 
   /** Provider streams use a dedicated object identity and never enter the
    * workspace mutation queue. Keep the permit until EOF/cancel/error, rather
    * than releasing it when the HTTP response headers become available. */
   private async provider(request: Request): Promise<Response> {
     const api = workspaceRuntimeApiRequest(request);
+    const publisherImage = isPublisherImageApiPath(new URL(api.url).pathname);
+    if (publisherImage && (this.publisherImageActive >= PUBLISHER_IMAGE_RUNTIME_MAX_STREAMS || this.providerActive >= PANOPTO_RUNTIME_MAX_STREAMS))
+      return publisherImageProviderErrorResponse("PUBLISHER_IMAGE_PROVIDER_BUSY", 503, new URL(api.url).origin);
     if (this.providerActive >= PANOPTO_RUNTIME_MAX_STREAMS)
       return isPublicHtmlApiPath(new URL(api.url).pathname) ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_BUSY", 503, new URL(api.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_BUSY", 503, new URL(api.url).origin);
     this.providerActive++;
+    if (publisherImage) this.publisherImageActive++;
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
       this.providerActive--;
+      if (publisherImage) this.publisherImageActive--;
     };
     let response: Response;
     try {

@@ -22,7 +22,11 @@ test('deployment binds exactly the existing production database without copying 
     assert.throws(() => bindWorkspaceDatabase(config, { deployment_configs: { production: { d1_databases: { CTI_DB: { id } } } } }));
   assert.throws(() => bindWorkspaceDatabase({ d1_databases: [] }, { deployment_configs: { production: { d1_databases: { CTI_DB: { id: databaseId } } } } }));
   const runtime = { type: 'durable_object_namespace', name: 'WORKSPACE_RUNTIME', class_name: 'WorkspaceRuntime', namespace_id: 'synthetic-private-namespace' };
-  assert.doesNotThrow(() => assertWorkspaceRuntimeBindings(bound, { bindings: [runtime, { type: 'd1', name: 'CTI_DB', id: databaseId }] }));
+  const settings = { bindings: [runtime, { type: 'd1', name: 'CTI_DB', id: databaseId }], compatibility_flags: [...config.compatibility_flags] };
+  assert.doesNotThrow(() => assertWorkspaceRuntimeBindings(bound, settings));
+  for (const flag of config.compatibility_flags)
+    assert.throws(() => assertWorkspaceRuntimeBindings(bound, { ...settings, compatibility_flags: settings.compatibility_flags.filter(value => value !== flag) }), /compatibility flags/);
+  assert.throws(() => assertWorkspaceRuntimeBindings(bound, { ...settings, compatibility_flags: undefined }), /compatibility flags/);
   assert.throws(() => assertWorkspaceRuntimeBindings(bound, { bindings: [runtime, { type: 'd1', name: 'CTI_DB', id: 'different-database' }] }));
   assert.throws(() => assertWorkspaceRuntimeBindings(bound, { bindings: [{ type: 'd1', name: 'CTI_DB', id: databaseId }] }));
 });

@@ -5,7 +5,7 @@ export interface WorkspaceRuntimeUser {
   role: string;
 }
 interface RuntimeService {
-  fetch(request: Request): Promise<Response>;
+  fetch(request: Request, init?: RequestInit): Promise<Response>;
 }
 export const WORKSPACE_SERVICE_ORIGIN =
   "https://cti-coursera-extractor.internal";
@@ -26,8 +26,11 @@ export function isPanoptoApiPath(path: string): boolean {
 export function isPublicHtmlApiPath(path: string): boolean {
   return path === "/api/provider/public-html";
 }
+export function isPublisherImageApiPath(path: string): boolean {
+  return path === "/api/provider/publisher-image";
+}
 export function isProviderApiPath(path: string): boolean {
-  return isPanoptoApiPath(path) || isPublicHtmlApiPath(path);
+  return isPanoptoApiPath(path) || isPublicHtmlApiPath(path) || isPublisherImageApiPath(path);
 }
 
 export function isDelegatedApiPath(path: string): boolean {
@@ -88,6 +91,7 @@ export async function forwardWorkspaceApi(
       // same streamed body without materializing the artifact in Pages.
       duplex: "half",
     } as RequestInit),
+    { signal: request.signal },
   );
 }
 

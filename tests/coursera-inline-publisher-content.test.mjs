@@ -10,6 +10,17 @@ import { directPublisherMediaInventoryV1, directPublisherMediaEvidenceV1 } from 
 
 const sha = raw => createHash("sha256").update(new TextEncoder().encode(raw)).digest("hex");
 const publisherObservation = value => value.proof.inlineProviderEvidence.providers[0].publisherPages[0].observation;
+function serviceImageFixture(options = {}) {
+  const f = createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED"], ...options }),
+    body = f.publisherMedia.resources[0].body;
+  Object.assign(body.receipt, { transport: "CTI_SERVICE_PUBLIC_IMAGE", responseType: "service", observedAtBasis: "BROWSER_RESPONSE",
+    serviceOrigin: "https://cti-hardening.pages.dev", serviceStatus: 200, upstreamStatus: 200,
+    upstreamObservedAt: "2040-01-01T00:00:00.000Z", upstreamRequests: 1, upstreamBytes: body.size,
+    declaredBodyBytes: body.size, upstreamSha256: body.sha256, publisherSourceHash: f.publisherObservation.model.sha256,
+    browserAttempt: { transport: "BROWSER_PUBLISHER_IMAGE", observedAt: "2027-01-15T08:00:00.007Z", status: 0,
+      responseType: "unreadable", reason: "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" } });
+  return f;
+}
 
 test("publisher API JSON remains exact, separate from original HTML and native reading text across reload and exports", () => {
   const f = createInlinePublisherContentFixture({ keepHistoricalHtml: true }), before = JSON.stringify(f.raw),
@@ -110,6 +121,8 @@ test("publisher image references stay owned, distinct from embedded bytes and st
   for (const part of [false, true]) {
     const f = createInlinePublisherMediaContentFixture({ part }), before = JSON.stringify(f.raw),
       inline = courseraInlineWidgetContent(f.fp, f.courseId), page = inline.providers[0].publisherPages[0], media = page.media;
+    if (!part) assert.equal(sha(JSON.stringify(inline)), "96a1fb8bbdece3c569e8eff59ed45a2df022ea1d6c4536ab3ce805c708a21333",
+      "Released browser-image projection remains byte-identical without service acquisition context");
     assert(directPublisherMediaEvidenceV1(f.publisherObservation, f.targetUrl, f.publisherMedia, bytes => createHash("sha256").update(bytes).digest("hex")));
     assert.equal(page.status, part ? "CAPTURED_PUBLISHER_API_PART" : "CAPTURED_PUBLISHER_API_CHAPTER");
     assert.equal(media.scope, "ORIGINAL_FILE_REFERENCES_ONLY"); assert.equal(media.resources.length, 2);
@@ -136,6 +149,79 @@ test("publisher image references stay owned, distinct from embedded bytes and st
   }
 });
 
+test("public service image references declare their route and preserve separate browser and upstream clocks", () => {
+  const f = serviceImageFixture(), before = JSON.stringify(f.raw), inline = courseraInlineWidgetContent(f.fp, f.courseId),
+    page = inline.providers[0].publisherPages[0], resource = page.media.resources[0], acquisition = resource.acquisition;
+  assert.equal(resource.status, "CAPTURED_ORIGINAL_FILE_REFERENCE");
+  assert.equal(acquisition.transport, "CTI_SERVICE_PUBLIC_IMAGE"); assert.equal(acquisition.responseType, "service");
+  assert.equal(acquisition.serviceOrigin, "https://cti-hardening.pages.dev");
+  assert.equal(acquisition.serviceStatus, 200); assert.equal(acquisition.upstreamStatus, 200);
+  assert.equal(acquisition.upstreamBytes, resource.bytes);
+  assert.equal(acquisition.browserAttempt.status, 0); assert.equal(acquisition.browserAttempt.responseType, "unreadable");
+  assert.equal(acquisition.observedAtBasis, "BROWSER_RESPONSE");
+  assert.equal(resource.observedAt, "2027-01-15T08:00:00.008Z");
+  assert.equal(acquisition.upstreamObservedAt, "2040-01-01T00:00:00.000Z", "An independent service clock is not compared with the native browser clock");
+  assert.equal(page.media.scope, "ORIGINAL_FILE_REFERENCES_ONLY"); assert.equal(resource.bodyVerified, undefined);
+  assert.equal(resource.bytes, f.publisherMediaBytes.length);
+  assert.equal(resource.sha256, createHash("sha256").update(f.publisherMediaBytes).digest("hex"));
+  assert.equal(JSON.stringify(f.raw), before); assert.equal(f.fp.captureContract.complete, false);
+  validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
+  const exported = courseraInlineWidgetContentText(inline);
+  assert(exported.includes("CTI_SERVICE_PUBLIC_IMAGE | response: service | collector-declared service context"));
+  assert(exported.includes("service clock")); assert(exported.includes("HTTP status unavailable"));
+  assert(exported.includes("independent attestation are unverified"));
+  assert(exported.includes("original bytes are not embedded in this report snapshot"));
+  const snapshot = buildContentSnapshot(undefined, undefined, f.raw);
+  validateContentSnapshot(JSON.parse(JSON.stringify(snapshot)));
+  assert.equal(snapshot.coursera[0].content.textCoverage, "UNVERIFIED");
+  for (const mutate of [
+    value => { value.publisherMedia.resources[0].body.receipt.serviceOrigin = "https://foreign.example"; },
+    value => { value.publisherMedia.resources[0].body.receipt.upstreamSha256 = "a".repeat(64); },
+    value => { value.publisherMedia.resources[0].body.receipt.responseType = "cors"; },
+    value => { value.publisherMedia.resources[0].body.receipt.observedAt = "2027-01-15T08:00:00.011Z"; },
+  ]) {
+    const invalid = serviceImageFixture(); mutate(invalid);
+    const projected = courseraInlineWidgetContent(invalid.fp, invalid.courseId).providers[0].publisherPages[0];
+    assert.equal(projected.status, "CAPTURED_PUBLISHER_API_CHAPTER");
+    assert.equal(projected.media.resources.length, 0); assert(projected.media.failures.length > 0);
+  }
+});
+
+test("responsive image alternatives remain raw evidence and are described separately from missing originals", () => {
+  const f = createInlinePublisherMediaContentFixture({ responsive: true, outcomes: ["CAPTURED"] }),
+    before = JSON.stringify(f.raw), inline = courseraInlineWidgetContent(f.fp, f.courseId), media = inline.providers[0].publisherPages[0].media,
+    code = "PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED";
+  assert.deepEqual(media.failures, [code, code], "Raw and rendered source warnings stay in the legacy projection for canonical reload");
+  assert.equal(media.resources[0].status, "CAPTURED_ORIGINAL_FILE_REFERENCE");
+  assert.equal(media.resources[0].url, f.publisherImageUrls[0]);
+  assert(f.publisherRawJson.includes("srcset=")); assert.equal(JSON.stringify(f.raw), before);
+  const exported = courseraInlineWidgetContentText(inline);
+  assert(exported.includes("Responsive image alternatives remain unverified; observed src read outcomes are listed separately."));
+  assert(!exported.includes("Publisher image source outcome: " + code));
+  validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
+});
+
+test("failed browser and public-service image attempts retain separate declared outcomes without original-file claims", () => {
+  const f = createInlinePublisherMediaContentFixture({ outcomes: ["PUBLISHER_IMAGE_SERVICE_REQUEST_FAILED"] }),
+    resource = f.publisherMedia.resources[0];
+  resource.attempts = [{ transport: "BROWSER_PUBLISHER_IMAGE", observedAt: "2027-01-15T08:00:00.007Z", status: 0,
+    responseType: "unreadable", reason: "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" },
+  { transport: "CTI_SERVICE_PUBLIC_IMAGE", observedAt: "2027-01-15T08:00:00.008Z", serviceOrigin: "https://cti-hardening.pages.dev",
+    serviceStatus: 503, upstreamStatus: 0, upstreamObservedAt: "", upstreamRequests: 0, upstreamBytes: 0,
+    reason: "PUBLISHER_IMAGE_SERVICE_REQUEST_FAILED" }];
+  const inline = courseraInlineWidgetContent(f.fp, f.courseId), page = inline.providers[0].publisherPages[0],
+    projected = page.media.resources[0];
+  assert.equal(page.status, "CAPTURED_PUBLISHER_API_CHAPTER");
+  assert.equal(projected.status, "UNRESOLVED"); assert.equal(projected.originalRef, ""); assert.equal(projected.bytes, null);
+  assert.equal(projected.acquisition, undefined);
+  assert.deepEqual(projected.attempts, resource.attempts);
+  const exported = courseraInlineWidgetContentText(inline);
+  assert(exported.includes("CTI public image attempt: 2027-01-15T08:00:00.008Z"));
+  assert(exported.includes("HTTP 503")); assert(exported.includes("Collector-declared upstream result: HTTP status unavailable"));
+  assert(!exported.includes("HTTP 0"));
+  validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
+});
+
 test("invalid publisher media and collection failures do not hide independently verified original JSON", () => {
   for (const mutate of [
     f => { f.publisherMedia.resources[0].body.receipt.sourceSha256 = "f".repeat(64); },
@@ -158,8 +244,8 @@ test("invalid publisher media and collection failures do not hide independently 
   validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
 });
 
-test("historical image references retain their exact earlier JSON owner and timestamps after source changes", () => {
-  const f = createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED"] }),
+for (const service of [false, true]) test("historical " + (service ? "public-service" : "browser") + " image references retain their exact earlier JSON owner and timestamps after source changes", () => {
+  const f = service ? serviceImageFixture() : createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED"] }),
     previousObservation = structuredClone(f.publisherObservation), previousResources = f.publisherMedia.resources,
     resource = structuredClone(f.publisherResource);
   resource.content.raw += "<p>Newly observed publisher wording.</p>";
@@ -179,6 +265,7 @@ test("historical image references retain their exact earlier JSON owner and time
   assert.equal(historical.sourceSha256, previousObservation.model.sha256);
   assert.equal(historical.observedAt, previousObservation.model.observedAt);
   assert.equal(historical.resources[0].observedAt, previousResources[0].body.receipt.observedAt);
+  assert.equal(historical.resources[0].acquisition?.transport, service ? "CTI_SERVICE_PUBLIC_IMAGE" : undefined);
   assert.notEqual(historical.sourceSha256, projected.sourceSha256);
   assert.equal(courseraInlinePublisherPage(inline, f.providerId, f.targetUrl).rawJson, rawJson);
   validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);

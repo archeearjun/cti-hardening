@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as bridge from "../server/workspace-runtime.ts";
 import { panoptoProviderErrorResponse } from "../server/panopto-provider.ts";
 import { publicHtmlProviderErrorResponse } from "../server/public-html-provider.ts";
+import { publisherImageProviderErrorResponse } from "../server/publisher-image-provider.ts";
 import { CTI_OWNER_EMAIL } from "../server/access.ts";
 
 const origin="https://cti-hardening.pages.dev";
@@ -23,6 +24,7 @@ function fixture(handler,env={}) {
     "../../server/api.ts":{handleAuthorized:handler},
     "../../server/panopto-provider.ts":{panoptoProviderErrorResponse},
     "../../server/public-html-provider.ts":{publicHtmlProviderErrorResponse},
+    "../../server/publisher-image-provider.ts":{publisherImageProviderErrorResponse},
     "../../server/workspace-runtime.ts":bridge,
   };
   vm.runInNewContext(compiled,{exports,require:name=>{
@@ -43,12 +45,13 @@ test("private frontdoor selects distinct provider and record object identities",
   const names=[];
   const f=fixture(()=>{throw Error("The frontdoor must not execute providers");});
   const env={WORKSPACE_RUNTIME:{idFromName(name){names.push(name);return name;},get(name){return{
-    fetch:async delegated=>{bridge.workspaceRuntimeCaller(delegated);return Response.json({name});},
+    fetch:async(delegated,init)=>{assert.equal(init.signal,delegated.signal,"Private DO fetch receives the incoming abort signal explicitly");bridge.workspaceRuntimeCaller(delegated);return Response.json({name});},
   };}}};
   assert.equal((await f.forwardWorkspaceRuntime(request(),env)).status,200);
   assert.equal((await f.forwardWorkspaceRuntime(request("/api/records"),env)).status,200);
   assert.equal((await f.forwardWorkspaceRuntime(request("/api/provider/public-html"),env)).status,200);
-  assert.deepEqual(names,[f.PANOPTO_RUNTIME_OBJECT_NAME,f.WORKSPACE_RUNTIME_OBJECT_NAME,f.PANOPTO_RUNTIME_OBJECT_NAME]);
+  assert.equal((await f.forwardWorkspaceRuntime(request("/api/provider/publisher-image"),env)).status,200);
+  assert.deepEqual(names,[f.PANOPTO_RUNTIME_OBJECT_NAME,f.WORKSPACE_RUNTIME_OBJECT_NAME,f.PANOPTO_RUNTIME_OBJECT_NAME,f.PANOPTO_RUNTIME_OBJECT_NAME]);
   assert.notEqual(names[0],names[1]);
 });
 
@@ -143,4 +146,75 @@ test("upstream failure releases a provider permit while the consumer has not pul
   await assert.rejects(active.shift().arrayBuffer(),/Provider transfer interrupted/);
   active.push(replacement);
   for(const response of active)await response.body.cancel();
+});
+
+const imagePath="/api/provider/publisher-image";
+test("one image and core providers coexist under the unchanged global eight-permit bound",async()=>{
+  let calls=0;
+  const f=fixture(async(api,db,user)=>{
+    calls++;assert.equal(db,undefined);assert.equal(user.email,CTI_OWNER_EMAIL);
+    assert.equal(api.headers.get("Origin"),origin);
+    return new Response(new ReadableStream(),{headers:{"X-CTI-Provider-Origin":origin}});
+  });
+  assert.equal(f.PUBLISHER_IMAGE_RUNTIME_MAX_STREAMS,1);
+  assert.equal(f.PANOPTO_RUNTIME_MAX_STREAMS,8);
+  const image=await f.object.fetch(request(imagePath));assert.equal(image.status,200);
+  const core=await f.object.fetch(request("/api/provider/panopto/metadata"));assert.equal(core.status,200);
+  const busy=await f.object.fetch(request(imagePath));
+  assert.equal(busy.status,503);assert.deepEqual(await busy.json(),{error:"PUBLISHER_IMAGE_PROVIDER_BUSY"});
+  assert.equal(busy.headers.get("X-CTI-Provider-Transport"),"CTI_SERVICE_PUBLIC_IMAGE");
+  assert.equal(busy.headers.get("X-CTI-Upstream-Status"),"0");
+  assert.equal(busy.headers.get("X-CTI-Upstream-Requests"),"0");assert.equal(calls,2);
+  const active=[core];
+  for(let index=2;index<f.PANOPTO_RUNTIME_MAX_STREAMS;index++){
+    const response=await f.object.fetch(request());assert.equal(response.status,200);active.push(response);
+  }
+  const globalBusy=await f.object.fetch(request());
+  assert.equal(globalBusy.status,503);assert.equal((await globalBusy.json()).error,"PANOPTO_PROVIDER_BUSY");
+  assert.equal(calls,8,"Busy image and global rejections never run the provider");
+  await image.body.cancel();
+  const replacement=await f.object.fetch(request(imagePath));assert.equal(replacement.status,200);active.push(replacement);
+  assert.equal((await f.object.fetch(request())).status,503,"Replacement image also consumes a global permit");
+  for(const response of active)await response.body.cancel();
+});
+
+test("the image permit releases at EOF, body cancel, request abort and paused upstream stream error",async()=>{
+  const streams=[];let cancelled=0;
+  const f=fixture(async api=>new Response(new ReadableStream({
+    start(controller){streams.push({path:new URL(api.url).pathname,controller});},cancel(){cancelled++;},
+  }),{headers:{"X-CTI-Upstream-Content-Length":"12","X-CTI-Upstream-Sha256":"a".repeat(64)}}));
+  const core=await f.object.fetch(request());assert.equal(core.status,200);
+  const first=await f.object.fetch(request(imagePath));
+  assert.equal(first.headers.get("X-CTI-Upstream-Sha256"),"a".repeat(64));
+  assert.equal((await f.object.fetch(request(imagePath))).status,503);
+  streams[1].controller.close();assert.equal(await first.text(),"");
+  const afterEof=await f.object.fetch(request(imagePath));assert.equal(afterEof.status,200);
+  await afterEof.body.cancel();
+  const abort=new AbortController(),afterCancel=await f.object.fetch(request(imagePath,abort.signal));
+  assert.equal(afterCancel.status,200);abort.abort();
+  await assert.rejects(afterCancel.arrayBuffer(),/Provider transfer cancelled/);
+  const afterAbort=await f.object.fetch(request(imagePath));assert.equal(afterAbort.status,200);
+  const failed=streams.at(-1);assert.equal(failed.path,imagePath);
+  failed.controller.error(Error("synthetic image upstream timeout"));
+  await new Promise(resolve=>setImmediate(resolve));
+  const afterError=await f.object.fetch(request(imagePath));assert.equal(afterError.status,200,
+    "A failed paused image stream cannot retain its image permit");
+  await assert.rejects(afterAbort.arrayBuffer(),/Provider transfer interrupted/);
+  assert.equal((await f.object.fetch(request(imagePath))).status,503);
+  await afterError.body.cancel();await core.body.cancel();
+  assert(cancelled>=3,"Body and request cancellation reach their underlying streams");
+});
+
+test("a failed image computation releases both permits before a successful replacement",async()=>{
+  let calls=0;
+  const f=fixture(async()=>{
+    if(++calls===1)throw Error("synthetic image computation failure");
+    return new Response("bounded image fixture");
+  });
+  const failed=await f.object.fetch(request(imagePath));assert.equal(failed.status,500);
+  assert.equal((await failed.json()).error,"synthetic image computation failure");
+  const recovered=await f.object.fetch(request(imagePath));assert.equal(recovered.status,200);
+  assert.equal(await recovered.text(),"bounded image fixture");
+  const next=await f.object.fetch(request(imagePath));assert.equal(next.status,200);await next.body.cancel();
+  assert.equal(calls,3);
 });

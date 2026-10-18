@@ -69,9 +69,12 @@ export default function CourseraDirectCaptureSetup({
         It identifies supported item types automatically, including Panopto
         plugins. Accessible Panopto metadata and supported MP4 renditions are
         read within this run and saved in the same archive. CTI opens one helper
-        tab to request supported public Panopto sources through its own service.
+        tab to request supported public Panopto sources and publisher images
+        through its own service when the browser cannot read them directly.
         Keep that tab open and sign into CTI there if requested. Your Panopto
-        login is not sent to the service. Unavailable access, missing sources, and unsupported content stay visible as
+        and publisher logins are not sent to the service. Image originals must
+        match their observed source reference, file signature, size and hash
+        before they enter the capture. Unavailable access, missing sources, and unsupported content stay visible as
         evidence gaps. A saved video does not establish complete widget content.
       </p>
       <ol className="local-extraction-steps">
@@ -113,7 +116,7 @@ export default function CourseraDirectCaptureSetup({
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
         resuming. This version can continue supported saved captures, including
-        v1.8.2 runs that reached a media limit or finished with evidence gaps. It rechecks the current
+        v1.8.3 runs that reached a media limit or finished with evidence gaps. It rechecks the current
         course sources and preserves earlier assessment observations and their
         dates. After edits, Start a fresh course capture rereads the course in a
         separate run while keeping prior checkpoints within normal retention.
