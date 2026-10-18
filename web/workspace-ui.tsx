@@ -1,4 +1,5 @@
 import { readCourseraCaptureFileBytes } from "../src/domain/coursera-capture-file.ts";
+import { readBrightspaceCaptureFileBytes } from "../src/domain/capture-file.ts";
 
 export function download(
   name: string,
@@ -15,14 +16,16 @@ export function download(
 export const json = (value: unknown) => JSON.stringify(value, null, 2);
 export async function inputFile(
   file: File | null,
-  options: { courseraCapture?: boolean } = {},
+  options: { courseraCapture?: boolean; brightspaceCapture?: boolean } = {},
 ) {
   if (!file) return undefined;
   return {
     name: file.name,
     ...(options.courseraCapture
       ? await readCourseraCaptureFileBytes(file)
-      : { bytes: new Uint8Array(await file.arrayBuffer()) }),
+      : options.brightspaceCapture
+        ? await readBrightspaceCaptureFileBytes(file)
+        : { bytes: new Uint8Array(await file.arrayBuffer()) }),
   };
 }
 export function Evidence({ value }: { value: unknown }) {

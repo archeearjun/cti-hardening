@@ -8,7 +8,8 @@ export const CTI_RELEASE_REGISTRY_ = Object.freeze({
   qaEngine:'v8.0.0',
   architecture:CTI_ARCHITECTURE_VERSION_,
   courseraExtractor:{version:'v6.15.33',schema:35,build:'v6.15.33-bound-assessment-surface-and-body-resume-20261013',delivery:'GENERATED_BROWSER_BUNDLE'},
-  brightspaceExtractor:{version:'v1.1.1',schema:2,build:'v1.1.1-native-image-view-20261017',delivery:'GENERATED_BROWSER_BUNDLE'},
+  directDataCourseraExtractor:{version:'v1.7.4',schema:35,build:'v1.7.4-native-cml-block-boundaries-20261017',delivery:'GENERATED_BROWSER_BUNDLE'},
+  brightspaceExtractor:{version:'v1.2.0',schema:2,build:'v1.2.0-blob-archive-20261017',delivery:'GENERATED_BROWSER_BUNDLE'},
   evidenceEnvelopeSchema:1,
   qaRunSchema:5,
   macmillanTimeModel:'m2-leaf-evidence-20260911'

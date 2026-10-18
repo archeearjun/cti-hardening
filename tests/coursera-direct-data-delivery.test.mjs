@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 import { courseraDirectDataSource } from "../src/generated/extractor-sources.js";
 import {
   COURSERA_DIRECT_DATA_CAPTURE_VERSION,
@@ -20,11 +21,18 @@ test("the universal capture bookmark carries the exact standalone current progra
   const address = createCourseraDirectDataCaptureBookmark();
   assert.equal(script, "void " + courseraDirectDataSource);
   assert.equal(decode(address), script);
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.7.3");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.7.4");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.7.3-panopto-exact-body-length-20261017",
+    "v1.7.4-native-cml-block-boundaries-20261017",
   );
+  assert.deepEqual(CTI_RELEASE_REGISTRY_.directDataCourseraExtractor, {
+    version: "v" + COURSERA_DIRECT_DATA_CAPTURE_VERSION,
+    schema: 35,
+    build: COURSERA_DIRECT_DATA_CAPTURE_BUILD,
+    delivery: "GENERATED_BROWSER_BUNDLE",
+  });
+  assert.equal(CTI_RELEASE_REGISTRY_.courseraExtractor.version, "v6.15.33");
   assert(
     courseraDirectDataSource.includes(COURSERA_DIRECT_DATA_CAPTURE_VERSION),
   );

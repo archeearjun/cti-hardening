@@ -4,10 +4,8 @@ import {
   assertBrightspaceCaptureIntegrity,
   inspectBrightspaceCaptureEvidence,
 } from "./brightspace-capture-evidence.ts";
-import {
-  attachCourseraArchiveFileBytes,
-  readCourseraCaptureFileBytes,
-} from "./coursera-capture-file.ts";
+import { attachCourseraArchiveFileBytes } from "./coursera-capture-file.ts";
+import { readCaptureFileBytes } from "./capture-file.ts";
 import { reviewCapture } from "./capture-review.ts";
 
 type Row = Record<string, any>;
@@ -385,13 +383,17 @@ export async function prepareCaptureShareReview(
   progress: (phase: string) => void = () => {},
 ): Promise<CaptureShareReview> {
   progress("Reading your existing capture locally");
-  const { bytes, archiveFiles, transport } =
-    await readCourseraCaptureFileBytes(file);
+  const {
+    bytes,
+    archiveFiles,
+    transport,
+    capture: archivedCapture,
+  } = await readCaptureFileBytes(file);
   let capture: unknown;
   try {
-    capture = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    );
+    capture =
+      archivedCapture ??
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
     throw Error("The selected capture is not valid UTF-8 JSON.");
   }

@@ -410,6 +410,7 @@ export default function OwnerActionCard({
       <summary>
         <span>
           <strong>{task.name}</strong>
+          {task.shellName && <small>Captured content name · shell label: {task.shellName}</small>}
           <small>
             {task.type}
             {saved?.data.review?.status && saved.data.review.status !== "open"

@@ -35,6 +35,7 @@ import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
 import { ownerScope } from "./owner-scope.ts";
 import { moduleTimes, moduleTimesText } from "./owner-time.ts";
 import { validatePanoptoDeliveryInfoCapture } from "./panopto-delivery-info.ts";
+import { sourceVisibilityText } from "./source-navigation.ts";
 
 export interface ExportedOwnerReview {
   relevance?: OwnerReview["relevance"];
@@ -246,6 +247,7 @@ export async function prepareOwnerReportExport(
         itemKey: task.key,
         id: task.id,
         name: task.name,
+        ...(task.shellName ? { shellName: task.shellName } : {}),
         questionComparisons: withQuestionFollowUp(
           task.questionComparisons,
           review?.capture,
@@ -258,12 +260,30 @@ export async function prepareOwnerReportExport(
     })
     .filter((group) => group.questionComparisons.length);
   const followUp = {
+    sourceFileBanks: contentEvidence.brightspace
+      .filter((item) => item.content.sourceFileBank)
+      .map((item) => ({
+        topicId: item.id,
+        name: item.name,
+        path: item.path,
+        originalRef: item.content.sourceFileBank!.source.originalRef,
+        url: item.content.sourceFileBank!.source.url,
+        status: item.content.sourceFileBank!.status,
+        encounteredQuestions: item.content.sourceFileBank!.encounteredQuestions,
+        capturedQuestions: item.content.questions.length,
+        nativeQuizMembership: "UNVERIFIED" as const,
+      })),
+    sourcePlacement: (normalizeOwnerContext(report.ownerContext).sourceTopics || [])
+      .filter((topic: EvidenceObject) => topic.sourceVisibility)
+      .map((topic: EvidenceObject) => ({ id: topic.id, name: topic.name, path: topic.path, sourceVisibility: topic.sourceVisibility })),
     itemScope: tasks.map(t => ({ itemKey: t.key, name: t.name, ...ownerScope(t, reviews.find(r => r.itemKey === t.key)) })),
     moduleTimes: moduleTimes(tasks, reviews.map(r => ({ itemKey: r.itemKey, review: r }))),
     contentEvidence,
     contentComparisons: tasks.map((task) => ({
       itemKey: task.key,
+      id: task.id,
       name: task.name,
+      ...(task.shellName ? { shellName: task.shellName } : {}),
       view: itemContentView(
         task,
         contentEvidence,
@@ -334,6 +354,7 @@ export async function prepareOwnerReportExport(
     "These later observations and manual notes supplement the original audit below. Its scores, findings and ingestion status are unchanged. No finding is automatically cleared; this is not publication approval.",
     "Only work saved against this exact report is included. Unsaved notes and checks attached to other reports are not included.",
     "CHECKLIST SCOPE: Instructor/instructional resources, archives and owner-excluded items are reference only. Their original findings below are retained history, not publishing tasks.",
+    ...tasks.filter(task => task.shellName).map(task => `Item name evidence: ${line(task.name)} [${line(task.id)}] — exact captured content name; recorded shell name: ${line(task.shellName)}. Both original observations are retained.`),
     ...followUp.itemScope.filter(t => !t.included).map(t => `Excluded: ${t.name} [${t.itemKey}] — ${t.reason}`),
     moduleTimesText(followUp.moduleTimes),
   ];
@@ -341,6 +362,17 @@ export async function prepareOwnerReportExport(
     lines.push(
       "NO SAVED FOLLOW-UP EVIDENCE FOR THIS REPORT. Import the item-check JSON into the same saved report that generated its script, then export that report. A new comparison is not required.",
     );
+  if (followUp.sourceFileBanks.length) {
+    lines.push("", "RETAINED SOURCE-FILE QUESTION BANKS",
+      `${followUp.sourceFileBanks.length} original CSV bank files | ${followUp.sourceFileBanks.reduce((n, bank) => n + bank.capturedQuestions, 0)} structured source-file questions. These records are separate from native quiz question lists; deployed quiz membership and whole-library coverage remain unverified.`);
+    for (const bank of followUp.sourceFileBanks)
+      lines.push(`${line(bank.name)} [source topic ${line(bank.topicId)}] — ${bank.capturedQuestions}/${bank.encounteredQuestions} file question records projected | ${bank.status} | original SHA-256: ${bank.originalRef}`);
+  }
+  if (followUp.sourcePlacement.length) {
+    lines.push("", "CAPTURED SOURCE PLACEMENT AND VISIBILITY", "Placement and flags below retain the source ancestor chain. Hidden or archived source material is not automatically required in the destination, and matching content is not automatically approved.");
+    for (const topic of followUp.sourcePlacement)
+      lines.push(`${line(topic.name)} [source topic ${line(topic.id)}] — ${line(topic.path)}`, ...sourceVisibilityText(topic).map(value => `  ${value}`));
+  }
   for (const r of reviews) {
     lines.push(
       "",
@@ -402,7 +434,7 @@ export async function prepareOwnerReportExport(
   }
   lines.push("", questionComparisonsText(questionComparisons));
   for (const item of followUp.contentComparisons)
-    lines.push("", itemContentText(item.name, item.view));
+    lines.push("", itemContentText(`${item.name}${item.id ? ` [${item.id}]` : ""}${item.shellName ? ` — recorded shell name: ${item.shellName}` : ""}`, item.view));
   const original =
     typeof report.report === "string"
       ? report.report

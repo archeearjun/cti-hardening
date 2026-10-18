@@ -1088,11 +1088,20 @@ async function checkSourceShellEvidence(page, tab, shots) {
     independentWorkbook: false,
     completeContent: false,
   };
+  const tasksAfterOutline = buildOwnerTasks(
+    report.result,
+    source.course.data.scan.courseTree,
+  );
   assert.deepEqual(
-    buildOwnerTasks(report.result, source.course.data.scan.courseTree),
+    tasksAfterOutline.map(({ nativeAncestors: _nativeAncestors, ...task }) => task),
     tasksBeforeOutline,
     "Native shell folders and reference-only placements do not invent owner findings",
   );
+  for (const task of tasksAfterOutline)
+    assert.deepEqual(task.nativeAncestors, [
+      { id: "native-module", title: "Module 1" },
+      { id: "native-lesson", title: "Lesson 1" },
+    ], "Existing owner findings retain their exact captured native ancestors");
   const savedAudit = {
       ...source.course,
       id: "source-shell-evidence-audit",
@@ -1961,7 +1970,7 @@ try {
     })
     .click();
   await page
-    .getByLabel("Original extraction JSON", { exact: true })
+    .getByLabel("Original extraction capture", { exact: true })
     .setInputFiles({
       name: "wrong.json",
       mimeType: "application/json",
@@ -1972,7 +1981,7 @@ try {
     .filter({ hasText: "does not match either original extraction hash" })
     .waitFor();
   await page
-    .getByLabel("Original extraction JSON", { exact: true })
+    .getByLabel("Original extraction capture", { exact: true })
     .setInputFiles({
       name: input.json.name,
       mimeType: "application/json",

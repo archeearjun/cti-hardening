@@ -2,7 +2,7 @@ import { createEngine } from "../engine/index.js";
 import build from "../release.json" with { type: "json" };
 import { CTI_RELEASE_REGISTRY_ } from "../engine/release.js";
 import { createBrowserServices } from "../adapters/browser-services.ts";
-import { readCourseraCaptureFileBytes } from "./coursera-capture-file.ts";
+import { readCaptureFileBytes } from "./capture-file.ts";
 import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import {
   hasCourseraDirectDataCaptureMarker,
@@ -46,12 +46,12 @@ const engine = createEngine(
 ) as unknown as CaptureEngine;
 export const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
 export async function readCaptureReviewFile(file: File): Promise<unknown> {
-  const { bytes } = await readCourseraCaptureFileBytes(file);
+  const { bytes, capture: archivedCapture } = await readCaptureFileBytes(file);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    );
+    parsed =
+      archivedCapture ??
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
     throw Error("The selected capture is not valid UTF-8 JSON.");
   }

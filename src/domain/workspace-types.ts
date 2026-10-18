@@ -39,7 +39,12 @@ export interface ComparisonInput {
     transport?: import("./coursera-capture-file.ts").CourseraCaptureTransport;
     archiveFiles?: import("./coursera-capture-file.ts").CourseraArchiveFile[];
   };
-  brightspace?: { name: string; bytes: Uint8Array };
+  brightspace?: {
+    name: string;
+    bytes: Uint8Array;
+    transport?: import("./coursera-capture-file.ts").CourseraCaptureTransport;
+    brightspaceArchiveFiles?: import("./brightspace-capture-archive.ts").BrightspaceArchiveFile[];
+  };
   recovery?: { name: string; bytes: Uint8Array };
   mode: "raw" | "ops" | "published" | "auto";
   generation: number;
@@ -52,7 +57,8 @@ export interface ComparisonInput {
 export interface ComparisonOutput {
   archiveProof?: import("./coursera-archive-proof.ts").CourseraArchiveProof;
   captureTransport?: {
-    json: import("./coursera-capture-file.ts").CourseraCaptureTransport;
+    json?: import("./coursera-capture-file.ts").CourseraCaptureTransport;
+    brightspace?: import("./coursera-capture-file.ts").CourseraCaptureTransport;
   };
   contentEvidence?: import("./content-evidence.ts").ContentSnapshot;
   ownerContext?: EvidenceObject;

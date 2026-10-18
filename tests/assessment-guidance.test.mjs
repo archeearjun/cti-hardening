@@ -170,6 +170,38 @@ test('Downloadable report separates historical captured evidence from the curren
   assert.match(report,/does not retroactively change its evidence/);
 });
 
+test('Direct course bookmark reports compare their captured build against the independent bookmark release family',()=>{
+  const meta={buildId:'v1.7.2-content-and-structure-coverage-20261017',capturedAt:'2026-10-17T10:09:36.092Z',
+    directDataCapture:{mode:'BOUND_AUTHORING_DRAFT_API',version:1}};
+  const before=JSON.stringify(meta),readiness=c.qaCourseraCaptureReadiness_(meta,[]);
+  assert.equal(readiness.observedVersion,'v1.7.2');
+  assert.equal(readiness.expectedVersion,'v1.7.4');
+  assert.equal(readiness.olderCapture,true);
+  const report=buildPostQaText_({success:true,stats:{extractorMeta:meta},captureReadiness:readiness,
+    summary:{headlineStatus:'REVIEW'},itemResults:[],missing:[],injected:[]});
+  assert.match(report,/Coursera captured extractor: v1\.7\.2-content-and-structure-coverage-20261017/);
+  assert.match(report,/Current available Coursera extractor: v1\.7\.4/);
+  assert.doesNotMatch(report,/Current available Coursera extractor: v6\./);
+  assert.match(report,/Version relationship: HISTORICAL_CAPTURE/);
+  assert.equal(JSON.stringify(meta),before);
+  const current=c.qaCourseraCaptureReadiness_({...meta,buildId:'v1.7.4-native-cml-block-boundaries-20261017'},[]);
+  assert.equal(current.status,'CURRENT_VERSION');
+  assert.equal(current.expectedVersion,'v1.7.4');
+  assert.equal(current.olderCapture,false);
+});
+
+test('Unmarked and malformed direct mode metadata retain the renderer release interpretation',()=>{
+  for(const directDataCapture of [undefined,{},[],{mode:'OTHER',version:1},
+    {mode:'BOUND_AUTHORING_DRAFT_API',version:'1'},
+    {mode:'BOUND_AUTHORING_DRAFT_API',version:2}]){
+    const meta={buildId:'v6.15.33-bound-assessment-surface-and-body-resume-20261013',directDataCapture};
+    const readiness=c.qaCourseraCaptureReadiness_(meta,[]);
+    assert.equal(readiness.expectedVersion,'v6.15.33');
+    assert.equal(readiness.status,'CURRENT_VERSION');
+    assert.equal(readiness.olderCapture,false);
+  }
+});
+
 
 test('Source-only answer evidence never tells the owner to recapture already complete Coursera positions',()=>{
   const sa={

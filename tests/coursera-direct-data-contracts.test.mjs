@@ -169,11 +169,37 @@ test("reading contract keeps the whole current CML and explicit API provenance w
   );
   assert.equal(f.fp.payload.directDataEvidence.stableSource, true);
   assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, true);
+  assert.equal(f.fp.payload.directDataEvidence.textProjectionVersion, 2);
   assert.match(f.fp.payload.directDataEvidence.rawCmlSha256, /^[a-f0-9]{64}$/);
   assert.equal(f.fp.payload.textCaptureEvidence, undefined);
   assert.equal(f.fp.payload.nativeAssignment, undefined);
   assert.strictEqual(f.fp.captureContract, f.fp.payload.captureContract);
   assert(xmlCalls.every((mime) => mime === "application/xml"));
+});
+
+test("reading contract extracts native heading boundaries from the observed draft and keeps blank images unresolved", async () => {
+  const markup = cml("");
+  markup.definition.value =
+    '<co-content><heading level="1">Elevation and Roof Blueprint Reading</heading>' +
+    '<heading level="2">Description</heading><text>Read the plan.</text><img/></co-content>';
+  const f = fixture("supplement", markup),
+    before = f.source.cml;
+  const contract = await directReadingPayloadV1(f.fp, f.bound, f.source);
+  assert.equal(contract.complete, false);
+  assert.equal(contract.status, "UNRESOLVED_DIRECT_READING");
+  assert.equal(
+    f.fp.payload.textSample,
+    "Elevation and Roof Blueprint Reading Description Read the plan.",
+  );
+  assert.equal(f.fp.payload.directDataEvidence.textProjectionVersion, 2);
+  assert.equal(f.fp.payload.directDataEvidence.assetReferenceCount, 1);
+  assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, false);
+  assert.equal(f.fp.payload.directDraftCml.definition.value, before);
+  assert.equal(
+    f.fp.payload.directDataSources.atom.elements[0].draft.content.definition
+      .content.definition.value,
+    before,
+  );
 });
 
 test("missing stability, conflicting source identity and a published body never become a complete draft", async () => {

@@ -12,6 +12,10 @@ import {
   type CourseraArchiveFile,
   type CourseraCaptureTransport,
 } from "./coursera-capture-file.ts";
+import {
+  attachBrightspaceArchiveFileBlobs,
+  type BrightspaceArchiveFile,
+} from "./brightspace-capture-archive.ts";
 
 /** Original audits are immutable. Content recovered from the exact input bytes
  * is a separate, versioned, report-bound supplement, never a rewritten audit. */
@@ -22,16 +26,33 @@ export async function saveOriginalContent(
   store: WorkspaceStore,
   options: {
     archiveFiles?: CourseraArchiveFile[];
+    brightspaceArchiveFiles?: BrightspaceArchiveFile[];
     transport?: CourseraCaptureTransport;
   } = {},
 ) {
+  // Caller buffers and option objects can change while digest/storage awaits.
+  bytes = new Uint8Array(bytes);
+  options = {
+    ...options,
+    transport: options.transport
+      ? structuredClone(options.transport)
+      : undefined,
+    archiveFiles: options.archiveFiles?.map((file) => ({ ...file })),
+    brightspaceArchiveFiles: options.brightspaceArchiveFiles?.map((file) => ({
+      ...file,
+    })),
+  };
+  const expectedReport = {
+    hashes: { ...report.hashes },
+    packageId: report.packageId,
+  };
   if (bytes.length > MAX_COURSERA_CAPTURE_JSON_BYTES)
     throw Error("Extraction exceeds the 128 MiB content-import limit.");
   const hash = await digest(bytes),
     platform =
-      hash === report.hashes?.json
+      hash === expectedReport.hashes?.json
         ? "coursera"
-        : hash === report.hashes?.brightspace
+        : hash === expectedReport.hashes?.brightspace
           ? "brightspace"
           : null;
   if (!platform)
@@ -41,13 +62,19 @@ export async function saveOriginalContent(
   const saved = await store.get(auditId);
   if (
     saved.kind !== "audit" ||
-    saved.packageId !== report.packageId ||
+    saved.packageId !== expectedReport.packageId ||
     saved.data.hashes?.[platform === "coursera" ? "json" : "brightspace"] !==
       hash
   )
     throw Error("The saved report changed or does not match this extraction.");
-  let parsedCourseraCapture: unknown, archiveProof;
+  let parsedCourseraCapture: unknown,
+    parsedBrightspaceCapture: unknown,
+    archiveProof;
   if (platform === "coursera") {
+    if (options.brightspaceArchiveFiles)
+      throw Error(
+        "Brightspace archive originals cannot supplement Coursera evidence.",
+      );
     const files = options.archiveFiles || [];
     parsedCourseraCapture = attachCourseraArchiveFileBytes(
       JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
@@ -73,17 +100,49 @@ export async function saveOriginalContent(
         archiveIdentityMatchedReport: expected?.encoding === "zip",
       };
     }
-  } else if (
-    options.archiveFiles?.length ||
-    options.transport?.encoding === "zip"
-  )
-    throw Error(
-      "Coursera archive originals cannot supplement Brightspace evidence.",
+  } else {
+    if (options.archiveFiles?.length)
+      throw Error(
+        "Coursera archive originals cannot supplement Brightspace evidence.",
+      );
+    parsedBrightspaceCapture = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
+    const declaredArchive =
+      (parsedBrightspaceCapture as EvidenceObject)?.originalBodyTransport
+        ?.format === "CTI_BRIGHTSPACE_ARCHIVE_V1";
+    const expected = saved.data.captureTransport?.brightspace;
+    if (
+      (declaredArchive ||
+        options.brightspaceArchiveFiles ||
+        expected?.encoding === "zip") &&
+      options.transport?.encoding !== "zip"
+    )
+      throw Error(
+        "Supply the original Brightspace ZIP archive and its verified transport identity.",
+      );
+    if (
+      expected?.encoding === "zip" &&
+      expected.sha256 !== options.transport?.sha256
+    )
+      throw Error(
+        "This archive does not match the report's original Brightspace ZIP hash.",
+      );
+    if (options.brightspaceArchiveFiles)
+      await attachBrightspaceArchiveFileBlobs(
+        parsedBrightspaceCapture,
+        options.brightspaceArchiveFiles,
+      );
+    if (options.transport?.encoding === "zip") {
+      if (!options.brightspaceArchiveFiles)
+        throw Error("Brightspace archive originals were not supplied.");
+    }
+  }
   const contentEvidence = buildContentSnapshot(
     platform === "coursera" ? bytes : undefined,
     platform === "brightspace" ? bytes : undefined,
     parsedCourseraCapture,
+    parsedBrightspaceCapture,
   );
   validateContentSnapshot(contentEvidence);
   const id =

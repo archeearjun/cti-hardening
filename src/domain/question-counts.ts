@@ -5,6 +5,7 @@ import {
 } from "./external-source-questions.ts";
 import { safeWebUrl } from "./owner-urls.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
+import type { ContentEvidence } from "./content-evidence.ts";
 
 type ObjectValue = Record<string, unknown>;
 const object = (v: unknown): ObjectValue =>
@@ -156,6 +157,7 @@ export function questionComparison(
   finding: ObjectValue,
   sourceNode: unknown,
   item: ObjectValue,
+  capturedDestination?: Partial<ContentEvidence>,
 ): QuestionComparison | null {
   const checks = object(finding.checks),
     a = object(checks.structuredAssessment);
@@ -247,6 +249,22 @@ export function questionComparison(
   if (primary && cp.observed === true) {
     coursera.selectCount = count(cp.selectCount);
     coursera.poolSize = count(cp.poolSize);
+  }
+  // An unmatched destination still has its own observed questions. Its count
+  // does not depend on establishing a source mapping, and cannot establish one.
+  // A zero requires the independently projected EMPTY state, never absence.
+  if (capturedDestination && Array.isArray(capturedDestination.questions)) {
+    const observed = capturedDestination.questions.length;
+    if (observed > 0 || capturedDestination.questionCoverage === "EMPTY") {
+      coursera.count = observed;
+      coursera.declared = count(capturedDestination.expectedQuestions);
+      coursera.complete = (capturedDestination.questionCoverage === "COMPLETE" || capturedDestination.questionCoverage === "EMPTY") && coursera.declared === observed;
+      coursera.basis = observed === 0
+        ? "Confirmed empty editor in original content capture"
+        : coursera.complete
+          ? "Captured native question positions in this item; coverage reported complete"
+          : "Captured native question positions in this item; coverage unverified/incomplete";
+    }
   }
   return {
     ...sourceContentTarget(finding, sourceNode),
@@ -351,7 +369,7 @@ export function withQuestionFollowUp(
 }
 export function questionDifference(row: QuestionComparison): string {
   if (!row.directMatch)
-    return "No direct source-to-destination assessment mapping; shared carriers must be checked separately.";
+    return "No direct source-to-destination assessment mapping is established. This item's captured count alone does not establish missing questions; review any shared carriers separately.";
   if (
     row.automaticSource &&
     row.originalSource?.count !== null &&
@@ -388,6 +406,7 @@ export function questionSideLabel(side: QuestionCountSide): string {
 export function questionComparisonsText(
   groups: {
     name: string;
+    shellName?: string;
     id: string;
     questionComparisons: QuestionComparison[];
   }[],
@@ -400,6 +419,7 @@ export function questionComparisonsText(
     for (const row of group.questionComparisons) {
       lines.push(
         `${group.name} [${group.id || "source only"}] ← ${row.sourceName} (${row.sourcePath})`,
+        ...(group.shellName ? [`  Recorded shell name: ${group.shellName}; heading uses this exact item's captured content name.`] : []),
         `  Expected source: ${questionSideLabel(row.source)}`,
       );
       if (row.automaticSource)

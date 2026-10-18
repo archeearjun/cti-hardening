@@ -63,6 +63,7 @@ import type {
 } from "../src/domain/workspace-types";
 import type { PackageScan } from "../src/domain/package-types";
 import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
+import { BRIGHTSPACE_CAPTURE_FILE_ACCEPT } from "../src/domain/capture-file.ts";
 import {
   createAutomaticIngestionBasis,
   createIngestionAttemptRecord,
@@ -71,7 +72,7 @@ import {
 
 const steps = [
   ["sourceRescanned", "Original IMSCC rescanned"],
-  ["brightspaceCaptured", "Brightspace JSON saved"],
+  ["brightspaceCaptured", "Brightspace capture saved"],
   ["beforeCourseraCaptured", "BEFORE Coursera JSON saved"],
   ["beforeExcelSaved", "BEFORE XLSX saved"],
   ["beforeQaSaved", "BEFORE QA report saved"],
@@ -916,7 +917,7 @@ export default function FullWorkspace({
       const evidenceFiles = {
         excel: await inputFile(excel),
         json: await inputFile(capture, { courseraCapture: true }),
-        brightspace: await inputFile(source),
+        brightspace: await inputFile(source, { brightspaceCapture: true }),
         recovery: await inputFile(recovery),
       };
       const repairedHistory = applyLineageRepairs(
@@ -2103,8 +2104,8 @@ export default function FullWorkspace({
               <div className="settings">
                 <div>
                   <FileField
-                    label="Brightspace source JSON"
-                    accept=".json"
+                    label="Brightspace source capture (.cti.zip or JSON)"
+                    accept={BRIGHTSPACE_CAPTURE_FILE_ACCEPT}
                     file={source}
                     onChange={setSource}
                   />

@@ -2,10 +2,8 @@ import { useState } from "react";
 import { saveOriginalContent } from "../src/domain/report-content-store";
 import type { WorkspaceStore } from "../src/domain/workspace-store";
 import type { EvidenceObject } from "../src/domain/workspace-types";
-import {
-  COURSERA_CAPTURE_FILE_ACCEPT,
-  readCourseraCaptureFileBytes,
-} from "../src/domain/coursera-capture-file.ts";
+import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file.ts";
+import { readCaptureFileBytes } from "../src/domain/capture-file.ts";
 
 export default function OriginalContentImport({
   report,
@@ -26,14 +24,14 @@ export default function OriginalContentImport({
       <summary>Load original extraction content into an older report</summary>
       <p>
         New comparisons retain their captured content automatically. For older
-        reports, import the same Coursera capture or Brightspace JSON used for
-        this report. CTI verifies its original extraction identity; a different
+        reports, import the same Coursera or Brightspace capture used for this
+        report. CTI verifies its original extraction identity; a different
         extraction belongs in a new comparison. Original scores and findings
-        stay unchanged.
-        Coursera .cti.zip and .json.gz downloads open directly without unzipping.
+        stay unchanged. Both platforms' .cti.zip and .json.gz downloads open
+        directly without unzipping.
       </p>
       <label>
-        Original extraction JSON
+        Original extraction capture
         <input
           type="file"
           accept={COURSERA_CAPTURE_FILE_ACCEPT}
@@ -46,14 +44,18 @@ export default function OriginalContentImport({
             setMessage("");
             setError("");
             try {
-              const { bytes, archiveFiles, transport } =
-                await readCourseraCaptureFileBytes(file);
+              const {
+                bytes,
+                archiveFiles,
+                brightspaceArchiveFiles,
+                transport,
+              } = await readCaptureFileBytes(file);
               const platform = await saveOriginalContent(
                 bytes,
                 report,
                 auditId,
                 store,
-                { archiveFiles, transport },
+                { archiveFiles, brightspaceArchiveFiles, transport },
               );
               await onSaved?.();
               setMessage(

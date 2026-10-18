@@ -23,10 +23,8 @@ export type {
 } from "./evidence-input-record.ts";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import {
-  readCourseraCaptureFileBytes,
-  attachCourseraArchiveFileBytes,
-} from "./coursera-capture-file.ts";
+import { attachCourseraArchiveFileBytes } from "./coursera-capture-file.ts";
+import { readCaptureFileBytes } from "./capture-file.ts";
 import { reviewCapture, MAX_CAPTURE_BYTES } from "./capture-review.ts";
 import { assertBrightspaceCaptureIntegrity } from "./brightspace-capture-evidence.ts";
 import { readWorkbook } from "../adapters/workbook.ts";
@@ -167,11 +165,14 @@ export async function inspectEvidenceInput(
         type: file.type,
         lastModified: file.lastModified,
       });
-    const capture = await readCourseraCaptureFileBytes(inspectedFile);
+    const capture = await readCaptureFileBytes(inspectedFile);
     abort(options.signal);
     let value: Record<string, any>;
     try {
-      value = object(JSON.parse(utf8(capture.bytes).replace(/^\uFEFF/, "")));
+      value = object(
+        capture.capture ??
+          JSON.parse(utf8(capture.bytes).replace(/^\uFEFF/, "")),
+      );
     } catch {
       throw Error("The selected input is not a valid UTF-8 JSON object.");
     }
@@ -214,15 +215,21 @@ export async function inspectEvidenceInput(
       scope = review.scope;
       gaps = [
         ...review.warnings,
-        ...(brightspace ? review.findings.map((finding) =>
-          [finding.itemName || finding.itemId || "Brightspace source", finding.detail || finding.code].join(": "),
-        ) : []),
+        ...(brightspace
+          ? review.findings.map((finding) =>
+              [
+                finding.itemName || finding.itemId || "Brightspace source",
+                finding.detail || finding.code,
+              ].join(": "),
+            )
+          : []),
         "Input inspection and saved file identity do not certify whole-course completeness.",
       ];
-      if (gaps.length > 2000) gaps = [
-        ...gaps.slice(0, 1999),
-        `${gaps.length - 1999} additional gap details exceed this input record's display bound. Keep the original capture and its full inspection findings.`,
-      ];
+      if (gaps.length > 2000)
+        gaps = [
+          ...gaps.slice(0, 1999),
+          `${gaps.length - 1999} additional gap details exceed this input record's display bound. Keep the original capture and its full inspection findings.`,
+        ];
       counts = {
         items: review.counts.items,
         questionDefinitions: review.counts.questionDefinitions,
@@ -267,7 +274,7 @@ export async function inspectEvidenceInput(
     original = { retention: "TEXT", text: sourceText };
   } else
     throw Error(
-      "Unsupported input. Add a Coursera capture, Brightspace JSON, source IMSCC/ZIP/manifest XML, XLSX, Markdown or plain-text source document.",
+      "Unsupported input. Add a Coursera or Brightspace capture (.cti.zip, JSON or .json.gz), source IMSCC/ZIP/manifest XML, XLSX, Markdown or plain-text source document.",
     );
   if (document)
     ({ platform, nativeCourseId, capturedAt, title, scope, gaps } = document);

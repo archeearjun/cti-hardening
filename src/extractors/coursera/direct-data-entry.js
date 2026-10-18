@@ -1616,6 +1616,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.7.0-public-panopto-helper-20261016",
             "v1.7.1-explicit-fresh-course-capture-20261017",
             "v1.7.2-content-and-structure-coverage-20261017",
+            "v1.7.3-panopto-exact-body-length-20261017",
           ].includes(active?.buildId)
             ? active
             : null;

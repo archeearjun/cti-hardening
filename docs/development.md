@@ -102,7 +102,7 @@ including during `npm run dev`.
 
 ## Brightspace browser extraction
 
-Current Brightspace delivery is v1.1.1/schema 2; see
+Current Brightspace delivery is v1.2.0/schema 2; see
 [Brightspace bookmark capture](brightspace-bookmark-capture.md). The primary UI
 saves **CTI Brightspace capture** once and runs it on the signed-in course Home or
 Content page. Console copy/download remains an optional fallback. Both Source
@@ -114,19 +114,27 @@ extension. Generation rejects oversized addresses rather than truncating them.
 `content-reader.js` retains original same-origin HTML/text, SRT/VTT and supported
 file bytes separately from text projections. Original hashes, receipts and
 native source bindings remain distinct from acquisition status and independent
-coverage findings. Its bounds are 4 MiB per text original, 16 MiB per file,
-64 MiB unique retained bodies, 96 MiB observed response-body bytes and 16 MiB
+coverage findings. Original bodies commit as immutable scoped IndexedDB Blobs
+before a successful receipt is published. Its current bounds are 4 MiB per text
+original, 64 MiB per file, 512 MiB unique retained bodies, 768 MiB observed
+response-body bytes and 16 MiB
 combined projections. The observed byte counter includes failed reads and is
 not network-wire accounting. References to external providers and dynamic/LTI
 tools remain gaps and are not launched. Question-definition pagination does not
 establish full pool/bank coverage; the supplied historical capture’s 18 quiz
 banks remain unverified.
 
-`checkpoint.js` retains up to three scoped attempts for recovery and download,
-with a 128 MiB payload bound and explicit quota errors. Capture/resume performs
+`checkpoint.js` retains up to three scoped metadata attempts for recovery and download,
+with a 128 MiB manifest bound and explicit quota errors. Original Blobs remain
+separate, including older attempts; quota failures stay explicit and automatic
+orphan cleanup is deliberately absent. Capture/resume performs
 current metadata and body reads again; saved observations keep their original
-dates and are not promoted to fresh cached evidence. JSON export and inspection
-also use a 128 MiB bound. `brightspace-capture-evidence.ts` independently checks
+dates and are not promoted to fresh cached evidence. Export writes one bounded
+640 MiB `.cti.zip` containing `capture.json.gz` and `files/<sha256>`, without
+BASE64 original bodies. Archive intake retains file slices and validates original
+body ownership, CRC, length, SHA-256 and receipts. Earlier JSON and `.json.gz`
+inputs retain the 128 MiB bound and independent legacy validation.
+`brightspace-capture-evidence.ts` independently checks
 retained body lengths, SHA-256, receipts and native source ownership. These checks
 do not certify whole-course completeness or external runtime behavior. Historical
 v1.0.8 capture facts and dated migration documents retain their original scope.
@@ -342,6 +350,19 @@ transport framing, not playback or complete MP4 semantics. Replace the saved
 v1.7.2 bookmark: its strict helper header allowlist cannot accept the new relay
 header. Capture/resume refreshes mutable provider sources while retaining prior
 assessment observations and their timestamps.
+
+Version 1.7.4 records native CML heading/list boundaries in reading and discussion
+plain-text projection version 2. Adjacent Coursera `<heading>` nodes no longer
+concatenate their words. The original CML, hashes and observation times remain
+separate; import independently recomputes the explicitly recorded projection
+version. Historical captures without that field retain the original version-1
+projection and remain immutable. A native `<img/>` without an asset ID or URL
+remains an observed missing pointer. Another item, the published snapshot or a
+same-title source original cannot fill that blank as if it were draft evidence.
+The release registry keeps `directDataCourseraExtractor` separate from the
+retained renderer's `courseraExtractor` v6.x family. Report readiness selects the
+bookmark release only for the exact native `BOUND_AUTHORING_DRAFT_API` version-1
+marker; captured build metadata and unmarked historical reports are preserved.
 
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct

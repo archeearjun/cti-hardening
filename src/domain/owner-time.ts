@@ -72,10 +72,13 @@ export function moduleTimes(tasks: OwnerTask[], reviews: WorkspaceRecord[] | { i
     const matches = reviews.filter(r => ("data" in r ? r.data.itemKey : r.itemKey) === key);
     return matches.length === 1 ? ("data" in matches[0] ? matches[0].data.review : matches[0].review) : undefined;
   };
-  return ownerHierarchy(tasks).filter(g => !g.sourceOnly).map(g => ({ key: g.key, module: g.title, ...timeTotals(groupTasks(g), reviewFor) }));
+  return ownerHierarchy(tasks).filter(g => !g.sourceOnly).map((g, index) => ({ key: g.key, module: g.title, nativeId: g.nativeId || "", occurrence: index + 1, ...timeTotals(groupTasks(g), reviewFor) }));
 }
 export function moduleTimesText(rows: ReturnType<typeof moduleTimes>): string {
-  return ["COURSE MODULE TIME ESTIMATES", "Learner-facing items only. Both columns use current relevance. Latest available combines dated baseline and fresh item checks; missing values are not zero.",
-    ...rows.filter(r => r.latest.total > 0).map(r => `${r.module}: baseline ${formatMinutes(r.baseline.captured ? r.baseline.minutes : null)} (${r.baseline.captured}/${r.baseline.total} captured); latest available ${formatMinutes(r.latest.captured ? r.latest.minutes : null)} (${r.latest.captured}/${r.latest.total} captured); ${r.refreshed} item(s) refreshed${r.latest.missing ? "; PARTIAL TOTAL — missing estimates" : ""}.`),
+  const names = new Map<string, number>();
+  for (const row of rows) names.set(row.module, (names.get(row.module) || 0) + 1);
+  const repeated = new Set([...names].filter(([, count]) => count > 1).map(([name]) => name));
+  return ["COURSE MODULE TIME ESTIMATES", "Learner-facing items only. Both columns use current relevance. Latest available combines dated baseline and fresh item checks; missing values are not zero. Repeated module names retain separate native identities and are not proof of duplicate content.",
+    ...rows.filter(r => r.latest.total > 0).map(r => `${r.module}${r.nativeId ? ` [native module ${r.nativeId}]` : repeated.has(r.module) ? ` [outline occurrence ${r.occurrence}; native ID not recorded]` : ""}: baseline ${formatMinutes(r.baseline.captured ? r.baseline.minutes : null)} (${r.baseline.captured}/${r.baseline.total} captured); latest available ${formatMinutes(r.latest.captured ? r.latest.minutes : null)} (${r.latest.captured}/${r.latest.total} captured); ${r.refreshed} item(s) refreshed${r.latest.missing ? "; PARTIAL TOTAL — missing estimates" : ""}.`),
   ].join("\n");
 }
