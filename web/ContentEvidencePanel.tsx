@@ -12,8 +12,11 @@ import BrightspaceHtmlStructureEvidence from "./BrightspaceHtmlStructure";
 import { choiceLabel, ctiAnswerCheck } from "../src/domain/cti-answer-check";
 import {
   courseraInlineWidgetPage,
+  courseraInlinePublisherPage,
+  inlineWidgetStaticHtmlText,
   type CourseraInlineWidgetContent,
   type InlineWidgetPublicPage,
+  type InlineWidgetPublisherPage,
 } from "../src/domain/coursera-inline-widget-content";
 const labels = {
   COMPLETE: "Complete captured field",
@@ -30,10 +33,10 @@ function InlineWidgetPageEvidence({ content, providerId, page }: {
     original = open && page.status !== "UNRESOLVED"
       ? courseraInlineWidgetPage(content, providerId, page.targetUrl) : null;
   return <details onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>{page.status === "CAPTURED_PARTIAL_PUBLIC_HTML" ? "Captured public static HTML · partial content" : page.status === "HISTORICAL_RETAINED_PUBLIC_HTML" ? "Earlier public HTML retained · current read failed" : "Public page read unresolved"}</summary>
+    <summary>{page.status === "CAPTURED_PARTIAL_PUBLIC_HTML" ? "Captured public static HTML · partial content" : page.status === "HISTORICAL_RETAINED_PUBLIC_HTML" ? "Earlier public HTML retained · no current HTML observation" : "Public page read unresolved"}</summary>
     <p className="captured-text">Configured target: {page.targetUrl}</p>
     {page.status !== "UNRESOLVED" ? <>
-      {page.status === "HISTORICAL_RETAINED_PUBLIC_HTML" && <p className="hint">This HTML was retained from an earlier observation of this exact target. The current read failed. Its original timestamp remains below; current content and freshness are unverified.</p>}
+      {page.status === "HISTORICAL_RETAINED_PUBLIC_HTML" && <p className="hint">This HTML was retained from an earlier observation of this exact target. No current HTML observation is established. Its original timestamp remains below; current HTML and freshness are unverified.</p>}
       <p className="captured-text">Final URL: {page.finalUrl}</p>
       <p className="hint">Observed: {page.observedAt} · {page.bytes.toLocaleString()} UTF-8 bytes</p>
       <p className="captured-text">SHA-256: {page.sha256}</p>
@@ -47,12 +50,48 @@ function InlineWidgetPageEvidence({ content, providerId, page }: {
     {page.failures.map((reason, index) => <p className="hint" key={index}>Current read outcome: {reason}</p>)}
   </details>;
 }
+function InlinePublisherPageEvidence({ content, providerId, page }: {
+  content: CourseraInlineWidgetContent;
+  providerId: string;
+  page: InlineWidgetPublisherPage;
+}) {
+  const [open, setOpen] = useState(false),
+    original = open && page.status !== "UNRESOLVED" ? courseraInlinePublisherPage(content, providerId, page.targetUrl) : null;
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{page.status === "CAPTURED_PUBLISHER_API_CHAPTER" ? "Publisher API chapter · partial content" : page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" ? "Earlier publisher API response retained · no current chapter response" : "Publisher API read unresolved"}</summary>
+    <p className="captured-text">Configured target: {page.targetUrl}</p>
+    {page.status !== "UNRESOLVED" && <>
+      {page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" && <p className="hint">This is an earlier response for this exact configured target and publisher API endpoint. No current chapter response is established; its original timestamp remains below.</p>}
+      <p className="captured-text">Publisher API endpoint: {page.endpointUrl}</p>
+      <p className="captured-text">Published chapter {page.chapterId}: {page.chapterLink}</p>
+      <p className="hint">Observed: {page.observedAt} · {page.bytes.toLocaleString()} original JSON UTF-8 bytes</p>
+      <p className="captured-text">SHA-256: {page.sha256}</p>
+      <p className="hint">The browser exposed this JSON response through CORS; credentials mode: {page.credentials}. This is a publisher API response, separate from an original webpage HTML response.</p>
+      <p className="hint">Publisher-provided fields appear below. Rendered-field previews are inert text approximations. Mathematical notation, images, media, interactive activities and whole-widget completeness remain unverified.</p>
+      {original && <>
+        {["title", "content", "excerpt"].flatMap(field => ["raw", "rendered"].map(format => {
+          const value = original.chapter[field]?.[format];
+          if (typeof value !== "string") return null;
+          const preview = format === "rendered" ? inlineWidgetStaticHtmlText(value) : value;
+          return <section key={`${field}.${format}`} aria-label={`Publisher ${field}.${format}`}>
+            <h6>Publisher {field}.{format}</h6>
+            <pre className="captured-text">{preview.slice(0, 300000) || "[Publisher returned an empty field]"}</pre>
+            {preview.length > 300000 && <p className="hint">This preview stops at 300,000 characters. The exact field remains in the original JSON below.</p>}
+            {format === "rendered" && <details><summary>Literal publisher {field}.rendered field</summary><pre className="captured-text">{value}</pre></details>}
+          </section>;
+        }))}
+        <details><summary>Literal original publisher JSON</summary><pre className="captured-text">{original.rawJson}</pre></details>
+      </>}
+    </>}
+    {page.failures.map((reason, index) => <p className="hint" key={index}>Current publisher read outcome: {reason}</p>)}
+  </details>;
+}
 function InlineWidgetContentEvidence({ content }: { content: CourseraInlineWidgetContent }) {
   return <section className="scope" aria-label="Captured embedded pages">
     <h6>Captured embedded pages</h6>
-    <p className="hint">These are this item's native widget configurations and separately retained public HTML. They remain separate from the reading's native text and completion status. Complete widget content and learner interactions remain unverified.</p>
+    <p className="hint">These are this item's native widget configurations and separately retained publisher sources. They remain separate from the reading's native text and completion status. Complete widget content and learner interactions remain unverified.</p>
     {content.providers.map(provider => <details key={provider.providerId}>
-      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current public page observations{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
+      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current HTML observations{provider.publisherPages ? ` · ${provider.publisherPages.filter(page => page.status === "CAPTURED_PUBLISHER_API_CHAPTER").length} publisher API chapter responses` : ""}{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
       <p className="hint">Native response base ID: {provider.providerBaseId}. Requested version {provider.requestedVersion} comes from the exact CML selector; the response does not echo that version.</p>
       <p className="hint">Configuration observed: {provider.configurationObservedAt} · {provider.occurrences} placement{provider.occurrences === 1 ? "" : "s"} in this item</p>
       {provider.configuredTargets.map((target, index) => <p className="captured-text" key={index}>
@@ -60,6 +99,10 @@ function InlineWidgetContentEvidence({ content }: { content: CourseraInlineWidge
       </p>)}
       {!provider.publicPages.length && <p className="hint">No retained public HTML is established for these configured targets.</p>}
       {provider.publicPages.map(page => <InlineWidgetPageEvidence key={page.targetUrl} content={content} providerId={provider.providerId} page={page} />)}
+      {!!provider.publisherPages?.length && <section className="scope" aria-label="Publisher API chapter content">
+        <h6>Publisher API chapter content</h6>
+        {provider.publisherPages.map(page => <InlinePublisherPageEvidence key={page.targetUrl} content={content} providerId={provider.providerId} page={page} />)}
+      </section>}
     </details>)}
     {content.failures.map((failure, index) => <p className="hint" key={index}>Widget {failure.providerId}: {failure.reason}</p>)}
   </section>;

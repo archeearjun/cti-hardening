@@ -10,13 +10,14 @@ import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1, directInlineWidgetProviderSourceV1,
   directInlineWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
 import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
-  directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
+  directInlineWidgetEvidenceV1, directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
 import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource } from "../src/extractors/coursera/direct-data-models.js";
 import { directCanonicalSourceTextV1 as canonicalSource } from "../src/extractors/coursera/direct-data-canonical.js";
-import { createInlinePublicContentFixture } from "./coursera-inline-content-fixtures.mjs";
+import { createInlinePublicContentFixture, createInlinePublisherContentFixture } from "./coursera-inline-content-fixtures.mjs";
 import { WIDGET_COURSE, WIDGET_SLUG } from "./coursera-direct-widget-fixtures.mjs";
 import { directPublicPageTargetV1, directPublicPageObservationValidV1,
   CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1, CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
+import { directPublisherTargetV1, directPublisherObservationValidV1, directPublisherChapterV1 } from "../src/extractors/coursera/direct-data-publisher.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
@@ -417,6 +418,7 @@ function harness(options = {}) {
       readWidgetProvider: (id, courseId) => read("widget", id, courseId),
       readPanoptoDeliveryInfo: (url) => read("panopto", url),
       readPublicPage: (url) => read("public", url),
+      readPublisherPage: (url) => read("publisher", url),
       snapshot: () => ({ ...clone(metrics), elapsedMs: now - createdAt }),
       abort,
     };
@@ -504,11 +506,15 @@ function harness(options = {}) {
     directInlineWidgetProviderSourceV1,
     directInlineWidgetProviderTargetsV1,
     directInlineWidgetBindingsV1,
+    directInlineWidgetEvidenceV1,
     directWidgetProviderReceiptValidV1,
     directPublicPageTargetV1,
     directPublicPageObservationValidV1,
     CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1,
     CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1,
+    directPublisherTargetV1,
+    directPublisherObservationValidV1,
+    directPublisherChapterV1,
     directWidgetContractV1: (fp) => {
       const valid = fp.payload.directWidgetProviderEvidence?.stableSource === true;
       const result = contract(fp, "DIRECT_WIDGET", false,
@@ -655,7 +661,12 @@ test("inline page refresh replaces its own near-limit allocation and preserves t
         return { ok: true, data: clone(provider.initial.model), receipt };
       }
       if (call.resource === "public") {
-        if (fail) return { ok: false, data: null, reason: "PUBLIC_HTML_PROVIDER_HTTP_503", receipt: { bytes: 64 } };
+        if (fail) return { ok: false, data: null, reason: "PUBLIC_HTML_PROVIDER_HTTP_403", receipt: {
+          ...clone(first.observation.receipt), status: 403, serviceStatus: 502, upstreamRequests: 1, upstreamBytes: 0,
+          observedAt: new Date(call.at).toISOString(), receivedAt: new Date(call.at + 1).toISOString(),
+          bytes: 64, declaredEnvelopeBytes: 64, originalResponseSha256: "",
+          cookie: "MUST_NOT_BE_RETAINED", responseBody: "<html>MUST_NOT_BE_RETAINED</html>", headers: { authorization: "MUST_NOT_BE_RETAINED" },
+        } };
         const observation = clone(first.observation), model = observation.model;
         model.html = html; model.bytes = Buffer.byteLength(html); model.sha256 = createHash("sha256").update(html).digest("hex");
         model.observedAt = new Date(call.at).toISOString();
@@ -675,6 +686,10 @@ test("inline page refresh replaces its own near-limit allocation and preserves t
   assert(pages().every(page => page.observation?.model.html === html));
   assert.equal(app.calls.filter(call => call.resource === "public").length, 1, "Repeated native placements share only the current page read");
   assert.equal(app.runs.get(app.state().runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes, 8 * Buffer.byteLength(html));
+  assert.equal(app.state().inlineExternalContent.settings.captured, 8);
+  assert.equal(app.state().inlineExternalContent.readings, 8);
+  assert.equal(app.state().inlineExternalContent.pages.unique, 1);
+  assert.equal(app.state().inlineExternalContent.pages.saved, 1);
   const runId = app.state().runId;
   html = html.replace("</main>", "A larger newly observed authored sentence.</main>");
   app.advance(60000); app.launch(); await app.idle();
@@ -687,7 +702,18 @@ test("inline page refresh replaces its own near-limit allocation and preserves t
   for (const [index, page] of pages().entries()) {
     assert.equal(page.observation, null); assert(page.failures.length > 0);
     assert.deepEqual(page.retainedObservation, previous[index], "Historical bytes, hashes and original source times survive a failed current refresh");
+    assert.equal(page.failures[0].receipt.status, 403);
+    assert.equal(page.failures[0].receipt.serviceStatus, 502, "Service failure and observed upstream HTTP status stay separate");
+    assert.equal(page.failures[0].receipt.declaredEnvelopeBytes, 64);
+    assert.equal(page.failures[0].receipt.cookie, undefined);
+    assert.equal(page.failures[0].receipt.responseBody, undefined);
+    assert.equal(page.failures[0].receipt.headers, undefined);
   }
+  assert.equal(app.state().inlineExternalContent.settings.captured, 8, "HTTP failures cannot erase valid native settings or raise content completeness");
+  assert.equal(app.state().inlineExternalContent.pages.saved, 0);
+  assert.equal(app.state().inlineExternalContent.pages.historical, 1);
+  assert.deepEqual(clone(app.state().inlineExternalContent.failures.upstreamHttp), { "403": 1 }, "Repeated placements count one failed source URL, using upstream HTTP status");
+  assert(app.nodes.some(node => node.textContent.includes("External pages 0/1 saved (1 HTTP 403)")), "The existing overlay explains the failed page acquisition");
   assert.equal(app.calls.filter(call => call.resource === "public").length, 3, "A new attempt refreshes the public source once");
   assert.equal(app.runs.get(runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes, 8 * Buffer.byteLength(html));
   assert(app.items.get(runId + "/" + fixtures[0].fp.id).fingerprint.captureContract.complete === false);
@@ -697,6 +723,279 @@ test("inline page refresh replaces its own near-limit allocation and preserves t
   app.advance(60000); app.launch(); await app.idle();
   assert(pages().every(page => page.observation === null && !page.retainedObservation && page.failures.length > 0),
     "A different native widget version cannot inherit the earlier selector's historical page");
+});
+
+function publisherEntryFixture(count = 1) {
+  const fixtures = Array.from({ length: count }, (_, index) => createInlinePublisherContentFixture({
+    itemId: "PublisherReading" + index, atomId: String.fromCharCode(65 + index).repeat(22),
+  })), control = { api: "success", html: "success" }, mediaCalls = [],
+    fingerprints = Object.fromEntries(fixtures.map(f => [f.fp.id, { ...clone(f.fp), payload: {}, sourceIdentity: {} }]));
+  const options = { ids: fixtures.map(f => f.fp.id), fingerprints, nativeCml: true,
+    courseId: WIDGET_COURSE, courseSlug: WIDGET_SLUG,
+    mediaReaderFactory: () => ({ snapshot: () => ({ bytes: 0, requests: 0 }), abort() {}, release() {} }),
+    readResult(call) {
+      if (["atom", "relation"].includes(call.resource)) {
+        const f = fixtures.find(value => value.fp.atomId === call.id);
+        if (!f) return;
+        const sources = f.fp.payload.directDataSources;
+        return { ok: true, data: clone(sources[call.resource]), receipt: {
+          ...clone(sources.receipts[call.resource]), observedAt: new Date(call.at).toISOString(),
+        } };
+      }
+      if (call.resource === "widget") {
+        const provider = fixtures[0].fp.payload.directInlineWidgetProviderEvidence.providers[0],
+          receipt = { ...clone(provider.initial.receipt), id: call.id, observedAt: new Date(call.at).toISOString() };
+        receipt.requestQuery.find(pair => pair[0] === "widgetSessionProviderId")[1] = call.id;
+        return { ok: true, data: clone(provider.initial.model), receipt };
+      }
+      if (call.resource === "publisher") {
+        const observation = clone(fixtures[0].publisherObservation), observedAt = new Date(call.at).toISOString();
+        observation.model.observedAt = observation.receipt.observedAt = observedAt;
+        observation.receipt.receivedAt = new Date(call.at + 1).toISOString();
+        observation.receipt.attempts[0].observedAt = observedAt;
+        if (control.api === "blocked") return { ok: false, data: null, reason: "PUBLISHER_BROWSER_BLOCKED_OR_FAILED", receipt: {
+          ...observation.receipt, status: 0, responseType: "unreadable", bytes: 0, originalResponseSha256: "", credentials: "include",
+          attempts: ["omit", "include"].map(credentials => ({ credentials, observedAt, status: 0, responseType: "unreadable", bytes: 0,
+            reason: "PUBLISHER_BROWSER_BLOCKED_OR_FAILED" })), cookie: "NEVER_RETAIN", rawJson: "NEVER_RETAIN",
+        } };
+        if (control.api === "wrong-chapter") {
+          observation.model.rawJson = observation.model.rawJson.replace('"id": 179', '"id": 180');
+          observation.model.bytes = Buffer.byteLength(observation.model.rawJson);
+          observation.model.sha256 = createHash("sha256").update(observation.model.rawJson).digest("hex");
+          observation.receipt.bytes = observation.receipt.attempts[0].bytes = observation.model.bytes;
+          observation.receipt.originalResponseSha256 = observation.model.sha256;
+        }
+        return { ok: true, data: observation.model, receipt: observation.receipt };
+      }
+      if (call.resource === "public") {
+        if (control.html === "blocked") return { ok: false, reason: "PUBLIC_HTML_PROVIDER_HTTP_403", data: null,
+          receipt: { ...clone(fixtures[0].observation.receipt), status: 403, serviceStatus: 502 } };
+        const observation = clone(fixtures[0].observation);
+        if (typeof control.htmlText === "string") {
+          observation.model.html = control.htmlText;
+          observation.model.bytes = Buffer.byteLength(control.htmlText);
+          observation.model.sha256 = createHash("sha256").update(control.htmlText).digest("hex");
+          observation.receipt.upstreamBytes = observation.model.bytes;
+        }
+        observation.model.observedAt = observation.receipt.observedAt = new Date(call.at).toISOString();
+        observation.receipt.receivedAt = new Date(call.at + 1).toISOString();
+        const bytes = Buffer.from(canonicalSource(observation.model));
+        Object.assign(observation.receipt, { bytes: bytes.length, declaredEnvelopeBytes: bytes.length,
+          originalResponseSha256: createHash("sha256").update(bytes).digest("hex") });
+        return { ok: true, data: observation.model, receipt: observation.receipt };
+      }
+    },
+  };
+  return { fixtures, options, control, mediaCalls };
+}
+function useNativeCml(t) {
+  const previousParser = globalThis.DOMParser;
+  globalThis.DOMParser = DOMParser;
+  t.after(() => { if (previousParser) globalThis.DOMParser = previousParser; else delete globalThis.DOMParser; });
+}
+
+test("native publisher JSON is acquired once across placements and failed refresh keeps its original proof", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(2), app = harness(f.options);
+  const providers = () => f.fixtures.map(item => app.items.get(app.state().runId + "/" + item.fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0]);
+  app.launch(); await app.idle();
+  assert.equal(app.state().state, "INCOMPLETE");
+  assert.equal(app.calls.filter(call => call.resource === "publisher").length, 1);
+  assert.equal(app.calls.filter(call => call.resource === "public").length, 0, "Accepted API JSON skips a redundant HTML request");
+  const originals = providers().map(provider => clone(provider.publisherPages[0].observation));
+  assert(originals.every(o => o.model.rawJson === f.fixtures[0].publisherRawJson), "Original spacing and trailing newline survive");
+  assert(providers().every(provider => provider.wholeWidgetVerified === false && provider.publicPages[0].failures[0].reason === "PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED"));
+  assert.equal(app.state().inlineExternalContent.pages.saved, 1);
+  assert.equal(app.state().inlineExternalContent.publisherApi.saved, 1);
+  const runId = app.state().runId, stats = app.runs.get(runId).captureMeta.directDataCapture.stats;
+  assert.equal(stats.externalSources.logicalTargets, 1);
+  assert.equal(stats.externalSources.retainedUtf8Bytes, 2 * originals[0].model.bytes);
+  f.control.api = "blocked"; f.control.html = "blocked";
+  app.advance(60000); app.launch(); await app.idle();
+  for (const [index, provider] of providers().entries()) {
+    const page = provider.publisherPages[0];
+    assert.equal(page.observation, null); assert.deepEqual(page.retainedObservation, originals[index]);
+    assert.equal(page.failures[0].reason, "PUBLISHER_BROWSER_BLOCKED_OR_FAILED");
+    assert.equal(page.failures[0].receipt.status, 0, "A browser rejection does not invent an upstream HTTP status");
+    assert.equal(page.failures[0].receipt.attempts.length, 2);
+    assert.equal(page.failures[0].receipt.cookie, undefined); assert.equal(page.failures[0].receipt.rawJson, undefined);
+  }
+  assert.equal(app.calls.filter(call => call.resource === "public").length, 1, "Failed API permits the existing HTML fallback once");
+  assert.equal(app.state().inlineExternalContent.publisherApi.historical, 1);
+  assert.equal(app.state().inlineExternalContent.publisherApi.browserUnavailable, 1);
+  assert.equal(app.items.get(runId + "/" + f.fixtures[0].fp.id).fingerprint.captureContract.complete, false);
+  for (const item of f.fixtures) item.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value =
+    item.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value.replace(f.fixtures[0].providerId, "p".repeat(22) + "@2");
+  app.advance(60000); app.launch(); await app.idle();
+  assert(providers().every(provider => !provider.publisherPages[0].retainedObservation), "Another native selector version cannot inherit old JSON");
+});
+
+test("API-first continuation preserves prior HTML separately and rejects a different publisher chapter", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(), app = harness(f.options);
+  f.control.api = "blocked";
+  app.launch(); await app.idle();
+  const provider = () => app.items.get(app.state().runId + "/" + f.fixtures[0].fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0],
+    html = clone(provider().publicPages[0].observation);
+  f.control.api = "success"; app.advance(60000); app.launch(); await app.idle();
+  assert.deepEqual(provider().publicPages[0].retainedObservation, html);
+  assert.equal(provider().publicPages[0].observation, null);
+  assert.equal(provider().publicPages[0].failures[0].reason, "PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED");
+  assert.equal(app.calls.filter(call => call.resource === "public").length, 1);
+  const api = clone(provider().publisherPages[0].observation), stats = app.runs.get(app.state().runId).captureMeta.directDataCapture.stats;
+  assert.equal(stats.externalSources.retainedUtf8Bytes, html.model.bytes + api.model.bytes);
+  f.control.api = "wrong-chapter"; f.control.html = "blocked";
+  app.advance(60000); app.launch(); await app.idle();
+  assert.equal(provider().publisherPages[0].observation, null);
+  assert.equal(provider().publisherPages[0].failures[0].reason, "DIRECT_PUBLISHER_SOURCE_INVALID");
+  assert.deepEqual(provider().publisherPages[0].retainedObservation, api);
+  assert.deepEqual(provider().publicPages[0].retainedObservation, html);
+});
+
+test("publisher acquisition shares the eight MiB retained budget and cannot displace historical HTML", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(8), app = harness(f.options);
+  f.control.api = "blocked";
+  f.control.htmlText = "<!doctype html><html><body><main>" + "x".repeat(1024 * 1024 - 80) + "</main></body></html>";
+  app.launch(); await app.idle();
+  const runId = app.state().runId, original = f.fixtures.map(item => clone(app.items.get(runId + "/" + item.fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0].publicPages[0].observation));
+  assert(original.every(Boolean));
+  assert(8 * original[0].model.bytes < 8 * 1024 * 1024);
+  assert(8 * original[0].model.bytes + f.fixtures[0].publisherObservation.model.bytes > 8 * 1024 * 1024,
+    "The fresh JSON would exceed the cap while the eight original HTML placements remain retained");
+  f.control.api = "success"; f.control.html = "blocked";
+  app.advance(60000); app.launch(); await app.idle();
+  for (const [index, item] of f.fixtures.entries()) {
+    const provider = app.items.get(runId + "/" + item.fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0];
+    assert.equal(provider.publisherPages[0].observation, null);
+    assert.equal(provider.publisherPages[0].failures[0].reason, "DIRECT_PUBLISHER_RETAINED_LIMIT");
+    assert(provider.publisherPages[0].failures[0].receipt, "The successful response receipt remains diagnostic evidence without its over-budget body");
+    assert.deepEqual(provider.publicPages[0].retainedObservation, original[index]);
+  }
+  const stats = app.runs.get(runId).captureMeta.directDataCapture.stats;
+  assert.equal(stats.externalSources.retainedUtf8Bytes, 8 * original[0].model.bytes);
+  assert.equal(stats.externalSources.logicalTargets, 1);
+  assert.equal(app.calls.filter(call => call.resource === "publisher").length, 2);
+});
+
+test("embedded page access diagnostic validates recorded native proof without changing capture or retaining its body", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(), app = harness(f.options);
+  app.launch(); await app.idle();
+  const rows = clone([...app.items]), runs = clone([...app.runs]), bodies = [...app.bodies], before = app.calls.length,
+    writes = app.metrics.writes.length, saves = app.metrics.saves.length, downloads = app.downloads.length,
+    helpers = app.metrics.helperOpens.length, runId = app.state().runId,
+    provider = app.items.get(runId + "/" + f.fixtures[0].fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0];
+  app.advance(60000); app.button("Check embedded page access").click();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Embedded page diagnostic did not finish");
+  let diagnostic = clone(app.state().accessDiagnostic);
+  assert.equal(diagnostic.kind, "CTI_PUBLISHER_ACCESS_DIAGNOSTIC"); assert.equal(diagnostic.accepted, true);
+  assert.equal(diagnostic.source.configuredSourceObservedAt, provider.final.receipt.observedAt, "Old native proof remains explicitly dated");
+  assert.equal(diagnostic.chapter.id, 179); assert.equal(diagnostic.body.sha256, f.fixtures[0].publisherObservation.model.sha256);
+  assert.equal(diagnostic.requests, 1); assert.equal(diagnostic.progressChanged, false); assert.equal(diagnostic.courseCaptured, false);
+  assert.deepEqual(app.calls.slice(before).map(call => call.resource), ["publisher"]);
+  assert(!JSON.stringify(diagnostic).includes("Publisher authored raw field"));
+  assert(!JSON.stringify(diagnostic).includes("Synthetic publisher area"));
+  assert.equal(diagnostic.rawJson, undefined); assert.equal(diagnostic.model, undefined);
+  assert.deepEqual([...app.items], rows); assert.deepEqual([...app.runs], runs); assert.deepEqual([...app.bodies], bodies);
+  assert.equal(app.metrics.writes.length, writes); assert.equal(app.metrics.saves.length, saves);
+  assert.equal(app.downloads.length, downloads); assert.equal(app.metrics.helperOpens.length, helpers);
+  assert.equal(app.state().runId, runId);
+  f.control.api = "blocked"; app.button("Check embedded page access").click();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Blocked diagnostic did not finish");
+  diagnostic = clone(app.state().accessDiagnostic);
+  assert.equal(diagnostic.accepted, false); assert.equal(diagnostic.reason, "PUBLISHER_BROWSER_BLOCKED_OR_FAILED");
+  assert.equal(diagnostic.receipt.status, 0); assert.equal(diagnostic.body, undefined);
+  assert.deepEqual([...app.items], rows); assert.deepEqual([...app.runs], runs);
+});
+
+test("embedded access check refuses a mismatched inventory row or an oversized native proof before issuing requests", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(), app = harness(f.options);
+  app.launch(); await app.idle();
+  const key = app.state().runId + "/" + f.fixtures[0].fp.id, row = app.items.get(key), original = clone(row), before = app.calls.length;
+  row.fingerprint = createInlinePublisherContentFixture({ itemId: "OutsideInventory", atomId: "Z".repeat(22) }).fp;
+  app.button("Check embedded page access").click();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Mismatched checkpoint diagnostic did not finish");
+  assert.equal(app.state().accessDiagnostic.reason, "PUBLISHER_CHECK_NO_RECORDED_SOURCE");
+  assert.equal(app.calls.length, before);
+  app.items.set(key, original);
+  original.fingerprint.payload.directInlineWidgetProviderEvidence.providers[0].initial.model.elements[0].draft.configuration.publicPages = "x".repeat(2 * 1024 * 1024);
+  app.button("Check embedded page access").click();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Oversized proof diagnostic did not finish");
+  assert.equal(app.state().accessDiagnostic.reason, "PUBLISHER_CHECK_NO_RECORDED_SOURCE");
+  assert.equal(app.calls.length, before);
+  original.fingerprint.payload.directInlineWidgetProviderEvidence.providers[0].initial.model.elements[0].draft.configuration.publicPages = { ["x".repeat(2 * 1024 * 1024)]: false };
+  app.button("Check embedded page access").click();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Oversized native key diagnostic did not finish");
+  assert.equal(app.state().accessDiagnostic.reason, "PUBLISHER_CHECK_NO_RECORDED_SOURCE");
+  assert.equal(app.calls.length, before);
+});
+
+test("Stop during diagnostic response hashing prevents acceptance and leaves saved evidence unchanged", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(), app = harness(f.options), held = deferred();
+  app.launch(); await app.idle();
+  const rows = clone([...app.items]), runs = clone([...app.runs]);
+  let hashingResponse = false;
+  app.context.crypto.subtle = { async digest(algorithm, value) {
+    if (Buffer.from(value).toString("utf8") === f.fixtures[0].publisherRawJson) {
+      hashingResponse = true; await held.promise;
+    }
+    return webcrypto.subtle.digest(algorithm, value);
+  } };
+  app.button("Check embedded page access").click();
+  await until(() => hashingResponse, "Diagnostic never reached its final raw source hash");
+  app.state().stop(); held.resolve();
+  await until(() => app.state().accessDiagnostic && !app.state().diagnosing, "Stopped diagnostic never settled");
+  assert.equal(app.state().accessDiagnostic.accepted, false);
+  assert.equal(app.state().accessDiagnostic.reason, "PUBLISHER_CHECK_STOPPED_OR_CONTEXT_CHANGED");
+  assert.equal(app.state().accessDiagnostic.body, undefined);
+  assert.deepEqual([...app.items], rows); assert.deepEqual([...app.runs], runs);
+});
+
+test("the bounded inline overlay summary distinguishes configuration from unique public source failures", () => {
+  const names = ["publicPageFailureOutcome", "summarizeInlineItem", "inlineExternalContentSummary"];
+  const declarations = names.map(name => {
+    let declaration;
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === name) declaration = node;
+      else ts.forEachChild(node, visit);
+    }
+    visit(parsedEntry); assert(declaration); return declaration.getText(parsedEntry);
+  }).join("\n");
+  const context = vm.createContext({ itemStates: new Map(), courseId: COURSE });
+  new vm.Script(declarations).runInContext(context);
+  let position = 0;
+  for (let index = 0; index < 24; index++) {
+    const fp = { id: "Reading" + index, atomId: String.fromCharCode(65 + index).repeat(22), payload: {
+      directDataSources: { receipts: { stability: { stable: true } } },
+      directInlineWidgetProviderEvidence: { method: "BOUND_INLINE_CML_WIDGET_PROVIDERS", providers: [] },
+    } };
+    for (let providerIndex = 0; providerIndex < (index < 6 ? 3 : 2); providerIndex++, position++) {
+      const target = position % 44, reason = target < 42 ? "PUBLIC_HTML_PROVIDER_HTTP_403" : target === 42 ? "PROVIDER_HELPER_REQUEST_TIMEOUT" : "PUBLIC_HTML_PROVIDER_HTTP_404";
+      fp.payload.directInlineWidgetProviderEvidence.providers.push({ courseId: COURSE, itemId: fp.id, atomId: fp.atomId,
+        stableSource: true, failures: [], initial: { modelHash: "a".repeat(64), sourceHash: "b".repeat(64) },
+        final: { modelHash: "a".repeat(64), sourceHash: "b".repeat(64) },
+        publicPages: [{ targetUrl: "https://opentextbc.ca/synthetic-book/?p=" + target,
+          observation: null, failures: [{ reason }] }],
+      });
+    }
+    context.itemStates.set(fp.id, { inlineExternalContent: context.summarizeInlineItem(fp) });
+  }
+  const summary = clone(context.inlineExternalContentSummary());
+  assert.equal(summary.readings, 24); assert.deepEqual(summary.settings, { captured: 54, total: 54 });
+  assert.deepEqual(summary.pages, { saved: 0, unique: 44, historical: 0 });
+  assert.deepEqual(summary.failures, { upstreamHttp: { "403": 42, "404": 1 }, timeouts: 1, unsupported: 0, other: 0, unclassified: 0, mixed: 0 });
+  assert.equal(summary.wholeWidgetVerified, false); assert.equal(summary.limited, false);
+  context.itemStates.clear();
+  for (let item = 0; item < 3; item++) context.itemStates.set(item, { inlineExternalContent: {
+    total: 1, captured: 1, limited: false,
+    pages: Array.from({ length: 128 }, (_, offset) => ({ targetUrl: "https://opentextbc.ca/synthetic-book/?p=" + (item * 128 + offset),
+      saved: false, historical: false, outcomes: ["TIMEOUT"] })),
+  } });
+  const bounded = context.inlineExternalContentSummary();
+  assert.equal(bounded.pages.unique, 256); assert.equal(bounded.failures.timeouts, 256); assert.equal(bounded.limited, true);
 });
 
 test("the actual entry records separate native and flag-set comparison hashes without calling a flag reorder a course edit", async () => {
@@ -1773,6 +2072,101 @@ test("completed v1.5 and v1.6 gap captures continue in the original run without 
     assert.equal(capture.meta.directDataCapture.mediaEnrichment.baseSourceCapturedAt, baseObservedAt);
     assert.deepEqual(capture.fingerprints.find(fp => fp.id === "AssessmentZ").payload, original);
   }
+});
+
+test("exact v1.8.0 continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
+  useNativeCml(t);
+  const f = publisherEntryFixture(), source = f.fixtures[0],
+    assetIds = Array.from({ length: 80 }, (_, index) => "Original" + String(index).padStart(14, "0")),
+    definition = source.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition;
+  definition.value = definition.value.replace("<co-content>", "<co-content>" + assetIds.map(id => '<asset id="' + id + '"/>').join(""));
+  const assessmentFixture = widgetFixture({ itemId: "AssessmentZ", atomId: "Z".repeat(22) }),
+    assessmentSources = assessmentFixture.fp.payload.directDataSources;
+  assessmentSources.atom.elements[0].draft.content = { typeName: "staffGradedDraft", definition: {} };
+  const assessmentFp = { ...clone(assessmentFixture.fp), type: "Assignment", typeName: "staffGraded", payload: {}, sourceIdentity: {} };
+  f.options.ids.push(assessmentFp.id); f.options.fingerprints[assessmentFp.id] = assessmentFp;
+  f.options.assessmentInventory = () => ({ declared: 0, candidates: [], rawParts: [], unsupportedParts: [] });
+  const readResult = f.options.readResult, mediaCalls = [], mediaSettings = [], actualBodies = new Map();
+  f.options.readResult = call => {
+    if (["atom", "relation"].includes(call.resource) && call.id === assessmentFp.atomId)
+      return { ok: true, data: clone(assessmentSources[call.resource]), receipt: {
+        ...clone(assessmentSources.receipts[call.resource]), observedAt: new Date(call.at).toISOString(),
+      } };
+    return readResult(call);
+  };
+  let mediaAttempt = 0;
+  f.options.mediaReaderFactory = configuration => {
+    const attempt = mediaAttempt++, stats = { bytes: 0, requests: 0 };
+    mediaSettings.push(clone(configuration.limits));
+    return { async capture(assetId, retained) {
+      mediaCalls.push({ attempt, assetId, retained: clone(retained) });
+      if (retained?.body) return clone(retained);
+      stats.requests++;
+      assert.equal(attempt, 0, "Continuation must hand every matching original to the media reader");
+      const index = assetIds.indexOf(assetId), bytes = Buffer.alloc(512);
+      bytes.write("AC1032", "ascii"); bytes.writeUInt32LE(index, 128);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      actualBodies.set(sha256, bytes); stats.bytes += bytes.length;
+      return { assetId, metadata: { elements: [{ id: assetId, name: "native-plan-" + index + ".dwg", typeName: "file",
+        url: { url: "https://fixture.cloudfront.net/native-plan-" + index + ".dwg" } }] },
+        metadataReceipt: { observedAt: "2027-01-15T08:00:00.000Z", resource: "assets.v1", id: assetId },
+        body: { base64: bytes.toString("base64"), size: bytes.length, mime: "application/acad", sha256,
+          receipt: { observedAt: "2027-01-15T08:00:00.000Z", bodyFormat: "ORIGINAL_BINARY_BYTES_BASE64" } },
+        stability: { stable: true } };
+    }, snapshot: () => clone(stats), abort() {}, release() {} };
+  };
+  f.control.api = "blocked"; f.control.html = "blocked";
+  const app = harness(f.options);
+  app.launch(); await app.idle();
+  const runId = app.state().runId, run = app.runs.get(runId),
+    reading = app.items.get(runId + "/" + source.fp.id).fingerprint,
+    originalAssets = clone(reading.payload.directAssetEvidence.assets),
+    assessment = app.items.get(runId + "/AssessmentZ").fingerprint;
+  assert.equal(originalAssets.length, 80); assert.equal(app.bodies.size, 80);
+  assert.equal(app.metrics.bodyWrites.length, 80);
+  assert.deepEqual(originalAssets.map(asset => asset.assetId), assetIds, "Every original came from an actual native CML reference");
+  assessment.captureContract = { complete: true, method: "DIRECT_ASSESSMENT", reasons: [], contentPartsCaptured: true };
+  const originalAssessmentObservedAt = assessment.payload.directDataSources.receipts.atom.observedAt;
+  assessment.payload.assessmentApiEvidence = { questionDefinitions: [{ id: "saved-native-question@1", definition: "Exact previously captured native question" }],
+    receipts: [{ observedAt: originalAssessmentObservedAt }] };
+  assessment.payload.structuredAssessment = { questions: [{ id: "saved-native-question@1", prompt: "Original prompt", answerKey: "Original answer evidence" }] };
+  const originalAssessmentPayload = clone(assessment.payload), originalBudget = clone(run.budget),
+    originalBuild = "v1.8.0-inline-widget-public-html-20261018";
+  delete reading.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages;
+  run.buildId = run.captureMeta.buildId = originalBuild;
+  run.captureMeta.directDataCapture.extractorBuildId = originalBuild;
+  const baseSourceTime = run.captureMeta.directDataCapture.finalMaterialsReceipt.observedAt, before = app.calls.length;
+  f.control.api = "success";
+  app.advance(60000); app.launch(); await app.idle();
+  assert.equal(app.state().runId, runId, "Migration keeps the exact existing capture run");
+  assert.equal(app.state().state, "INCOMPLETE"); assert.equal(app.state().exportError, "");
+  const resumed = app.runs.get(runId), current = app.items.get(runId + "/" + source.fp.id).fingerprint,
+    freshApi = current.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0].observation;
+  assert(freshApi, JSON.stringify(current.captureContract));
+  assert.equal(freshApi.model.rawJson, source.publisherRawJson);
+  assert(Date.parse(freshApi.model.observedAt) > Date.parse(baseSourceTime));
+  assert.equal(resumed.captureMeta.directDataCapture.mediaEnrichment.baseBuildId, originalBuild);
+  assert.equal(resumed.captureMeta.directDataCapture.mediaEnrichment.baseSourceCapturedAt, baseSourceTime);
+  assert.equal(app.calls.slice(before).filter(call => call.resource === "widget").length, 2, "Current native provider observations precede fresh API capture");
+  assert.equal(app.calls.slice(before).filter(call => call.resource === "publisher").length, 1);
+  assert(!app.calls.slice(before).some(call => call.id === assessmentFp.atomId || ["group", "definition"].includes(call.resource)));
+  assert.deepEqual(app.items.get(runId + "/AssessmentZ").fingerprint.payload, originalAssessmentPayload);
+  assert.equal(app.items.get(runId + "/AssessmentZ").fingerprint.payload.directDataSources.receipts.atom.observedAt, originalAssessmentObservedAt);
+  assert.equal(mediaCalls.filter(call => call.attempt === 1).length, 80, "Each bound asset is handed to the media helper for current metadata validation");
+  assert(mediaCalls.filter(call => call.attempt === 1).every(call => call.retained?.body?.sha256 && call.retained.body.archivePath));
+  assert.deepEqual(current.payload.directAssetEvidence.assets, originalAssets, "Body receipts, source observations, hashes and archive references stay unchanged");
+  assert.equal(app.metrics.bodyWrites.length, 80, "No matching original body is downloaded or re-stored");
+  assert.equal(app.bodies.size, 80);
+  assert.equal(mediaSettings[1].totalBytes, CTI_DIRECT_DATA_MEDIA_BYTES_V1 - originalBudget.media.bytes);
+  assert.equal(resumed.budget.media.bytes, originalBudget.media.bytes);
+  assert.equal(resumed.budget.media.requests, originalBudget.media.requests, "Reusing retained bytes does not add binary download requests");
+  assert.equal(resumed.budget.requests, originalBudget.requests + app.calls.length - before);
+  assert.equal(resumed.budget.bytes, originalBudget.bytes + 64 * (app.calls.length - before));
+  assert(resumed.budget.elapsedMs >= originalBudget.elapsedMs);
+  const { capture, zip } = await exportedCapture(app.downloads.at(-1));
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified, false);
+  assert.deepEqual(capture.fingerprints.find(fp => fp.id === "AssessmentZ").payload, originalAssessmentPayload);
+  for (const [sha256, bytes] of actualBodies) assert.deepEqual(await zip.file("files/" + sha256).async("nodebuffer"), bytes);
 });
 
 function providerDiagnosticOptions() {

@@ -32,6 +32,8 @@ import { directProviderAccessDiagnosticV1, directProviderAccessDiagnosticTextV1 
 import { directPublicPageTargetV1, directPublicPageObservationValidV1,
   CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1,
   CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "./direct-data-public-page.js";
+import { directPublisherTargetV1, directPublisherObservationValidV1,
+  directPublisherChapterV1 } from "./direct-data-publisher.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
 import {
   bindDirectAuthoringDraftV1,
@@ -50,6 +52,7 @@ import {
   directWidgetContractV1,
   directInlineWidgetBindingsV1,
   directWidgetProviderReceiptValidV1,
+  directInlineWidgetEvidenceV1,
   parseCourseraCheckboxDefinitionDirectV1,
   directCmlTextV1,
   directAssessmentQuestionProjectionV1,
@@ -130,6 +133,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     const startButton = document.createElement("button"),
       freshButton = document.createElement("button"),
       accessButton = document.createElement("button"),
+      publisherAccessButton = document.createElement("button"),
       copyAccessButton = document.createElement("button"),
       downloadAccessButton = document.createElement("button"),
       accessText = document.createElement("pre"),
@@ -137,6 +141,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     startButton.textContent = "Capture/resume course";
     freshButton.textContent = "Start a fresh course capture";
     accessButton.textContent = "Check Panopto access";
+    publisherAccessButton.textContent = "Check embedded page access";
     copyAccessButton.textContent = "Copy access result";
     downloadAccessButton.textContent = "Download access report";
     accessText.style.cssText = "white-space:pre-wrap;font:inherit;max-height:220px;overflow:auto";
@@ -145,7 +150,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     accessFallback.readOnly = true;
     accessFallback.hidden = true;
     accessFallback.style.cssText = "width:95%;height:100px";
-    for (const button of [freshButton, startButton, accessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
+    for (const button of [freshButton, startButton, accessButton, publisherAccessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
       button.style.cssText =
         "margin:4px;padding:8px;background:#fff;border:1px solid #adc2de;border-radius:6px;color:#172b4d;cursor:pointer";
     freshButton.style.background = "#0052cc";
@@ -159,6 +164,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       freshButton,
       startButton,
       accessButton,
+      publisherAccessButton,
       stopButton,
       downloadButton,
       resumeButton,
@@ -197,6 +203,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       panoptoSources = new Map(),
       inlineWidgetSources = new Map(),
       publicPageSources = new Map(),
+      publisherPageSources = new Map(),
+      externalSourceTargets = new Set(),
       publicPageRetainedByItem = new Map(),
       exporting = false,
       fatalReason = "";
@@ -214,6 +222,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       checkpointReady = false;
     let accessReader = null, providerTransport = null;
     let publicPageStats = { readerOperations: 0, observedEnvelopeBytes: 0, retainedUtf8Bytes: 0 };
+    let publisherPageStats = { readerOperations: 0, observedBytes: 0 };
     const encoder = new TextEncoder();
     const hash = async (value) => {
       const bytes = encoder.encode(directCanonicalSourceTextV1(value));
@@ -282,11 +291,31 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           (summary.widgets.configurations || 0) +
           "/" + summary.widgets.total +
           " captured · external widget bodies unverified";
+      const inline = stats.inlineExternalContent;
+      state.inlineExternalContent = inline;
+      if (inline.settings.total) {
+        count.textContent += " · Inline widget settings " + inline.settings.captured + "/" + inline.settings.total +
+          " captured in " + inline.readings + " readings · External pages " + inline.pages.saved + "/" + inline.pages.unique + " saved";
+        const failures = Object.entries(inline.failures.upstreamHttp).map(([status, total]) => total + " HTTP " + status);
+        if (inline.failures.timeouts) failures.push(inline.failures.timeouts + " timeout" + (inline.failures.timeouts === 1 ? "" : "s"));
+        if (inline.failures.unsupported) failures.push(inline.failures.unsupported + " outside the supported reader scope");
+        if (inline.failures.other) failures.push(inline.failures.other + " other failures");
+        if (inline.failures.unclassified) failures.push(inline.failures.unclassified + " unverified");
+        if (inline.failures.mixed) failures.push(inline.failures.mixed + " mixed failure outcomes");
+        if (failures.length) count.textContent += " (" + failures.join("; ") + ")";
+        if (inline.pages.historical) count.textContent += " · " + inline.pages.historical + " historical pages retained";
+        if (inline.publisherApi.unique) {
+          count.textContent += " · Publisher API sources " + inline.publisherApi.saved + "/" + inline.publisherApi.unique + " saved";
+          if (inline.publisherApi.browserUnavailable) count.textContent += " (" + inline.publisherApi.browserUnavailable + " browser-blocked or network-failed)";
+        }
+        if (inline.limited) count.textContent += " · External-page summary limited; retained source records remain in the capture";
+      }
       count.hidden = !meta || state.diagnosing;
       const busy = state.running || state.diagnosing || exporting;
       startButton.disabled = busy || state.terminal;
       freshButton.disabled = busy;
       accessButton.disabled = busy;
+      publisherAccessButton.disabled = busy;
       stopButton.disabled = !state.running && !state.diagnosing;
       downloadButton.disabled = busy || !meta;
       resumeButton.hidden =
@@ -332,9 +361,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           requests: mediaBase.requests + (media?.requests || 0),
           currentAttempt: media || { bytes: 0, requests: 0 },
         },
-        publicPages: { ...publicPageStats, sourceScope: "CURRENT_ATTEMPT", retainedScope: "CURRENT_CAPTURE_ITEMS",
+        publicPages: { ...publicPageStats, sourceScope: "CURRENT_ATTEMPT", retainedScope: "CURRENT_CAPTURE_HTML_AND_PUBLISHER_JSON",
           limits: { readerOperations: 64, observedEnvelopeBytes: 16 * 1024 * 1024,
             retainedUtf8Bytes: CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } },
+        publisherPages: { ...publisherPageStats, sourceScope: "CURRENT_ATTEMPT" },
+        externalSources: { logicalTargets: externalSourceTargets.size, limit: 64,
+          retainedUtf8Bytes: publicPageStats.retainedUtf8Bytes, retainedBytesLimit: CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 },
+        inlineExternalContent: inlineExternalContentSummary(),
       };
     }
     function terminalBudgetReason(reason) {
@@ -425,6 +458,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         missingPointerCount: (
           fp.payload.directDataEvidence?.unresolvedAssetReferences || []
         ).filter((ref) => !ref.id && !ref.url).length,
+        inlineExternalContent: summarizeInlineItem(fp),
       });
       state.counts.processed = [...itemStates.values()].filter(
         (value) => value.processed,
@@ -436,6 +470,121 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         (sum, value) => sum + value.questions,
         0,
       );
+    }
+    function publicPageFailureOutcome(failure) {
+      const code = typeof failure?.reason === "string" ? failure.reason : "",
+        receipt = failure?.receipt,
+        observedStatus = receipt?.observedAtBasis === "UPSTREAM" && Number.isInteger(receipt.status) &&
+          receipt.status >= 400 && receipt.status <= 599 && receipt.upstreamRequests > 0 ? receipt.status : 0,
+        reasonStatus = /^PUBLIC_HTML_PROVIDER_HTTP_([45]\d\d)$/.exec(code);
+      if (observedStatus || reasonStatus) return "HTTP_" + (observedStatus || reasonStatus[1]);
+      if (/TIMEOUT/.test(code)) return "TIMEOUT";
+      if (code === "DIRECT_PUBLIC_PAGE_TARGET_UNSUPPORTED") return "UNSUPPORTED";
+      return code ? "OTHER" : "UNCLASSIFIED";
+    }
+    function summarizeInlineItem(fp) {
+      const evidence = fp.payload?.directInlineWidgetProviderEvidence,
+        providers = Array.isArray(evidence?.providers) ? evidence.providers : [],
+        sourceStable = fp.payload?.directDataSources?.receipts?.stability?.stable === true &&
+          fp.payload?.directResumeRevalidation?.verified !== false,
+        result = { total: providers.length, captured: 0, pages: [], limited: providers.length > 64 };
+      if (evidence?.method !== "BOUND_INLINE_CML_WIDGET_PROVIDERS") return { ...result, total: 0 };
+      for (const provider of providers.slice(0, 64)) {
+        if (!sourceStable || provider.courseId !== courseId || provider.itemId !== fp.id || provider.atomId !== fp.atomId ||
+            provider.stableSource !== true || provider.failures?.length ||
+            !/^[a-f0-9]{64}$/.test(provider.initial?.modelHash || "") || provider.initial.modelHash !== provider.final?.modelHash ||
+            !/^[a-f0-9]{64}$/.test(provider.initial?.sourceHash || "") || provider.initial.sourceHash !== provider.final?.sourceHash) continue;
+        result.captured++;
+        const pages = [...(Array.isArray(provider.publicPages) ? provider.publicPages.map(value => ({ ...value, representation: "HTML" })) : []),
+          ...(Array.isArray(provider.publisherPages) ? provider.publisherPages.map(value => ({ ...value, representation: "PUBLISHER_API" })) : [])];
+        if (pages.length > 128 - result.pages.length) result.limited = true;
+        for (const page of pages.slice(0, Math.max(0, 128 - result.pages.length))) {
+          if (typeof page.targetUrl !== "string" || !page.targetUrl || page.targetUrl.length > 8192) { result.limited = true; continue; }
+          const failures = Array.isArray(page.failures) ? page.failures : [];
+          result.pages.push({ targetUrl: page.targetUrl, saved: !!page.observation && !failures.length,
+            historical: !!page.retainedObservation && failures.length > 0,
+            representation: page.representation,
+            outcomes: [...new Set(failures.slice(0, 32).map(publicPageFailureOutcome))],
+            browserUnavailable: failures.some(value => value.reason === "PUBLISHER_BROWSER_BLOCKED_OR_FAILED") });
+        }
+      }
+      return result;
+    }
+    function inlineExternalContentSummary() {
+      const sources = new Map(), result = { method: "CAPTURE_REPORTED_INLINE_SOURCE_SUMMARY", readings: 0,
+        settings: { captured: 0, total: 0 }, pages: { saved: 0, unique: 0, historical: 0 },
+        failures: { upstreamHttp: {}, timeouts: 0, unsupported: 0, other: 0, unclassified: 0, mixed: 0 },
+        publisherApi: { saved: 0, unique: 0, historical: 0, browserUnavailable: 0 },
+        limited: false, sourceLimit: 256, wholeWidgetVerified: false };
+      for (const item of itemStates.values()) {
+        const value = item.inlineExternalContent;
+        if (!value?.total) continue;
+        result.readings++; result.settings.total += value.total; result.settings.captured += value.captured;
+        result.limited ||= value.limited;
+        for (const page of value.pages) {
+          if (!sources.has(page.targetUrl)) {
+            if (sources.size >= result.sourceLimit) { result.limited = true; continue; }
+            sources.set(page.targetUrl, { saved: false, historical: false, outcomes: new Set(), publisher: false,
+              publisherSaved: false, publisherHistorical: false, browserUnavailable: false });
+          }
+          const source = sources.get(page.targetUrl);
+          source.saved ||= page.saved; source.historical ||= page.historical;
+          if (page.representation === "PUBLISHER_API") {
+            source.publisher = true; source.publisherSaved ||= page.saved; source.publisherHistorical ||= page.historical;
+            source.browserUnavailable ||= page.browserUnavailable;
+          } else for (const outcome of page.outcomes) source.outcomes.add(outcome);
+        }
+      }
+      result.pages.unique = sources.size;
+      for (const source of sources.values()) {
+        if (source.publisher) {
+          result.publisherApi.unique++;
+          if (source.publisherSaved) result.publisherApi.saved++;
+          if (source.publisherHistorical) result.publisherApi.historical++;
+          if (!source.publisherSaved && source.browserUnavailable) result.publisherApi.browserUnavailable++;
+        }
+        if (source.historical) result.pages.historical++;
+        if (source.saved) { result.pages.saved++; continue; }
+        const outcomes = [...source.outcomes], outcome = outcomes[0] || "UNCLASSIFIED";
+        if (outcomes.length > 1) result.failures.mixed++;
+        else if (outcome.startsWith("HTTP_")) result.failures.upstreamHttp[outcome.slice(5)] = (result.failures.upstreamHttp[outcome.slice(5)] || 0) + 1;
+        else result.failures[{ TIMEOUT: "timeouts", UNSUPPORTED: "unsupported", OTHER: "other", UNCLASSIFIED: "unclassified" }[outcome]]++;
+      }
+      return result;
+    }
+    function retainPublicFailureReceipt(read, targetUrl) {
+      const input = read?.receipt, result = {};
+      if (!input || input.resource !== "PublicStaticHtml" || input.id !== targetUrl || !directPublicPageTargetV1(targetUrl)) return null;
+      for (const key of ["resource", "id", "requestedUrl", "normalizedUrl", "origin", "requestPath", "method", "bodyFormat",
+        "originalResponseSha256", "transport", "serviceOrigin", "receivedAt", "observedAt", "observedAtBasis"])
+        if (typeof input[key] === "string" && input[key].length <= 4000 && !/[\r\n\0]/.test(input[key])) result[key] = input[key];
+      for (const key of ["status", "serviceStatus", "bytes", "upstreamRequests", "upstreamBytes", "declaredEnvelopeBytes"])
+        if (Number.isSafeInteger(input[key]) && input[key] >= 0 &&
+            (!["status", "serviceStatus"].includes(key) || input[key] <= 599)) result[key] = input[key];
+      if (Array.isArray(input.requestQuery) && input.requestQuery.length <= 4 && input.requestQuery.every(pair =>
+        Array.isArray(pair) && pair.length === 2 && typeof pair[0] === "string" && typeof pair[1] === "string" &&
+        (pair[0] === "action" ? pair[1] === "h5p_embed" : ["p", "h5p-embed", "id"].includes(pair[0]) && /^\d+$/.test(pair[1]))))
+        result.requestQuery = input.requestQuery.map(pair => [...pair]);
+      return encoder.encode(JSON.stringify(result)).byteLength <= 16 * 1024 ? result : null;
+    }
+    function retainPublisherFailureReceipt(read, targetUrl) {
+      const input = read?.receipt, result = {};
+      if (!input || input.resource !== "PublisherChapter" || input.id !== targetUrl || !directPublisherTargetV1(targetUrl)) return null;
+      for (const key of ["resource", "id", "requestedUrl", "endpointUrl", "origin", "requestPath", "method", "bodyFormat",
+        "originalResponseSha256", "transport", "receivedAt", "observedAt", "observedAtBasis", "responseType", "credentials"])
+        if (typeof input[key] === "string" && input[key].length <= 4000 && !/[\r\n\0]/.test(input[key])) result[key] = input[key];
+      for (const key of ["status", "bytes"])
+        if (Number.isSafeInteger(input[key]) && input[key] >= 0 && (key !== "status" || input[key] <= 599)) result[key] = input[key];
+      if (Array.isArray(input.requestQuery) && !input.requestQuery.length) result.requestQuery = [];
+      if (Array.isArray(input.attempts) && input.attempts.length <= 2) result.attempts = input.attempts.map(attempt => ({
+        credentials: ["omit", "include"].includes(attempt.credentials) ? attempt.credentials : "omit",
+        status: Number.isInteger(attempt.status) && attempt.status >= 0 && attempt.status <= 599 ? attempt.status : 0,
+        responseType: ["cors", "unreadable"].includes(attempt.responseType) ? attempt.responseType : "unreadable",
+        observedAt: typeof attempt.observedAt === "string" && attempt.observedAt.length <= 64 ? attempt.observedAt : "",
+        bytes: Number.isSafeInteger(attempt.bytes) && attempt.bytes >= 0 ? attempt.bytes : 0,
+        reason: /^[A-Z0-9_]{0,96}$/.test(attempt.reason || "") ? attempt.reason || "" : "PUBLISHER_BROWSER_BLOCKED_OR_FAILED",
+      }));
+      return encoder.encode(JSON.stringify(result)).byteLength <= 16 * 1024 ? result : null;
     }
     async function hydrateSavedItems() {
       // Do not list/load a whole question bank into the renderer. Hydrate one
@@ -1097,34 +1246,42 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       // new bodies, so a failed refresh can keep its exact prior observation.
       publicPageStats.retainedUtf8Bytes -= publicPageRetainedByItem.get(fp.id) || 0;
       for (const provider of evidence.providers)
-        if (provider.stableSource) await prepareInlinePublicPages(provider, previous);
+        if (provider.stableSource) {
+          await prepareInlinePublicPages(provider, previous);
+          await prepareInlinePublicPages(provider, previous, true);
+        }
       for (const provider of evidence.providers)
-        if (provider.stableSource) await captureInlinePublicPages(fp, provider);
+        if (provider.stableSource) {
+          await captureInlinePublisherPages(fp, provider);
+          await captureInlinePublicPages(fp, provider);
+        }
     }
-    async function prepareInlinePublicPages(provider, previous) {
-      provider.publicPages = [];
+    async function prepareInlinePublicPages(provider, previous, publisher = false) {
+      const collection = publisher ? "publisherPages" : "publicPages";
+      provider[collection] = [];
       const targets = new Map();
       for (const target of provider.targets) {
+        if (publisher && !directPublisherTargetV1(target.url)) continue;
         if (!targets.has(target.url)) targets.set(target.url, []);
         const fields = targets.get(target.url);
         if (!fields.includes(target.sourceField)) fields.push(target.sourceField);
       }
       for (const [targetUrl, sourceFields] of targets) {
         const page = { targetUrl, sourceFields, observation: null, failures: [] };
-        provider.publicPages.push(page);
+        provider[collection].push(page);
         const prior = previous?.payload?.directInlineWidgetProviderEvidence?.providers?.filter(
           value => value.providerId === provider.providerId && value.courseId === provider.courseId &&
             value.itemId === provider.itemId && value.atomId === provider.atomId);
-        const pages = prior?.length === 1 ? prior[0].publicPages?.filter(value => value.targetUrl === targetUrl) : [];
+        const pages = prior?.length === 1 ? prior[0][collection]?.filter(value => value.targetUrl === targetUrl) : [];
         if (pages?.length !== 1) continue;
         const candidates = [pages[0].observation, pages[0].retainedObservation]
-          .filter(value => directPublicPageObservationValidV1(value, targetUrl))
+          .filter(value => publisher ? directPublisherObservationValidV1(value, targetUrl) : directPublicPageObservationValidV1(value, targetUrl))
           .sort((a, b) => Date.parse(b.model.observedAt) - Date.parse(a.model.observedAt));
         for (const observation of candidates) {
-          if (await hash(observation.model) !== observation.receipt.originalResponseSha256 ||
+          if (!publisher && (await hash(observation.model) !== observation.receipt.originalResponseSha256 ||
               encoder.encode(directCanonicalSourceTextV1(observation.model)).byteLength !== observation.receipt.bytes)
-            continue;
-          const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(observation.model.html))),
+            ) continue;
+          const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(publisher ? observation.model.rawJson : observation.model.html))),
             byte => byte.toString(16).padStart(2, "0")).join("");
           if (digest !== observation.model.sha256) continue;
           if (publicPageStats.retainedUtf8Bytes + observation.model.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
@@ -1135,14 +1292,55 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
       }
     }
+    function claimExternalSource(targetUrl) {
+      if (!externalSourceTargets.has(targetUrl) && externalSourceTargets.size >= 64)
+        throw Error("DIRECT_EXTERNAL_SOURCE_TARGET_LIMIT");
+      externalSourceTargets.add(targetUrl);
+    }
+    async function captureInlinePublisherPages(fp, provider) {
+      for (const page of provider.publisherPages) {
+        let attemptedRead = null;
+        try {
+          claimExternalSource(page.targetUrl);
+          if (!publisherPageSources.has(page.targetUrl)) {
+            publisherPageStats.readerOperations++;
+            publisherPageSources.set(page.targetUrl, (async () => {
+              const read = await reader.readPublisherPage(page.targetUrl, { itemId: fp.id, providerId: provider.providerId });
+              publisherPageStats.observedBytes += Number(read.receipt?.bytes || 0);
+              checkpointBudget(); return read;
+            })());
+          }
+          const read = await publisherPageSources.get(page.targetUrl);
+          attemptedRead = read; requireRead(read);
+          if (!directPublisherObservationValidV1({ model: read.data, receipt: read.receipt }, page.targetUrl))
+            throw Error("DIRECT_PUBLISHER_SOURCE_INVALID");
+          const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.rawJson))),
+            byte => byte.toString(16).padStart(2, "0")).join("");
+          if (actual !== read.data.sha256) throw Error("DIRECT_PUBLISHER_HASH_INVALID");
+          const previousBytes = page.retainedObservation?.model?.bytes || 0;
+          if (publicPageStats.retainedUtf8Bytes - previousBytes + read.data.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
+            throw Error("DIRECT_PUBLISHER_RETAINED_LIMIT");
+          publicPageStats.retainedUtf8Bytes += read.data.bytes - previousBytes;
+          page.observation = { model: read.data, receipt: read.receipt };
+          delete page.retainedObservation;
+        } catch (error) {
+          const retainedReceipt = retainPublisherFailureReceipt(attemptedRead, page.targetUrl);
+          page.failures.push({ reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "DIRECT_PUBLISHER_CAPTURE_FAILED",
+            ...(retainedReceipt ? { receipt: retainedReceipt } : {}) });
+        }
+      }
+    }
     async function captureInlinePublicPages(fp, provider) {
       for (const page of provider.publicPages) {
         const targetUrl = page.targetUrl;
+        let attemptedRead = null;
         try {
+          if (provider.publisherPages?.some(value => value.targetUrl === targetUrl && value.observation && !value.failures.length))
+            throw Error("PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED");
           if (!directPublicPageTargetV1(targetUrl)) throw Error("DIRECT_PUBLIC_PAGE_TARGET_UNSUPPORTED");
           if (!publicPageSources.has(targetUrl)) {
-            if (publicPageStats.readerOperations >= 64 ||
-                publicPageStats.observedEnvelopeBytes + CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 > 16 * 1024 * 1024)
+            claimExternalSource(targetUrl);
+            if (publicPageStats.observedEnvelopeBytes + CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 > 16 * 1024 * 1024)
               throw Error("DIRECT_PUBLIC_PAGE_ATTEMPT_LIMIT");
             publicPageStats.readerOperations++;
             publicPageSources.set(targetUrl, (async () => {
@@ -1153,6 +1351,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             })());
           }
           const read = await publicPageSources.get(targetUrl);
+          attemptedRead = read;
           requireRead(read);
           if (!directPublicPageObservationValidV1({ model: read.data, receipt: read.receipt }, targetUrl))
             throw Error("DIRECT_PUBLIC_PAGE_SOURCE_INVALID");
@@ -1169,8 +1368,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           page.observation = { model: read.data, receipt: read.receipt };
           delete page.retainedObservation;
         } catch (error) {
+          const retainedReceipt = retainPublicFailureReceipt(attemptedRead, targetUrl);
           page.failures.push({ reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
-            ? error.message : "DIRECT_PUBLIC_PAGE_CAPTURE_FAILED" });
+            ? error.message : "DIRECT_PUBLIC_PAGE_CAPTURE_FAILED",
+            ...(retainedReceipt ? { receipt: retainedReceipt } : {}) });
         }
       }
     }
@@ -1178,10 +1379,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       let bytes = 0;
       for (const evidence of [fp.payload?.directInlineWidgetProviderEvidence, fp.payload?.directInlineWidgetProviderAttempt])
         for (const provider of evidence?.providers || [])
-          for (const page of provider.publicPages || [])
+          for (const page of [...(provider.publicPages || []), ...(provider.publisherPages || [])])
             for (const observation of [page.observation, page.retainedObservation])
-              if (typeof observation?.model?.html === "string")
-                bytes += encoder.encode(observation.model.html).byteLength;
+              if (typeof observation?.model?.html === "string" || typeof observation?.model?.rawJson === "string")
+                bytes += encoder.encode(observation.model.rawJson ?? observation.model.html).byteLength;
       return bytes;
     }
     async function captureItem(fp) {
@@ -1409,7 +1610,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         // A failed item revalidation cannot displace its saved originals. Keep
         // the failed current selectors/receipts, with explicit omitted-page gaps.
         for (const provider of fp.payload.directInlineWidgetProviderAttempt.providers || [])
-          for (const page of provider.publicPages || [])
+          for (const page of [...(provider.publicPages || []), ...(provider.publisherPages || [])])
             if (page.observation || page.retainedObservation) {
               page.observation = null;
               delete page.retainedObservation;
@@ -1709,9 +1910,119 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         render("The diagnostic exceeded its report limit or could not validate its source binding. Saved course progress was not changed.");
       }
     }
+    async function checkpointPublisherTarget(fp) {
+      try {
+        // Bound saved JSON before canonical hashing. The diagnostic consumes
+        // native configuration proof only, never retained page/media bodies.
+        const inline = fp.payload?.directInlineWidgetProviderEvidence;
+        if (!Array.isArray(inline?.providers) || inline.providers.length > 32) return null;
+        const providers = new Set(inline.providers), pending = [fp.payload?.directDataSources, inline], seen = new Set();
+        let nodes = 0, characters = 0;
+        while (pending.length) {
+          const value = pending.pop();
+          if (++nodes > 20000) return null;
+          if (typeof value === "string") {
+            characters += value.length;
+            if (characters > 2 * 1024 * 1024) return null;
+          } else if (value && typeof value === "object") {
+            if (seen.has(value)) return null;
+            seen.add(value);
+            const entries = Object.entries(value);
+            if (entries.length > 2048) return null;
+            for (const [key, child] of entries) {
+              characters += key.length;
+              if (characters > 2 * 1024 * 1024) return null;
+              // External bodies are unrelated to selecting the native target.
+              if (!providers.has(value) || key !== "publicPages" && key !== "publisherPages") pending.push(child);
+            }
+          }
+        }
+        const sources = fp.payload?.directDataSources,
+          bound = bindDirectAuthoringDraftV1(fp, courseId, slug, sources?.atom, sources?.relation),
+          bindings = directInlineWidgetBindingsV1(fp, bound), hashes = new Map();
+        const remember = async value => hashes.set(directCanonicalSourceTextV1(value), await hash(value));
+        await remember(bound.draft);
+        for (const proof of fp.payload?.directInlineWidgetProviderEvidence?.providers || []) {
+          const binding = bindings.find(value => value.providerId === proof.providerId);
+          if (!binding || proof.stableSource !== true || proof.failures?.length) continue;
+          for (const observation of [proof.initial, proof.final]) {
+            await remember(observation.model);
+            await remember(directInlineWidgetProviderSourceV1(binding, observation.model));
+          }
+        }
+        const verified = directInlineWidgetEvidenceV1(fp, bound, value => hashes.get(directCanonicalSourceTextV1(value)));
+        for (const provider of verified?.providers || [])
+          for (const target of provider.targets)
+            if (directPublisherTargetV1(target.url)) return { itemId: fp.id, providerId: provider.binding.providerId,
+              targetUrl: target.url, configuredSourceObservedAt: provider.final.receipt.observedAt };
+      } catch (_) { /* A stored declaration alone cannot select a request. */ }
+      return null;
+    }
+    async function checkPublisherAccess() {
+      if (state.running || state.diagnosing || exporting || location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
+      operatorStopped = false; state.diagnosing = true; state.accessDiagnostic = null;
+      state.phase = "Checking embedded page access"; accessText.textContent = ""; accessFallback.hidden = true;
+      const report = { kind: "CTI_PUBLISHER_ACCESS_DIAGNOSTIC", schemaVersion: 1, diagnosticOnly: true, courseId,
+        checkedAt: new Date().toISOString(), source: null, accepted: false, reason: "PUBLISHER_CHECK_NO_RECORDED_SOURCE", requests: 0,
+        courseCaptured: false, progressChanged: false };
+      render("Checking one recorded embedded page. This does not recapture the course or change saved progress.");
+      try {
+        const checkpoint = store?.available ? store : await createDirectDataCheckpointStoreV1(courseId);
+        if (!checkpoint.available) throw Error("DIRECT_CHECKPOINT_STORAGE_UNAVAILABLE");
+        const saved = await checkpoint.getActiveRun({ recoverMediaGaps: true, recoverExportLimit: true });
+        if (saved?.captureMeta?.directDataCapture?.materials?.elements?.[0]?.id !== courseId) throw Error("PUBLISHER_CHECK_NO_RECORDED_SOURCE");
+        const captured = await directCourseInventoryV1(saved.captureMeta.directDataCapture.materials, courseId),
+          selected = /(?:^|[?&])itemId=([A-Za-z0-9_-]{1,128})(?:&|$)/.exec(location.search || "")?.[1],
+          candidates = captured.fingerprints.slice(0, 128);
+        if (selected) candidates.sort((a, b) => Number(b.id === selected) - Number(a.id === selected));
+        for (const item of candidates) {
+          if (operatorStopped || !assertContext()) throw Error("PUBLISHER_CHECK_STOPPED_OR_CONTEXT_CHANGED");
+          const row = await checkpoint.getItem(saved.runId, item.id);
+          const fp = row?.fingerprint;
+          const target = fp?.id === item.id && fp.atomId === item.atomId && fp.typeName === item.typeName &&
+            await checkpointPublisherTarget(fp);
+          if (target) { report.source = target; break; }
+        }
+        if (!report.source) throw Error("PUBLISHER_CHECK_NO_RECORDED_SOURCE");
+        accessReader = createDirectDataReaderV1({ sanitize: sanitizeCourseraCourseDataModel, assertCurrent: assertContext,
+          limits: { concurrentRequests: 1, requests: 2, totalBytes: 2 * 1024 * 1024, bodyBytes: 1024 * 1024,
+            requestMs: 10000, durationMs: 25000 } });
+        const target = report.source, read = await accessReader.readPublisherPage(target.targetUrl, { itemId: target.itemId, providerId: target.providerId });
+        report.requests = accessReader.snapshot().requests;
+        report.reason = read.reason || "";
+        report.receipt = retainPublisherFailureReceipt(read, target.targetUrl);
+        if (read.ok && directPublisherObservationValidV1({ model: read.data, receipt: read.receipt }, target.targetUrl)) {
+          const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.rawJson))),
+            byte => byte.toString(16).padStart(2, "0")).join("");
+          if (operatorStopped || !assertContext()) throw Error("PUBLISHER_CHECK_STOPPED_OR_CONTEXT_CHANGED");
+          const chapter = actual === read.data.sha256 && directPublisherChapterV1(read.data.rawJson, target.targetUrl);
+          if (chapter) {
+            report.accepted = true;
+            report.chapter = { id: chapter.id, type: chapter.type, status: chapter.status, link: chapter.link,
+              titleCharacters: (chapter.title?.rendered || chapter.title?.raw || "").length,
+              contentCharacters: (chapter.content?.rendered || chapter.content?.raw || "").length };
+            report.body = { bytes: read.data.bytes, sha256: read.data.sha256 };
+          } else report.reason = "DIRECT_PUBLISHER_HASH_INVALID";
+        }
+      } catch (error) {
+        report.reason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_ACCESS_CHECK_FAILED";
+      } finally {
+        accessReader?.abort("PUBLISHER_ACCESS_CHECK_FINISHED"); accessReader = null; state.diagnosing = false;
+      }
+      state.accessDiagnostic = report;
+      accessText.textContent = accessDiagnosticText();
+      state.phase = "Embedded page access check finished";
+      render("Access diagnostic only. Source content and saved course progress were not changed.");
+    }
+    function accessDiagnosticText() {
+      const diagnostic = state.accessDiagnostic;
+      if (diagnostic?.kind !== "CTI_PUBLISHER_ACCESS_DIAGNOSTIC") return directProviderAccessDiagnosticTextV1(diagnostic);
+      return "Publisher page access diagnostic only\n" + JSON.stringify(diagnostic, null, 2) +
+        "\nNo course capture, retained page content or complete widget is established by this diagnostic.";
+    }
     async function copyAccessResult() {
       if (!state.accessDiagnostic || state.running || state.diagnosing || exporting) return;
-      const text = directProviderAccessDiagnosticTextV1(state.accessDiagnostic);
+      const text = accessDiagnosticText();
       try {
         if (!navigator.clipboard?.writeText) throw Error("CLIPBOARD_UNAVAILABLE");
         await navigator.clipboard.writeText(text);
@@ -1729,7 +2040,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const blob = new Blob([JSON.stringify(state.accessDiagnostic, null, 2)], {type: "application/json"}),
         url = URL.createObjectURL(blob), anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "CTI_PANOPTO_ACCESS_DIAGNOSTIC_" + courseId + "_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+      anchor.download = (state.accessDiagnostic.kind === "CTI_PUBLISHER_ACCESS_DIAGNOSTIC" ? "CTI_PUBLISHER_ACCESS_DIAGNOSTIC_" : "CTI_PANOPTO_ACCESS_DIAGNOSTIC_") + courseId + "_" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
@@ -1769,6 +2080,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       panoptoSources = new Map();
       inlineWidgetSources = new Map();
       publicPageSources = new Map();
+      publisherPageSources = new Map();
+      externalSourceTargets = new Set();
+      publisherPageStats = { readerOperations: 0, observedBytes: 0 };
       publicPageRetainedByItem = new Map();
       publicPageStats = { readerOperations: 0, observedEnvelopeBytes: 0, retainedUtf8Bytes: 0 };
       mediaBase = { bytes: 0, requests: 0 };
@@ -1809,6 +2123,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.7.1-explicit-fresh-course-capture-20261017",
             "v1.7.2-content-and-structure-coverage-20261017",
             "v1.7.3-panopto-exact-body-length-20261017",
+            "v1.8.0-inline-widget-public-html-20261018",
           ].includes(active?.buildId)
             ? active
             : null;
@@ -2155,9 +2470,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     state.start = () => void run();
     state.startFresh = () => void run(true);
     state.checkProviderAccess = () => void checkProviderAccess();
+    state.checkPublisherAccess = () => void checkPublisherAccess();
     startButton.onclick = state.start;
     freshButton.onclick = state.startFresh;
     accessButton.onclick = state.checkProviderAccess;
+    publisherAccessButton.onclick = state.checkPublisherAccess;
     copyAccessButton.onclick = () => void copyAccessResult();
     downloadAccessButton.onclick = downloadAccessReport;
     stopButton.onclick = state.stop;

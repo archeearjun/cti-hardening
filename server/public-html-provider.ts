@@ -159,8 +159,16 @@ export async function readPublicHtmlProvider(
       break;
     }
     if (response.status !== 200 || response.headers.has("content-range")) {
+      const challenge =
+        response.status === 403 &&
+        response.headers.get("cf-mitigated")?.trim().toLowerCase() ===
+          "challenge";
       discard(response);
-      throw errorCode("PUBLIC_HTML_PROVIDER_HTTP_" + response.status);
+      throw errorCode(
+        challenge
+          ? "PUBLIC_HTML_PROVIDER_CHALLENGE"
+          : "PUBLIC_HTML_PROVIDER_HTTP_" + response.status,
+      );
     }
     const contentType = response.headers.get("content-type") || "",
       mime = directPublicPageContentTypeV1(contentType);
