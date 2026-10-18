@@ -815,15 +815,15 @@ try{
   const boundAssessReading=await runFileCase(assessReadingMedia);
   assert.equal(boundAssessReading.state.state,'COMPLETE');
   assertOriginalMedia(assessReadingMedia,boundAssessReading.capture);
-  assert.equal(boundAssessReading.capture.fingerprints.find(fp=>fp.id==='item_0002').payload.directDraftCml,
-    assessReading.atom.draft.content.definition.content.definition.value,'The original assess/1 reading CML is preserved unchanged');
+  assert.deepEqual(boundAssessReading.capture.fingerprints.find(fp=>fp.id==='item_0002').payload.directDraftCml,
+    assessReading.atom.draft.content.definition.content,'The original assess/1 reading CML envelope and value are preserved unchanged');
   await boundAssessReading.context.close();
   const boundInlineWidget=await runFileCase(inlineWidgetReading);
   const widgetReading=boundInlineWidget.capture.fingerprints.find(fp=>fp.id==='item_0002');
   assert.equal(boundInlineWidget.state.state,'INCOMPLETE');
   assert.equal(widgetReading.captureContract.complete,false,'Retained reading text does not establish the content of its embedded widget');
   assert.equal(evaluateCourseraCapture(boundInlineWidget.capture,inlineWidgetReading.id).complete,false);
-  assert(widgetReading.payload.directDraftCml.includes('<widget id="'+key('w',1)+'@1"/>'),'Exact versioned widget references survive export');
+  assert(widgetReading.payload.directDraftCml.definition.value.includes('<widget id="'+key('w',1)+'@1"/>'),'Exact versioned widget references survive export');
   await boundInlineWidget.context.close();
   const boundDiscussion=await runFileCase(discussionMedia);
   assert.equal(boundDiscussion.state.state,'COMPLETE');assertOriginalMedia(discussionMedia,boundDiscussion.capture);
