@@ -2070,6 +2070,9 @@ async function checkInlinePublicContent(page, tab, shots) {
       await provider.locator(":scope > summary").click();
       const publicPage = provider.locator(":scope > details").first();
       await publicPage.locator(":scope > summary").click();
+      // Native details toggle dispatches after the click; React then mounts
+      // the validated inert body. Wait for that visible result before reading.
+      await publicPage.locator(":scope > pre").waitFor({ state: "visible" });
       assert.match(await embedded.innerText(), /Authored example: area = length × width/);
       assert.match(await embedded.innerText(), /Preserve the literal <drawing> label & original wording/);
       assert.match(await embedded.innerText(), /Complete widget content and learner interactions remain unverified/);
