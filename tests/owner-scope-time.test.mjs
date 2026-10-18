@@ -59,6 +59,25 @@ test('adjacent repeated module titles keep exact native identities and separate 
   assert.equal(tasks[0].name,'Quiz a'); assert.equal(tasks[0].shellName,'Untitled');
   assert.deepEqual(result,before,'presentation must preserve native shell labels and raw audit');
 });
+test('invalid native outlines cannot replace task identities or prevent saved findings from rendering',()=>{
+  const baseline={
+    stats:{extractorMeta:{page:{url:'https://www.coursera.org/teach/native-course/course-native/content/edit'}}},
+    itemResults:[{courseraId:'item-a',sourceId:'source-a',verdict:'UNVERIFIED'}],
+    ownerView:{items:[{id:'item-a',name:'Saved item',path:'Saved module',status:'REVIEW',actions:[{action:'Review saved source',severity:'REVIEW'}]}]},
+  };
+  const proof={kind:'VERIFIED_NATIVE_CAPTURE_INVENTORY',courseId:'course-native',materialHash:'a'.repeat(64),contentItemCount:1,inventoryEntryCount:1,moduleCount:1,lessonCount:0,emptyContainerCount:0,nativeHierarchy:[
+    {id:'native-module',title:'Untrusted module',kind:'module',ancestorIds:[],emptyContainer:false,sourceContentType:''},
+    {id:'item-a',title:'Native item',kind:'item',ancestorIds:['native-module'],emptyContainer:false,sourceContentType:'supplement'},
+  ],independentWorkbook:false,completeContent:false};
+  const expected=buildOwnerTasks(baseline);
+  for(const invalid of [{...proof,courseId:'different-course'},{...proof,contentItemCount:2}]) {
+    const result={...structuredClone(baseline),nativeCourseOutlineEvidence:invalid},before=structuredClone(result);
+    const tasks=buildOwnerTasks(result);
+    assert.deepEqual(tasks,expected,'invalid optional outline contributes no task metadata or findings');
+    assert.equal(Object.hasOwn(tasks[0],'nativeAncestors'),false);
+    assert.deepEqual(result,before,'invalid saved evidence remains unchanged for the outline error disclosure');
+  }
+});
 test('XLSX lesson metadata reaches the checklist while matching still uses the module',()=>{
   const input=comparisonFixture(),output=createWorkflows(workerXml).compare(input);
   const row=output.result.ownerView.items[0];

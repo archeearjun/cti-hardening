@@ -211,7 +211,14 @@ export function buildOwnerTasks(
 ): OwnerTask[] {
   const nodes = sourceEntries(tree),
     results: EvidenceObject[] = result.itemResults || [];
-  const nativeOutline = nativeCourseOutlineEvidence(result, override);
+  let nativeOutline: ReturnType<typeof nativeCourseOutlineEvidence> = null;
+  try {
+    nativeOutline = nativeCourseOutlineEvidence(result, override);
+  } catch {
+    // Native ancestors are optional presentation metadata. An invalid saved
+    // outline must contribute no identities without blocking the independent
+    // findings; NativeCourseOutline displays the validation error separately.
+  }
   const nativeNodes = new Map(nativeOutline?.nativeHierarchy.map(node => [node.id, node]));
   const make = (
     item: EvidenceObject,
