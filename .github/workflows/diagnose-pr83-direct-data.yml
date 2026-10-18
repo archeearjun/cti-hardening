@@ -1,0 +1,64 @@
+name: Diagnose PR83 direct-data browser only
+
+on:
+  push:
+    branches:
+      - 'codex/trde120-v183-direct-data-diagnostic-*'
+    paths:
+      - .github/workflows/diagnose-pr83-direct-data.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr83-direct-data-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  direct-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      EXPECTED_CANDIDATE_SHA: 'b4b26e831374f3a6552761a6136fd1d151ebffdf'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify the candidate source and diagnostic-only delta
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          const expected = process.env.EXPECTED_CANDIDATE_SHA;
+          if (!/^[0-9a-f]{40}$/.test(expected || '')) throw Error('A concrete candidate SHA is required.');
+          const read = args => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          if (read(['rev-parse', 'HEAD^']) !== expected) throw Error('Diagnostic parent differs from reviewed candidate.');
+          const files = read(['diff', '--name-only', expected, 'HEAD']).split('\n').filter(Boolean);
+          if (JSON.stringify(files) !== JSON.stringify(['.github/workflows/diagnose-pr83-direct-data.yml']))
+            throw Error('The diagnostic branch changes application source or more than its single workflow.');
+          console.log(JSON.stringify({ kind: 'PR83_FOCUSED_DIAGNOSTIC_SOURCE', candidate: expected,
+            diagnosticCommit: read(['rev-parse', 'HEAD']), candidateTree: read(['rev-parse', expected + '^{tree}']),
+            workflowOnlyDelta: true, noSecretsReferenced: true, liveProviderProbe: false }));
+          NODE
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Run only the maintained synthetic direct-data browser fixture
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:browser:direct-data 2>&1 | tee "$RUNNER_TEMP/pr83-direct-data.log"
+      - name: Preserve the focused synthetic browser log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr83-focused-direct-data-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/pr83-direct-data.log
