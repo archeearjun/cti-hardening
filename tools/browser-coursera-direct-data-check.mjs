@@ -1381,8 +1381,8 @@ try{
   const imageArchive=await JSZip.loadAsync(fs.readFileSync(await imageIntegrated.contextDownloads[0].download.path()),{checkCRC32:true});
   assert.deepEqual(await imageArchive.file(firstPublisherImage.archivePath).async('nodebuffer'),pngBytes);
   const corruptImageBytes=Buffer.from(pngBytes);corruptImageBytes[corruptImageBytes.length-1]^=1;
-  imageArchive.file(firstPublisherImage.archivePath,corruptImageBytes);
-  const corruptImageArchive=await imageArchive.generateAsync({type:'nodebuffer',compression:'DEFLATE'});
+  imageArchive.file(firstPublisherImage.archivePath,corruptImageBytes,{createFolders:false});
+  const corruptImageArchive=await imageArchive.generateAsync({type:'nodebuffer',compression:'STORE'});
   await assert.rejects(()=>readCourseraCaptureFileJson(new File([corruptImageArchive],'publisher-image-corrupt.cti.zip',{type:'application/zip'})),/original file SHA-256 differs from its path/,
     'Recomputed ZIP CRC cannot conceal a changed archived original image');
   const imageResumeNativeStart=requests.length,imageResumeMediaStart=publisherImageRequests.length;
