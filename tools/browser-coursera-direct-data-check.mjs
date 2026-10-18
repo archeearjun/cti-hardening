@@ -45,6 +45,7 @@ const mediaOrigin='https://fixture-cdn.cloudfront.net';
 const helperOrigin='https://cti-hardening.pages.dev';
 const panoptoOrigin='https://fixture.hosted.panopto.com',panoptoMediaOrigin='https://d2y36twrtb17ty.cloudfront.net';
 const publisherOrigin='https://opentextbc.ca',publisherBook='syntheticbook';
+const publisherOpaqueUrl=publisherOrigin+'/'+publisherBook+'/opaque-fixture.png';
 const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-token','fixture-asset-signed-secret','fixture-cti-helper-cookie'];
 const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),assets=new Map(),providers=new Map(),fileSizes=new WeakMap();
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
@@ -250,7 +251,6 @@ const publisherFixtures=[
   'wrong-id','wrong-book','invalid-utf8','http-403','redirect','protected','draft','wrong-mime','http-429',
   'body-limit','escaped-credential',
 ].map((mode,index)=>makePublisherCase(179+index,mode));
-const publisherOpaque=makePublisherCase(199,'opaque-probe');
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 for(const row of definitions.values())if(row.courseId===complete.id){
@@ -435,12 +435,23 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     }catch(error){helperErrors.push(error.message);response.statusCode=404;response.end();}return;
   }
   if(host===new URL(publisherOrigin).hostname){
+    if(url.pathname==='/'+publisherBook+'/opaque-fixture.png'&&!url.search){
+      assert.equal(request.method,'GET');assert.equal(request.headers['sec-fetch-mode'],'no-cors');
+      assert.equal(request.headers.cookie,undefined);assert.equal(request.headers.authorization,undefined);
+      assert.equal(request.headers.referer,undefined);
+      // Chromium may block cross-origin JSON using ORB/CORB before exposing an
+      // opaque response. A separate known-image control proves the native
+      // opaque boundary without treating blocked API JSON as readable content.
+      response.setHeader('Content-Type','image/png');response.setHeader('Content-Length',String(pngBytes.length));
+      response.setHeader('X-Content-Type-Options','nosniff');response.setHeader('Cache-Control','no-store');
+      response.end(pngBytes);return;
+    }
     const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/([1-9]\\d*)$').exec(url.pathname);
     assert(match,'Only the configured public chapter endpoint is requested; redirects are not followed');
     const config=publisherCases.get(Number(match[1]));assert(config,'Only a synthetic native chapter ID is requested');
     assert.equal(url.search,'');assert.equal(request.method,'GET');
-    if(config.mode!=='opaque-probe')assert.equal(request.headers.origin,origin);
-    assert.equal(request.headers['sec-fetch-mode'],config.mode==='opaque-probe'?'no-cors':'cors');assert.equal(request.headers.authorization,undefined);
+    assert.equal(request.headers.origin,origin);
+    assert.equal(request.headers['sec-fetch-mode'],'cors');assert.equal(request.headers.authorization,undefined);
     assert.equal(request.headers.referer,undefined,'No private Coursera path is forwarded to the public publisher');
     assert.equal(request.headers['x-coursera-naptime-fields'],undefined);
     assert.equal(request.headers['content-type'],undefined,'A simple public GET has no copied JSON/auth request headers');
@@ -708,8 +719,10 @@ try{
     await context.route(publisherOrigin+'/**',async route=>{
       const request=route.request(),url=new URL(request.url());
       assert.equal(request.method(),'GET');
-      assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/[1-9]\\d*$'));
-      assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
+      if(url.href!==publisherOpaqueUrl){
+        assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/[1-9]\\d*$'));
+        assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
+      }
       // Fulfilled browser interceptions can synthesize CORS approval. Let the
       // native fetch reach the mapped HTTPS server so the browser enforces the
       // actual ACAO/credential combinations, including deliberate denials.
@@ -1645,8 +1658,8 @@ try{
   }
   const opaque=await publisherPolicy.page.evaluate(async endpoint=>{const response=await fetch(endpoint,{mode:'no-cors',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
     return{type:response.type,status:response.status,bytes:(await response.arrayBuffer()).byteLength};},
-    publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/chapters/'+publisherOpaque.chapterId);
-  assert.deepEqual(opaque,{type:'opaque',status:0,bytes:0},'A native no-cors response cannot reveal publisher content');
+    publisherOpaqueUrl);
+  assert.deepEqual(opaque,{type:'opaque',status:0,bytes:0},'A native no-cors image control exposes no response body or HTTP status');
   const beforeInvalidPublisher=publisherRequests.length;
   const invalidPublisher=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),publisherOrigin+'/'+publisherBook+'/chapter/no-native-id/');
   assert.equal(invalidPublisher.ok,false);assert.equal(invalidPublisher.reason,'INVALID_PUBLISHER_TARGET');
