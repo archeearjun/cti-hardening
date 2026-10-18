@@ -146,11 +146,12 @@ export function createInlinePublisherPartContentFixture(options = {}) {
 
 /** Synthetic owned images with archive descriptors. The non-enumerable bytes
  * model archive hydration and deliberately disappear from report JSON. */
-export function createInlinePublisherMediaContentFixture({ part = false, outcomes = ["CAPTURED", "PUBLISHER_IMAGE_BLOCKED_OR_FAILED"], ...options } = {}) {
+export function createInlinePublisherMediaContentFixture({ part = false, responsive = false, outcomes = ["CAPTURED", "PUBLISHER_IMAGE_BLOCKED_OR_FAILED"], ...options } = {}) {
   const f = part ? createInlinePublisherPartContentFixture(options) : createInlinePublisherContentFixture(options),
     resource = structuredClone(part ? f.publisherPart : f.publisherChapter), observation = f.publisherObservation,
     urls = outcomes.map((_, index) => "https://opentextbc.ca/synthetic-book/wp-content/uploads/2027/01/drawing-" + index + ".png"),
-    html = "<p>Original publisher drawing references.</p>" + urls.map(url => '<img src="' + url + '">').join("");
+    html = "<p>Original publisher drawing references.</p>" + urls.map(url => '<img src="' + url + '"' +
+      (responsive ? ' srcset="' + url + ' 1x, ' + url.replace(/\.png$/, "-300.png") + ' 2x"' : "") + '>').join("");
   resource.content = { raw: html, rendered: html, protected: false };
   const rawJson = JSON.stringify(resource, null, 2) + "\n", jsonBytes = new TextEncoder().encode(rawJson);
   Object.assign(observation.model, { rawJson, bytes: jsonBytes.length, sha256: hashBytes(jsonBytes) });

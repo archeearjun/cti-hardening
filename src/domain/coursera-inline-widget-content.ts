@@ -61,6 +61,22 @@ export interface InlineWidgetPublisherFileReference {
   mime: string;
   sha256: string;
   reason: string;
+  attempts?: [
+    { transport: "BROWSER_PUBLISHER_IMAGE"; observedAt: string; status: 0; responseType: "unreadable"; reason: string },
+    { transport: "CTI_SERVICE_PUBLIC_IMAGE"; observedAt: string; serviceOrigin: string; serviceStatus: number;
+      upstreamStatus: number; upstreamObservedAt: string; upstreamRequests: number; upstreamBytes: number; reason: string },
+  ];
+  acquisition?: {
+    transport: "CTI_SERVICE_PUBLIC_IMAGE";
+    responseType: "service";
+    observedAtBasis: "BROWSER_RESPONSE";
+    serviceOrigin: string;
+    serviceStatus: number;
+    upstreamStatus: number;
+    upstreamObservedAt: string;
+    upstreamBytes: number;
+    browserAttempt: { transport: "BROWSER_PUBLISHER_IMAGE"; observedAt: string; status: 0; responseType: "unreadable"; reason: string };
+  };
 }
 export interface InlineWidgetPublisherMedia {
   scope: "ORIGINAL_FILE_REFERENCES_ONLY";
@@ -145,7 +161,16 @@ function publisherMediaContent(observation: Obj | null, targetUrl: string, media
       status: value.body ? "CAPTURED_ORIGINAL_FILE_REFERENCE" : "UNRESOLVED",
       originalRef: value.body ? body.archivePath : "", observedAt: value.body ? body.receipt.observedAt : "",
       bytes: value.body ? body.size : null, mime: value.body ? body.mime : "", sha256: value.body ? body.sha256 : "",
-      reason: text(value.reason) };
+      reason: text(value.reason),
+      ...(value.attempts === undefined ? {} : { attempts: value.attempts.map((attempt: Obj) => ({ ...attempt })) as InlineWidgetPublisherFileReference["attempts"] }),
+      ...(body.receipt?.transport === "CTI_SERVICE_PUBLIC_IMAGE" ? { acquisition: {
+        transport: "CTI_SERVICE_PUBLIC_IMAGE" as const, responseType: "service" as const,
+        observedAtBasis: "BROWSER_RESPONSE" as const, serviceOrigin: body.receipt.serviceOrigin,
+        serviceStatus: body.receipt.serviceStatus, upstreamStatus: body.receipt.upstreamStatus,
+        upstreamObservedAt: body.receipt.upstreamObservedAt, upstreamBytes: body.receipt.upstreamBytes,
+        browserAttempt: { transport: "BROWSER_PUBLISHER_IMAGE" as const, observedAt: body.receipt.browserAttempt.observedAt,
+          status: 0 as const, responseType: "unreadable" as const, reason: body.receipt.browserAttempt.reason },
+      } } : {}) };
     });
     let historicalJsonBytes = 0;
     const retainedSources: InlineWidgetPublisherMedia["retainedSources"] = [];
@@ -402,11 +427,24 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
             out.push(`Publisher image source: ${resource.url} | ${resource.status}`);
             if (resource.originalRef) out.push(`Captured original file reference: ${resource.originalRef} | ${resource.bytes} bytes | ${resource.mime} | SHA-256 ${resource.sha256}`,
               `Original file read observed: ${resource.observedAt}`);
+            if (resource.acquisition) out.push(`Image acquisition: ${resource.acquisition.transport} | response: ${resource.acquisition.responseType} | collector-declared service context`,
+              `Service: ${resource.acquisition.serviceOrigin} | HTTP ${resource.acquisition.serviceStatus}; upstream HTTP ${resource.acquisition.upstreamStatus}`,
+              `Upstream observed (service clock): ${resource.acquisition.upstreamObservedAt} | ${resource.acquisition.upstreamBytes} bytes`,
+              `Browser attempt: ${resource.acquisition.browserAttempt.reason}; response unreadable, HTTP status unavailable.`,
+              "Transport records describe the collection route; authentication and independent attestation are unverified.");
+            if (resource.attempts) {
+              const [browser, service] = resource.attempts;
+              out.push(`Browser image attempt: ${browser.observedAt} | response unreadable; HTTP status unavailable | ${browser.reason}`,
+                `CTI public image attempt: ${service.observedAt} | service ${service.serviceOrigin} | ${service.serviceStatus ? "HTTP " + service.serviceStatus : "HTTP status unavailable"} | ${service.reason}`,
+                `Collector-declared upstream result: ${service.upstreamStatus ? "HTTP " + service.upstreamStatus : "HTTP status unavailable"}${service.upstreamObservedAt ? " | service clock " + service.upstreamObservedAt : ""}`);
+            }
             for (const reference of resource.references) out.push(`Authored ${reference.tag}.${reference.attribute} in ${reference.field}, reference ${reference.ordinal}: ${reference.attributeValue}`);
             if (resource.reason) out.push(`Publisher image read outcome: ${resource.reason}`);
           }
         }
-        out.push(...page.media.failures.map(reason => `Publisher image source outcome: ${reason}`));
+        out.push(...page.media.failures.map(reason => reason === "PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED"
+          ? `Responsive image alternatives remain unverified; observed src read outcomes are listed separately. ${reason}`
+          : `Publisher image source outcome: ${reason}`));
       }
       out.push(...(page.mediaFailures || []).map(reason => `Publisher image collection outcome: ${reason}`));
       out.push(...page.failures.map(reason => `Current publisher read outcome: ${reason}`));

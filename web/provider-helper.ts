@@ -2,12 +2,16 @@ import {
   CTI_PROVIDER_HELPER_HEADERS_V1,
   CTI_PROVIDER_HELPER_ORIGIN_V1,
   CTI_PROVIDER_HELPER_PROTOCOL_V1,
+  CTI_PROVIDER_HELPER_OPERATIONS_V1,
+  directProviderPublisherImagePayloadValidV1,
 } from "../src/extractors/coursera/direct-data-provider-helper.js";
 import { directPanoptoAutomaticTargetV1 } from "../src/extractors/coursera/direct-data-panopto.js";
 import { directPublicPageTargetV1, CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
+import { CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 
 type Binding = { id: string; itemId?: string; providerId?: string };
 type Job = {
+  kind: string;
   binding: Binding;
   controller: AbortController;
   reader: ReadableStreamDefaultReader<Uint8Array> | null;
@@ -37,7 +41,7 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
   const status = document.getElementById("status")!;
   const retry = document.getElementById("retry") as HTMLButtonElement;
   const jobs = new Map<string, Job>();
-  let bound = false, authorized = false, accessFailed = false, closed = false, total = 0, requests = 0;
+  let bound = false, authorized = false, accessFailed = false, closed = false, total = 0, coreRequests = 0, imageRequests = 0;
   let accessController: AbortController | null = null;
   let watchTimer: ReturnType<typeof setInterval>;
 
@@ -88,7 +92,7 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
       if (closed || controller !== accessController) return;
       authorized = true;
       show(bound ? "Connected. Reading configured sources for your Coursera capture." : "Access verified. Waiting for your Coursera capture.");
-      if (bound) send("ready");
+      if (bound) send("ready", {operations: CTI_PROVIDER_HELPER_OPERATIONS_V1.split(",")});
     } catch {
       if (!closed && controller === accessController) {
         accessFailed = true;
@@ -103,13 +107,15 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
   async function start(m: Record<string, any>) {
     const payload = m.payload;
     const identity = { id: m.id, itemId: m.itemId, providerId: m.providerId };
-    const valid = authorized && requests < 128 && jobs.size < 2 &&
+    const valid = authorized && (m.kind === "publisherImage" ? imageRequests < 1024 && ![...jobs.values()].some(job=>job.kind === "publisherImage") : coreRequests < 128) && jobs.size < 2 &&
       typeof m.id === "string" && /^[1-9]\d{0,3}$/.test(m.id) && !jobs.has(m.id) &&
-      ["metadata", "podcast", "publicHtml"].includes(m.kind) && payload && typeof payload === "object" &&
-      !Array.isArray(payload) && (m.kind === "publicHtml" ? directPublicPageTargetV1(payload.targetUrl) : directPanoptoAutomaticTargetV1(payload.targetUrl)) &&
-      Object.keys(payload).every(key => ["targetUrl", "itemId", "providerId", ...(m.kind === "podcast" ? ["streamFileId", "sourceHash"] : [])].includes(key)) &&
+      ["metadata", "podcast", "publicHtml", "publisherImage"].includes(m.kind) && payload && typeof payload === "object" &&
+      !Array.isArray(payload) && (m.kind === "publisherImage" ? directProviderPublisherImagePayloadValidV1(payload) :
+        m.kind === "publicHtml" ? directPublicPageTargetV1(payload.targetUrl) : directPanoptoAutomaticTargetV1(payload.targetUrl)) &&
+      Object.keys(payload).every(key => ["targetUrl", "itemId", "providerId", ...(m.kind === "podcast" ? ["streamFileId", "sourceHash"] : []),
+        ...(m.kind === "publisherImage" ? ["imageUrl", "sourceSha256"] : [])].includes(key)) &&
       ["itemId", "providerId"].every(key => payload[key] === m[key] && (m[key] === undefined ||
-        typeof m[key] === "string" && (key === "providerId" && m.kind === "publicHtml"
+        typeof m[key] === "string" && (key === "providerId" && ["publicHtml", "publisherImage"].includes(m.kind)
           ? /^[A-Za-z0-9_-]{22}@\d{1,12}$/.test(m[key]) || /^[A-Za-z0-9_-]{1,128}$/.test(m[key])
           : /^[A-Za-z0-9_-]{1,128}$/.test(m[key])))) &&
       (m.kind !== "podcast" || typeof payload.streamFileId === "string" &&
@@ -117,27 +123,27 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
         typeof payload.sourceHash === "string" && /^[a-f0-9]{64}$/.test(payload.sourceHash));
     if (!valid) { send("error", { ...identity, code: "PROVIDER_HELPER_INVALID_REQUEST" }); return; }
     const job: Job = {
-      binding: identity, controller: new AbortController(), reader: null, chunk: null,
+      kind: m.kind, binding: identity, controller: new AbortController(), reader: null, chunk: null,
       chunkOffset: 0, seq: 0, bytes: 0, declaredBytes: null,
-      lengthError: m.kind === "publicHtml" ? "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH" : "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH",
-      limit: m.kind === "metadata" ? 512 * 1024 : m.kind === "publicHtml" ? CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 : 128 * 1024 * 1024,
+      lengthError: m.kind === "publicHtml" ? "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH" : m.kind === "publisherImage" ? "PROVIDER_HELPER_PUBLISHER_IMAGE_LENGTH_MISMATCH" : "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH",
+      limit: m.kind === "metadata" ? 512 * 1024 : m.kind === "publicHtml" ? CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 : m.kind === "publisherImage" ? CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 : 128 * 1024 * 1024,
       busy: false, timer: setTimeout(() => {}, 0),
     };
     jobs.set(m.id, job);
-    requests++;
+    if (m.kind === "publisherImage") imageRequests++; else coreRequests++;
     arm(job);
     try {
       const body = { targetUrl: payload.targetUrl, ...(m.kind === "podcast" ? {
         streamFileId: payload.streamFileId, sourceHash: payload.sourceHash,
-      } : {}) };
-      const response = await fetchImpl(m.kind === "publicHtml" ? "/api/provider/public-html" : "/api/provider/panopto/" + m.kind, {
+      } : {}), ...(m.kind === "publisherImage" ? {imageUrl: payload.imageUrl, sourceSha256: payload.sourceSha256} : {}) };
+      const response = await fetchImpl(m.kind === "publicHtml" ? "/api/provider/public-html" : m.kind === "publisherImage" ? "/api/provider/publisher-image" : "/api/provider/panopto/" + m.kind, {
         method: "POST", credentials: "same-origin", cache: "no-store", redirect: "error",
-        headers: { "Content-Type": "application/json", Accept: m.kind === "podcast" ? "video/mp4" : "application/json" },
+        headers: { "Content-Type": "application/json", Accept: m.kind === "podcast" ? "video/mp4" : m.kind === "publisherImage" ? "image/png,image/jpeg,image/gif,image/webp" : "application/json" },
         body: JSON.stringify(body), signal: job.controller.signal,
       });
       if (!jobs.has(m.id) || closed) { void response.body?.cancel().catch(() => {}); return; }
       if (!response.body || [204, 205, 304].includes(response.status) ||
-          (m.kind !== "publicHtml" && Number(response.headers.get("content-length") || 0) > job.limit)) {
+          (!["publicHtml", "publisherImage"].includes(m.kind) && Number(response.headers.get("content-length") || 0) > job.limit)) {
         void response.body?.cancel().catch(() => {});
         fail(job, "PROVIDER_HELPER_INVALID_RESPONSE"); return;
       }
@@ -165,6 +171,23 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
             (!/^[1-9]\d*$/.test(wireLength) || Number(wireLength) !== declared)) {
           void response.body.cancel().catch(() => {});
           fail(job, "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH"); return;
+        }
+        job.declaredBytes = declared;
+      }
+      if (m.kind === "publisherImage" && response.status === 200) {
+        const length = response.headers.get("X-CTI-Upstream-Content-Length"), declared = /^[1-9]\d*$/.test(length || "") ? Number(length) : NaN;
+        if (!Number.isSafeInteger(declared) || declared > job.limit) {
+          void response.body.cancel().catch(() => {}); fail(job, "PROVIDER_HELPER_PUBLISHER_IMAGE_LENGTH_UNAVAILABLE"); return;
+        }
+        if (response.headers.has("Content-Range") || response.headers.get("X-CTI-Provider-Transport") !== "CTI_SERVICE_PUBLIC_IMAGE" || response.headers.get("X-CTI-Provider-Origin") !== origin ||
+            !/^[a-f0-9]{64}$/.test(response.headers.get("X-CTI-Upstream-Sha256") || "") ||
+            response.headers.get("X-CTI-Publisher-Source-Hash") !== payload.sourceSha256) {
+          void response.body.cancel().catch(() => {}); fail(job, "PROVIDER_HELPER_INVALID_RESPONSE"); return;
+        }
+        const encoding = response.headers.get("Content-Encoding"), wireLength = response.headers.get("Content-Length");
+        if (encoding?.trim().toLowerCase() === "identity" && wireLength !== null &&
+            (!/^[1-9]\d*$/.test(wireLength) || Number(wireLength) !== declared)) {
+          void response.body.cancel().catch(() => {}); fail(job, "PROVIDER_HELPER_PUBLISHER_IMAGE_LENGTH_MISMATCH"); return;
         }
         job.declaredBytes = declared;
       }
@@ -231,7 +254,7 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
     try { if (JSON.stringify(m).length > 8192) return; } catch { return; }
     if (m.type === "init") {
       bound = true;
-      if (authorized) send("ready");
+      if (authorized) send("ready", {operations: CTI_PROVIDER_HELPER_OPERATIONS_V1.split(",")});
       else if (accessFailed) send("error", { code: "PROVIDER_HELPER_ACCESS_REQUIRED" });
       return;
     }

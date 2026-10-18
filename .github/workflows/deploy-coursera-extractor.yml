@@ -130,10 +130,12 @@ jobs:
           jq -e '.success == true' <<<"${PROJECT}" >/dev/null
 
           CURRENT_SERVICES="$(jq -c '.result.deployment_configs.production.services // {}' <<<"${PROJECT}")"
+          CURRENT_FLAGS="$(jq -c '.result.deployment_configs.production.compatibility_flags // []' <<<"${PROJECT}")"
           PATCH="$(
-            jq -nc               --argjson services "${CURRENT_SERVICES}"               --arg worker "${CF_WORKER_NAME}"               '{
+            jq -nc               --argjson services "${CURRENT_SERVICES}"               --argjson flags "${CURRENT_FLAGS}"               --arg worker "${CF_WORKER_NAME}"               '{
                 deployment_configs: {
                   production: {
+                    compatibility_flags: ($flags + ["enable_request_signal"] | unique),
                     services: (
                       $services + {
                         CTI_EXTRACTOR: { service: $worker }
@@ -149,6 +151,8 @@ jobs:
           )"
           jq -e '.success == true' <<<"${UPDATED}" >/dev/null
           jq -e --arg worker "${CF_WORKER_NAME}"             '.result.deployment_configs.production.services.CTI_EXTRACTOR.service == $worker'             <<<"${UPDATED}" >/dev/null
+          jq -e '.result.deployment_configs.production.compatibility_flags as $flags | ["enable_request_signal"] | all(. as $flag | $flags | index($flag) != null)' <<<"${UPDATED}" >/dev/null
+          echo "Verified Pages request-signal compatibility flags for provider cancellation."
 
       - name: Wait for this commit to reach Pages production
         if: steps.preflight.outputs.configured == 'true'

@@ -1,17 +1,27 @@
 import { expectedForm, mediaBytes, mediaOrigin, metadataPath, source, stateUrl,
   publicHtmlOrigin, publicHtmlPath, publicHtmlBytes, publicHtmlUrl } from "./worker-panopto-source.mjs";
+import { publisherImageOrigin, publisherImagePath, publisherImageBytes } from "./worker-publisher-image.mjs";
 
-const calls = [], cancelled = [];
-function pendingBody(prefix, label, declaredBytes = 0, ctx) {
-  let timer, release;
+const calls = [], cancelled = [], pulls = [], aborted = [];
+function pendingBody(prefix, label, declaredBytes = 0, ctx, signal) {
+  let timer, release, output, ended = false;
+  const stop = native => {
+    if (ended) return; ended = true;
+    clearTimeout(timer); release?.(); cancelled.push(label);
+    signal?.removeEventListener("abort", nativeAbort);
+    if (native) { aborted.push(label); try {output.error(Error("Synthetic public request aborted"));} catch {} }
+  };
+  const nativeAbort = () => stop(true);
   const source = new ReadableStream({
-    start(controller) { controller.enqueue(prefix); },
-    pull(controller) { return new Promise(resolve => {
+    start(controller) { output=controller; controller.enqueue(prefix); },
+    pull(controller) { pulls.push(label); return new Promise(resolve => {
       release = resolve;
-      timer = setTimeout(() => { controller.enqueue(prefix); resolve(); }, 1000);
+      if (ended) {resolve();return;}
+      timer = setTimeout(() => { if (!ended) controller.enqueue(prefix); resolve(); }, 1000);
     }); },
-    cancel() { clearTimeout(timer); release?.(); cancelled.push(label); },
+    cancel() { stop(false); },
   });
+  if (signal?.aborted) nativeAbort(); else signal?.addEventListener("abort", nativeAbort, {once:true});
   if (!declaredBytes) return source;
   // Native workerd derives Content-Length for streamed responses from this
   // framing primitive, rather than trusting a manually assigned header.
@@ -25,11 +35,33 @@ function pendingBody(prefix, label, declaredBytes = 0, ctx) {
 export default {
   async fetch(request, _env, ctx) {
     if (request.url === stateUrl && request.method === "GET")
-      return Response.json({ calls, cancelled });
+      return Response.json({ calls, cancelled, pulls, aborted });
     const url = new URL(request.url), body = new TextDecoder().decode(await request.arrayBuffer());
     calls.push({ url: request.url, method: request.method, body, headers: [...request.headers] });
     if (request.headers.has("Cookie") || request.headers.has("Authorization"))
       throw Error("The public reader forwarded credentials.");
+    if (url.origin === publisherImageOrigin && url.pathname.startsWith(publisherImagePath)) {
+      if (request.method !== "GET" || body || request.headers.get("accept-encoding") !== "identity")
+        throw Error("Images require a bodyless identity GET.");
+      const name = url.pathname.slice(publisherImagePath.length).replace(/\.png$/, ""), headers = { "Content-Type":"image/png" };
+      if (name === "redirect") return new Response(null,{status:307,headers:{Location:"https://never-follow.invalid/image.png"}});
+      if (name === "denied") return new Response("Synthetic private denial",{status:401});
+      if (name === "challenge") return new Response("Synthetic challenge",{status:403,headers:{"cf-mitigated":"challenge"}});
+      if (name === "html") return new Response("Synthetic source page",{headers:{"Content-Type":"text/html"}});
+      if (name === "signature") return new Response("Not raster bytes",{headers});
+      if (name === "encoded") return new Response(publisherImageBytes,{headers:{...headers,"Content-Encoding":"gzip"}});
+      if (name === "range") return new Response(publisherImageBytes,{headers:{...headers,"Content-Range":"bytes 0-15/100"}});
+      if (["held", "held-direct"].includes(name)) return new Response(pendingBody(publisherImageBytes, "publisher-image-" + name, 0, ctx, request.signal),{headers});
+      if (name === "short-framed") {
+        const framed = new FixedLengthStream(publisherImageBytes.length + 1);
+        ctx.waitUntil((async () => {const writer=framed.writable.getWriter();try{await writer.write(publisherImageBytes);await writer.close();}
+          catch{try{await writer.abort();}catch{}}finally{writer.releaseLock();}})());
+        return new Response(framed.readable,{headers});
+      }
+      if (name === "chunked") return new Response(new ReadableStream({start(c){c.enqueue(publisherImageBytes.subarray(0,3));c.enqueue(publisherImageBytes.subarray(3));c.close();}}),{headers});
+      if (name === "success") return new Response(publisherImageBytes,{headers});
+      throw Error("Unexpected synthetic image path");
+    }
     if (url.origin === publicHtmlOrigin && url.pathname.startsWith(publicHtmlPath)) {
       if (request.method !== "GET" || body || request.headers.get("accept-encoding") !== "identity")
         throw Error("The public HTML reader must use a bodyless identity GET.");

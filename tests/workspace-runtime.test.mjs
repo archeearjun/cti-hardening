@@ -15,6 +15,19 @@ import {
 const origin = "https://cti.example.test";
 const owner = { email: CTI_OWNER_EMAIL, role: "editor" };
 
+test("Pages passes the original abort signal explicitly to the private provider fetch",async()=>{
+  const controller=new AbortController();
+  const source=new Request(origin+"/api/provider/publisher-image",{method:"POST",body:"{}",signal:controller.signal,headers:{Origin:origin}});
+  let observed=false;
+  const result=await forwardWorkspaceApi(source,owner,{fetch:async(delegated,init)=>{
+    assert.equal(init.signal,source.signal);assert.equal(init.signal.aborted,false);
+    controller.abort();assert.equal(init.signal.aborted,true);
+    assert.equal(delegated.signal.aborted,true,"Constructed Request and explicit init retain the same cancellation");
+    observed=true;return Response.json({aborted:true});
+  }});
+  assert.deepEqual(await result.json(),{aborted:true});assert(observed);
+});
+
 test("Pages forwards workspace bytes through the private runtime after identity and origin checks", async () => {
   const bytes = new TextEncoder().encode("original evidence\r\n<literal>"),
     calls = [];

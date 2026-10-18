@@ -57,11 +57,11 @@ try {
   }
   const config = `using Workerd = import ${JSON.stringify(schema)};
 const config :Workerd.Config = (services = [
-  (name = "provider", worker = (compatibilityDate = "2026-10-01", modules = [${modules("providerCheck.mjs")}], globalOutbound = "mock",
+  (name = "provider", worker = (compatibilityDate = "2026-10-01", compatibilityFlags = ["enable_request_signal"], modules = [${modules("providerCheck.mjs")}], globalOutbound = "mock",
     bindings = [(name = "WORKSPACE_RUNTIME", durableObjectNamespace = "WorkspaceRuntime"), (name = "PRIVATE_RUNTIME", service = "provider")],
     durableObjectNamespaces = [(className = "WorkspaceRuntime", uniqueKey = "cti-no-network-provider-runtime-fixture", enableSql = true)],
     durableObjectStorage = (inMemory = void))),
-  (name = "mock", worker = (compatibilityDate = "2026-10-01", modules = [${modules("mockUpstream.mjs")}], globalOutbound = "deny")),
+  (name = "mock", worker = (compatibilityDate = "2026-10-01", compatibilityFlags = ["enable_request_signal"], modules = [${modules("mockUpstream.mjs")}], globalOutbound = "deny")),
   (name = "deny", network = (allow = []))
 ], sockets = []);
 `;
@@ -82,4 +82,5 @@ const config :Workerd.Config = (services = [
   assert.equal(result.code, 0, "The actual Cloudflare runtime provider regression failed.");
   assert.match(result.stdout + result.stderr, /CTI_WORKERD_PANOPTO_PROVIDER_PASS/);
   assert.match(result.stdout + result.stderr, /CTI_WORKERD_PUBLIC_HTML_PROVIDER_PASS/);
+  assert.match(result.stdout + result.stderr, /CTI_WORKERD_PUBLISHER_IMAGE_PROVIDER_PASS/);
 } finally { await rm(scratch, { recursive: true, force: true }); }

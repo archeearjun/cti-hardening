@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   createDirectProviderHelperV1,
   CTI_PROVIDER_HELPER_ORIGIN_V1,
@@ -7,7 +8,31 @@ import {
 
 const courseId = "Vmal2bjyEfGabAr_0nhcow";
 const targetUrl = "https://fixture.hosted.panopto.com/Panopto/Pages/Embed.aspx?id=59e8c889-654e-40f2-b073-b31c006c433b&autoplay=false";
-function fixture({ blocked = false, auto = true } = {}) {
+const operations = ["metadata", "podcast", "publicHtml", "publisherImage"];
+const imagePayload = {
+  targetUrl: "https://opentextbc.ca/syntheticbook/?p=225/#main",
+  imageUrl: "https://opentextbc.ca/syntheticbook/wp-content/uploads/2026/01/original.png",
+  sourceSha256: "a".repeat(64),
+  itemId: "nativeItem",
+  providerId: "p".repeat(22) + "@3",
+};
+const imageBytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const imageHash = createHash("sha256").update(imageBytes).digest("hex");
+function imageHeaders(changes = {}) {
+  const headers = {
+    "content-type": "image/png",
+    "content-encoding": "identity",
+    "content-length": String(imageBytes.length),
+    "x-cti-provider-transport": "CTI_SERVICE_PUBLIC_IMAGE",
+    "x-cti-provider-origin": CTI_PROVIDER_HELPER_ORIGIN_V1,
+    "x-cti-upstream-content-length": String(imageBytes.length),
+    "x-cti-upstream-sha256": imageHash,
+    "x-cti-publisher-source-hash": imagePayload.sourceSha256,
+    ...changes,
+  };
+  return Object.entries(headers).filter(([, value]) => value !== null);
+}
+function fixture({ blocked = false, auto = true, operations } = {}) {
   const listeners = new Set(), messages = [], opens = [], status = [];
   let nonce;
   const popup = {
@@ -16,7 +41,7 @@ function fixture({ blocked = false, auto = true } = {}) {
     postMessage(message, origin) {
       assert.equal(origin, CTI_PROVIDER_HELPER_ORIGIN_V1);
       messages.push(message);
-      if (auto && message.type === "init") queueMicrotask(() => emit({ type: "ready" }));
+      if (auto && message.type === "init") queueMicrotask(() => emit({ type: "ready", ...(operations === undefined ? {} : { operations }) }));
     },
   };
   const host = {
@@ -236,4 +261,312 @@ test("helper shutdown rejects pending work and removes its listener", async () =
   await assert.rejects(pending, { code: "PROVIDER_HELPER_CLOSED" });
   assert.equal(f.popup.closed, true);
   assert.equal(f.listeners.size, 0);
+});
+
+test("publisher image operation requires an advertised capability while old ready frames retain legacy operations", async () => {
+  const legacy = fixture();
+  try {
+    await legacy.helper.ready();
+    assert.equal(legacy.helper.supports("metadata"), true);
+    assert.equal(legacy.helper.supports("podcast"), true);
+    assert.equal(legacy.helper.supports("publicHtml"), true);
+    assert.equal(legacy.helper.supports("publisherImage"), false);
+    await assert.rejects(legacy.helper.request("publisherImage", imagePayload), { code: "PROVIDER_HELPER_OPERATION_UNSUPPORTED" });
+    assert.equal(legacy.messages.filter(message => message.type === "request").length, 0);
+    legacy.emit({ type: "ready", operations });
+    assert.equal(legacy.helper.supports("publisherImage"), false, "A later ready frame does not rewrite the negotiated capabilities");
+  } finally { legacy.helper.close(); }
+  const current = fixture({ operations });
+  try {
+    await current.helper.ready();
+    assert(operations.every(kind => current.helper.supports(kind)));
+    assert.equal(current.helper.supports("arbitraryFetch"), false);
+  } finally { current.helper.close(); }
+});
+
+test("malformed capability advertisements fail closed before any request is sent", async () => {
+  for (const advertised of [null, "publisherImage", ["publisherImage", "publisherImage"], ["metadata", "unknown"], [...operations, "unknown"], [42]]) {
+    const f = fixture({ auto: false });
+    try {
+      f.emit({ type: "ready", operations: advertised });
+      await assert.rejects(f.helper.ready(), { code: "PROVIDER_HELPER_INVALID_CAPABILITIES" });
+      await assert.rejects(f.helper.request("publisherImage", imagePayload), { code: "PROVIDER_HELPER_INVALID_CAPABILITIES" });
+      assert.equal(f.messages.filter(message => message.type === "request").length, 0);
+      assert.equal(f.listeners.size, 0);
+    } finally { f.helper.close(); }
+  }
+});
+
+test("publisher images queued before a legacy handshake fail without blocking legacy metadata work", async () => {
+  const f = fixture({ auto: false });
+  const image = f.helper.request("publisherImage", imagePayload);
+  image.catch(() => {});
+  const controller = new AbortController();
+  const metadata = f.helper.request("metadata", { targetUrl }, controller.signal);
+  metadata.catch(() => {});
+  try {
+    assert.equal(f.messages.filter(message => message.type === "request").length, 0);
+    f.emit({ type: "ready" });
+    await f.helper.ready();
+    await assert.rejects(image, { code: "PROVIDER_HELPER_OPERATION_UNSUPPORTED" });
+    assert.deepEqual(f.messages.filter(message => message.type === "request").map(message => message.kind), ["metadata"]);
+    controller.abort();
+    await assert.rejects(metadata, { code: "PROVIDER_HELPER_ABORTED" });
+  } finally { f.helper.close(); }
+});
+
+test("publisher image payloads preserve the literal upload/source hash and reject generic URLs, credentials and extra fields", async () => {
+  const f = fixture({ operations });
+  try {
+    await f.helper.ready();
+    for (const changes of [
+      { targetUrl: "https://opentextbc.ca/syntheticbook/chapter/slug/" },
+      { targetUrl: imagePayload.targetUrl.replace("https://", "HTTPS://") },
+      { targetUrl: imagePayload.targetUrl.replace("opentextbc.ca", "OPENTEXTBC.CA") },
+      { targetUrl: imagePayload.targetUrl.replace("opentextbc.ca/", "opentextbc.ca:443/") },
+      { targetUrl: imagePayload.targetUrl.replace("opentextbc.ca/", "opentextbc.ca:/") },
+      { imageUrl: "https://evil.test/original.png" },
+      { imageUrl: "http://opentextbc.ca/syntheticbook/wp-content/uploads/original.png" },
+      { imageUrl: "https://user:password@opentextbc.ca/syntheticbook/wp-content/uploads/original.png" },
+      { imageUrl: imagePayload.imageUrl.replace("https://", "HTTPS://") },
+      { imageUrl: imagePayload.imageUrl.replace("opentextbc.ca", "OPENTEXTBC.CA") },
+      { imageUrl: imagePayload.imageUrl.replace("opentextbc.ca/", "opentextbc.ca:443/") },
+      { imageUrl: imagePayload.imageUrl.replace("opentextbc.ca/", "opentextbc.ca:/") },
+      { imageUrl: "/syntheticbook/wp-content/uploads/original.png" },
+      { imageUrl: imagePayload.imageUrl + "?" },
+      { imageUrl: imagePayload.imageUrl + "#" },
+      { imageUrl: imagePayload.imageUrl + "?token=PRIVATE" },
+      { imageUrl: imagePayload.imageUrl + "#fragment" },
+      { imageUrl: imagePayload.imageUrl.replace("original.png", "original.svg") },
+      { imageUrl: imagePayload.imageUrl.replace("original.png", "%6friginal.png") },
+      { sourceSha256: "A".repeat(64) },
+      { sourceSha256: "short" },
+      { sourceSha256: null },
+      { sourceHash: imagePayload.sourceSha256 },
+      { method: "GET" },
+      { headers: { Authorization: "PRIVATE" } },
+      { cookie: "PRIVATE" },
+      { itemId: "wrong&item" },
+      { providerId: "wrong@3&extra" },
+    ]) await assert.rejects(f.helper.request("publisherImage", { ...imagePayload, ...changes }), { code: "PROVIDER_HELPER_INVALID_REQUEST" });
+    const longBook = "b".repeat(3900);
+    await assert.rejects(f.helper.request("publisherImage", {
+      ...imagePayload,
+      targetUrl: "https://opentextbc.ca/" + longBook + "/?p=225#main",
+      imageUrl: "https://opentextbc.ca/" + longBook + "/wp-content/uploads/a.png",
+    }), { code: "PROVIDER_HELPER_INVALID_REQUEST" });
+    assert.equal(f.messages.filter(message => message.type === "request").length, 0);
+    const controller = new AbortController();
+    const pending = f.helper.request("publisherImage", imagePayload, controller.signal);
+    const request = f.messages.find(message => message.type === "request");
+    assert.equal(request.kind, "publisherImage");
+    assert.deepEqual(request.payload, imagePayload);
+    assert.equal(request.itemId, imagePayload.itemId);
+    assert.equal(request.providerId, imagePayload.providerId);
+    controller.abort();
+    await assert.rejects(pending, { code: "PROVIDER_HELPER_ABORTED" });
+  } finally { f.helper.close(); }
+});
+
+test("publisher image heads require decoded framing, service identity and source-bound SHA headers", async () => {
+  for (const changes of [
+    { "x-cti-upstream-content-length": null },
+    { "x-cti-upstream-content-length": "0" },
+    { "x-cti-upstream-content-length": "8.0" },
+    { "x-cti-upstream-content-length": "9007199254740992" },
+    { "x-cti-upstream-content-length": String(16 * 1024 * 1024 + 1) },
+    { "x-cti-upstream-sha256": null },
+    { "x-cti-upstream-sha256": "short" },
+    { "x-cti-upstream-sha256": "A".repeat(64) },
+    { "x-cti-publisher-source-hash": null },
+    { "x-cti-publisher-source-hash": "b".repeat(64) },
+    { "x-cti-provider-transport": "CTI_PUBLIC_BACKEND" },
+    { "x-cti-provider-origin": "https://evil.test" },
+    { "content-range": "bytes 0-7/100" },
+    { "content-length": "9" },
+    { "content-length": "8.0" },
+    { "set-cookie": "PRIVATE" },
+  ]) {
+    const f = fixture({ operations });
+    try {
+      await f.helper.ready();
+      const pending = f.helper.request("publisherImage", imagePayload);
+      const request = f.messages.find(message => message.type === "request");
+      respondHead(f, request, imageHeaders(changes));
+      await assert.rejects(pending, { code: "PROVIDER_HELPER_INVALID_RESPONSE" });
+      assert(f.messages.some(message => message.type === "cancel"));
+    } finally { f.helper.close(); }
+  }
+});
+
+test("publisher image relay preserves binary bytes and safe hash headers using authoritative decoded length", async () => {
+  for (const framing of [
+    {},
+    { "content-encoding": "gzip", "content-length": "99999999" },
+    { "content-encoding": null, "content-length": "99999999" },
+    { "content-length": null },
+  ]) {
+    const f = fixture({ operations });
+    try {
+      await f.helper.ready();
+      const pending = f.helper.request("publisherImage", imagePayload);
+      const request = f.messages.find(message => message.type === "request");
+      respondHead(f, request, imageHeaders(framing));
+      const response = await pending;
+      assert.equal(response.headers.get("x-cti-upstream-sha256"), imageHash);
+      assert.equal(response.headers.get("x-cti-publisher-source-hash"), imagePayload.sourceSha256);
+      assert.equal(response.headers.get("x-cti-provider-transport"), "CTI_SERVICE_PUBLIC_IMAGE");
+      assert.equal(f.messages.filter(message => message.type === "pull").length, 0);
+      const reading = response.arrayBuffer();
+      await nextTurn();
+      f.emit({ type: "chunk", ...binding(request), providerId: "wrong", seq: 0, offset: 0, bytes: imageBytes.slice().buffer });
+      f.emit({ type: "chunk", ...binding(request), seq: 0, offset: 0, bytes: imageBytes.slice().buffer });
+      await nextTurn();
+      f.emit({ type: "end", ...binding(request), seq: 1, offset: imageBytes.length });
+      assert.deepEqual(new Uint8Array(await reading), imageBytes);
+      assert.equal(f.messages.filter(message => message.type === "pull").length, 2);
+    } finally { f.helper.close(); }
+  }
+});
+
+test("publisher image truncated EOF and bytes beyond the declaration cannot become a completed stream", async () => {
+  for (const declared of [imageBytes.length - 1, imageBytes.length + 1]) {
+    const f = fixture({ operations });
+    try {
+      await f.helper.ready();
+      const pending = f.helper.request("publisherImage", imagePayload);
+      const request = f.messages.find(message => message.type === "request");
+      respondHead(f, request, imageHeaders({ "content-length": null, "x-cti-upstream-content-length": String(declared) }));
+      const reading = (await pending).arrayBuffer();
+      reading.catch(() => {});
+      await nextTurn();
+      f.emit({ type: "chunk", ...binding(request), seq: 0, offset: 0, bytes: imageBytes.slice().buffer });
+      if (declared > imageBytes.length) {
+        await nextTurn();
+        f.emit({ type: "end", ...binding(request), seq: 1, offset: imageBytes.length });
+      }
+      await assert.rejects(reading, { code: declared < imageBytes.length ? "PROVIDER_HELPER_BYTE_LIMIT" : "PROVIDER_HELPER_PUBLISHER_IMAGE_LENGTH_MISMATCH" });
+    } finally { f.helper.close(); }
+  }
+});
+
+test("one publisher image runs at a time while metadata bypasses queued images within two total slots", async () => {
+  const f = fixture({ operations });
+  try {
+    await f.helper.ready();
+    const controllers = Array.from({ length: 3 }, () => new AbortController());
+    const first = f.helper.request("publisherImage", imagePayload, controllers[0].signal);
+    const second = f.helper.request("publisherImage", { ...imagePayload, itemId: "queuedImage" }, controllers[1].signal);
+    assert.equal(f.messages.filter(message => message.type === "request").length, 1);
+    const third = f.helper.request("metadata", { targetUrl }, controllers[2].signal);
+    [first, second, third].forEach(pending => pending.catch(() => {}));
+    assert.equal(f.messages.filter(message => message.type === "request").length, 2);
+    assert.deepEqual(f.messages.filter(message => message.type === "request").map(message => message.kind), ["publisherImage", "metadata"]);
+    const imageRequest = f.messages.find(message => message.type === "request" && message.kind === "publisherImage");
+    respondHead(f, imageRequest, imageHeaders());
+    const reader = (await first).body.getReader();
+    const reading = reader.read();
+    await nextTurn();
+    controllers[0].abort();
+    await assert.rejects(reading, { code: "PROVIDER_HELPER_ABORTED" });
+    const requests = f.messages.filter(message => message.type === "request");
+    assert.deepEqual(requests.map(message => message.kind), ["publisherImage", "metadata", "publisherImage"]);
+    assert.equal(requests[2].itemId, "queuedImage");
+    assert(!f.messages.some(message => message.type === "cancel" && message.id === requests[1].id), "The metadata request stays active when the image permit is released");
+    controllers[1].abort();
+    controllers[2].abort();
+    await assert.rejects(second, { code: "PROVIDER_HELPER_ABORTED" });
+    await assert.rejects(third, { code: "PROVIDER_HELPER_ABORTED" });
+    assert(f.messages.some(message => message.type === "cancel" && message.id === imageRequest.id));
+    const active = new Map();
+    for (const message of f.messages) {
+      if (message.type === "request") active.set(message.id, message.kind);
+      else if (message.type === "cancel") active.delete(message.id);
+      assert(active.size <= 2);
+      assert([...active.values()].filter(kind => kind === "publisherImage").length <= 1);
+    }
+  } finally { f.helper.close(); }
+});
+
+test("an exact image EOF releases the single image permit while metadata remains active", async () => {
+  const f = fixture({ operations });
+  const queuedController = new AbortController(), coreController = new AbortController();
+  try {
+    await f.helper.ready();
+    const first = f.helper.request("publisherImage", imagePayload);
+    const queued = f.helper.request("publisherImage", { ...imagePayload, itemId: "afterEof" }, queuedController.signal);
+    const core = f.helper.request("metadata", { targetUrl }, coreController.signal);
+    queued.catch(() => {});core.catch(() => {});
+    const firstRequest = f.messages.find(message => message.type === "request" && message.kind === "publisherImage");
+    assert.deepEqual(f.messages.filter(message => message.type === "request").map(message => message.kind), ["publisherImage", "metadata"]);
+    respondHead(f, firstRequest, imageHeaders());
+    const reading = (await first).arrayBuffer();
+    await nextTurn();
+    f.emit({ type: "chunk", ...binding(firstRequest), seq: 0, offset: 0, bytes: imageBytes.slice().buffer });
+    await nextTurn();
+    f.emit({ type: "end", ...binding(firstRequest), seq: 1, offset: imageBytes.length });
+    assert.deepEqual(new Uint8Array(await reading), imageBytes);
+    const requests = f.messages.filter(message => message.type === "request");
+    assert.equal(requests.length, 3);
+    assert.equal(requests[2].itemId, "afterEof");
+    assert(!f.messages.some(message => message.type === "cancel" && message.id === requests[1].id));
+    queuedController.abort();coreController.abort();
+    await assert.rejects(queued, { code: "PROVIDER_HELPER_ABORTED" });
+    await assert.rejects(core, { code: "PROVIDER_HELPER_ABORTED" });
+  } finally { f.helper.close(); }
+});
+
+test("the 1,024 image and 128 core request budgets remain independent while request IDs remain unique", async () => {
+  const f = fixture({ operations });
+  try {
+    await f.helper.ready();
+    for (const [kind, count] of [["metadata", 3], ["publisherImage", 1024], ["metadata", 125]]) {
+      for (let i = 0; i < count; i++) {
+        const controller = new AbortController();
+        const pending = f.helper.request(kind, kind === "publisherImage" ? imagePayload : { targetUrl }, controller.signal);
+        controller.abort();
+        await assert.rejects(pending, { code: "PROVIDER_HELPER_ABORTED" });
+      }
+    }
+    await assert.rejects(f.helper.request("publisherImage", imagePayload), { code: "PROVIDER_HELPER_REQUEST_LIMIT" });
+    await assert.rejects(f.helper.request("metadata", { targetUrl }), { code: "PROVIDER_HELPER_REQUEST_LIMIT" });
+    const requests = f.messages.filter(message => message.type === "request");
+    assert.equal(requests.filter(message => message.kind === "publisherImage").length, 1024);
+    assert.equal(requests.filter(message => message.kind === "metadata").length, 128);
+    assert.equal(new Set(requests.map(message => message.id)).size, 1152);
+  } finally { f.helper.close(); }
+});
+
+test("publisher image streams retain the existing aggregate 512 MiB decoded transfer cap", async () => {
+  const f = fixture({ operations });
+  const chunk = new ArrayBuffer(65536);
+  try {
+    await f.helper.ready();
+    for (let image = 0; image < 33; image++) {
+      const pending = f.helper.request("publisherImage", imagePayload);
+      const request = f.messages.filter(message => message.type === "request").at(-1);
+      respondHead(f, request, imageHeaders({ "content-length": null, "x-cti-upstream-content-length": String(16 * 1024 * 1024) }));
+      const reader = (await pending).body.getReader();
+      if (image === 32) {
+        const reading = reader.read();
+        await nextTurn();
+        f.emit({ type: "chunk", ...binding(request), seq: 0, offset: 0, bytes: chunk });
+        await assert.rejects(reading, { code: "PROVIDER_HELPER_BYTE_LIMIT" });
+        break;
+      }
+      for (let seq = 0; seq < 256; seq++) {
+        const reading = reader.read();
+        await nextTurn();
+        // Reuse one synthetic message buffer: test aggregate accounting without
+        // allocating or retaining 512 MiB of fixture media in the test process.
+        f.emit({ type: "chunk", ...binding(request), seq, offset: seq * chunk.byteLength, bytes: chunk });
+        assert.equal((await reading).value.byteLength, chunk.byteLength);
+      }
+      const ended = reader.read();
+      await nextTurn();
+      f.emit({ type: "end", ...binding(request), seq: 256, offset: 16 * 1024 * 1024 });
+      assert.equal((await ended).done, true);
+    }
+    assert(f.messages.some(message => message.type === "cancel"));
+  } finally { f.helper.close(); }
 });

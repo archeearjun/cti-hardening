@@ -1130,6 +1130,24 @@ test("publisher image progress deduplicates owned originals and distinguishes bl
   const metadataSummary = context.inlineExternalContentSummary().publisherImages;
   assert.equal(metadataSummary.saved, 0); assert.equal(metadataSummary.unique, 0);
   assert.equal(metadataSummary.sourceGaps, 1, "A discovered image URL without an original body or read outcome stays an explicit evidence gap");
+  context.itemStates.clear();
+  const responsive = createInlinePublisherMediaContentFixture({ responsive: true, outcomes }),
+    responsiveOriginal = JSON.stringify(responsive.raw);
+  context.itemStates.set(responsive.fp.id, { inlineExternalContent: context.summarizeInlineItem(responsive.fp) });
+  const responsiveSummary = clone(context.inlineExternalContentSummary());
+  assert.equal(responsiveSummary.publisherImages.responsiveImageSets, 3,
+    "Repeated raw/rendered srcset occurrences describe the same three responsive image sets");
+  assert.equal(responsiveSummary.publisherImages.sourceGaps, undefined,
+    "Unselected responsive alternatives are not additional missing primary image sources");
+  assert.equal(responsiveSummary.publisherImages.unique, 3);
+  assert.equal(responsiveSummary.publisherImages.saved, 1);
+  assert.equal(JSON.stringify(responsive.raw), responsiveOriginal);
+  assert.equal(responsive.fp.captureContract.complete, false);
+  const responsiveRenderContext = vm.createContext({ stats: { inlineExternalContent: responsiveSummary },
+    state: {}, count: { textContent: "" } });
+  new vm.Script(source.slice(start, end)).runInContext(responsiveRenderContext);
+  assert(responsiveRenderContext.count.textContent.includes("Responsive alternatives listed for 3 images"));
+  assert(!responsiveRenderContext.count.textContent.includes("image source gaps"));
 });
 
 test("the actual entry records separate native and flag-set comparison hashes without calling a flag reorder a course edit", async () => {
@@ -2212,6 +2230,7 @@ for (const [version, originalBuild] of [
   ["v1.8.0", "v1.8.0-inline-widget-public-html-20261018"],
   ["v1.8.1", "v1.8.1-browser-publisher-api-20261018"],
   ["v1.8.2", "v1.8.2-historical-publisher-checkpoint-20261018"],
+  ["v1.8.3", "v1.8.3-publisher-sections-original-images-20261018"],
 ]) test("exact " + version + " continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(), source = f.fixtures[0],

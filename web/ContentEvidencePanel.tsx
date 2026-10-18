@@ -62,6 +62,19 @@ function PublisherOriginalReferences({ media }: { media: InlineWidgetPublisherMe
       <p className="hint">Original read observed: {resource.observedAt} · {resource.bytes?.toLocaleString()} bytes · {resource.mime}</p>
       <p className="captured-text">SHA-256: {resource.sha256}</p>
     </>}
+    {resource.acquisition && <>
+      <p className="hint">Acquisition: CTI public service read · service response · collector-declared context</p>
+      <p className="captured-text">Service: {resource.acquisition.serviceOrigin} · HTTP {resource.acquisition.serviceStatus}; upstream HTTP {resource.acquisition.upstreamStatus}</p>
+      <p className="hint">Upstream observed (service clock): {resource.acquisition.upstreamObservedAt} · {resource.acquisition.upstreamBytes.toLocaleString()} bytes</p>
+      <p className="hint">Browser attempt: response unreadable; HTTP status unavailable. {resource.acquisition.browserAttempt.reason}</p>
+      <p className="hint">Transport records describe the collection route; authentication and independent attestation are unverified.</p>
+    </>}
+    {resource.attempts && <>
+      <p className="hint">Browser image attempt: response unreadable; HTTP status unavailable. {resource.attempts[0].reason}</p>
+      <p className="hint">CTI public service attempt: {resource.attempts[1].serviceStatus ? `HTTP ${resource.attempts[1].serviceStatus}` : "HTTP status unavailable"}. {resource.attempts[1].reason}</p>
+      <p className="hint">Collector-declared upstream result: {resource.attempts[1].upstreamStatus ? `HTTP ${resource.attempts[1].upstreamStatus}` : "HTTP status unavailable"}
+        {resource.attempts[1].upstreamObservedAt && ` · service clock ${resource.attempts[1].upstreamObservedAt}`}</p>
+    </>}
     {resource.references.map((reference, referenceIndex) => <p className="captured-text" key={referenceIndex}>
       Authored {reference.tag}.{reference.attribute} in {reference.field}, reference {reference.ordinal}: {reference.attributeValue}
     </p>)}
@@ -78,7 +91,9 @@ function PublisherOriginalReferences({ media }: { media: InlineWidgetPublisherMe
       <p className="captured-text">Source JSON SHA-256: {source.sourceSha256}</p>
       {sourceFiles(source.resources)}
     </section>)}
-    {media.failures.map((reason, index) => <p className="hint" key={index}>Image source outcome: {reason}</p>)}
+    {media.failures.map((reason, index) => <p className="hint" key={index}>{reason === "PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED"
+      ? "Responsive image alternatives remain unverified. Read outcomes for observed src images are listed separately."
+      : `Image source outcome: ${reason}`}</p>)}
   </details>;
 }
 function InlinePublisherPageEvidence({ content, providerId, page }: {
