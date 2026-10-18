@@ -1,6 +1,11 @@
 import { sha256 } from "./text-and-dom.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
-import { directDraftReadingDtdSupportedV1 } from "./direct-data-models.js";
+import {
+  directDraftReadingDtdSupportedV1,
+  directDraftReadingSourceV1,
+  directDraftDiscussionSourceV1,
+  bindDirectAuthoringDraftV1,
+} from "./direct-data-models.js";
 import {
   directCmlMediaInventoryV1,
   directMediaEvidenceStructureV1,
@@ -12,6 +17,8 @@ import {
   directDraftWidgetProviderV1,
   directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1,
+  directInlineWidgetProviderSourceV1,
+  directInlineWidgetProviderTargetsV1,
 } from "./direct-data-widget.js";
 
 export function directReceiptSourceValidV1(receipt, resource, id) {
@@ -1109,6 +1116,101 @@ export function directWidgetEvidenceValidV1(fp, bound) {
   } catch (_) {
     return false;
   }
+}
+
+/** Read only the current, identity-bound CML. Native widget instances are not
+ * linked-summary templates; their exact positive version selector is retained. */
+export function directInlineWidgetBindingsV1(fp, bound) {
+  const sources = fp?.payload?.directDataSources,
+    current = bindDirectAuthoringDraftV1(fp, bound?.courseId, bound?.courseSlug,
+      sources?.atom, sources?.relation),
+    contentType = current.draft.content.typeName;
+  if (bound.sourceState !== "AUTHORING_DRAFT" ||
+      directCanonicalSourceTextV1(current.draft) !== directCanonicalSourceTextV1(bound.draft) ||
+      current.storedAtomVersion !== bound.storedAtomVersion || current.updatedAt !== bound.updatedAt ||
+      !(contentType === "supplementDraft" && fp.typeName === "supplement" ||
+        contentType === "discussionPromptDraft" && fp.typeName === "discussionPrompt"))
+    throw Error("DIRECT_INLINE_WIDGET_SOURCE_BINDING_FAILED");
+  const source = contentType === "supplementDraft"
+      ? directDraftReadingSourceV1(current) : directDraftDiscussionSourceV1(current),
+    inventory = directCmlMediaInventoryV1(source.cml),
+    bindings = new Map();
+  if (!inventory.valid) throw Error("DIRECT_INLINE_WIDGET_CML_UNSUPPORTED");
+  const references = inventory.references.filter(reference => reference.tag === "widget");
+  if (references.length > 32) throw Error("DIRECT_INLINE_WIDGET_REFERENCE_LIMIT");
+  for (const reference of references) {
+    const match = /^([A-Za-z0-9_-]{22})@([1-9]\d{0,11})$/.exec(reference.id || "");
+    // Unknown or missing selectors remain native CML gaps, never guessed IDs.
+    if (!match) continue;
+    const prior = bindings.get(reference.id);
+    if (prior) { prior.occurrences++; continue; }
+    bindings.set(reference.id, {providerId: reference.id, providerBaseId: match[1],
+      requestedVersion: match[2], courseId: current.courseId, itemId: current.itemId,
+      atomId: current.atomId, sourceState: "AUTHORING_DRAFT", occurrences: 1});
+  }
+  return [...bindings.values()];
+}
+
+/** Independent configuration proof uses a caller-supplied synchronous model
+ * hash so browser/import consumers recompute, rather than trust, saved hashes.
+ * Incomplete providers remain separate; no page/runtime completeness is inferred. */
+export function directInlineWidgetEvidenceV1(fp, bound, hashValue) {
+  try {
+    const observedDate = value => typeof value === "string" && Number.isFinite(Date.parse(value)) &&
+      new Date(value).toISOString() === value;
+    if (typeof hashValue !== "function" || !directSourceBindingEvidenceV1(fp, bound)) return null;
+    const bindings = directInlineWidgetBindingsV1(fp, bound),
+      raw = fp.payload.directInlineWidgetProviderEvidence,
+      stable = fp.payload.directDataSources.receipts.stability;
+    if (!bindings.length || raw?.method !== "BOUND_INLINE_CML_WIDGET_PROVIDERS" ||
+        raw.courseId !== bound.courseId || raw.itemId !== bound.itemId || raw.atomId !== bound.atomId ||
+        raw.sourceState !== "AUTHORING_DRAFT" ||
+        raw.bodyVerified !== false || raw.playbackVerified !== false ||
+        raw.launchVerified !== false || raw.wholeWidgetVerified !== false ||
+        raw.binaryContentVerified === true || raw.externalBodyVerified === true ||
+        !Array.isArray(raw.providers) || raw.providers.length !== bindings.length ||
+        !Array.isArray(raw.failures) || raw.failures.length > 64 ||
+        hashValue(bound.draft) !== stable.draftHash ||
+        !observedDate(stable.receipt?.observedAt))
+      return null;
+    const providers = [], failures = [], seen = new Set();
+    for (const proof of raw.providers) {
+      const binding = bindings.find(value => value.providerId === proof?.providerId);
+      if (!binding || seen.has(binding.providerId)) return null;
+      seen.add(binding.providerId);
+      if (Object.keys(binding).some(key => proof[key] !== binding[key]) ||
+          proof.bodyVerified !== false || proof.playbackVerified !== false ||
+          proof.launchVerified !== false || proof.wholeWidgetVerified !== false ||
+          proof.binaryContentVerified === true || proof.externalBodyVerified === true ||
+          !Array.isArray(proof.failures) || proof.failures.length > 32)
+        return null;
+      if (proof.stableSource !== true || proof.failures.length || !proof.initial || !proof.final) {
+        failures.push({providerId: binding.providerId, reason: "DIRECT_INLINE_WIDGET_PROVIDER_INCOMPLETE"});
+        continue;
+      }
+      const initial = proof.initial, final = proof.final;
+      if (![initial, final].every(observation =>
+          directWidgetProviderReceiptValidV1(observation.receipt, binding) &&
+          observedDate(observation.receipt.observedAt) &&
+          /^[a-f0-9]{64}$/.test(observation.modelHash || "") &&
+          /^[a-f0-9]{64}$/.test(observation.sourceHash || "")) ||
+          Date.parse(final.receipt.observedAt) < Date.parse(initial.receipt.observedAt) ||
+          Date.parse(final.receipt.observedAt) > Date.parse(stable.receipt.observedAt))
+        return null;
+      const sourceInitial = directInlineWidgetProviderSourceV1(binding, initial.model),
+        sourceFinal = directInlineWidgetProviderSourceV1(binding, final.model),
+        targets = directInlineWidgetProviderTargetsV1(binding, initial.model);
+      if (initial.modelHash !== hashValue(initial.model) || final.modelHash !== hashValue(final.model) ||
+          initial.modelHash !== final.modelHash || initial.sourceHash !== hashValue(sourceInitial) ||
+          final.sourceHash !== hashValue(sourceFinal) || initial.sourceHash !== final.sourceHash ||
+          directCanonicalSourceTextV1(initial.model) !== directCanonicalSourceTextV1(final.model) ||
+          directCanonicalSourceTextV1(sourceInitial) !== directCanonicalSourceTextV1(sourceFinal) ||
+          directCanonicalSourceTextV1(proof.targets) !== directCanonicalSourceTextV1(targets))
+        return null;
+      providers.push({binding, initial, final, targets, sourceInitial, sourceFinal});
+    }
+    return {bindings, providers, failures};
+  } catch (_) { return null; }
 }
 
 export function directWidgetContractV1(fp, bound) {

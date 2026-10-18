@@ -1,8 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleAuthorized, type Database } from "../../server/api.ts";
 import { panoptoProviderErrorResponse } from "../../server/panopto-provider.ts";
+import { publicHtmlProviderErrorResponse } from "../../server/public-html-provider.ts";
 import {
-  isPanoptoApiPath,
+  isProviderApiPath,
+  isPublicHtmlApiPath,
   WORKSPACE_RUNTIME_PREFIX,
   workspaceRuntimeCaller,
   workspaceRuntimeApiRequest,
@@ -42,7 +44,7 @@ export async function forwardWorkspaceRuntime(
         },
       );
     return await env.WORKSPACE_RUNTIME.get(
-      env.WORKSPACE_RUNTIME.idFromName(isPanoptoApiPath(
+      env.WORKSPACE_RUNTIME.idFromName(isProviderApiPath(
         new URL(request.url).pathname.slice(WORKSPACE_RUNTIME_PREFIX.length),
       ) ? PANOPTO_RUNTIME_OBJECT_NAME : WORKSPACE_RUNTIME_OBJECT_NAME),
     ).fetch(request);
@@ -65,7 +67,7 @@ export class WorkspaceRuntime extends DurableObject<WorkspaceRuntimeEnvironment>
   private async provider(request: Request): Promise<Response> {
     const api = workspaceRuntimeApiRequest(request);
     if (this.providerActive >= PANOPTO_RUNTIME_MAX_STREAMS)
-      return panoptoProviderErrorResponse("PANOPTO_PROVIDER_BUSY", 503, new URL(api.url).origin);
+      return isPublicHtmlApiPath(new URL(api.url).pathname) ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_BUSY", 503, new URL(api.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_BUSY", 503, new URL(api.url).origin);
     this.providerActive++;
     let released = false;
     const release = () => {
@@ -137,7 +139,7 @@ export class WorkspaceRuntime extends DurableObject<WorkspaceRuntimeEnvironment>
     } catch (error) {
       return workspaceRuntimeError(error);
     }
-    if (isPanoptoApiPath(new URL(request.url).pathname.slice(WORKSPACE_RUNTIME_PREFIX.length)))
+    if (isProviderApiPath(new URL(request.url).pathname.slice(WORKSPACE_RUNTIME_PREFIX.length)))
       return this.provider(request);
     if (this.pending >= 8)
       return new Response(

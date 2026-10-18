@@ -1,9 +1,12 @@
-import { courseraDirectDataSource } from "../generated/extractor-sources.js";
+import {
+  courseraDirectDataSource,
+  courseraDirectDataBookmarkSource,
+} from "../generated/extractor-sources.js";
 import { encodeJavaScriptBookmarkPayload } from "./bookmark-address.js";
 
-export const COURSERA_DIRECT_DATA_CAPTURE_VERSION = "1.7.6";
+export const COURSERA_DIRECT_DATA_CAPTURE_VERSION = "1.8.0";
 export const COURSERA_DIRECT_DATA_CAPTURE_BUILD =
-  "v1.7.6-native-dwg-originals-20261018";
+  "v1.8.0-inline-widget-public-html-20261018";
 // Chromium Bookmark Manager truncates pasted addresses beyond 500 KiB. The
 // percent-encoded address is ASCII, so its UTF-16 length equals its byte size.
 export const COURSERA_DIRECT_DATA_BOOKMARK_MAX_BYTES = 500 * 1024;
@@ -21,7 +24,9 @@ export function createCourseraDirectDataCaptureScript(
 }
 
 export function createCourseraDirectDataCaptureBookmark(
-  source: string = courseraDirectDataSource,
+  // Formatting happens during the build. Explicit caller-supplied programs are
+  // still encoded verbatim; the readable console fallback keeps its own source.
+  source: string = courseraDirectDataBookmarkSource,
 ): string {
   const address =
     "javascript:" +

@@ -23,9 +23,15 @@ export function isWorkspaceApiPath(path: string): boolean {
 export function isPanoptoApiPath(path: string): boolean {
   return /^\/api\/provider\/panopto\/(metadata|podcast)$/.test(path);
 }
+export function isPublicHtmlApiPath(path: string): boolean {
+  return path === "/api/provider/public-html";
+}
+export function isProviderApiPath(path: string): boolean {
+  return isPanoptoApiPath(path) || isPublicHtmlApiPath(path);
+}
 
 export function isDelegatedApiPath(path: string): boolean {
-  return isWorkspaceApiPath(path) || isPanoptoApiPath(path);
+  return isWorkspaceApiPath(path) || isProviderApiPath(path);
 }
 
 function publicOrigin(value: string | null): string {
@@ -49,7 +55,7 @@ export async function forwardWorkspaceApi(
   const source = new URL(request.url);
   if (!isDelegatedApiPath(source.pathname))
     fail("Invalid workspace runtime route.", 404);
-  if (isPanoptoApiPath(source.pathname) && request.method !== "POST")
+  if (isProviderApiPath(source.pathname) && request.method !== "POST")
     fail("Provider reads require POST.", 405);
   if (request.method !== "GET") {
     if (request.headers.get("Origin") !== source.origin)
@@ -69,7 +75,7 @@ export async function forwardWorkspaceApi(
   });
   const contentType = request.headers.get("Content-Type");
   if (contentType) headers.set("Content-Type", contentType);
-  if (isPanoptoApiPath(source.pathname))
+  if (isProviderApiPath(source.pathname))
     headers.set("x-cti-public-origin", publicOrigin(source.origin));
   if (request.method !== "GET") headers.set("Origin", target.origin);
   return service.fetch(
@@ -102,7 +108,7 @@ export function workspaceRuntimeCaller(request: Request): WorkspaceRuntimeUser {
     fail("Trusted workspace identity is missing.", 401);
   const user = { email, role };
   requireCtiOwner(user);
-  if (isPanoptoApiPath(url.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length))) {
+  if (isProviderApiPath(url.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length))) {
     if (request.method !== "POST") fail("Provider reads require POST.", 405);
     publicOrigin(request.headers.get("x-cti-public-origin"));
   }
@@ -119,7 +125,7 @@ export function workspaceRuntimeApiRequest(request: Request): Request {
   workspaceRuntimeCaller(request);
   const source = new URL(request.url);
   const path = source.pathname.slice(WORKSPACE_RUNTIME_PREFIX.length);
-  const target = new URL(path, isPanoptoApiPath(path)
+  const target = new URL(path, isProviderApiPath(path)
     ? publicOrigin(request.headers.get("x-cti-public-origin"))
     : WORKSPACE_RUNTIME_ORIGIN);
   target.search = source.search;

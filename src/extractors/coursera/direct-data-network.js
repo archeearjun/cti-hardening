@@ -4,6 +4,8 @@ import { CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
 import { directPanoptoAutomaticTargetV1, sanitizeDirectPanoptoModelV1,
   directPanoptoPodcastBindingsV1 } from './direct-data-panopto.js';
 import { createDirectProviderDiagnosticsV1 } from './direct-data-provider-diagnostics.js';
+import { directPublicPageTargetV1, directPublicPageSourceValidV1,
+  directPublicPageEnvelopeBytesV1, CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 } from './direct-data-public-page.js';
 
 /** A cooperating CTI service observes the upstream response; the browser only
  * observes service delivery. Keep those clocks and HTTP statuses separate. */
@@ -47,7 +49,8 @@ export async function directProviderTransportErrorV1(response) {
     for (const chunk of chunks) {bytes.set(chunk,offset);offset+=chunk.length;}
     const code=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes))?.error;
     return /^PANOPTO_PROVIDER_[A-Z0-9_]{1,80}$/.test(code || '')
-      ? 'PROVIDER_HELPER_'+code.slice(17) : 'PROVIDER_HELPER_REQUEST_FAILED';
+      ? 'PROVIDER_HELPER_'+code.slice(17) : /^PUBLIC_HTML_PROVIDER_[A-Z0-9_]{1,80}$/.test(code || '')
+        ? code : 'PROVIDER_HELPER_REQUEST_FAILED';
   } catch {return 'PROVIDER_HELPER_REQUEST_FAILED';}
 }
 
@@ -140,7 +143,7 @@ export function createDirectDataReaderV1(options = {}) {
       if (!definition.test(id)) return null;
       all=true;includes='_links';fields='id,definition,validation';
     } else if (resource === 'authoringWidgetSessionProviders.v1') {
-      if (!/^[A-Za-z0-9_-]{22}$/.test(id) || typeof courseId !== 'string' ||
+      if (!/^[A-Za-z0-9_-]{22}(?:@[1-9]\d{0,11})?$/.test(id) || typeof courseId !== 'string' ||
           !/^[A-Za-z0-9_-]{8,128}$/.test(courseId)) return null;
       fields=CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1;
       includes=CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1;collection=true;trailing=true;
@@ -160,7 +163,7 @@ export function createDirectDataReaderV1(options = {}) {
     if (resource === 'authoringAssignmentQuestionGroups.v1') url.searchParams.set('id',id);
     if (fields) url.searchParams.set('fields',fields);
     if (includes) url.searchParams.set('includes',includes);
-    return {resource,id,url,all};
+    return {resource,id,url,all,responseId:resource === 'authoringWidgetSessionProviders.v1' ? id.split('@')[0] : id};
   }
   function receiptFor(d) {
     const value={resource:d.resource, requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
@@ -175,10 +178,12 @@ export function createDirectDataReaderV1(options = {}) {
     try {if (response?.body && typeof response.body.cancel === 'function') await response.body.cancel();}
     catch { /* A failed response body is never retained. */ }
   }
-  async function bodyBytes(response, job, controller) {
-    const maximum=job.descriptor.external ? Math.min(limits.bodyBytes,512*1024) : limits.bodyBytes;
+  async function bodyBytes(response, job, controller, overrideMaximum) {
+    let maximum=job.descriptor.publicHtml ? Math.min(limits.bodyBytes,CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1) :
+      job.descriptor.external ? Math.min(limits.bodyBytes,512*1024) : limits.bodyBytes;
+    if (Number.isSafeInteger(overrideMaximum) && overrideMaximum>0) maximum=Math.min(maximum,overrideMaximum);
     const declared=Number(response.headers.get('content-length') || 0);
-    if (Number.isFinite(declared) && declared > maximum) {
+    if (!job.descriptor.publicHtml && Number.isFinite(declared) && declared > maximum) {
       controller.abort();await discard(response);return {ok:false,reason:'API_RESPONSE_BYTE_LIMIT'};
     }
     const chunks=[];let count=0;
@@ -299,6 +304,65 @@ export function createDirectDataReaderV1(options = {}) {
           'PANOPTO_ACCESS_BLOCKED_OR_FAILED'));
     } finally {controllers.delete(controller);job.controller=null;}
   }
+  async function attemptPublicPage(job) {
+    if (!current()) return failure(job,stopReason);
+    if (stats.requests>=limits.requests) {abort('COURSE_API_REQUEST_LIMIT');return failure(job,stopReason);}
+    const d=job.descriptor,controller=new AbortController();job.controller=controller;controllers.add(controller);
+    job.receipt=receiptFor(d);Object.assign(job.receipt,{resource:'PublicStaticHtml',id:d.targetUrl,
+      requestedUrl:d.targetUrl,normalizedUrl:d.url.href,method:'GET',bodyFormat:'PARSED_PUBLIC_HTML_ENVELOPE'});
+    stats.requests++;stats.byResource[d.resource]=(stats.byResource[d.resource] || 0)+1;notify();
+    let response;
+    try {
+      response=await options.providerTransport.request('publicHtml',{targetUrl:d.targetUrl,
+        ...(d.itemId?{itemId:d.itemId}:{}),...(d.providerId?{providerId:d.providerId}:{})},controller.signal);
+      if (controller.signal.aborted || !current()) {await discard(response);return failure(job,stopReason || job.cancelReason || 'PUBLIC_HTML_REQUEST_ABORTED');}
+      const valid=directProviderTransportReceiptV1(response,job.receipt,4);
+      job.receipt.upstreamBytes=Number(response.headers.get('X-CTI-Upstream-Bytes'));
+      if (!response.ok || response.status!==200 || !valid || job.receipt.status!==200 || !job.receipt.upstreamRequests) {
+        const errorBody=await bodyBytes(response,job,controller,2048);
+        if (!errorBody.ok) return failure(job,errorBody.reason);
+        const reason=await directProviderTransportErrorV1(new Response(errorBody.bytes));
+        return failure(job,!valid?'PROVIDER_HELPER_RECEIPT_INVALID':reason);
+      }
+      if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') || '')) {
+        await discard(response);return failure(job,'PUBLIC_HTML_ENVELOPE_MIME');
+      }
+      const declared=response.headers.get('X-CTI-Response-Envelope-Bytes');
+      const expected=/^[1-9]\d*$/.test(declared || '')?Number(declared):NaN;
+      if (!Number.isSafeInteger(expected) || expected>CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1) {
+        await discard(response);return failure(job,'PUBLIC_HTML_ENVELOPE_LENGTH');
+      }
+      const encoding=response.headers.get('content-encoding'),wireLength=response.headers.get('content-length');
+      if (encoding?.trim().toLowerCase()==='identity' && wireLength!==null &&
+          (!/^[1-9]\d*$/.test(wireLength) || Number(wireLength)!==expected)) {
+        await discard(response);return failure(job,'PUBLIC_HTML_ENVELOPE_LENGTH');
+      }
+      job.receipt.declaredEnvelopeBytes=expected;
+      const body=await bodyBytes(response,job,controller);
+      if (!body.ok) return failure(job,body.reason);
+      if (body.bytes.length!==expected) return failure(job,'PUBLIC_HTML_ENVELOPE_LENGTH');
+      if (controller.signal.aborted || !current()) return failure(job,stopReason || job.cancelReason || 'PUBLIC_HTML_REQUEST_ABORTED');
+      const digest=await crypto.subtle.digest('SHA-256',body.bytes);
+      job.receipt.originalResponseSha256=[...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,'0')).join('');
+      let model;
+      try {model=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body.bytes));}
+      catch {return failure(job,'PUBLIC_HTML_INVALID_ENVELOPE');}
+      if (!directPublicPageSourceValidV1(model,d.targetUrl) || job.receipt.status!==model.status ||
+          job.receipt.observedAt!==model.observedAt || job.receipt.upstreamRequests!==model.redirects.length+1 ||
+          job.receipt.upstreamBytes!==model.bytes) return failure(job,'PUBLIC_HTML_SOURCE_RECEIPT_INVALID');
+      const envelope=directPublicPageEnvelopeBytesV1(model);
+      if (!envelope || envelope.length!==body.bytes.length || envelope.some((value,index)=>value!==body.bytes[index]))
+        return failure(job,'PUBLIC_HTML_ENVELOPE_ENCODING_INVALID');
+      const original=new TextEncoder().encode(model.html),hash=await crypto.subtle.digest('SHA-256',original);
+      if ([...new Uint8Array(hash)].map(value=>value.toString(16).padStart(2,'0')).join('')!==model.sha256)
+        return failure(job,'PUBLIC_HTML_SOURCE_HASH_INVALID');
+      if (controller.signal.aborted || !current()) return failure(job,stopReason || job.cancelReason || 'PUBLIC_HTML_REQUEST_ABORTED');
+      return {ok:true,data:model,receipt:{...job.receipt},reason:'',authenticationFailed:false};
+    } catch (error) {
+      return failure(job,stopReason || job.cancelReason || (controller.signal.aborted?'PUBLIC_HTML_REQUEST_ABORTED':
+        /^PROVIDER_HELPER_[A-Z0-9_]{1,64}$/.test(error?.code || '')?error.code:'PUBLIC_HTML_REQUEST_FAILED'));
+    } finally {controllers.delete(controller);job.controller=null;}
+  }
   async function attempt(job) {
     if (!current()) return failure(job,stopReason);
     if (stats.requests >= limits.requests) {abort('COURSE_API_REQUEST_LIMIT');return failure(job,stopReason);}
@@ -342,7 +406,7 @@ export function createDirectDataReaderV1(options = {}) {
       try {parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body.bytes));}
       catch {return failure(job,'INVALID_API_JSON');}
       if (!parsed || !Array.isArray(parsed.elements) || parsed.elements.length!==1 ||
-          !parsed.elements[0] || parsed.elements[0].id!==job.descriptor.id) return failure(job,'UNEXPECTED_API_IDENTITY');
+          !parsed.elements[0] || parsed.elements[0].id!==job.descriptor.responseId) return failure(job,'UNEXPECTED_API_IDENTITY');
       if (parsed.paging && parsed.paging.next!=null) return failure(job,'UNEXPECTED_API_PAGINATION');
       // Signed delivery locations are deliberately not part of the returned
       // JSON model. The media reader can consume this short-lived closure once.
@@ -355,7 +419,7 @@ export function createDirectDataReaderV1(options = {}) {
           !Object.prototype.hasOwnProperty.call(sanitized,'data') || !sanitized.data ||
           typeof sanitized.data!=='object') return failure(job,'SANITIZER_INCOMPLETE');
       if (!Array.isArray(sanitized.data.elements) || sanitized.data.elements.length!==1 ||
-          sanitized.data.elements[0]?.id!==job.descriptor.id) return failure(job,'SANITIZER_INCOMPLETE');
+          sanitized.data.elements[0]?.id!==job.descriptor.responseId) return failure(job,'SANITIZER_INCOMPLETE');
       if (['assets.v1','authoringWidgetSessionProviders.v1'].includes(job.descriptor.resource)) {
         const protectedModel=sanitizeCourseraCourseDataModel(sanitized.data);
         if (protectedModel.limitReached) return failure(job,'SANITIZER_INCOMPLETE');
@@ -419,7 +483,7 @@ export function createDirectDataReaderV1(options = {}) {
         abort(Date.now()>=startedAt+limits.durationMs?'COURSE_API_TIME_LIMIT':'API_REQUEST_TIMEOUT');
       },Math.max(1,job.deadline-Date.now()));
     });
-    try {return await Promise.race([job.descriptor.external?attemptPanopto(job):retries(job),cancelled]);}
+    try {return await Promise.race([job.descriptor.publicHtml?attemptPublicPage(job):job.descriptor.external?attemptPanopto(job):retries(job),cancelled]);}
     finally {clearTimeout(timer);cancellation.signal.removeEventListener('abort',listener);job.diagnostics?.close();}
   }
   function pump() {
@@ -459,7 +523,21 @@ export function createDirectDataReaderV1(options = {}) {
         ['isEmbed','true'],['responseType','json']]};
     return new Promise(resolve=>{queue.push({descriptor:d,receipt:receiptFor(d),resolve});notify();pump();});
   }
-  return {read, snapshot, abort, readPanoptoDeliveryInfo,
+  function readPublicPage(targetUrl, binding={}) {
+    const target=directPublicPageTargetV1(targetUrl);
+    if (!target || !binding || typeof binding!=='object' || Array.isArray(binding) ||
+        Object.keys(binding).some(key=>!['itemId','providerId'].includes(key)) ||
+        (binding.itemId!==undefined && (typeof binding.itemId!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(binding.itemId))) ||
+        (binding.providerId!==undefined && (typeof binding.providerId!=='string' || !/^[A-Za-z0-9_-]{22}(?:@\d{1,12})?$/.test(binding.providerId))))
+      return Promise.resolve(failure(null,'INVALID_PUBLIC_HTML_TARGET'));
+    if (!options.providerTransport) return Promise.resolve(failure(null,'PUBLIC_HTML_PROVIDER_HELPER_UNAVAILABLE'));
+    if (!current()) return Promise.resolve(failure(null,stopReason));
+    if (queue.length>=limits.requests) return Promise.resolve(failure(null,'API_QUEUE_LIMIT'));
+    const d={resource:'PublicStaticHtml',external:true,publicHtml:true,id:targetUrl,targetUrl,
+      url:new URL(target.normalizedUrl),form:[],...binding};
+    return new Promise(resolve=>{queue.push({descriptor:d,receipt:receiptFor(d),resolve});notify();pump();});
+  }
+  return {read, snapshot, abort, readPanoptoDeliveryInfo, readPublicPage,
     readCourseMaterials:id=>read({resource:'authoringCourseMaterials.v1',id}),
     readCourse:id=>read({resource:'authoringCourses.v2',id}),
     readAtom:id=>read({resource:'authoringAtoms.v2',id}),

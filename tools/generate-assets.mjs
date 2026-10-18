@@ -4,6 +4,7 @@ import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 import { fileURLToPath } from "node:url";
 import { bundleConsole } from "./console-bundle.mjs";
 import { encodeJavaScriptBookmarkPayload } from "../src/domain/bookmark-address.js";
+import { formatJavaScriptBookmarkProgram } from "./bookmark-program.mjs";
 
 // Console scripts remain standalone programs. Only their delivery strings are
 // generated; editing happens in src/extractors/<platform> feature modules.
@@ -42,14 +43,21 @@ const directDataSource = bundleConsole(
   { onlyReachable: true },
 );
 new vm.Script(directDataSource, { filename: "coursera-direct-data.js" });
+// Keep the linked console source intact. Only the saved bookmark receives a
+// parser-formatted delivery copy; no compression or name mangling is enabled.
+const directDataBookmarkSource = formatJavaScriptBookmarkProgram(
+  directDataSource,
+  "coursera-direct-data-bookmark.js",
+);
 const directBookmarkBytes = Buffer.byteLength(
-  "javascript:" + encodeJavaScriptBookmarkPayload("void " + directDataSource),
+  "javascript:" + encodeJavaScriptBookmarkPayload("void " + directDataBookmarkSource),
 );
 if (directBookmarkBytes >= 500 * 1024)
   throw Error(
     "The full course bookmark exceeds Chrome Bookmark Manager's input limit.",
   );
 sources.courseraDirectDataSource = directDataSource;
+sources.courseraDirectDataBookmarkSource = directDataBookmarkSource;
 fs.writeFileSync(
   new URL("../src/generated/coursera-direct-data.js", import.meta.url),
   directDataSource,
@@ -81,7 +89,10 @@ const { buildBrowserExtension } = await import("./build-browser-extension.mjs");
 await buildBrowserExtension(sources.courseraSource);
 console.log("Prepared the packaged CTI browser extension and install ZIP.");
 const { buildActivityDesigner } = await import("./build-activity-designer.mjs");
-await buildActivityDesigner(sources.courseraDirectDataSource);
+await buildActivityDesigner(
+  sources.courseraDirectDataSource,
+  sources.courseraDirectDataBookmarkSource,
+);
 console.log(
   "Prepared the isolated activity designer and read-only capture scripts.",
 );

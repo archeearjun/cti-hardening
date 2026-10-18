@@ -4,6 +4,7 @@ import {
   CTI_PROVIDER_HELPER_PROTOCOL_V1,
 } from "../src/extractors/coursera/direct-data-provider-helper.js";
 import { directPanoptoAutomaticTargetV1 } from "../src/extractors/coursera/direct-data-panopto.js";
+import { directPublicPageTargetV1, CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
 
 type Binding = { id: string; itemId?: string; providerId?: string };
 type Job = {
@@ -15,6 +16,7 @@ type Job = {
   seq: number;
   bytes: number;
   declaredBytes: number | null;
+  lengthError: string;
   limit: number;
   busy: boolean;
   timer: ReturnType<typeof setTimeout>;
@@ -103,11 +105,13 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
     const identity = { id: m.id, itemId: m.itemId, providerId: m.providerId };
     const valid = authorized && requests < 128 && jobs.size < 2 &&
       typeof m.id === "string" && /^[1-9]\d{0,3}$/.test(m.id) && !jobs.has(m.id) &&
-      ["metadata", "podcast"].includes(m.kind) && payload && typeof payload === "object" &&
-      !Array.isArray(payload) && directPanoptoAutomaticTargetV1(payload.targetUrl) &&
+      ["metadata", "podcast", "publicHtml"].includes(m.kind) && payload && typeof payload === "object" &&
+      !Array.isArray(payload) && (m.kind === "publicHtml" ? directPublicPageTargetV1(payload.targetUrl) : directPanoptoAutomaticTargetV1(payload.targetUrl)) &&
       Object.keys(payload).every(key => ["targetUrl", "itemId", "providerId", ...(m.kind === "podcast" ? ["streamFileId", "sourceHash"] : [])].includes(key)) &&
       ["itemId", "providerId"].every(key => payload[key] === m[key] && (m[key] === undefined ||
-        typeof m[key] === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(m[key]))) &&
+        typeof m[key] === "string" && (key === "providerId" && m.kind === "publicHtml"
+          ? /^[A-Za-z0-9_-]{22}@\d{1,12}$/.test(m[key]) || /^[A-Za-z0-9_-]{1,128}$/.test(m[key])
+          : /^[A-Za-z0-9_-]{1,128}$/.test(m[key])))) &&
       (m.kind !== "podcast" || typeof payload.streamFileId === "string" &&
         /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(payload.streamFileId) &&
         typeof payload.sourceHash === "string" && /^[a-f0-9]{64}$/.test(payload.sourceHash));
@@ -115,7 +119,8 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
     const job: Job = {
       binding: identity, controller: new AbortController(), reader: null, chunk: null,
       chunkOffset: 0, seq: 0, bytes: 0, declaredBytes: null,
-      limit: m.kind === "metadata" ? 512 * 1024 : 128 * 1024 * 1024,
+      lengthError: m.kind === "publicHtml" ? "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH" : "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH",
+      limit: m.kind === "metadata" ? 512 * 1024 : m.kind === "publicHtml" ? CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 : 128 * 1024 * 1024,
       busy: false, timer: setTimeout(() => {}, 0),
     };
     jobs.set(m.id, job);
@@ -125,14 +130,14 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
       const body = { targetUrl: payload.targetUrl, ...(m.kind === "podcast" ? {
         streamFileId: payload.streamFileId, sourceHash: payload.sourceHash,
       } : {}) };
-      const response = await fetchImpl("/api/provider/panopto/" + m.kind, {
+      const response = await fetchImpl(m.kind === "publicHtml" ? "/api/provider/public-html" : "/api/provider/panopto/" + m.kind, {
         method: "POST", credentials: "same-origin", cache: "no-store", redirect: "error",
-        headers: { "Content-Type": "application/json", Accept: m.kind === "metadata" ? "application/json" : "video/mp4" },
+        headers: { "Content-Type": "application/json", Accept: m.kind === "podcast" ? "video/mp4" : "application/json" },
         body: JSON.stringify(body), signal: job.controller.signal,
       });
       if (!jobs.has(m.id) || closed) { void response.body?.cancel().catch(() => {}); return; }
       if (!response.body || [204, 205, 304].includes(response.status) ||
-          Number(response.headers.get("content-length") || 0) > job.limit) {
+          (m.kind !== "publicHtml" && Number(response.headers.get("content-length") || 0) > job.limit)) {
         void response.body?.cancel().catch(() => {});
         fail(job, "PROVIDER_HELPER_INVALID_RESPONSE"); return;
       }
@@ -142,6 +147,24 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
         if (!Number.isSafeInteger(declared) || declared > job.limit) {
           void response.body.cancel().catch(() => {});
           fail(job, "PROVIDER_HELPER_PODCAST_LENGTH_UNAVAILABLE"); return;
+        }
+        job.declaredBytes = declared;
+      }
+      if (m.kind === "publicHtml" && response.status === 200) {
+        const length = response.headers.get("X-CTI-Response-Envelope-Bytes");
+        const declared = /^[1-9]\d*$/.test(length || "") ? Number(length) : NaN;
+        if (!Number.isSafeInteger(declared) || declared > job.limit) {
+          void response.body.cancel().catch(() => {});
+          fail(job, "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_UNAVAILABLE"); return;
+        }
+        // The browser exposes decoded bytes. Only an explicit identity
+        // declaration lets ordinary wire framing be compared to that count.
+        const encoding = response.headers.get("Content-Encoding");
+        const wireLength = response.headers.get("Content-Length");
+        if (encoding?.trim().toLowerCase() === "identity" && wireLength !== null &&
+            (!/^[1-9]\d*$/.test(wireLength) || Number(wireLength) !== declared)) {
+          void response.body.cancel().catch(() => {});
+          fail(job, "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH"); return;
         }
         job.declaredBytes = declared;
       }
@@ -169,7 +192,7 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
         if (!jobs.has(job.binding.id)) return;
         if (next.done) {
           if (job.declaredBytes !== null && job.bytes !== job.declaredBytes) {
-            fail(job, "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH"); return;
+            fail(job, job.lengthError); return;
           }
           send("end", { ...job.binding, seq: job.seq, offset: job.bytes }); finish(job); return;
         }
@@ -181,7 +204,7 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
       }
       const bytes = job.chunk.slice(job.chunkOffset, job.chunkOffset + 65536);
       if (job.declaredBytes !== null && job.bytes + bytes.byteLength > job.declaredBytes) {
-        fail(job, "PROVIDER_HELPER_PODCAST_LENGTH_MISMATCH"); return;
+        fail(job, job.lengthError); return;
       }
       if (job.bytes + bytes.byteLength > job.limit || total + bytes.byteLength > 512 * 1024 * 1024) {
         fail(job, "PROVIDER_HELPER_BYTE_LIMIT"); return;

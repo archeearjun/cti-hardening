@@ -41,7 +41,7 @@ try {
     build: { write: false, emptyOutDir: false, minify: false, target: "esnext",
       lib: { entry: { providerCheck: path.join(root, "tools/fixtures/worker-panopto-provider.mjs"),
         mockUpstream: path.join(root, "tools/fixtures/worker-panopto-upstream.mjs") }, formats: ["es"] },
-      rollupOptions: { output: { entryFileNames: "[name].mjs", chunkFileNames: "[name]-[hash].mjs" } } } });
+      rollupOptions: { external: ["cloudflare:workers"], output: { entryFileNames: "[name].mjs", chunkFileNames: "[name]-[hash].mjs" } } } });
   const output = (Array.isArray(built) ? built : [built]).flatMap(result => result.output);
   assert(output.length > 0 && output.every(item => item.type === "chunk"), "The runtime fixture must contain only bundled JavaScript modules.");
   for (const item of output) {
@@ -57,7 +57,10 @@ try {
   }
   const config = `using Workerd = import ${JSON.stringify(schema)};
 const config :Workerd.Config = (services = [
-  (name = "provider", worker = (compatibilityDate = "2026-10-01", modules = [${modules("providerCheck.mjs")}], globalOutbound = "mock")),
+  (name = "provider", worker = (compatibilityDate = "2026-10-01", modules = [${modules("providerCheck.mjs")}], globalOutbound = "mock",
+    bindings = [(name = "WORKSPACE_RUNTIME", durableObjectNamespace = "WorkspaceRuntime"), (name = "PRIVATE_RUNTIME", service = "provider")],
+    durableObjectNamespaces = [(className = "WorkspaceRuntime", uniqueKey = "cti-no-network-provider-runtime-fixture", enableSql = true)],
+    durableObjectStorage = (inMemory = void))),
   (name = "mock", worker = (compatibilityDate = "2026-10-01", modules = [${modules("mockUpstream.mjs")}], globalOutbound = "deny")),
   (name = "deny", network = (allow = []))
 ], sockets = []);
@@ -78,4 +81,5 @@ const config :Workerd.Config = (services = [
   assert.equal(result.timedOut, false, "The no-network workerd regression exceeded its deadline.");
   assert.equal(result.code, 0, "The actual Cloudflare runtime provider regression failed.");
   assert.match(result.stdout + result.stderr, /CTI_WORKERD_PANOPTO_PROVIDER_PASS/);
+  assert.match(result.stdout + result.stderr, /CTI_WORKERD_PUBLIC_HTML_PROVIDER_PASS/);
 } finally { await rm(scratch, { recursive: true, force: true }); }

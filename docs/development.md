@@ -102,7 +102,7 @@ including during `npm run dev`.
 
 ## Brightspace browser extraction
 
-Current Brightspace delivery is v1.2.0/schema 2; see
+Current Brightspace delivery is v1.2.1/schema 2; see
 [Brightspace bookmark capture](brightspace-bookmark-capture.md). The primary UI
 saves **CTI Brightspace capture** once and runs it on the signed-in course Home or
 Content page. Console copy/download remains an optional fallback. Both Source
@@ -389,6 +389,15 @@ described as a missing native media pointer.
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct
 capture file.
+
+Version 1.8.0 reads exact versioned inline CML widget configuration selectors
+through the observed provider finder. Supported configured public-book pages
+can retain separate original static HTML through the existing provider window;
+native text, media and whole-widget completeness remain separate. Saved views
+revalidate native ownership and original byte/hash proof. Only the bookmark
+delivery copy receives parser-backed whitespace formatting; console source
+remains source-preserving and the 500 KiB bookmark limit is unchanged. See
+[inline-widget evidence and limits](audits/coursera-inline-widget-reader-2026-10-18.md).
 
 The automatic background path uses a service-bound Worker because Browser Run
 and durable Workflows are Worker capabilities. Launch it only when sufficient

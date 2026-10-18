@@ -1,8 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { bundleConsole } from "../tools/console-bundle.mjs";
 import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
-import { courseraDirectDataSource } from "../src/generated/extractor-sources.js";
+import {
+  courseraDirectDataSource,
+  courseraDirectDataBookmarkSource,
+} from "../src/generated/extractor-sources.js";
+import { formatJavaScriptBookmarkProgram } from "../tools/bookmark-program.mjs";
 import {
   COURSERA_DIRECT_DATA_CAPTURE_VERSION,
   COURSERA_DIRECT_DATA_CAPTURE_BUILD,
@@ -16,15 +23,30 @@ const decode = (address) => {
   return decodeURIComponent(address.slice("javascript:".length));
 };
 
-test("the universal capture bookmark carries the exact standalone current program", () => {
+test("the universal bookmark carries the parser-formatted current program while console delivery retains its exact source", () => {
   const script = createCourseraDirectDataCaptureScript();
   const address = createCourseraDirectDataCaptureBookmark();
   assert.equal(script, "void " + courseraDirectDataSource);
-  assert.equal(decode(address), script);
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.7.6");
+  assert(
+    courseraDirectDataSource ===
+      bundleConsole(fileURLToPath(new URL("../src/extractors/coursera/direct-data-entry.js", import.meta.url)), { onlyReachable: true }),
+    "Console delivery retains the source-preserving linker's exact output.",
+  );
+  assert(
+    fs.readFileSync(new URL("../src/generated/coursera-direct-data.js", import.meta.url), "utf8") === courseraDirectDataSource,
+    "The downloadable console program keeps the original linked source.",
+  );
+  assert.equal(decode(address), "void " + courseraDirectDataBookmarkSource);
+  assert(
+    courseraDirectDataBookmarkSource === formatJavaScriptBookmarkProgram(courseraDirectDataSource),
+    "The bookmark is the parser-formatted copy of the same linked source.",
+  );
+  assert(courseraDirectDataBookmarkSource.length < courseraDirectDataSource.length);
+  assert(address.length < 400 * 1024, "Parser formatting leaves headroom below the unchanged 500 KiB browser limit.");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.8.0");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.7.6-native-dwg-originals-20261018",
+    "v1.8.0-inline-widget-public-html-20261018",
   );
   assert.deepEqual(CTI_RELEASE_REGISTRY_.directDataCourseraExtractor, {
     version: "v" + COURSERA_DIRECT_DATA_CAPTURE_VERSION,
@@ -42,6 +64,7 @@ test("the universal capture bookmark carries the exact standalone current progra
       COURSERA_DIRECT_DATA_BOOKMARK_MAX_BYTES,
   );
   assert.doesNotThrow(() => new vm.Script(script));
+  assert.doesNotThrow(() => new vm.Script(decode(address)));
 });
 
 test("bookmark delivery preserves Unicode and prevents a string result from replacing Coursera", () => {

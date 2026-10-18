@@ -24,10 +24,14 @@ import {
   directMaterialStabilityModelV1,
 } from "./direct-data-material-stability.js";
 import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
-  directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
+  directWidgetProviderTargetsV1, directInlineWidgetProviderSourceV1,
+  directInlineWidgetProviderTargetsV1 } from "./direct-data-widget.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
   directPanoptoPodcastBindingsV1, CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1 } from "./direct-data-panopto.js";
 import { directProviderAccessDiagnosticV1, directProviderAccessDiagnosticTextV1 } from "./direct-data-provider-diagnostic.js";
+import { directPublicPageTargetV1, directPublicPageObservationValidV1,
+  CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1,
+  CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "./direct-data-public-page.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
 import {
   bindDirectAuthoringDraftV1,
@@ -44,6 +48,8 @@ import {
   directEmptyStructureContractV1,
   directUnsupportedContractV1,
   directWidgetContractV1,
+  directInlineWidgetBindingsV1,
+  directWidgetProviderReceiptValidV1,
   parseCourseraCheckboxDefinitionDirectV1,
   directCmlTextV1,
   directAssessmentQuestionProjectionV1,
@@ -189,6 +195,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     let itemStates = new Map(),
       retainedSizes = new Map(),
       panoptoSources = new Map(),
+      inlineWidgetSources = new Map(),
+      publicPageSources = new Map(),
+      publicPageRetainedByItem = new Map(),
       exporting = false,
       fatalReason = "";
     let budgetBase = { requests: 0, bytes: 0, elapsedMs: 0 },
@@ -204,6 +213,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       metadataReserveBytes = 256 * 1024,
       checkpointReady = false;
     let accessReader = null, providerTransport = null;
+    let publicPageStats = { readerOperations: 0, observedEnvelopeBytes: 0, retainedUtf8Bytes: 0 };
     const encoder = new TextEncoder();
     const hash = async (value) => {
       const bytes = encoder.encode(directCanonicalSourceTextV1(value));
@@ -322,6 +332,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           requests: mediaBase.requests + (media?.requests || 0),
           currentAttempt: media || { bytes: 0, requests: 0 },
         },
+        publicPages: { ...publicPageStats, sourceScope: "CURRENT_ATTEMPT", retainedScope: "CURRENT_CAPTURE_ITEMS",
+          limits: { readerOperations: 64, observedEnvelopeBytes: 16 * 1024 * 1024,
+            retainedUtf8Bytes: CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } },
       };
     }
     function terminalBudgetReason(reason) {
@@ -434,6 +447,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         // capture timestamps remain the original observations.
         const retained = row.fingerprint,
           previouslyComplete = retained.captureContract?.complete === true;
+        const publicBytes = retainedPublicPageBytes(retained);
+        publicPageStats.retainedUtf8Bytes += publicBytes - (publicPageRetainedByItem.get(fp.id) || 0);
+        publicPageRetainedByItem.set(fp.id, publicBytes);
+        if (publicPageStats.retainedUtf8Bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
+          throw Error("DIRECT_PUBLIC_PAGE_RETAINED_LIMIT");
         const bodiesAvailable = await hydrateItemBodies(retained, true);
         try {
           const bound = bindDirectAuthoringDraftV1(
@@ -1027,6 +1045,145 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       evidence.final.sourceHash = await hash(directWidgetProviderSourceV1(bound, requireRead(final)));
       evidence.stableSource = evidence.initial.sourceHash === evidence.final.sourceHash;
     }
+    async function captureInlineWidgetProviders(fp, bound, previous) {
+      delete fp.payload.directInlineWidgetProviderEvidence;
+      const bindings = directInlineWidgetBindingsV1(fp, bound);
+      if (!bindings.length) return;
+      const evidence = {
+        method: "BOUND_INLINE_CML_WIDGET_PROVIDERS", courseId, itemId: fp.id,
+        atomId: bound.atomId, sourceState: "AUTHORING_DRAFT", providers: [], failures: [],
+        bodyVerified: false, playbackVerified: false, launchVerified: false, wholeWidgetVerified: false,
+      };
+      fp.payload.directInlineWidgetProviderEvidence = evidence;
+      for (const binding of bindings) {
+        const provider = { ...binding, initial: null, final: null, stableSource: false,
+          targets: [], failures: [], bodyVerified: false, playbackVerified: false,
+          launchVerified: false, wholeWidgetVerified: false };
+        evidence.providers.push(provider);
+        try {
+          const key = courseId + "~" + binding.providerId;
+          if (!inlineWidgetSources.has(key)) {
+            if (inlineWidgetSources.size >= 64) throw Error("DIRECT_INLINE_WIDGET_PROVIDER_LIMIT");
+            // Cache only current observation pairs. Each placement rebinds its
+            // own targets and source identity; no previous-attempt proof is reused.
+            inlineWidgetSources.set(key, (async () => ({
+              initial: await reader.readWidgetProvider(binding.providerId, courseId),
+              final: await reader.readWidgetProvider(binding.providerId, courseId),
+            }))());
+          }
+          const reads = await inlineWidgetSources.get(key);
+          for (const stage of ["initial", "final"])
+            provider[stage] = { model: reads[stage].data, receipt: receipt(reads[stage], binding.providerId),
+              sourceHash: "", modelHash: "" };
+          for (const stage of ["initial", "final"]) {
+            const read = reads[stage];
+            requireRead(read);
+            if (!directWidgetProviderReceiptValidV1(provider[stage].receipt, binding))
+              throw Error("DIRECT_INLINE_WIDGET_PROVIDER_RECEIPT_INVALID");
+            provider[stage].modelHash = await hash(read.data);
+            provider[stage].sourceHash = await hash(directInlineWidgetProviderSourceV1(binding, read.data));
+          }
+          provider.targets = directInlineWidgetProviderTargetsV1(binding, reads.initial.data);
+          provider.stableSource = provider.initial.sourceHash === provider.final.sourceHash &&
+            provider.initial.modelHash === provider.final.modelHash;
+          if (!provider.stableSource) throw Error("DIRECT_INLINE_WIDGET_PROVIDER_SOURCE_CHANGED");
+        } catch (error) {
+          provider.failures.push({ reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
+            ? error.message : "DIRECT_INLINE_WIDGET_PROVIDER_CAPTURE_FAILED" });
+        }
+      }
+      // Replace this item's old allocation only after current native selectors
+      // are known. Reserve every matching historical page before reading any
+      // new bodies, so a failed refresh can keep its exact prior observation.
+      publicPageStats.retainedUtf8Bytes -= publicPageRetainedByItem.get(fp.id) || 0;
+      for (const provider of evidence.providers)
+        if (provider.stableSource) await prepareInlinePublicPages(provider, previous);
+      for (const provider of evidence.providers)
+        if (provider.stableSource) await captureInlinePublicPages(fp, provider);
+    }
+    async function prepareInlinePublicPages(provider, previous) {
+      provider.publicPages = [];
+      const targets = new Map();
+      for (const target of provider.targets) {
+        if (!targets.has(target.url)) targets.set(target.url, []);
+        const fields = targets.get(target.url);
+        if (!fields.includes(target.sourceField)) fields.push(target.sourceField);
+      }
+      for (const [targetUrl, sourceFields] of targets) {
+        const page = { targetUrl, sourceFields, observation: null, failures: [] };
+        provider.publicPages.push(page);
+        const prior = previous?.payload?.directInlineWidgetProviderEvidence?.providers?.filter(
+          value => value.providerId === provider.providerId && value.courseId === provider.courseId &&
+            value.itemId === provider.itemId && value.atomId === provider.atomId);
+        const pages = prior?.length === 1 ? prior[0].publicPages?.filter(value => value.targetUrl === targetUrl) : [];
+        if (pages?.length !== 1) continue;
+        const candidates = [pages[0].observation, pages[0].retainedObservation]
+          .filter(value => directPublicPageObservationValidV1(value, targetUrl))
+          .sort((a, b) => Date.parse(b.model.observedAt) - Date.parse(a.model.observedAt));
+        for (const observation of candidates) {
+          if (await hash(observation.model) !== observation.receipt.originalResponseSha256 ||
+              encoder.encode(directCanonicalSourceTextV1(observation.model)).byteLength !== observation.receipt.bytes)
+            continue;
+          const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(observation.model.html))),
+            byte => byte.toString(16).padStart(2, "0")).join("");
+          if (digest !== observation.model.sha256) continue;
+          if (publicPageStats.retainedUtf8Bytes + observation.model.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
+            throw Error("DIRECT_PUBLIC_PAGE_RETAINED_LIMIT");
+          page.retainedObservation = observation;
+          publicPageStats.retainedUtf8Bytes += observation.model.bytes;
+          break;
+        }
+      }
+    }
+    async function captureInlinePublicPages(fp, provider) {
+      for (const page of provider.publicPages) {
+        const targetUrl = page.targetUrl;
+        try {
+          if (!directPublicPageTargetV1(targetUrl)) throw Error("DIRECT_PUBLIC_PAGE_TARGET_UNSUPPORTED");
+          if (!publicPageSources.has(targetUrl)) {
+            if (publicPageStats.readerOperations >= 64 ||
+                publicPageStats.observedEnvelopeBytes + CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 > 16 * 1024 * 1024)
+              throw Error("DIRECT_PUBLIC_PAGE_ATTEMPT_LIMIT");
+            publicPageStats.readerOperations++;
+            publicPageSources.set(targetUrl, (async () => {
+              const read = await reader.readPublicPage(targetUrl, { itemId: fp.id, providerId: provider.providerId });
+              publicPageStats.observedEnvelopeBytes += Number(read.receipt?.bytes || 0);
+              checkpointBudget();
+              return read;
+            })());
+          }
+          const read = await publicPageSources.get(targetUrl);
+          requireRead(read);
+          if (!directPublicPageObservationValidV1({ model: read.data, receipt: read.receipt }, targetUrl))
+            throw Error("DIRECT_PUBLIC_PAGE_SOURCE_INVALID");
+          if (await hash(read.data) !== read.receipt.originalResponseSha256 ||
+              encoder.encode(directCanonicalSourceTextV1(read.data)).byteLength !== read.receipt.bytes)
+            throw Error("DIRECT_PUBLIC_PAGE_ENVELOPE_HASH_INVALID");
+          const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.html))),
+            byte => byte.toString(16).padStart(2, "0")).join("");
+          if (actual !== read.data.sha256) throw Error("DIRECT_PUBLIC_PAGE_HASH_INVALID");
+          const previousBytes = page.retainedObservation?.model?.bytes || 0;
+          if (publicPageStats.retainedUtf8Bytes - previousBytes + read.data.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
+            throw Error("DIRECT_PUBLIC_PAGE_RETAINED_LIMIT");
+          publicPageStats.retainedUtf8Bytes += read.data.bytes - previousBytes;
+          page.observation = { model: read.data, receipt: read.receipt };
+          delete page.retainedObservation;
+        } catch (error) {
+          page.failures.push({ reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
+            ? error.message : "DIRECT_PUBLIC_PAGE_CAPTURE_FAILED" });
+        }
+      }
+    }
+    function retainedPublicPageBytes(fp) {
+      let bytes = 0;
+      for (const evidence of [fp.payload?.directInlineWidgetProviderEvidence, fp.payload?.directInlineWidgetProviderAttempt])
+        for (const provider of evidence?.providers || [])
+          for (const page of provider.publicPages || [])
+            for (const observation of [page.observation, page.retainedObservation])
+              if (typeof observation?.model?.html === "string")
+                bytes += encoder.encode(observation.model.html).byteLength;
+      return bytes;
+    }
     async function captureItem(fp) {
       const source = inventory.leaves.get(fp.id);
       if (source.structural) {
@@ -1055,6 +1212,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         previousRow.fingerprint.atomId === fp.atomId
           ? previousRow.fingerprint
           : null;
+      const previousPublicBytes = publicPageRetainedByItem.get(fp.id) || 0,
+        publicBytesBefore = publicPageStats.retainedUtf8Bytes;
       if (previous) await hydrateItemBodies(previous, true);
       state.phase = "Reading item data";
       render(fp.name);
@@ -1130,6 +1289,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const cmlSource = boundCmlSource(bound);
           fp.payload.directDraftCml = cmlSource.rawCML;
           await captureCmlMedia(fp, cmlSource, previous);
+          if (directCmlTextV1(cmlSource.cml)?.references?.some(reference => reference.tag === "widget"))
+            await captureInlineWidgetProviders(fp, bound, previous);
+          else delete fp.payload.directInlineWidgetProviderEvidence;
         } else if (bound.draft.content.typeName === "widgetDraft")
           await captureWidgetProvider(fp, bound, previous);
         else
@@ -1221,6 +1383,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ...(fp.payload.directWidgetProviderEvidence
               ? {directWidgetProviderAttempt: fp.payload.directWidgetProviderEvidence}
               : {}),
+            ...(fp.payload.directInlineWidgetProviderEvidence
+              ? {directInlineWidgetProviderAttempt: fp.payload.directInlineWidgetProviderEvidence}
+              : {}),
             directResumeRevalidation: {
               verified: false,
               reason,
@@ -1238,6 +1403,25 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         directUnsupportedContractV1(fp, reason, bound);
         processed = !reader.snapshot().stopped;
       }
+      let retainedPublicBytes = retainedPublicPageBytes(fp);
+      if (publicBytesBefore - previousPublicBytes + retainedPublicBytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 &&
+          fp.payload.directInlineWidgetProviderAttempt) {
+        // A failed item revalidation cannot displace its saved originals. Keep
+        // the failed current selectors/receipts, with explicit omitted-page gaps.
+        for (const provider of fp.payload.directInlineWidgetProviderAttempt.providers || [])
+          for (const page of provider.publicPages || [])
+            if (page.observation || page.retainedObservation) {
+              page.observation = null;
+              delete page.retainedObservation;
+              page.failures.push({ reason: "DIRECT_PUBLIC_PAGE_RETAINED_LIMIT" });
+            }
+        retainedPublicBytes = retainedPublicPageBytes(fp);
+      }
+      publicPageStats.retainedUtf8Bytes += retainedPublicBytes - previousPublicBytes -
+        (publicPageStats.retainedUtf8Bytes - publicBytesBefore);
+      publicPageRetainedByItem.set(fp.id, retainedPublicBytes);
+      if (publicPageStats.retainedUtf8Bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
+        throw Error("DIRECT_PUBLIC_PAGE_RETAINED_LIMIT");
       await persist(fp, processed);
       // Publish the attempt cache only after the body and item checkpoints
       // commit. A failed final source read must never cache an unpersisted file.
@@ -1583,6 +1767,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       checkpointReady = false;
       mediaReader = null;
       panoptoSources = new Map();
+      inlineWidgetSources = new Map();
+      publicPageSources = new Map();
+      publicPageRetainedByItem = new Map();
+      publicPageStats = { readerOperations: 0, observedEnvelopeBytes: 0, retainedUtf8Bytes: 0 };
       mediaBase = { bytes: 0, requests: 0 };
       frozenMediaStats = null;
       state.counts = { processed: 0, complete: 0, questions: 0, total: 0 };
@@ -1737,6 +1925,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           state.runId = "";
           itemStates = new Map();
           retainedSizes = new Map();
+          publicPageRetainedByItem = new Map();
+          publicPageStats.retainedUtf8Bytes = 0;
           state.counts = { processed: 0, complete: 0, questions: 0, total: 0 };
           reader = createReader();
         }

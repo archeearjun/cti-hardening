@@ -1,4 +1,5 @@
-import { expectedForm, mediaBytes, mediaOrigin, metadataPath, source, stateUrl } from "./worker-panopto-source.mjs";
+import { expectedForm, mediaBytes, mediaOrigin, metadataPath, source, stateUrl,
+  publicHtmlOrigin, publicHtmlPath, publicHtmlBytes, publicHtmlUrl } from "./worker-panopto-source.mjs";
 
 const calls = [], cancelled = [];
 function pendingBody(prefix, label, declaredBytes = 0, ctx) {
@@ -29,6 +30,55 @@ export default {
     calls.push({ url: request.url, method: request.method, body, headers: [...request.headers] });
     if (request.headers.has("Cookie") || request.headers.has("Authorization"))
       throw Error("The public reader forwarded credentials.");
+    if (url.origin === publicHtmlOrigin && url.pathname.startsWith(publicHtmlPath)) {
+      if (request.method !== "GET" || body || request.headers.get("accept-encoding") !== "identity")
+        throw Error("The public HTML reader must use a bodyless identity GET.");
+      const name = url.pathname.slice(publicHtmlPath.length).replace(/\/$/, ""),
+        headers = { "Content-Type": "Text/HTML; charset=UTF-8" };
+      if (name === "same-book-redirect")
+        return new Response(null, { status: 307, headers: { Location: publicHtmlUrl("success") } });
+      if (name === "foreign-redirect")
+        return new Response(null, { status: 302, headers: { Location: "https://never-follow.invalid/public-html" } });
+      if (name === "other-book-redirect")
+        return new Response(null, { status: 308, headers: { Location: "/another-book/chapter/body/" } });
+      if (name === "invalid-utf8")
+        return new Response(Uint8Array.from([...publicHtmlBytes.subarray(0, 20), 0xff, ...publicHtmlBytes.subarray(20)]), { headers });
+      if (name === "wrong-charset")
+        return new Response(publicHtmlBytes, { headers: { "Content-Type": "text/html; charset=iso-8859-1" } });
+      if (name === "range")
+        return new Response(publicHtmlBytes, { headers: { ...headers, "Content-Range": "bytes 0-50/1000" } });
+      if (name === "encoded")
+        return new Response(publicHtmlBytes, { headers: { ...headers, "Content-Encoding": "gzip" } });
+      if (name === "too-large" || name === "stream-too-large") {
+        const oversized = new Uint8Array(1024 * 1024 + 1).fill(120);
+        oversized.set(new TextEncoder().encode("<html>"));
+        if (name === "too-large") return new Response(oversized, { headers });
+        return new Response(new ReadableStream({ start(controller) {
+          for (let index = 0; index < oversized.length; index += 65536)
+            controller.enqueue(oversized.subarray(index, Math.min(oversized.length, index + 65536)));
+          controller.close();
+        } }), { headers });
+      }
+      if (name === "short-framed") {
+        const framed = new FixedLengthStream(publicHtmlBytes.length + 1);
+        ctx.waitUntil((async () => {
+          const writer = framed.writable.getWriter();
+          try { await writer.write(publicHtmlBytes); await writer.close(); }
+          catch { try { await writer.abort(); } catch {} }
+          finally { writer.releaseLock(); }
+        })());
+        return new Response(framed.readable, { headers });
+      }
+      if (name === "success" || name === "chunked") {
+        if (name === "success") return new Response(publicHtmlBytes, { headers });
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(publicHtmlBytes.subarray(0, 17));
+          controller.enqueue(publicHtmlBytes.subarray(17));
+          controller.close();
+        } }), { headers });
+      }
+      throw Error("Unexpected synthetic public HTML path.");
+    }
     if (/^[a-z0-9-]+\.hosted\.panopto\.com$/.test(url.hostname) && url.pathname === metadataPath) {
       if (request.method !== "POST" || body !== expectedForm ||
           request.headers.get("content-type") !== "application/x-www-form-urlencoded;charset=UTF-8")

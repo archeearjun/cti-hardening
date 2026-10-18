@@ -5,8 +5,18 @@ import { readFile } from "node:fs/promises";
 import { webcrypto, createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import JSZip from "jszip";
+import { DOMParser } from "@xmldom/xmldom";
 import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
-  directWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
+  directWidgetProviderTargetsV1, directInlineWidgetProviderSourceV1,
+  directInlineWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
+import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
+  directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
+import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource } from "../src/extractors/coursera/direct-data-models.js";
+import { directCanonicalSourceTextV1 as canonicalSource } from "../src/extractors/coursera/direct-data-canonical.js";
+import { createInlinePublicContentFixture } from "./coursera-inline-content-fixtures.mjs";
+import { WIDGET_COURSE, WIDGET_SLUG } from "./coursera-direct-widget-fixtures.mjs";
+import { directPublicPageTargetV1, directPublicPageObservationValidV1,
+  CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1, CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
@@ -129,7 +139,7 @@ function harness(options = {}) {
   const widgetAtoms = new Map((options.widgetIds || []).map((id, index) => [id, String.fromCharCode(75 + index).repeat(22)]));
   const widgetProviders = new Map((options.widgetIds || []).map((id, index) => [id, String.fromCharCode(112 + index).repeat(22)]));
   const widgetItemsByAtom = new Map([...widgetAtoms].map(([id, atom]) => [atom, id]));
-  const fingerprint = (id) => ({
+  const fingerprint = (id) => options.fingerprints?.[id] ? clone(options.fingerprints[id]) : ({
     id,
     type: widgetAtoms.has(id) ? "Plugin" : options.assignmentIds?.includes(id) ? "assignment" : "reading",
     typeName: widgetAtoms.has(id) ? "ungradedWidget" : options.assignmentIds?.includes(id) ? "staffGraded" : "supplement",
@@ -184,7 +194,7 @@ function harness(options = {}) {
   };
   const location = {
     origin: "https://www.coursera.org",
-    pathname: `/teach/${SLUG}/${COURSE}/content/edit`,
+    pathname: `/teach/${options.courseSlug || SLUG}/${options.courseId || COURSE}/content/edit`,
     get href() {
       return this.origin + this.pathname;
     },
@@ -406,6 +416,7 @@ function harness(options = {}) {
       readDefinition: (id) => read("definition", id),
       readWidgetProvider: (id, courseId) => read("widget", id, courseId),
       readPanoptoDeliveryInfo: (url) => read("panopto", url),
+      readPublicPage: (url) => read("public", url),
       snapshot: () => ({ ...clone(metrics), elapsedMs: now - createdAt }),
       abort,
     };
@@ -472,7 +483,7 @@ function harness(options = {}) {
       return options.mediaReaderFactory(settings);
     },
     sanitizeCourseraCourseDataModel: () => {},
-    directCanonicalSourceTextV1: JSON.stringify,
+    directCanonicalSourceTextV1: options.nativeCml ? canonicalSource : JSON.stringify,
     CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
     directMaterialStabilityModelV1,
     directCourseInventoryV1: async () => ({
@@ -481,7 +492,7 @@ function harness(options = {}) {
       materialVersion: 1,
       courseBranchVersion: 1,
     }),
-    bindDirectAuthoringDraftV1: (fp, courseId, slug, atomData) => ({
+    bindDirectAuthoringDraftV1: options.nativeCml ? bindNativeDraft : (fp, courseId, slug, atomData) => ({
       atomId: fp.atomId,
       itemId: fp.id, courseId, courseSlug: slug, contentId: fp.contentId,
       sourceState: "AUTHORING_DRAFT",
@@ -490,6 +501,14 @@ function harness(options = {}) {
     directDraftWidgetProviderV1,
     directWidgetProviderSourceV1,
     directWidgetProviderTargetsV1,
+    directInlineWidgetProviderSourceV1,
+    directInlineWidgetProviderTargetsV1,
+    directInlineWidgetBindingsV1,
+    directWidgetProviderReceiptValidV1,
+    directPublicPageTargetV1,
+    directPublicPageObservationValidV1,
+    CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1,
+    CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1,
     directWidgetContractV1: (fp) => {
       const valid = fp.payload.directWidgetProviderEvidence?.stableSource === true;
       const result = contract(fp, "DIRECT_WIDGET", false,
@@ -498,9 +517,9 @@ function harness(options = {}) {
       result.externalBodyVerified = false;
       return result;
     },
-    directDraftReadingSourceV1: (bound) =>
+    directDraftReadingSourceV1: options.nativeCml ? nativeReadingSource : (bound) =>
       options.readingSource?.(bound) || { rawCML: "Synthetic reading" },
-    directReadingPayloadV1: async (fp) => {
+    directReadingPayloadV1: options.nativeCml ? nativeReadingPayload : async (fp) => {
       fp.payload.reading = "Synthetic reading";
       contract(fp, "DIRECT_READING", true);
       await options.readingPayload?.(fp);
@@ -521,7 +540,7 @@ function harness(options = {}) {
     },
     directAssessmentContractV1: (fp) => options.assessmentInventory && contract(fp, "DIRECT_ASSESSMENT", true),
     parseCourseraCheckboxDefinitionDirectV1() {},
-    directCmlTextV1: options.parseCml || (() => undefined),
+    directCmlTextV1: options.nativeCml ? parseNativeCml : options.parseCml || (() => undefined),
     parseCourseraMcqDefinitionV61524() {},
     assessmentCaptureCoverageV613() {},
     __CTI_COURSERA_DIRECT_DATA_LIMITS__: options.limits,
@@ -608,6 +627,76 @@ test("the actual entry captures drafts without navigation and exports its saved 
   assert(app.nodes.some(node => node.textContent.includes("0/0 empty structures verified")));
   assert(app.nodes.some(node => node.textContent.includes("0 question occurrences")));
   assert.deepEqual(app.alerts, []);
+});
+
+test("inline page refresh replaces its own near-limit allocation and preserves the last verified original after a failed refresh", async (t) => {
+  const previousParser = globalThis.DOMParser;
+  globalThis.DOMParser = DOMParser;
+  t.after(() => { if (previousParser) globalThis.DOMParser = previousParser; else delete globalThis.DOMParser; });
+  const fixtures = Array.from({ length: 8 }, (_, index) => createInlinePublicContentFixture({
+    itemId: "InlineReading" + index, atomId: String.fromCharCode(65 + index).repeat(22),
+  })), originals = new Map(fixtures.map(f => [f.fp.atomId, f])),
+    first = fixtures[0], provider = first.fp.payload.directInlineWidgetProviderEvidence.providers[0],
+    fingerprints = Object.fromEntries(fixtures.map(f => [f.fp.id, { ...clone(f.fp), payload: {}, sourceIdentity: {} }]));
+  let html = "<!doctype html><html><body><main>" + "x".repeat(1024 * 1024 - 1024) + "</main></body></html>", fail = false;
+  const app = harness({ ids: fixtures.map(f => f.fp.id), fingerprints, nativeCml: true,
+    courseId: WIDGET_COURSE, courseSlug: WIDGET_SLUG,
+    mediaReaderFactory: () => ({ snapshot: () => ({ bytes: 0, requests: 0 }), abort() {}, release() {} }),
+    readResult(call) {
+      if (["atom", "relation"].includes(call.resource)) {
+        const f = originals.get(call.id), sources = f.fp.payload.directDataSources;
+        return { ok: true, data: clone(sources[call.resource]), receipt: {
+          ...clone(sources.receipts[call.resource]), observedAt: new Date(call.at).toISOString(),
+        } };
+      }
+      if (call.resource === "widget") {
+        const receipt = { ...clone(provider.initial.receipt), id: call.id, observedAt: new Date(call.at).toISOString() };
+        receipt.requestQuery.find(pair => pair[0] === "widgetSessionProviderId")[1] = call.id;
+        return { ok: true, data: clone(provider.initial.model), receipt };
+      }
+      if (call.resource === "public") {
+        if (fail) return { ok: false, data: null, reason: "PUBLIC_HTML_PROVIDER_HTTP_503", receipt: { bytes: 64 } };
+        const observation = clone(first.observation), model = observation.model;
+        model.html = html; model.bytes = Buffer.byteLength(html); model.sha256 = createHash("sha256").update(html).digest("hex");
+        model.observedAt = new Date(call.at).toISOString();
+        const envelope = Buffer.from(canonicalSource(model));
+        Object.assign(observation.receipt, { observedAt: model.observedAt, receivedAt: new Date(call.at + 1).toISOString(),
+          bytes: envelope.length, declaredEnvelopeBytes: envelope.length,
+          originalResponseSha256: createHash("sha256").update(envelope).digest("hex"), upstreamBytes: model.bytes });
+        return { ok: true, data: model, receipt: observation.receipt };
+      }
+    },
+  });
+  const pages = () => fixtures.map(f => app.items.get(app.state().runId + "/" + f.fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0].publicPages[0]);
+  app.launch(); await app.idle();
+  assert.equal(app.state().state, "INCOMPLETE");
+  assert(app.items.get(app.state().runId + "/" + fixtures[0].fp.id).fingerprint.payload.directInlineWidgetProviderEvidence,
+    JSON.stringify(app.items.get(app.state().runId + "/" + fixtures[0].fp.id).fingerprint.captureContract));
+  assert(pages().every(page => page.observation?.model.html === html));
+  assert.equal(app.calls.filter(call => call.resource === "public").length, 1, "Repeated native placements share only the current page read");
+  assert.equal(app.runs.get(app.state().runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes, 8 * Buffer.byteLength(html));
+  const runId = app.state().runId;
+  html = html.replace("</main>", "A larger newly observed authored sentence.</main>");
+  app.advance(60000); app.launch(); await app.idle();
+  assert.equal(app.state().runId, runId);
+  assert(pages().every(page => page.observation?.model.html === html && !page.retainedObservation && page.failures.length === 0),
+    "A fresh replacement can use its own old reservation instead of spuriously exhausting the course cap");
+  const previous = pages().map(page => clone(page.observation));
+  fail = true; app.advance(60000); app.launch(); await app.idle();
+  assert.equal(app.state().runId, runId);
+  for (const [index, page] of pages().entries()) {
+    assert.equal(page.observation, null); assert(page.failures.length > 0);
+    assert.deepEqual(page.retainedObservation, previous[index], "Historical bytes, hashes and original source times survive a failed current refresh");
+  }
+  assert.equal(app.calls.filter(call => call.resource === "public").length, 3, "A new attempt refreshes the public source once");
+  assert.equal(app.runs.get(runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes, 8 * Buffer.byteLength(html));
+  assert(app.items.get(runId + "/" + fixtures[0].fp.id).fingerprint.captureContract.complete === false);
+  for (const f of fixtures)
+    f.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value =
+      f.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value.replace(provider.providerId, provider.providerBaseId + "@2");
+  app.advance(60000); app.launch(); await app.idle();
+  assert(pages().every(page => page.observation === null && !page.retainedObservation && page.failures.length > 0),
+    "A different native widget version cannot inherit the earlier selector's historical page");
 });
 
 test("the actual entry records separate native and flag-set comparison hashes without calling a flag reorder a course edit", async () => {
