@@ -1,0 +1,46 @@
+name: Diagnose public publisher access from Cloudflare
+
+on:
+  push:
+    branches: [codex/trde120-public-provider-probe]
+    paths:
+      - .github/workflows/diagnose-public-provider.yml
+      - tools/diagnose-public-provider.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cti-public-provider-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run fixed public publisher probes in an ephemeral Worker
+        run: node tools/diagnose-public-provider.mjs
+  cleanup:
+    needs: diagnose
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Remove only this run's ephemeral Worker after success or failure
+        run: node tools/diagnose-public-provider.mjs --cleanup
