@@ -1,5 +1,6 @@
 import { createApiHandler } from "../../server/api.ts";
 import { CTI_OWNER_EMAIL } from "../../server/access.ts";
+import { readPublisherImageProvider } from "../../server/publisher-image-provider.ts";
 import { stateUrl } from "./worker-panopto-source.mjs";
 
 export const publisherImageOrigin = "https://pressbooks.bccampus.ca";
@@ -186,14 +187,72 @@ export async function publisherImageRuntimeChecks(env) {
   );
   controller.abort();
   const stopped = await held;
+  let abortObservation = { status: 0, contentType: "", body: "" };
   if (stopped) {
-    equal(stopped.status, 499, "Cancelled in-flight image stays a failure");
-    await stopped.arrayBuffer();
+    const body = await stopped.text();
+    assert(
+      body.length <= 512,
+      "The synthetic abort diagnostic remains bounded",
+    );
+    abortObservation = {
+      status: stopped.status,
+      contentType: stopped.headers.get("content-type") || "",
+      body,
+    };
+    console.log(
+      "CTI_WORKERD_PUBLISHER_IMAGE_API_ABORT_OBSERVATION " +
+        JSON.stringify(abortObservation),
+    );
+    assert(
+      !stopped.ok,
+      "An aborted private API operation never returns successful image bytes",
+    );
+    equal(
+      stopped.headers.get("X-CTI-Upstream-Sha256"),
+      null,
+      "Aborted API result has no successful image hash",
+    );
   }
   await new Promise((resolve) => setTimeout(resolve, 10));
   const recovered = await read("success");
   equal(recovered.status, 200, "Cancel releases image permit");
   await recovered.arrayBuffer();
+  // Separately prove the maintained provider's application-level cancellation
+  // contract using native workerd fetch, without an already-aborted API hop.
+  const nativeAbort = new AbortController();
+  const nativePending = readPublisherImageProvider(
+    { targetUrl, imageUrl: publisherImageUrl("held-direct"), sourceSha256 },
+    { signal: nativeAbort.signal },
+  );
+  let nativeStarted = false;
+  for (let index = 0; index < 100; index++) {
+    const snapshot = await (await fetch(stateUrl)).json();
+    if (
+      snapshot.calls.some(
+        (call) => call.url === publisherImageUrl("held-direct"),
+      )
+    ) {
+      nativeStarted = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert(
+    nativeStarted,
+    "The direct maintained provider starts its native public read",
+  );
+  nativeAbort.abort();
+  const nativeStopped = await nativePending;
+  equal(
+    nativeStopped.status,
+    499,
+    "Direct maintained provider cancellation returns application499",
+  );
+  equal(
+    await nativeStopped.json(),
+    { error: "PUBLISHER_IMAGE_PROVIDER_ABORTED" },
+    "Direct provider retains its explicit abort code",
+  );
   const invalid = await read("success", {
     imageUrl: publisherImageUrl("success") + "?",
   });
@@ -218,6 +277,10 @@ export async function publisherImageRuntimeChecks(env) {
     "Cancellation reaches the actual native image body",
   );
   assert(
+    observed.cancelled.includes("publisher-image-held-direct"),
+    "Direct provider cancellation reaches the native image body",
+  );
+  assert(
     calls.every(
       (call) =>
         call.method === "GET" &&
@@ -235,6 +298,24 @@ export async function publisherImageRuntimeChecks(env) {
     ),
     "No credentials or delegated identity reach the public image source",
   );
+  console.log(
+    "CTI_WORKERD_PUBLISHER_IMAGE_ABORT_CLEANUP_PROVED " +
+      JSON.stringify({
+        nativeBodyCancelled: true,
+        imagePermitReleased: true,
+        noSuccessfulAbortedBody: true,
+        directProviderStatus: nativeStopped.status,
+        apiAbort: abortObservation,
+      }),
+  );
+  // Retain the strict gate until a native outer-hop response has been observed
+  // and classified. An arbitrary HTTP500 is never accepted as cancellation.
+  if (stopped)
+    equal(
+      stopped.status,
+      499,
+      "Unclassified native API abort response; inspect bounded observation before changing this expectation",
+    );
   console.log(
     "CTI_WORKERD_PUBLISHER_IMAGE_PROVIDER_PASS " +
       JSON.stringify({

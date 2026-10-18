@@ -1,0 +1,36 @@
+name: Diagnose PR84 native image cancellation
+on:
+  push:
+    branches: ['codex/trde120-v184-runtime-diagnostic-*']
+    paths: ['.github/workflows/diagnose-pr84-runtime.yml']
+permissions:
+  contents: read
+jobs:
+  provider-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify reviewed application source and bounded fixture-only diagnostic
+        run: |
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process';
+          const read=args=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          const expected='1245af8d6a802b85b0777c5070fc4202cd07f0f2';
+          if(read(['rev-parse','HEAD^'])!==expected)throw Error('Wrong reviewed parent');
+          const files=read(['diff','--name-only',expected,'HEAD']).split('\n').filter(Boolean);
+          const allowed=['.github/workflows/diagnose-pr84-runtime.yml','tools/fixtures/worker-panopto-upstream.mjs','tools/fixtures/worker-publisher-image.mjs'];
+          if(JSON.stringify(files)!==JSON.stringify(allowed))throw Error('Non-diagnostic source delta');
+          console.log(JSON.stringify({reviewedCandidate:expected,fixtureOnly:true,externalNetwork:false}));
+          NODE
+      - run: npm ci
+      - run: npm run generate
+      - name: Run the maintained provider suite in native workerd without network
+        run: npm run test:worker:provider

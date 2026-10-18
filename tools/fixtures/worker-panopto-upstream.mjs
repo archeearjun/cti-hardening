@@ -42,7 +42,7 @@ export default {
       if (name === "signature") return new Response("Not raster bytes",{headers});
       if (name === "encoded") return new Response(publisherImageBytes,{headers:{...headers,"Content-Encoding":"gzip"}});
       if (name === "range") return new Response(publisherImageBytes,{headers:{...headers,"Content-Range":"bytes 0-15/100"}});
-      if (name === "held") return new Response(pendingBody(publisherImageBytes, "publisher-image-held"),{headers});
+      if (["held", "held-direct"].includes(name)) return new Response(pendingBody(publisherImageBytes, "publisher-image-" + name),{headers});
       if (name === "short-framed") {
         const framed = new FixedLengthStream(publisherImageBytes.length + 1);
         ctx.waitUntil((async () => {const writer=framed.writable.getWriter();try{await writer.write(publisherImageBytes);await writer.close();}
