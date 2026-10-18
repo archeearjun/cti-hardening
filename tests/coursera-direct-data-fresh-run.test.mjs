@@ -12,6 +12,7 @@ import {
 import {
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_VERSION_V1,
+  directRecoverablePublisherBuildV1,
 } from "../src/extractors/coursera/direct-data-config.js";
 
 const entry = fs.readFileSync(
@@ -150,6 +151,7 @@ function fixture() {
     metadataReserveBytes: 0,
     store: null,
     CTI_DIRECT_DATA_BUILD_V1,
+    directRecoverablePublisherBuildV1,
     CTI_DIRECT_DATA_VERSION_V1,
     CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
     directMaterialStabilityModelV1,

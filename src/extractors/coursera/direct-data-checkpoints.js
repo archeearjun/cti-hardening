@@ -1,5 +1,5 @@
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
-import { CTI_DIRECT_DATA_BUILD_V1 } from "./direct-data-config.js";
+import { CTI_DIRECT_DATA_BUILD_V1, directRecoverablePublisherBuildV1 } from "./direct-data-config.js";
 
 export async function createDirectDataCheckpointStoreV1(courseId) {
   const databaseName = "cti-coursera-direct-data-v1";
@@ -525,6 +525,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         row.buildId === "v1.5.0-bound-widget-configuration-20261015" ||
         row.buildId === "v1.6.0-integrated-panopto-bookmark-20261015" ||
         row.buildId === "v1.6.1-provider-access-diagnostics-20261015" ||
+        directRecoverablePublisherBuildV1(row.buildId) ||
         row.buildId === CTI_DIRECT_DATA_BUILD_V1) &&
         capture &&
         capture.mode === "BOUND_AUTHORING_DRAFT_API" &&

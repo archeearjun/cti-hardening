@@ -408,6 +408,13 @@ diagnostic explain this transport change; real access in the user's browser
 still requires an exposed response. See
 [browser publisher evidence and limits](audits/coursera-browser-publisher-reader-2026-10-18.md).
 
+Version 1.8.2 repairs the real completed-checkpoint selection filter for the
+exact v1.8.0/v1.8.1 publisher builds. Entry adoption and storage selection share
+the same historical build list. Real-store and real-IndexedDB diagnostic checks
+cover this boundary; the earlier mocked entry store did not. Saved originals,
+observations, ownership and budget gates keep their existing meaning. See
+[publisher checkpoint recovery](audits/coursera-publisher-checkpoint-recovery-2026-10-18.md).
+
 The automatic background path uses a service-bound Worker because Browser Run
 and durable Workflows are Worker capabilities. Launch it only when sufficient
 remote-browser quota has been provisioned. The same private Worker now hosts

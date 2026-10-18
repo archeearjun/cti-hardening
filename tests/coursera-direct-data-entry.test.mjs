@@ -36,6 +36,7 @@ import {
 import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
+  directRecoverablePublisherBuildV1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
   CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
   CTI_DIRECT_DATA_MEDIA_BYTES_V1,
@@ -434,6 +435,7 @@ function harness(options = {}) {
   const globals = {
     CTI_DIRECT_DATA_VERSION_V1,
     CTI_DIRECT_DATA_BUILD_V1,
+    directRecoverablePublisherBuildV1,
     CTI_DIRECT_DATA_EXPORT_BYTES_V1,
     CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
     CTI_DIRECT_DATA_MEDIA_BYTES_V1,
@@ -2074,7 +2076,10 @@ test("completed v1.5 and v1.6 gap captures continue in the original run without 
   }
 });
 
-test("exact v1.8.0 continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
+for (const [version, originalBuild] of [
+  ["v1.8.0", "v1.8.0-inline-widget-public-html-20261018"],
+  ["v1.8.1", "v1.8.1-browser-publisher-api-20261018"],
+]) test("exact " + version + " continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(), source = f.fixtures[0],
     assetIds = Array.from({ length: 80 }, (_, index) => "Original" + String(index).padStart(14, "0")),
@@ -2130,9 +2135,8 @@ test("exact v1.8.0 continuation preserves 80 bound originals and completed asses
   assessment.payload.assessmentApiEvidence = { questionDefinitions: [{ id: "saved-native-question@1", definition: "Exact previously captured native question" }],
     receipts: [{ observedAt: originalAssessmentObservedAt }] };
   assessment.payload.structuredAssessment = { questions: [{ id: "saved-native-question@1", prompt: "Original prompt", answerKey: "Original answer evidence" }] };
-  const originalAssessmentPayload = clone(assessment.payload), originalBudget = clone(run.budget),
-    originalBuild = "v1.8.0-inline-widget-public-html-20261018";
-  delete reading.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages;
+  const originalAssessmentPayload = clone(assessment.payload), originalBudget = clone(run.budget);
+  if (version === "v1.8.0") delete reading.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages;
   run.buildId = run.captureMeta.buildId = originalBuild;
   run.captureMeta.directDataCapture.extractorBuildId = originalBuild;
   const baseSourceTime = run.captureMeta.directDataCapture.finalMaterialsReceipt.observedAt, before = app.calls.length;

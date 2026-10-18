@@ -1,6 +1,7 @@
 import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
+  directRecoverablePublisherBuildV1,
   CTI_DIRECT_DATA_EXPORT_BYTES_V1,
   CTI_DIRECT_DATA_COMPRESSED_BYTES_V1,
   CTI_DIRECT_DATA_MEDIA_BYTES_V1,
@@ -2109,7 +2110,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             recoverExportLimit: true,
             recoverMediaGaps: true,
           }),
-          candidate = [
+          candidate = (directRecoverablePublisherBuildV1(active?.buildId) || [
             CTI_DIRECT_DATA_BUILD_V1,
             "v1.0.0-bound-authoring-drafts-20261014",
             "v1.1.0-compressed-resumable-drafts-20261014",
@@ -2123,8 +2124,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             "v1.7.1-explicit-fresh-course-capture-20261017",
             "v1.7.2-content-and-structure-coverage-20261017",
             "v1.7.3-panopto-exact-body-length-20261017",
-            "v1.8.0-inline-widget-public-html-20261018",
-          ].includes(active?.buildId)
+          ].includes(active?.buildId))
             ? active
             : null;
         if (candidate) {
