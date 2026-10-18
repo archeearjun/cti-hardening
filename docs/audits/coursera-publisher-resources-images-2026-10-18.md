@@ -99,6 +99,13 @@ the current normalized root. Real graph changes, unknown field changes,
 invalid historical proofs and incomplete source envelopes still reject reuse.
 Raw observations and historical timestamps are preserved.
 
+The first hosted browser run exposed a separate no-op checkpoint rewrite:
+hydrating an unchanged assessment refreshed its storage-row `updatedAt` even
+though its raw models and observation receipts stayed identical. Hydration
+now compares serialized metadata before writing. Actual verifier withdrawals,
+derived projection changes and archive-format migrations still persist; pure
+byte hydration and unchanged saved observations do not rewrite the item row.
+
 The shared reviewed historical-build predicate also admits the exact released
 v1.8.2 build. The update must not repeat the earlier historical-store exclusion.
 Legacy renderer and Brightspace release families remain unchanged.

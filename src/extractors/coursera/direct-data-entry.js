@@ -705,6 +705,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         // capture timestamps remain the original observations.
         const retained = row.fingerprint,
           previouslyComplete = retained.captureContract?.complete === true;
+        let originalComparison;
+        try { originalComparison = directCanonicalSourceTextV1(retained); }
+        catch (_) { originalComparison = JSON.stringify(retained); }
         const publicBytes = retainedPublicPageBytes(retained);
         publicPageStats.retainedUtf8Bytes += publicBytes - (publicPageRetainedByItem.get(fp.id) || 0);
         publicPageRetainedByItem.set(fp.id, publicBytes);
@@ -751,9 +754,18 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             ? "DIRECT_ARCHIVE_BODY_UNAVAILABLE"
             : "DIRECT_RESUME_REVALIDATION_FAILED");
         await archiveItemBodies(retained);
-        await store.putItem(state.runId, fp.id, retained, row.state);
-        const size = encoder.encode(JSON.stringify(row.fingerprint)).byteLength;
-        summarizeItem(row.fingerprint, row.state?.processed === true, size);
+        const retainedJson = JSON.stringify(retained);
+        let retainedComparison;
+        try { retainedComparison = directCanonicalSourceTextV1(retained); }
+        catch (_) { retainedComparison = retainedJson; }
+        // Compare parsed record values without rewriting native array order or
+        // literal response strings. Unsupported comparison values conservatively
+        // use exact JSON; they do not add a new checkpoint acceptance limit.
+        // Unchanged loading must not relabel a saved row with a new write time.
+        if (retainedComparison !== originalComparison)
+          await store.putItem(state.runId, fp.id, retained, row.state);
+        const size = encoder.encode(retainedJson).byteLength;
+        summarizeItem(retained, row.state?.processed === true, size);
       }
       render(
         "Saved progress loaded. Current drafts and question references are checked before reuse.",

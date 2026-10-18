@@ -27,14 +27,17 @@ const ast = ts.createSourceFile(
   true,
   ts.ScriptKind.JS,
 );
-let runNode;
+let runNode, hydrateNode;
 function find(node) {
   if (ts.isFunctionDeclaration(node) && node.name?.text === "run")
     runNode = node;
+  if (ts.isFunctionDeclaration(node) && node.name?.text === "hydrateSavedItems")
+    hydrateNode = node;
   ts.forEachChild(node, find);
 }
 find(ast);
 assert(runNode);
+assert(hydrateNode);
 
 /** Exercise the maintained run orchestrator without network or a browser.
  * Item acquisition and storage are controlled seams; the hosted browser test
@@ -500,5 +503,65 @@ test("semantic native changes and invalid historical comparison proof cannot use
     assert.equal(f.runs.get(f.state.runId).captureMeta.directDataCapture.resumed, false, name);
     assert.deepEqual(f.runs.get(firstId), oldRun, name + " preserves old run history");
     for (const [key, value] of oldRows) assert.deepEqual(f.rows.get(key), value, name);
+  }
+});
+
+
+test("retained hydration preserves unchanged checkpoint rows but persists real verifier and archive changes", async () => {
+  for (const mode of ["unchanged", "object-key-reorder", "transient-body-hydration", "comparison-fallback", "verifier-withdrawal", "derived-projection", "native-array-reorder", "archive-migration"]) {
+    const row = { createdAt: 100, updatedAt: 200, state: { processed: true, draftHash: "original-draft" },
+      fingerprint: { id: "quiz", atomId: "a".repeat(22), captureContract: { complete: true }, payload: {
+        directDataSources: { atom: { original: true, flags: ["first", "second"] }, relation: { original: true }, receipts: { observedAt: "2026-10-18T11:00:00.000Z" } },
+        assessmentApiEvidence: { questionDefinitions: [{ id: "original-definition" }] },
+        structuredAssessment: { questions: [{ sourceDefinitionId: "original-definition", prompt: "Exact retained question" }] },
+        directAssetEvidence: { assets: [{ body: { sha256: "b".repeat(64), size: 1 } }] },
+      } } }, before = structuredClone(row), writes = [], summaries = [];
+    const ctx = vm.createContext({ directCanonicalSourceTextV1: value => {
+      if (mode === "comparison-fallback") throw Error("DIRECT_DATA_CANONICAL_BYTE_LIMIT");
+      return directCanonicalSourceTextV1(value);
+    }, items: [{ id: "quiz" }], state: { runId: "same-run" }, courseId: "same-course", slug: "same-slug",
+      encoder: new TextEncoder(), inventory: { leaves: new Map([["quiz", { structural: false }]]) },
+      publicPageStats: { retainedUtf8Bytes: 0 }, publicPageRetainedByItem: new Map(),
+      CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1: 8388608,
+      store: { getItem: async () => structuredClone(row), putItem: async (runId, itemId, fingerprint, itemState) => {
+        writes.push({ runId, itemId, fingerprint: structuredClone(fingerprint), state: structuredClone(itemState) });
+        row.fingerprint = structuredClone(fingerprint); row.state = structuredClone(itemState); row.updatedAt++;
+      } }, retainedPublicPageBytes: () => 0,
+      hydrateItemBodies: async retained => {
+        if (mode === "transient-body-hydration") Object.defineProperty(retained.payload.directAssetEvidence.assets[0].body,
+          "bytes", { value: new Uint8Array([1]), configurable: true });
+        return true;
+      }, bindDirectAuthoringDraftV1: () => ({ draft: { content: { typeName: "staffGradedDraft" } } }),
+      directAssessmentQuestionProjectionV1: () => ({ prompt: mode === "derived-projection" ? "Rebuilt literal native projection" : "Exact retained question" }),
+      directDraftAssessmentInventoryV1: () => ({}),
+      directAssessmentContractV1: retained => {
+        if (mode === "verifier-withdrawal") retained.captureContract = { complete: false, reasons: ["CURRENT_VERIFIER_REJECTED"] };
+        if (mode === "object-key-reorder") retained.payload.directDataSources.atom = { flags: ["first", "second"], original: true };
+        if (mode === "native-array-reorder") retained.payload.directDataSources.atom.flags.reverse();
+      }, directUnsupportedContractV1: () => { throw Error("Unexpected unsupported contract branch"); },
+      archiveItemBodies: async retained => {
+        const body = retained.payload.directAssetEvidence.assets[0].body;
+        delete body.bytes;
+        if (mode === "archive-migration") body.archivePath = "files/" + body.sha256;
+      }, summarizeItem: (fingerprint, processed, size) => summaries.push({ fingerprint: structuredClone(fingerprint), processed, size }),
+      render() {},
+    });
+    vm.runInContext(hydrateNode.getText(ast), ctx); await ctx.hydrateSavedItems();
+    assert.equal(summaries.length, 1); assert.equal(summaries[0].processed, true); assert(summaries[0].size > 0);
+    if (["unchanged", "object-key-reorder", "transient-body-hydration", "comparison-fallback"].includes(mode)) {
+      assert.equal(writes.length, 0, mode + " cannot relabel a saved checkpoint with a new updatedAt");
+      assert.deepEqual(row, before); assert.deepEqual(summaries[0].fingerprint, before.fingerprint);
+    } else {
+      assert.equal(writes.length, 1, mode + " must persist the genuine current verifier/archive change");
+      assert.equal(row.createdAt, before.createdAt); assert.equal(row.updatedAt, before.updatedAt + 1);
+      assert.deepEqual(row.state, before.state);
+      if (mode === "native-array-reorder") assert.deepEqual(row.fingerprint.payload.directDataSources.atom.flags, ["second", "first"]);
+      else assert.deepEqual(row.fingerprint.payload.directDataSources, before.fingerprint.payload.directDataSources);
+      assert.deepEqual(row.fingerprint.payload.assessmentApiEvidence, before.fingerprint.payload.assessmentApiEvidence);
+      if (mode === "derived-projection") assert.equal(row.fingerprint.payload.structuredAssessment.questions[0].prompt, "Rebuilt literal native projection");
+      else assert.deepEqual(row.fingerprint.payload.structuredAssessment, before.fingerprint.payload.structuredAssessment);
+      if (mode === "verifier-withdrawal") assert.equal(row.fingerprint.captureContract.complete, false);
+      if (mode === "archive-migration") assert.equal(row.fingerprint.payload.directAssetEvidence.assets[0].body.archivePath, "files/" + "b".repeat(64));
+    }
   }
 });
