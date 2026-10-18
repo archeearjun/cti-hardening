@@ -1,5 +1,6 @@
 import { sha256 } from "./text-and-dom.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
+import { directDraftReadingDtdSupportedV1 } from "./direct-data-models.js";
 import {
   directCmlMediaInventoryV1,
   directMediaEvidenceStructureV1,
@@ -343,11 +344,12 @@ export async function directReadingPayloadV1(fp, bound, source) {
     actual.definition?.content;
   if (
     !evidence ||
+    fp.typeName !== "supplement" ||
     !source ||
     source.sourceState !== "AUTHORING_DRAFT" ||
     raw?.typeName !== "cml" ||
-    raw.definition?.dtdId !== "supplement/1" ||
-    source.dtdId !== "supplement/1" ||
+    !directDraftReadingDtdSupportedV1(raw.definition?.dtdId) ||
+    source.dtdId !== raw.definition.dtdId ||
     typeof raw.definition?.value !== "string" ||
     raw.definition.value !== source.cml ||
     source.assetId !== actual.definition.assetId ||

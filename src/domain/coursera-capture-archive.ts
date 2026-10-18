@@ -15,6 +15,13 @@ export interface CourseraArchiveFile {
   kind?: "PANOPTO_PODCAST_RENDITION";
 }
 
+export interface CourseraArchiveBlob {
+  path: string;
+  sha256: string;
+  size: number;
+  blob: Blob;
+}
+
 interface ArchiveEntry {
   path: string;
   size: number;
@@ -90,18 +97,32 @@ function nativeBodyReferences(capture: unknown) {
   if (!Array.isArray(raw.fingerprints)) return references;
   const add = (body: any, podcast: boolean) => {
     if (!body || !Object.hasOwn(body, "archivePath")) return;
-    if (typeof body.archivePath !== "string" || body.archivePath !== "files/" + body.sha256 ||
-        !/^[a-f0-9]{64}$/.test(body.sha256 || ""))
+    if (
+      typeof body.archivePath !== "string" ||
+      body.archivePath !== "files/" + body.sha256 ||
+      !/^[a-f0-9]{64}$/.test(body.sha256 || "")
+    )
       archiveError("a native body reference has a mismatched file identity.");
-    if (!Number.isSafeInteger(body.size) || body.size < 1 ||
-        body.size > (podcast ? MAX_COURSERA_ARCHIVE_PANOPTO_BYTES : MAX_COURSERA_ARCHIVE_FILE_BYTES))
-      archiveError(podcast ? "a Panopto podcast rendition exceeds its 128 MiB bound." : "an original file exceeds its 16 MiB bound.");
+    if (
+      !Number.isSafeInteger(body.size) ||
+      body.size < 1 ||
+      body.size >
+        (podcast
+          ? MAX_COURSERA_ARCHIVE_PANOPTO_BYTES
+          : MAX_COURSERA_ARCHIVE_FILE_BYTES)
+    )
+      archiveError(
+        podcast
+          ? "a Panopto podcast rendition exceeds its 128 MiB bound."
+          : "an original file exceeds its 16 MiB bound.",
+      );
     references.push({ body, podcast });
   };
   for (const fp of raw.fingerprints) {
     const assets = fp?.payload?.directAssetEvidence?.assets;
     if (assets != null) {
-      if (!Array.isArray(assets)) archiveError("an item has an invalid native asset inventory.");
+      if (!Array.isArray(assets))
+        archiveError("an item has an invalid native asset inventory.");
       for (const asset of assets) {
         add(asset?.body, false);
         add(asset?.retainedEvidence?.body, false);
@@ -109,7 +130,8 @@ function nativeBodyReferences(capture: unknown) {
     }
     const deliveries = fp?.payload?.directPanoptoEvidence?.deliveries;
     if (deliveries == null) continue;
-    if (!Array.isArray(deliveries)) archiveError("an item has an invalid Panopto delivery inventory.");
+    if (!Array.isArray(deliveries))
+      archiveError("an item has an invalid Panopto delivery inventory.");
     const owned = new Set(directPanoptoArchiveBodiesV1(fp, courseId));
     for (const delivery of deliveries) {
       if (!Array.isArray(delivery?.podcasts)) {
@@ -120,7 +142,10 @@ function nativeBodyReferences(capture: unknown) {
         for (const source of [podcast, podcast?.retainedEvidence?.podcast]) {
           const body = source?.body;
           if (!body || !Object.hasOwn(body, "archivePath")) continue;
-          if (!owned.has(body)) archiveError("a Panopto body reference has no native source binding.");
+          if (!owned.has(body))
+            archiveError(
+              "a Panopto body reference has no native source binding.",
+            );
           add(body, true);
         }
       }
@@ -130,7 +155,13 @@ function nativeBodyReferences(capture: unknown) {
 }
 
 function mp4(bytes: Uint8Array) {
-  return bytes.length >= 12 && bytes[4] === 102 && bytes[5] === 116 && bytes[6] === 121 && bytes[7] === 112;
+  return (
+    bytes.length >= 12 &&
+    bytes[4] === 102 &&
+    bytes[5] === 116 &&
+    bytes[6] === 121 &&
+    bytes[7] === 112
+  );
 }
 
 /** Resolve only explicit native asset-body references. This leaves the capture
@@ -141,7 +172,11 @@ export function attachCourseraArchiveFileBytes(
   archiveFiles: CourseraArchiveFile[],
 ): unknown {
   const references = nativeBodyReferences(capture),
-    podcasts = new Set(references.filter((entry) => entry.podcast).map((entry) => entry.body.archivePath));
+    podcasts = new Set(
+      references
+        .filter((entry) => entry.podcast)
+        .map((entry) => entry.body.archivePath),
+    );
   if (!Array.isArray(archiveFiles))
     archiveError("the original file inventory is missing.");
   const files = new Map<string, CourseraArchiveFile>();
@@ -155,7 +190,10 @@ export function attachCourseraArchiveFileBytes(
       !(file.bytes instanceof Uint8Array) ||
       !Number.isSafeInteger(file.size) ||
       file.size < 1 ||
-      file.size > (podcasts.has(file.path) ? MAX_COURSERA_ARCHIVE_PANOPTO_BYTES : MAX_COURSERA_ARCHIVE_FILE_BYTES) ||
+      file.size >
+        (podcasts.has(file.path)
+          ? MAX_COURSERA_ARCHIVE_PANOPTO_BYTES
+          : MAX_COURSERA_ARCHIVE_FILE_BYTES) ||
       file.bytes.byteLength !== file.size ||
       bytesToHex(sha256(file.bytes)) !== file.sha256
     )
@@ -169,32 +207,33 @@ export function attachCourseraArchiveFileBytes(
   }
   const referenced = new Set<string>();
   for (const { body, podcast } of references) {
-        const file = files.get(body.archivePath);
-        if (!file || body.size !== file.size || Object.hasOwn(body, "base64"))
-          archiveError(
-            "a referenced original file is absent or differs from its body receipt.",
-          );
-        if (podcast && !mp4(file.bytes)) archiveError("a Panopto podcast body is not an MP4 rendition.");
-        if (Object.hasOwn(body, "bytes")) {
-          const prior = Object.getOwnPropertyDescriptor(body, "bytes");
-          if (
-            !prior ||
-            !("value" in prior) ||
-            prior.enumerable ||
-            !(prior.value instanceof Uint8Array) ||
-            bytesToHex(sha256(prior.value)) !== file.sha256
-          )
-            archiveError(
-              "a native file resolver contradicts its verified original bytes.",
-            );
-        }
-        Object.defineProperty(body, "bytes", {
-          value: file.bytes,
-          enumerable: false,
-          configurable: true,
-        });
-        referenced.add(file.path);
-        if (podcast) file.kind = "PANOPTO_PODCAST_RENDITION";
+    const file = files.get(body.archivePath);
+    if (!file || body.size !== file.size || Object.hasOwn(body, "base64"))
+      archiveError(
+        "a referenced original file is absent or differs from its body receipt.",
+      );
+    if (podcast && !mp4(file.bytes))
+      archiveError("a Panopto podcast body is not an MP4 rendition.");
+    if (Object.hasOwn(body, "bytes")) {
+      const prior = Object.getOwnPropertyDescriptor(body, "bytes");
+      if (
+        !prior ||
+        !("value" in prior) ||
+        prior.enumerable ||
+        !(prior.value instanceof Uint8Array) ||
+        bytesToHex(sha256(prior.value)) !== file.sha256
+      )
+        archiveError(
+          "a native file resolver contradicts its verified original bytes.",
+        );
+    }
+    Object.defineProperty(body, "bytes", {
+      value: file.bytes,
+      enumerable: false,
+      configurable: true,
+    });
+    referenced.add(file.path);
+    if (podcast) file.kind = "PANOPTO_PODCAST_RENDITION";
   }
   if (referenced.size !== files.size)
     archiveError("the archive contains unreferenced original files.");
@@ -203,7 +242,7 @@ export function attachCourseraArchiveFileBytes(
 
 /** ZIP_STORE range reads keep the complete archive out of JS memory. Metadata
  * and each original file have independent bounds, CRC32 and SHA-256 checks. */
-export async function readCourseraCaptureArchive(
+async function readCourseraCaptureArchiveInternal(
   file: File,
   expandMetadata: (gzip: Uint8Array) => Promise<Uint8Array>,
   limits: {
@@ -211,7 +250,14 @@ export async function readCourseraCaptureArchive(
     originalBytes?: number;
     metadataBytes?: number;
   } = {},
-): Promise<CourseraArchiveReadResult> {
+  retainOriginalBlobs = false,
+): Promise<
+  CourseraArchiveReadResult & {
+    archiveBlobs: CourseraArchiveBlob[];
+    capture: unknown;
+    compressedMetadata: Uint8Array;
+  }
+> {
   const cap = (requested: number | undefined, maximum: number) =>
     requested === undefined
       ? maximum
@@ -404,6 +450,7 @@ export async function readCourseraCaptureArchive(
       await range(file, start, Math.min(file.size, start + 1024 * 1024)),
     );
   const archiveFiles: CourseraArchiveFile[] = [];
+  const archiveBlobs: CourseraArchiveBlob[] = [];
   const crcTable = new Uint32Array(256);
   for (let index = 0; index < crcTable.length; index++) {
     let current = index;
@@ -411,7 +458,7 @@ export async function readCourseraCaptureArchive(
       current = (current >>> 1) ^ (0xedb88320 & -(current & 1));
     crcTable[index] = current >>> 0;
   }
-  async function readEntry(entry: ArchiveEntry) {
+  async function readEntry(entry: ArchiveEntry, materialize = true) {
     let crc = 0xffffffff;
     const bodyHasher = sha256.create(),
       chunks: Uint8Array[] = [];
@@ -427,11 +474,11 @@ export async function readCourseraCaptureArchive(
       );
       crc = crcUpdate(crc, chunk, crcTable);
       bodyHasher.update(chunk);
-      chunks.push(chunk);
+      if (materialize) chunks.push(chunk);
     }
     if ((crc ^ 0xffffffff) >>> 0 !== entry.crc32)
       archiveError("an entry CRC32 checksum failed.");
-    const bytes = new Uint8Array(entry.size);
+    const bytes = new Uint8Array(materialize ? entry.size : 0);
     let position = 0;
     for (const chunk of chunks) {
       bytes.set(chunk, position);
@@ -439,8 +486,11 @@ export async function readCourseraCaptureArchive(
     }
     return { bytes, hash: bytesToHex(bodyHasher.digest()) };
   }
-  const metadataEntry = entries.find((entry) => entry.path === "capture.json.gz")!;
-  const metadata = await expandMetadata((await readEntry(metadataEntry)).bytes);
+  const metadataEntry = entries.find(
+    (entry) => entry.path === "capture.json.gz",
+  )!;
+  const compressedMetadata = (await readEntry(metadataEntry)).bytes;
+  const metadata = await expandMetadata(compressedMetadata);
   if (!metadata || metadata.length > metadataLimit)
     archiveError("capture metadata exceeds its 128 MiB bound.");
   let parsed: unknown;
@@ -453,7 +503,8 @@ export async function readCourseraCaptureArchive(
     ?.exportTransport?.format;
   if (format !== "ZIP_GZIP_JSON_V1")
     archiveError("capture metadata does not declare this archive format.");
-  const references = nativeBodyReferences(parsed), byPath = new Map<string, number>();
+  const references = nativeBodyReferences(parsed),
+    byPath = new Map<string, number>();
   for (const { body } of references) {
     const previous = byPath.get(body.archivePath);
     if (previous !== undefined && previous !== body.size)
@@ -462,19 +513,82 @@ export async function readCourseraCaptureArchive(
   }
   for (const entry of entries) {
     if (entry.path === "capture.json.gz") continue;
-    if (!byPath.has(entry.path)) archiveError("the archive contains unreferenced original files.");
+    if (!byPath.has(entry.path))
+      archiveError("the archive contains unreferenced original files.");
     if (byPath.get(entry.path) !== entry.size)
-      archiveError("a referenced original file is absent or differs from its body receipt.");
-    const { bytes, hash } = await readEntry(entry);
+      archiveError(
+        "a referenced original file is absent or differs from its body receipt.",
+      );
+    const { bytes, hash } = await readEntry(entry, !retainOriginalBlobs);
     if (entry.path !== "files/" + hash)
       archiveError("an original file SHA-256 differs from its path.");
-    archiveFiles.push({ path: entry.path, sha256: hash, size: bytes.length, bytes });
+    if (retainOriginalBlobs) {
+      const blob = file.slice(entry.dataOffset, entry.dataOffset + entry.size);
+      const podcast = references.some(
+        ({ body, podcast }) => podcast && body.archivePath === entry.path,
+      );
+      if (
+        podcast &&
+        !mp4(new Uint8Array(await blob.slice(0, 12).arrayBuffer()))
+      )
+        archiveError("a Panopto podcast body is not an MP4 rendition.");
+      archiveBlobs.push({
+        path: entry.path,
+        sha256: hash,
+        size: entry.size,
+        blob,
+      });
+    } else
+      archiveFiles.push({
+        path: entry.path,
+        sha256: hash,
+        size: bytes.length,
+        bytes,
+      });
   }
-  attachCourseraArchiveFileBytes(parsed, archiveFiles);
+  if (retainOriginalBlobs) {
+    const files = new Map(archiveBlobs.map((file) => [file.path, file]));
+    for (const { body } of references) {
+      const original = files.get(body.archivePath);
+      if (
+        !original ||
+        original.size !== body.size ||
+        Object.hasOwn(body, "base64")
+      )
+        archiveError(
+          "a referenced original file is absent or differs from its body receipt.",
+        );
+    }
+  } else attachCourseraArchiveFileBytes(parsed, archiveFiles);
   return {
     bytes: metadata,
     archiveFiles,
+    archiveBlobs,
+    capture: parsed,
+    compressedMetadata,
     archiveSha256: bytesToHex(archiveHasher.digest()),
     originalBodyBytes: originals,
   };
+}
+
+/** Native capture intake retains its established byte resolver contract. */
+export async function readCourseraCaptureArchive(
+  file: File,
+  expandMetadata: (gzip: Uint8Array) => Promise<Uint8Array>,
+  limits: {
+    archiveBytes?: number;
+    originalBytes?: number;
+    metadataBytes?: number;
+  } = {},
+): Promise<CourseraArchiveReadResult> {
+  return readCourseraCaptureArchiveInternal(file, expandMetadata, limits);
+}
+
+/** Review preparation verifies every original in bounded ranges, while retaining
+ * only immutable Blob slices. It never creates a normal capture byte resolver. */
+export async function readCourseraCaptureArchiveBlobs(
+  file: File,
+  expandMetadata: (gzip: Uint8Array) => Promise<Uint8Array>,
+) {
+  return readCourseraCaptureArchiveInternal(file, expandMetadata, {}, true);
 }

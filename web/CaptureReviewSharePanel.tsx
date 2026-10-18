@@ -3,6 +3,7 @@ import type { CaptureShareReview } from "../src/domain/capture-share-review";
 import { COURSERA_CAPTURE_FILE_ACCEPT } from "../src/domain/coursera-capture-file";
 import { download } from "./workspace-ui";
 import CaptureFileTransferPanel from "./CaptureFileTransferPanel";
+import CaptureContentReviewBundlePanel from "./CaptureContentReviewBundlePanel";
 
 /** No upload, external requests, or persistent storage: only the bounded review
  * returns from the worker. The user's existing capture stays on their device. */
@@ -107,9 +108,9 @@ export default function CaptureReviewSharePanel({
     >
       <h2 id="capture-share-title">Share a capture review</h2>
       <p>
-        Share your existing complete file below, or prepare a small diagnostic
-        review further down. Both run on this device without uploading anything
-        or extracting the course again.
+        Prepare a smaller content review bundle, share the full original file,
+        or copy a small diagnostic review. These run on this device without
+        uploading anything or extracting the course again.
       </p>
       <p className="hint">
         If CTI is open inside ChatGPT, copy this address into Chrome's address
@@ -132,9 +133,10 @@ export default function CaptureReviewSharePanel({
         >
           Open capture review
         </a>
-        . Use Chrome to download the complete-file parts, or return with copied
-        diagnostic review text.
+        . Use Chrome to prepare and download the content review bundle or
+        complete original-file parts.
       </p>
+      <CaptureContentReviewBundlePanel disabled={disabled} />
       <CaptureFileTransferPanel disabled={disabled} />
       <h3>Small diagnostic review (optional)</h3>
       <p className="hint">

@@ -19,6 +19,10 @@ import { createDirectProviderHelperV1 } from "./direct-data-provider-helper.js";
 import { createDirectDataCheckpointStoreV1 } from "./direct-data-checkpoints.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
+import {
+  CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+  directMaterialStabilityModelV1,
+} from "./direct-data-material-stability.js";
 import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1 } from "./direct-data-widget.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
@@ -1777,6 +1781,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 }
               : {}),
             initialMaterialHash: materialHash,
+            materialStability: {
+              policy: CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+              initialSha256: await hash(directMaterialStabilityModelV1(materialData.elements[0])),
+            },
             materialVersion: inventory.materialVersion,
             courseBranchVersion: inventory.courseBranchVersion,
             materials: materialData,
@@ -1854,24 +1862,30 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           finalData = requireRead(finalRead);
         await directCourseInventoryV1(finalData, courseId);
         const finalHash = await hash(finalData.elements[0]);
+        const finalStabilityHash = await hash(directMaterialStabilityModelV1(finalData.elements[0]));
+        const sourceStable = finalStabilityHash === meta.directDataCapture.materialStability.initialSha256;
         Object.assign(meta.directDataCapture, {
           finalMaterials: finalData,
           finalMaterialsReceipt: receipt(finalRead, courseId),
           finalMaterialHash: finalHash,
-          sourceStable: finalHash === materialHash,
+          materialStability: {
+            ...meta.directDataCapture.materialStability,
+            finalSha256: finalStabilityHash,
+          },
+          sourceStable,
         });
         for (const fp of items)
           if (inventory.leaves.get(fp.id).structural) {
             fp.payload.directDataSources.receipts.stability.stable =
-              finalHash === materialHash;
+              sourceStable;
             directEmptyStructureContractV1(
               fp,
-              { courseId, stableSource: finalHash === materialHash },
+              { courseId, stableSource: sourceStable },
               inventory.leaves.get(fp.id).node,
             );
             await persist(fp, true);
           }
-        if (finalHash !== materialHash)
+        if (!sourceStable)
           fatalReason = "DIRECT_COURSE_CHANGED_DURING_CAPTURE";
         state.state =
           state.counts.complete === items.length && !fatalReason

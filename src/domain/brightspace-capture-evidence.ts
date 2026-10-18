@@ -247,7 +247,7 @@ function bindingSources(
     ),
   );
 }
-function boundUrls(node: Model, base: string) {
+function boundUrls(node: Model, base: string, nativeKind: string) {
   const urls = new Set<string>(),
     add = (value: unknown, relativeTo = base) => {
       const url = sourceUrl(value, relativeTo);
@@ -286,7 +286,12 @@ function boundUrls(node: Model, base: string) {
         ? String.fromCodePoint(number)
         : entity;
     });
+  let visited = 0;
   const visit = (value: unknown, depth: number, documentBase = base) => {
+    if (++visited > 50000)
+      throw Error(
+        "Brightspace native media binding exceeds its 50,000-field bound.",
+      );
     if (depth > 15) return;
     if (typeof value === "string") {
       const baseMatch =
@@ -331,6 +336,32 @@ function boundUrls(node: Model, base: string) {
       }
   };
   visit(node, 0);
+  // Quiz definitions are captured separately from the quiz's rich description.
+  // Only the declared quiz's top-level native question collection may supply
+  // these references; an arbitrary nested `questions` property is not evidence
+  // of ownership. Keep the existing rich-text field allowlist for descendants.
+  if (nativeKind === "QUIZ") {
+    const questions = Array.isArray(node.questions) ? node.questions : [];
+    if (questions.length > 5000)
+      throw Error(
+        "Brightspace quiz media binding exceeds its 5,000-question bound.",
+      );
+    for (const input of questions) {
+      const question = object(input);
+      visited = 0;
+      for (const field of [
+        "QuestionText",
+        "questionText",
+        "Hint",
+        "hint",
+        "Feedback",
+        "feedback",
+        "QuestionInfo",
+        "questionInfo",
+      ])
+        if (Object.hasOwn(question, field)) visit(question[field], 0);
+    }
+  }
   if (typeof ev.html === "string")
     visit(ev.html, 0, sourceUrl(ev.bodyReceipt?.responseUrl) || base);
   return urls;
@@ -780,7 +811,7 @@ function prepareBrightspaceCaptureIntegrity(value: unknown) {
         );
       if (
         !candidates.some((node) =>
-          boundUrls(node, pageUrl).has(receipt.request),
+          boundUrls(node, pageUrl, binding.kind).has(receipt.request),
         )
       )
         throw Error(

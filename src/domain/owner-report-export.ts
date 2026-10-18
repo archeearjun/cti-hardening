@@ -6,6 +6,7 @@ import {
 import type { SourceQuestionCapture } from "./external-source-questions.ts";
 import {
   validateContentSnapshot,
+  contentEvidenceText,
   contentQuestion,
   type ContentEvidence,
 } from "./content-evidence.ts";
@@ -260,6 +261,9 @@ export async function prepareOwnerReportExport(
     })
     .filter((group) => group.questionComparisons.length);
   const followUp = {
+    linkedSourceAssessments: contentEvidence.brightspace
+      .filter(item => item.content.linkedSourceAssessments)
+      .map(item => ({topicId: item.id, name: item.name, path: item.path, evidence: item.content.linkedSourceAssessments!})),
     sourceFileBanks: contentEvidence.brightspace
       .filter((item) => item.content.sourceFileBank)
       .map((item) => ({
@@ -362,6 +366,14 @@ export async function prepareOwnerReportExport(
     lines.push(
       "NO SAVED FOLLOW-UP EVIDENCE FOR THIS REPORT. Import the item-check JSON into the same saved report that generated its script, then export that report. A new comparison is not required.",
     );
+  if (followUp.linkedSourceAssessments.length) {
+    lines.push("", "READINGS WITH CAPTURED LINKED SOURCE NATIVE ASSESSMENTS", "Linked native quiz definitions are separate from reading question lists. Unknown expected totals, pool membership and source-library coverage remain unverified.");
+    for (const item of followUp.linkedSourceAssessments) {
+      lines.push(`${line(item.name)} [source topic ${line(item.topicId)}] — ${item.evidence.assessments.length} exact original-HTML quickLink relationships`);
+      for (const assessment of item.evidence.assessments)
+        lines.push(`  Native quiz ${assessment.quizId} | ActivityId ${assessment.activityId} | ${assessment.content.questions.length} captured / ${assessment.content.expectedQuestions ?? "unknown"} expected | ${assessment.content.questionCoverage}`, `  Authored link: ${assessment.authoredUrl}`, contentEvidenceText(assessment.content));
+    }
+  }
   if (followUp.sourceFileBanks.length) {
     lines.push("", "RETAINED SOURCE-FILE QUESTION BANKS",
       `${followUp.sourceFileBanks.length} original CSV bank files | ${followUp.sourceFileBanks.reduce((n, bank) => n + bank.capturedQuestions, 0)} structured source-file questions. These records are separate from native quiz question lists; deployed quiz membership and whole-library coverage remain unverified.`);

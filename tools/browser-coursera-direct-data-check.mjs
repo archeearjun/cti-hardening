@@ -203,6 +203,13 @@ const authentication=makeCourse('Direct_auth_fixture_123','authentication');
 const limited=makeCourse('Direct_limit_fixture_123','limited');
 const largeExport=makeCourse('Direct_large_export_123','large-export');
 const mediaSuccess=makeMediaCourse('Direct_media_complete_123');
+const assessReadingMedia=makeMediaCourse('Direct_assess_reading_123');
+const assessReading=[...atoms.values()].find(row=>row.courseId===assessReadingMedia.id&&row.itemId==='item_0002');
+assessReading.atom.draft.content.definition.content.definition.dtdId='assess/1';
+const inlineWidgetReading=makeCourse('Direct_inline_widget_123','complete');
+const inlineWidget=[...atoms.values()].find(row=>row.courseId===inlineWidgetReading.id&&row.itemId==='item_0002');
+inlineWidget.atom.draft.content.definition.content.definition.dtdId='assess/1';
+inlineWidget.atom.draft.content.definition.content.definition.value='<co-content><p>Exact reading, 2 + 3 = 5.</p><widget id="'+key('w',1)+'@1"/></co-content>';
 const mediaEnrichment=makeMediaCourse('Direct_media_enrichment_123','media-legacy-gap');
 const mediaCheckpoint=makeDiscussionMediaCourse('Direct_media_checkpoint_123','media-legacy-gap');
 const discussionMedia=makeDiscussionMediaCourse('Direct_discussion_media_123');
@@ -805,6 +812,19 @@ try{
   }
   const boundMedia=await runFileCase(mediaSuccess);assert.equal(boundMedia.state.state,'COMPLETE');
   assertOriginalMedia(mediaSuccess,boundMedia.capture);await boundMedia.context.close();
+  const boundAssessReading=await runFileCase(assessReadingMedia);
+  assert.equal(boundAssessReading.state.state,'COMPLETE');
+  assertOriginalMedia(assessReadingMedia,boundAssessReading.capture);
+  assert.equal(boundAssessReading.capture.fingerprints.find(fp=>fp.id==='item_0002').payload.directDraftCml,
+    assessReading.atom.draft.content.definition.content.definition.value,'The original assess/1 reading CML is preserved unchanged');
+  await boundAssessReading.context.close();
+  const boundInlineWidget=await runFileCase(inlineWidgetReading);
+  const widgetReading=boundInlineWidget.capture.fingerprints.find(fp=>fp.id==='item_0002');
+  assert.equal(boundInlineWidget.state.state,'INCOMPLETE');
+  assert.equal(widgetReading.captureContract.complete,false,'Retained reading text does not establish the content of its embedded widget');
+  assert.equal(evaluateCourseraCapture(boundInlineWidget.capture,inlineWidgetReading.id).complete,false);
+  assert(widgetReading.payload.directDraftCml.includes('<widget id="'+key('w',1)+'@1"/>'),'Exact versioned widget references survive export');
+  await boundInlineWidget.context.close();
   const boundDiscussion=await runFileCase(discussionMedia);
   assert.equal(boundDiscussion.state.state,'COMPLETE');assertOriginalMedia(discussionMedia,boundDiscussion.capture);
   const discussion=boundDiscussion.capture.fingerprints.find(fp=>fp.id==='item_0002');

@@ -146,7 +146,7 @@ function fixture(
   const source = {
     cml: markup.definition.value,
     rawCML: markup,
-    dtdId: "supplement/1",
+    dtdId: markup.definition.dtdId,
     assetId,
     publishedAssetId: "old@1",
     sourceState: "AUTHORING_DRAFT",
@@ -200,6 +200,79 @@ test("reading contract extracts native heading boundaries from the observed draf
       .content.definition.value,
     before,
   );
+});
+
+test("assess/1 authoring readings preserve literal mathematics, list and table content and remain readings", async () => {
+  const markup = cml("");
+  markup.definition.dtdId = "assess/1";
+  markup.definition.value =
+    '<co-content><heading level="1">Metric conversion</heading>' +
+    '<text>π × r² = A; $x/2$</text><list bulletType="bullets"><li><text>25 mm</text></li></list>' +
+    '<table rows="1" columns="1"><tr><td><text>1 in = 25.4 mm</text></td></tr></table></co-content>';
+  const f = fixture("supplement", markup);
+  const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+  assert.equal(result.complete, true);
+  assert.equal(result.status, "COMPLETE_BOUND_DRAFT_READING");
+  assert.equal(
+    f.fp.payload.textSample,
+    "Metric conversion π × r² = A; $x/2$ 25 mm 1 in = 25.4 mm",
+  );
+  assert.equal(f.fp.payload.directDraftCml, markup);
+  assert.equal(f.fp.payload.directDataEvidence.dtdId, "assess/1");
+  assert.equal(f.fp.payload.questions, undefined);
+  assert.equal(f.fp.payload.structuredAssessment, undefined);
+});
+
+test("reading DTD acceptance never substitutes foreign contexts, unknown dialects or mismatched source models", async () => {
+  for (const mode of [
+    "unknownDtd",
+    "discussionDtd",
+    "assessmentContext",
+    "otherItem",
+    "mismatchedDtd",
+  ]) {
+    const markup = cml("Original reading");
+    markup.definition.dtdId = "assess/1";
+    const f = fixture("supplement", markup);
+    if (mode === "unknownDtd")
+      markup.definition.dtdId = f.source.dtdId = "assess/2";
+    if (mode === "discussionDtd")
+      markup.definition.dtdId = f.source.dtdId = "discussion/1";
+    if (mode === "assessmentContext") f.fp.typeName = "staffGraded";
+    if (mode === "otherItem") f.bound.itemId = "foreign-item";
+    if (mode === "mismatchedDtd") f.source.dtdId = "supplement/1";
+    const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, false, mode);
+    assert.deepEqual(result.reasons, ["DIRECT_READING_SOURCE_NOT_BOUND"], mode);
+    assert.equal(f.fp.payload.textSample, undefined, mode);
+  }
+});
+
+test("inline reading widgets retain their exact versioned provider pointers and cannot silently become completed text-only readings", async () => {
+  for (const dtdId of ["assess/1", "supplement/1"]) {
+    const id = "w".repeat(22) + "@1";
+    const markup = cml("");
+    markup.definition.dtdId = dtdId;
+    markup.definition.value =
+      '<co-content><text>Open the original activity.</text><widget id="' +
+      id +
+      '"/></co-content>';
+    const f = fixture("supplement", markup);
+    const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, false);
+    assert.equal(result.status, "UNRESOLVED_DIRECT_READING");
+    assert(result.reasons.includes("DIRECT_CML_MEDIA_REFERENCE_UNSUPPORTED"));
+    assert.equal(f.fp.payload.textSample, "Open the original activity.");
+    assert.equal(f.fp.payload.directDraftCml, markup);
+    assert.equal(f.fp.payload.directDataEvidence.assetReferenceCount, 1);
+    assert.deepEqual(
+      f.fp.payload.directDataEvidence.unresolvedAssetReferences.map(
+        ({ tag, id }) => ({ tag, id }),
+      ),
+      [{ tag: "widget", id }],
+    );
+    assert.equal(f.fp.payload.assetDetails[0].bodyVerified, false);
+  }
 });
 
 test("missing stability, conflicting source identity and a published body never become a complete draft", async () => {
@@ -363,6 +436,34 @@ test("bound native image IDs become complete only with scoped fresh metadata and
     f.fp.payload.directAssetEvidence.assets[0].body.sha256,
   );
   assert.equal(f.fp.payload.directDraftCml.definition.value, f.source.cml);
+});
+
+test("assess/1 readings use the same exact native binary proof instead of skipping their referenced images", async () => {
+  const id = "m".repeat(22),
+    markup = cml('Current <img assetId="' + id + '"/> image');
+  markup.definition.dtdId = "assess/1";
+  const f = fixture("supplement", markup);
+  assert.equal(
+    (await directReadingPayloadV1(f.fp, f.bound, f.source)).complete,
+    false,
+  );
+  f.fp.payload.directAssetEvidence = {
+    method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+    assets: [capturedNativePng(id)],
+    missingPointers: [],
+    failures: [],
+  };
+  assert.equal(
+    (await directReadingPayloadV1(f.fp, f.bound, f.source)).complete,
+    true,
+  );
+  assert.equal(f.fp.payload.directDataEvidence.dtdId, "assess/1");
+  assert.equal(f.fp.payload.assetDetails[0].bodyVerified, true);
+  f.fp.payload.directAssetEvidence.assets[0].body.sha256 = "0".repeat(64);
+  assert.equal(
+    (await directReadingPayloadV1(f.fp, f.bound, f.source)).complete,
+    false,
+  );
 });
 
 function archivedNativeAsset(asset, bytes) {

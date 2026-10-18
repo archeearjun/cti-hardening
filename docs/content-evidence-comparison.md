@@ -106,3 +106,27 @@ page timed out at the bounded limit during this follow-up; it is not evidence of
 successful live destination retrieval. Fetching an external page never certifies
 that it loads within Coursera or that learner interaction works. The app's
 signed-in production LMS workflow remains unverified here.
+
+## Brightspace reading links to native quizzes
+
+A reading can point to a separately captured native Brightspace quiz without
+being a quiz topic itself. New content snapshots show **Linked source native
+assessments** when the verified original HTML contains a same-course Brightspace
+quiz quickLink whose exact `rcode` matches one unambiguous captured native quiz
+`ActivityId`. The source origin, course path, retained HTML SHA-256, native quiz
+ID and captured identity inventory remain bound to that relationship. Duplicate
+parameters, external/userinfo URLs, wrong courses and ambiguous native identities
+cannot create a relationship. Saved projections rehash the original HTML and
+native records and recompute their questions, keys and coverage labels.
+
+The reading keeps its native ID, kind and question list. Linked quiz definitions
+appear in a separate searchable disclosure and in separate text/JSON export
+sections. An API page traversal with ten definitions and no independently known
+expected total stays partial with an unknown expected total; an empty returned
+list stays unverified unless the existing native empty-assessment contract is
+established. Linking does not clear audit findings, establish pool membership,
+or change deployed assessment behavior. Historical snapshots without the optional
+relationship field remain valid. Recompare the original capture or load its
+hash-matching original content supplement to derive the new relationship; no
+new LMS read is needed when the original HTML and native quiz definitions were
+already retained.

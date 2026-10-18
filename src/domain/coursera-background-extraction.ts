@@ -3,6 +3,11 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { parseCourseraCourseMaterialsRelations } from "./coursera-course-relations.ts";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import {
+  CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+  directMaterialStabilityModelV1,
+} from "../extractors/coursera/direct-data-material-stability.js";
+import { directDraftReadingDtdSupportedV1 } from "../extractors/coursera/direct-data-models.js";
+import {
   directCmlMediaInventoryV1,
   directMediaEvidenceStructureV1,
 } from "../extractors/coursera/direct-data-media-contracts.js";
@@ -310,6 +315,27 @@ function directModelHash(value: unknown): string | null {
     );
   } catch {
     return null;
+  }
+}
+
+/** Old captures keep their exact-response comparison. New, explicitly marked
+ * comparisons may ignore only the supported native assignment flag order.
+ * Both original response hashes are still independently required. */
+function directMaterialStabilityValid(mode: Record<string, any>): boolean {
+  if (!directHash(mode.initialMaterialHash) || !directHash(mode.finalMaterialHash) ||
+      mode.initialMaterialHash !== directModelHash(mode.materials?.elements?.[0]) ||
+      mode.finalMaterialHash !== directModelHash(mode.finalMaterials?.elements?.[0])) return false;
+  if (!Object.hasOwn(mode, "materialStability"))
+    return mode.initialMaterialHash === mode.finalMaterialHash;
+  const proof = record(mode.materialStability);
+  if (!proof || proof.policy !== CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1 ||
+      !directHash(proof.initialSha256) || !directHash(proof.finalSha256) ||
+      proof.initialSha256 !== proof.finalSha256) return false;
+  try {
+    return proof.initialSha256 === directModelHash(directMaterialStabilityModelV1(mode.materials.elements[0])) &&
+      proof.finalSha256 === directModelHash(directMaterialStabilityModelV1(mode.finalMaterials.elements[0]));
+  } catch {
+    return false;
   }
 }
 
@@ -963,9 +989,7 @@ export function verifiedCourseraCaptureInventory(value: unknown) {
   const initial = parseCourseraCourseMaterialsRelations(mode.materials, courseId);
   const final = parseCourseraCourseMaterialsRelations(mode.finalMaterials, courseId);
   const fingerprints = array(capture.fingerprints);
-  if (!directHash(mode.initialMaterialHash) || mode.initialMaterialHash !== mode.finalMaterialHash ||
-      mode.initialMaterialHash !== directModelHash(mode.materials.elements[0]) ||
-      mode.finalMaterialHash !== directModelHash(mode.finalMaterials.elements[0]) ||
+  if (!directMaterialStabilityValid(mode) ||
       !Number.isSafeInteger(mode.materialVersion) || mode.materialVersion < 0 ||
       !Number.isSafeInteger(mode.courseBranchVersion) || mode.courseBranchVersion < 0 ||
       initial.materialVersion !== mode.materialVersion || initial.courseBranchVersion !== mode.courseBranchVersion ||
@@ -997,8 +1021,7 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
   if (
     mode.version !== 1 ||
     mode.sourceStable !== true ||
-    !directHash(mode.initialMaterialHash) ||
-    mode.initialMaterialHash !== mode.finalMaterialHash ||
+    !directMaterialStabilityValid(mode) ||
     !Number.isSafeInteger(mode.materialVersion) ||
     mode.materialVersion < 0 ||
     !Number.isSafeInteger(mode.courseBranchVersion) ||
@@ -1228,7 +1251,7 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         sourceItems.get(item.id)?.sourceContentType !== "supplement" ||
         content?.typeName !== "supplementDraft" ||
         cml?.typeName !== "cml" ||
-        cmlDefinition?.dtdId !== "supplement/1" ||
+        !directDraftReadingDtdSupportedV1(cmlDefinition?.dtdId) ||
         typeof cmlDefinition?.value !== "string" ||
         !directCmlMediaSourcesValid(payload, evidence, cmlDefinition.value) ||
         JSON.stringify(payload.directDraftCml) !== JSON.stringify(cml) ||

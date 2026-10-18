@@ -634,12 +634,83 @@ test("direct draft reading cannot be certified from mismatched, partial or publi
   }
 });
 
+test("independent draft verification accepts assess/1 only inside the exact bound native reading", () => {
+  const capture = directReadingCapture(),
+    payload = capture.fingerprints[0].payload,
+    draft = payload.directDataSources.atom.elements[0].draft;
+  draft.content.definition.content.definition.dtdId = "assess/1";
+  payload.directDraftCml.definition.dtdId = "assess/1";
+  payload.directDataEvidence.dtdId = "assess/1";
+  payload.directDataEvidence.draftHash = modelHash(draft);
+  payload.directDataSources.receipts.stability.draftHash = modelHash(draft);
+  payload.directDataSources.receipts.stability.atom.elements[0].draft =
+    structuredClone(draft);
+  assert.equal(evaluateCourseraCapture(capture, directCourseId).complete, true);
+  for (const dtd of ["assess/2", "staffGraded/1", "discussion/1"]) {
+    const other = structuredClone(capture),
+      p = other.fingerprints[0].payload,
+      body = p.directDataSources.atom.elements[0].draft;
+    body.content.definition.content.definition.dtdId = dtd;
+    p.directDraftCml.definition.dtdId = dtd;
+    p.directDataEvidence.dtdId = dtd;
+    p.directDataEvidence.draftHash = modelHash(body);
+    p.directDataSources.receipts.stability.draftHash = modelHash(body);
+    p.directDataSources.receipts.stability.atom.elements[0].draft =
+      structuredClone(body);
+    assert.equal(
+      evaluateCourseraCapture(other, directCourseId).complete,
+      false,
+      dtd,
+    );
+  }
+  const other = structuredClone(capture),
+    p = other.fingerprints[0].payload;
+  p.directDataSources.relation.elements[0].branchRelationMap[
+    directCourseId + "~reading-1"
+  ].itemId = "foreign-item";
+  assert.equal(evaluateCourseraCapture(other, directCourseId).complete, false);
+});
+
+test("historical unsupported assess/1 readings retain their original incomplete status and do not gain derived contents on validation", () => {
+  const capture = directReadingCapture(),
+    item = capture.fingerprints[0],
+    payload = item.payload,
+    draft = payload.directDataSources.atom.elements[0].draft;
+  draft.content.definition.content.definition.dtdId = "assess/1";
+  payload.directDataSources.receipts.stability.draftHash = modelHash(draft);
+  payload.directDataSources.receipts.stability.atom.elements[0].draft =
+    structuredClone(draft);
+  delete payload.directDraftCml;
+  delete payload.directDataEvidence;
+  payload.textSample = "";
+  payload.textLength = 0;
+  payload.textSha256 = "";
+  item.captureContract = {
+    complete: false,
+    status: "UNRESOLVED_DIRECT_TYPE",
+    reasons: ["DIRECT_AUTHORING_READING_MODEL_UNSUPPORTED"],
+  };
+  capture.meta.captureAccounting.completeCount = 0;
+  capture.meta.captureAccounting.unresolvedCount = 1;
+  capture.meta.captureAccounting.complete = false;
+  capture.meta.directDataCapture.wholeCourseVerified = false;
+  const before = JSON.stringify(capture),
+    result = evaluateCourseraCapture(capture, directCourseId);
+  assert.equal(result.complete, false);
+  assert.equal(result.completeCount, 0);
+  assert.equal(result.unresolvedCount, 1);
+  assert.equal(JSON.stringify(capture), before);
+  assert.equal(payload.directDraftCml, undefined);
+  assert.equal(payload.textSample, "");
+});
+
 test("direct reading source media stays unverified even when its exported asset flags claim none", () => {
   for (const markup of [
     '<img src="https://example.test/unfetched.png"/>',
     '<media:image xmlns:media="urn:synthetic" src="https://example.test/unfetched.png"/>',
     '<asset id="unresolved-asset"/>',
     '<iframe src="https://example.test/body"/>',
+    '<widget id="wwwwwwwwwwwwwwwwwwwwww@1"/>',
     '<a href="https://example.test/attachment.pdf">Attachment</a>',
     '<a download="attachment" href="https://example.test/body">Attachment</a>',
     "<script>unverified source</script>",
