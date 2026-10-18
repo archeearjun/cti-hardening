@@ -318,7 +318,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (detail.mixed) failures.push(detail.mixed + " mixed failure outcomes");
           if (failures.length) count.textContent += " (" + failures.join("; ") + ")";
         }
-        if (inline.publisherImages?.unique || inline.publisherImages?.sourceGaps) {
+        if (inline.publisherImages?.unique || inline.publisherImages?.sourceGaps || inline.publisherImages?.responsiveImageSets) {
           const images = inline.publisherImages, failures = [];
           count.textContent += images.unique ? " · Publisher image sources " + images.saved + "/" + images.unique + " saved" : " · Publisher images";
           if (images.browserUnavailable) failures.push(images.browserUnavailable + " browser-blocked or unreadable");
@@ -327,6 +327,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (images.sourceGaps) failures.push(images.sourceGaps + " image source gaps");
           if (failures.length) count.textContent += " (" + failures.join("; ") + ")";
           if (images.historical) count.textContent += " · " + images.historical + " historical image originals retained";
+          if (images.responsiveImageSets) count.textContent += " · Responsive alternatives listed for " + images.responsiveImageSets + " images";
         }
         if (inline.limited) count.textContent += " · External-page summary limited; retained source records remain in the capture";
       }
@@ -545,7 +546,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               for (const failure of media.failures.slice(0, 256)) {
                 const literal = typeof failure.attributeValue === "string" && failure.attributeValue.length <= 4000 && failure.attributeValue,
                   identity = literal || media.sourceSha256 + "~" + failure.field + "~" + failure.ordinal;
-                addImageGap(identity + "~" + failure.reason);
+                if (failure.reason === "PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED") {
+                  result.responsiveImages ||= [];
+                  if (result.responsiveImages.length < 256) result.responsiveImages.push(identity);
+                  else result.limited = true;
+                } else addImageGap(identity + "~" + failure.reason);
               }
               for (const group of [{ resources: media.resources, historical: !page.observation },
                 ...(media.retained || []).slice(0, 128).map(value => ({ resources: value.resources, historical: true }))]) {
@@ -576,7 +581,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           counts[Object.prototype.hasOwnProperty.call(counts, key) ? key : "other"]++;
         }
       }
-      const sources = new Map(), imageSources = new Map(), imageGaps = new Set(), result = { method: "CAPTURE_REPORTED_INLINE_SOURCE_SUMMARY", readings: 0,
+      const sources = new Map(), imageSources = new Map(), imageGaps = new Set(), responsiveImages = new Set(), result = { method: "CAPTURE_REPORTED_INLINE_SOURCE_SUMMARY", readings: 0,
         settings: { captured: 0, total: 0 }, pages: { saved: 0, unique: 0, historical: 0 },
         failures: failureCounts(),
         htmlPages: { saved: 0, unique: 0, readTargets: 0, skipped: 0, historical: 0, failures: failureCounts() },
@@ -619,6 +624,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (imageGaps.size >= 512 && !imageGaps.has(key)) { result.limited = true; continue; }
           imageGaps.add(key);
         }
+        for (const key of value.responsiveImages || []) {
+          if (responsiveImages.size >= 512 && !responsiveImages.has(key)) { result.limited = true; continue; }
+          responsiveImages.add(key);
+        }
       }
       result.pages.unique = sources.size;
       for (const source of sources.values()) {
@@ -641,9 +650,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (source.saved) { result.pages.saved++; continue; }
         addFailures(result.failures, source.outcomes);
       }
-      if (imageSources.size || imageGaps.size) {
+      if (imageSources.size || imageGaps.size || responsiveImages.size) {
         result.publisherImages = { unique: imageSources.size, saved: 0, historical: 0, browserUnavailable: 0, failed: 0, unverified: 0 };
         if (imageGaps.size) result.publisherImages.sourceGaps = imageGaps.size;
+        if (responsiveImages.size) result.publisherImages.responsiveImageSets = responsiveImages.size;
         for (const image of imageSources.values()) {
           if (image.saved) result.publisherImages.saved++;
           if (image.historical) result.publisherImages.historical++;
@@ -1559,7 +1569,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (withinCourse) publisherImageTargets.add(resource.url);
         const read = withinItem && withinCourse ? await ensureMediaReader().readPublisherImage(observation,page.targetUrl,resource)
           : {reason:withinItem ? "PUBLISHER_IMAGE_COURSE_URL_LIMIT" : "PUBLISHER_IMAGE_ITEM_URL_LIMIT"};
-        media.resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason || "PUBLISHER_IMAGE_CAPTURE_FAILED"})});
+        media.resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason || "PUBLISHER_IMAGE_CAPTURE_FAILED",...(read.attempts ? {attempts:read.attempts} : {})})});
         if (read.body) {
           if (!directPublisherImageBodyStructureV1(read.body,resource.url,observation.model.sha256))
             throw Error("PUBLISHER_IMAGE_EVIDENCE_INVALID");

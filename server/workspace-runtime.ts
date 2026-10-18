@@ -26,8 +26,11 @@ export function isPanoptoApiPath(path: string): boolean {
 export function isPublicHtmlApiPath(path: string): boolean {
   return path === "/api/provider/public-html";
 }
+export function isPublisherImageApiPath(path: string): boolean {
+  return path === "/api/provider/publisher-image";
+}
 export function isProviderApiPath(path: string): boolean {
-  return isPanoptoApiPath(path) || isPublicHtmlApiPath(path);
+  return isPanoptoApiPath(path) || isPublicHtmlApiPath(path) || isPublisherImageApiPath(path);
 }
 
 export function isDelegatedApiPath(path: string): boolean {

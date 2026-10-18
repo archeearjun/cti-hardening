@@ -7,7 +7,7 @@ import { createDirectDataMediaReaderV1 } from "../src/extractors/coursera/direct
 import { attachCourseraArchiveFileBytes } from "../src/domain/coursera-capture-archive.ts";
 import { createInlinePublisherMediaContentFixture } from "./coursera-inline-content-fixtures.mjs";
 import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1,
-  directPublisherMediaEvidenceV1, directPublisherImageUrlV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
+  directPublisherMediaEvidenceV1, directPublisherImageUrlV1, directPublisherImageAttemptsV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 
 const target = "https://opentextbc.ca/syntheticbook/?p=225/#main",
   image = "https://opentextbc.ca/oerdiscipline/wp-content/uploads/2026/10/original.png",
@@ -33,7 +33,7 @@ async function captured(observation, reply = url => response(url,png), options =
     inventory = directPublisherMediaInventoryV1(observation,target), resources = [];
   for (const resource of inventory.resources) {
     const read = await reader.readPublisherImage(observation,target,resource);
-    resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason})});
+    resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason,...(read.attempts ? {attempts:read.attempts} : {})})});
   }
   return {media:{...inventory,resources},reader,calls};
 }
@@ -157,4 +157,146 @@ test("observed part 125 retains its one literal cross-book original image and le
   assert.equal(inventory.resources[0].references.length,2);
   assert.equal(inventory.failures.length,1);
   assert.equal(inventory.failures[0].reason,"PUBLISHER_IMAGE_SRCSET_ALTERNATIVES_NOT_SELECTED");
+});
+
+function serviceResponse(sourceSha256, options = {}) {
+  const bytes = options.bytes || png, headers = new Headers({"content-type":"image/png",
+    "x-cti-provider-transport":"CTI_SERVICE_PUBLIC_IMAGE","x-cti-provider-origin":"https://cti-hardening.pages.dev",
+    "x-cti-upstream-status":"200","x-cti-upstream-observed-at":"2026-10-18T23:59:59.000Z",
+    "x-cti-upstream-requests":"1","x-cti-upstream-bytes":String(bytes.length),
+    "x-cti-upstream-content-length":String(bytes.length),"x-cti-upstream-sha256":hash(bytes),
+    "x-cti-publisher-source-hash":sourceSha256,...options.headers});
+  for (const name of options.omit || []) headers.delete(name);
+  return new Response(bytes,{status:options.status || 200,headers});
+}
+function service(sourceSha256, options = {}) {
+  const calls = [], helper = {ready:async () => {},supports:kind => kind === "publisherImage",
+    request:async (kind,payload,signal) => {calls.push({kind,payload,signal});return serviceResponse(sourceSha256,options);}};
+  return {calls,helper};
+}
+
+test("one closed public-service image fallback preserves source ownership, actual SHA and distinct clocks without claiming native CORS", async () => {
+  const observation = await source('<img src="' + image + '">'), f = service(observation.model.sha256),
+    result = await captured(observation,async () => {throw TypeError("browser policy");},{providerTransport:f.helper}),
+    body = result.media.resources[0].body;
+  assert(body);assert.equal(result.calls.length,1);assert.equal(f.calls.length,1);assert.equal(result.reader.snapshot().requests,2);
+  assert.equal(result.reader.snapshot().bytes,png.length);
+  assert.deepEqual(f.calls[0].payload,{targetUrl:target,imageUrl:image,sourceSha256:observation.model.sha256});
+  assert.equal(f.calls[0].kind,"publisherImage");assert(f.calls[0].signal instanceof AbortSignal);
+  assert.equal(body.receipt.transport,"CTI_SERVICE_PUBLIC_IMAGE");assert.equal(body.receipt.responseType,"service");
+  assert.equal(body.receipt.observedAtBasis,"BROWSER_RESPONSE");assert.equal(body.receipt.upstreamObservedAt,"2026-10-18T23:59:59.000Z");
+  assert.equal(body.receipt.browserAttempt.reason,"PUBLISHER_IMAGE_BLOCKED_OR_FAILED");
+  assert.equal(body.receipt.upstreamSha256,hash(png));assert.equal(body.receipt.publisherSourceHash,observation.model.sha256);
+  assert(directPublisherMediaEvidenceV1(observation,target,result.media,hash));
+  const reloaded = JSON.parse(JSON.stringify(result.media));
+  assert(directPublisherMediaStructureV1(observation,target,reloaded));
+  assert.equal(directPublisherMediaEvidenceV1(observation,target,reloaded,hash),null,"service receipt cannot stand in for original bytes");
+});
+
+test("readable HTTP, redirected identity, MIME, magic and partial-body failures never use the public service", async () => {
+  const observation = await source('<img src="' + image + '">');
+  for (const options of [{status:403},{status:404},{url:image.replace("original","other")},{mime:"text/html"},{headers:{"content-range":"bytes 0-1/2"}}]) {
+    const f = service(observation.model.sha256), result = await captured(observation,url => response(url,png,options),{providerTransport:f.helper});
+    assert.equal(f.calls.length,0);assert.equal(result.media.resources[0].body,undefined);
+    assert.equal(result.media.resources[0].attempts,undefined);
+  }
+  const f = service(observation.model.sha256), result = await captured(observation,url => response(url,new Uint8Array([1,2,3])),{providerTransport:f.helper});
+  assert.equal(result.media.resources[0].reason,"PUBLISHER_IMAGE_MAGIC_INVALID");assert.equal(f.calls.length,0);
+});
+
+test("service source, transport, framing, body hash and MIME defects remain explicit failed observations", async () => {
+  const observation = await source('<img src="' + image + '">');
+  for (const options of [
+    {omit:["x-cti-upstream-sha256"]},{omit:["x-cti-upstream-content-length"]},
+    {headers:{"x-cti-provider-transport":"CTI_PUBLIC_BACKEND"}},
+    {headers:{"x-cti-provider-origin":"https://foreign.example"}},
+    {headers:{"x-cti-publisher-source-hash":"a".repeat(64)}},
+    {headers:{"x-cti-upstream-requests":"2"}},
+    {headers:{"x-cti-upstream-sha256":"a".repeat(64)}},
+    {headers:{"x-cti-upstream-content-length":String(png.length+1),"x-cti-upstream-bytes":String(png.length+1)}},
+    {headers:{"content-type":"text/html"}},
+    {bytes:new TextEncoder().encode("<html>not an image</html>")},
+  ]) {
+    const f = service(observation.model.sha256,options), result = await captured(observation,async () => {throw Error("blocked");},{providerTransport:f.helper}),
+      resource = result.media.resources[0];
+    assert.equal(resource.body,undefined);assert(resource.reason);assert.equal(f.calls.length,1);
+    assert(directPublisherImageAttemptsV1(resource.attempts));
+    assert.equal(resource.attempts[0].reason,"PUBLISHER_IMAGE_BLOCKED_OR_FAILED");assert.equal(resource.attempts[1].reason,resource.reason);
+    assert(directPublisherMediaStructureV1(observation,target,result.media));
+    if (options.headers?.["content-type"] === "text/html")
+      assert.equal(result.reader.snapshot().bytes,png.length,"buffered service source bytes are counted even when MIME is rejected before delivery");
+  }
+});
+
+test("service failures preserve browser and upstream outcomes and stale helper makes no public request", async () => {
+  const observation = await source('<img src="' + image + '">'),
+    f = service(observation.model.sha256,{status:502,bytes:new TextEncoder().encode('{"error":"PUBLIC_IMAGE_PROVIDER_HTTP_403"}'),
+      headers:{"content-type":"application/json","x-cti-upstream-status":"403","x-cti-upstream-bytes":"0"}}),
+    result = await captured(observation,async () => {throw Error("blocked");},{providerTransport:f.helper}), resource = result.media.resources[0];
+  assert.equal(resource.reason,"PUBLISHER_IMAGE_UPSTREAM_HTTP_403");assert.equal(resource.attempts[1].serviceStatus,502);
+  assert.equal(resource.attempts[1].upstreamStatus,403);assert(directPublisherMediaStructureV1(observation,target,result.media));
+  let reads = 0;
+  const stale = await captured(observation,async () => {throw Error("blocked");},{providerTransport:{ready:async()=>{},supports:()=>false,request:async()=>{reads++;}}});
+  assert.equal(reads,0);assert.equal(stale.media.resources[0].reason,"PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED");
+  assert.equal(stale.media.resources[0].attempts[1].serviceStatus,0);assert.equal(stale.media.resources[0].attempts[1].upstreamStatus,0);
+  assert(directPublisherMediaStructureV1(observation,target,stale.media));
+});
+
+test("validated service bytes are budgeted before body delivery and remain counted on truncation or missing body", async () => {
+  const observation = await source('<img src="' + image + '">');
+  for (const mode of ["missing","truncated"]) {
+    const helper = {ready:async()=>{},supports:()=>true,request:async()=>{
+      const complete = serviceResponse(observation.model.sha256);
+      return new Response(mode === "missing" ? null : png.slice(0,4),{headers:complete.headers});
+    }}, result = await captured(observation,async()=>{throw Error("blocked");},{providerTransport:helper});
+    assert.equal(result.media.resources[0].body,undefined);
+    assert.equal(result.reader.snapshot().bytes,png.length,"the complete observed service read is counted once despite incomplete client delivery");
+    assert(directPublisherMediaStructureV1(observation,target,result.media));
+  }
+  const f = service(observation.model.sha256), limited = await captured(observation,async()=>{throw Error("blocked");},
+    {providerTransport:f.helper,limits:{totalBytes:png.length-1}});
+  assert.equal(limited.media.resources[0].reason,"DIRECT_MEDIA_BYTE_LIMIT");
+  assert.equal(limited.reader.snapshot().bytes,png.length);
+});
+
+test("service originals import through unchanged native ownership and can share one archived body with historical browser evidence", async () => {
+  const f = createInlinePublisherMediaContentFixture(), observation = f.publisherObservation,
+    inventory = directPublisherMediaInventoryV1(observation,f.targetUrl), resource = inventory.resources[0],
+    old = {...f.publisherMedia.resources[0]}, helper = service(observation.model.sha256,{bytes:f.publisherMediaBytes}),
+    reader = createDirectDataMediaReaderV1({archiveMode:true,providerTransport:helper.helper,fetchImpl:async()=>{throw Error("blocked");}}),
+    result = await reader.readPublisherImage(observation,f.targetUrl,resource);
+  assert(result.body);f.publisherMedia.resources[0] = {...resource,body:result.body};
+  f.publisherMedia.retained = [{observation,resources:[old]}];
+  f.raw.meta.directDataCapture = {materials:{elements:[{id:f.courseId}]}};
+  const capture = JSON.parse(JSON.stringify(f.raw)), file = {path:result.body.archivePath,sha256:result.body.sha256,
+    size:result.body.size,bytes:f.publisherMediaBytes};
+  attachCourseraArchiveFileBytes(capture,[file]);
+  const page = capture.fingerprints[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+  assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,hash));
+  assert.equal(page.media.resources[0].body.receipt.transport,"CTI_SERVICE_PUBLIC_IMAGE");
+  assert.equal(page.media.retained[0].resources[0].body.receipt.transport,"BROWSER_PUBLISHER_IMAGE");
+  assert.equal(page.media.resources[0].body.archivePath,page.media.retained[0].resources[0].body.archivePath);
+  page.media.resources[0].body.receipt.publisherSourceHash = "a".repeat(64);
+  assert.throws(()=>attachCourseraArchiveFileBytes(capture,[file]),/native source binding/);
+});
+
+test("the original media deadline and operator cancellation retain already observed browser and helper failure context", async () => {
+  const observation = await source('<img src="' + image + '">'), resource = directPublisherMediaInventoryV1(observation,target).resources[0];
+  for (const mode of ["timeout","operator-stop"]) {
+    let started;
+    const active = new Promise(resolve => {started=resolve;}),
+      helper = {ready:async()=>{},supports:()=>true,request:async(_kind,_payload,signal)=>{
+        started(); return new Promise((_resolve,reject)=>signal.addEventListener("abort",()=>reject(Object.assign(Error("stopped"),{code:"PROVIDER_HELPER_ABORTED"})),{once:true}));
+      }}, reader = createDirectDataMediaReaderV1({archiveMode:true,providerTransport:helper,
+        fetchImpl:async()=>{throw Error("browser policy");},limits:{requestMs:mode === "timeout" ? 20 : 1000}}),
+      pending = reader.readPublisherImage(observation,target,resource);
+    await active;
+    if (mode === "operator-stop") reader.abort("OPERATOR_STOPPED");
+    const result = await pending;
+    assert.equal(result.reason,mode === "timeout" ? "DIRECT_MEDIA_REQUEST_TIMEOUT" : "OPERATOR_STOPPED");
+    assert.equal(result.body,undefined);assert.equal(reader.snapshot().requests,2);
+    assert(directPublisherImageAttemptsV1(result.attempts));
+    assert.equal(result.attempts[0].reason,"PUBLISHER_IMAGE_BLOCKED_OR_FAILED");
+    assert.equal(result.attempts[1].reason,result.reason);assert.equal(result.attempts[1].serviceStatus,0);
+  }
 });

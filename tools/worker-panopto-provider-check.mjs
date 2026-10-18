@@ -82,4 +82,5 @@ const config :Workerd.Config = (services = [
   assert.equal(result.code, 0, "The actual Cloudflare runtime provider regression failed.");
   assert.match(result.stdout + result.stderr, /CTI_WORKERD_PANOPTO_PROVIDER_PASS/);
   assert.match(result.stdout + result.stderr, /CTI_WORKERD_PUBLIC_HTML_PROVIDER_PASS/);
+  assert.match(result.stdout + result.stderr, /CTI_WORKERD_PUBLISHER_IMAGE_PROVIDER_PASS/);
 } finally { await rm(scratch, { recursive: true, force: true }); }
