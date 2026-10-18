@@ -24,7 +24,7 @@ import {
 import { directWidgetContractV1 } from "../src/extractors/coursera/direct-data-contracts.js";
 import { panoptoDeliveryFixture } from "../tests/panopto-delivery-fixtures.mjs";
 import { directTextFixture } from "../tests/coursera-direct-content-fixtures.mjs";
-import { createInlinePublicContentFixture } from "../tests/coursera-inline-content-fixtures.mjs";
+import { createInlinePublicContentFixture, createInlinePublisherContentFixture } from "../tests/coursera-inline-content-fixtures.mjs";
 import { contactTemplateFixture } from "../tests/owner-guidance-fixtures.mjs";
 import { syllabusFixture } from "../tests/syllabus-readiness-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
@@ -2017,8 +2017,9 @@ async function checkNativeGradingEvidence(page, tab, shots) {
   }
 }
 
-async function checkInlinePublicContent(page, tab, shots) {
-  const fixture = createInlinePublicContentFixture(), source = comparisonFixture();
+async function checkInlinePublicContent(page, tab, shots, publisher = false) {
+  const fixture = publisher ? createInlinePublisherContentFixture({ keepHistoricalHtml: true }) : createInlinePublicContentFixture(),
+    source = comparisonFixture(), fixtureName = publisher ? "inline-publisher" : "inline-public";
   source.course.data.scan.courseTree[0].children = [
     { ...source.course.data.scan.courseTree[0].children[0], title: fixture.fp.name },
   ];
@@ -2026,23 +2027,25 @@ async function checkInlinePublicContent(page, tab, shots) {
     assignments: 0, lti: 0, emptyFolders: 0, totalItems: 1, ifs: 1 };
   fixture.fp.path = "Module 1";
   fixture.fp.lesson = "Lesson 1";
-  source.excel.bytes = writeWorkbook({ name: "synthetic-inline-public", sheets: {
+  source.excel.bytes = writeWorkbook({ name: `synthetic-${fixtureName}`, sheets: {
     "FOR IMPORT": { values: [["Module"], ["***Name", "Module 1"], ["Lesson"],
       ["***Name", "Lesson 1"], ["Reading", fixture.fp.name, "", "", "", "", "", fixture.fp.id]] },
   } });
   const report = createWorkflows(workerXml).compare({ ...source,
-    json: { name: "synthetic-inline-public.json", bytes: encode(fixture.raw) } });
+    json: { name: `synthetic-${fixtureName}.json`, bytes: encode(fixture.raw) } });
   validateContentSnapshot(report.contentEvidence);
   const originalContent = report.contentEvidence.coursera[0].content;
-  assert.equal(originalContent.inlineWidgetContent.providers[0].publicPages[0].status, "CAPTURED_PARTIAL_PUBLIC_HTML");
+  assert.equal(originalContent.inlineWidgetContent.providers[0].publicPages[0].status,
+    publisher ? "HISTORICAL_RETAINED_PUBLIC_HTML" : "CAPTURED_PARTIAL_PUBLIC_HTML");
+  if (publisher) assert.equal(originalContent.inlineWidgetContent.providers[0].publisherPages[0].status, "CAPTURED_PUBLISHER_API_CHAPTER");
   assert.equal(originalContent.text, "");
   assert.equal(originalContent.questions.length, 0);
   assert.equal(report.result.ownerView.items.length, 1);
-  const audit = { ...source.course, id: "inline-public-audit", kind: "audit",
-    packageId: source.course.id, title: "Synthetic inline public content", data: report };
+  const audit = { ...source.course, id: `${fixtureName}-audit`, kind: "audit",
+    packageId: source.course.id, title: `Synthetic ${fixtureName} content`, data: report };
   await tab("Setup");
   await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
-    name: "synthetic-inline-public-workspace.json", mimeType: "application/json",
+    name: `synthetic-${fixtureName}-workspace.json`, mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({ kind: "CTI_BROWSER_WORKSPACE", schemaVersion: 1,
       records: [source.course, audit] })),
   });
@@ -2068,30 +2071,44 @@ async function checkInlinePublicContent(page, tab, shots) {
         provider = embedded.locator(":scope > details").first();
       await embedded.getByRole("heading", { name: "Captured embedded pages", exact: true }).waitFor();
       await provider.locator(":scope > summary").click();
-      const publicPage = provider.locator(":scope > details").first();
+      const publicPage = publisher
+        ? provider.getByRole("region", { name: "Publisher API chapter content", exact: true }).locator(":scope > details").first()
+        : provider.locator(":scope > details").first();
       await publicPage.locator(":scope > summary").click();
       // Native details toggle dispatches after the click; React then mounts
       // the validated inert body. Wait for that visible result before reading.
-      await publicPage.locator(":scope > pre").waitFor({ state: "visible" });
-      assert.match(await embedded.innerText(), /Authored example: area = length × width/);
-      assert.match(await embedded.innerText(), /Preserve the literal <drawing> label & original wording/);
+      const preview = publisher
+        ? publicPage.getByRole("region", { name: "Publisher content.rendered", exact: true }).locator(":scope > pre")
+        : publicPage.locator(":scope > pre");
+      await preview.waitFor({ state: "visible" });
+      assert.match(await embedded.innerText(), publisher ? /Publisher-authored example: area = length × width/ : /Authored example: area = length × width/);
+      assert.match(await embedded.innerText(), publisher ? /Keep the literal <drawing> label & original publisher wording/ : /Preserve the literal <drawing> label & original wording/);
       assert.match(await embedded.innerText(), /Complete widget content and learner interactions remain unverified/);
-      await publicPage.getByText("Literal original HTML (inert source)", { exact: true }).click();
-      assert.equal(await publicPage.locator("details pre").textContent(), fixture.observation.model.html);
+      if (publisher) {
+        assert.match(await embedded.innerText(), /no current HTML observation/);
+        assert.match(await embedded.innerText(), /browser exposed this JSON response through CORS/);
+        assert.match(await embedded.innerText(), /Publisher authored raw field: \[latex\]/);
+        await publicPage.getByText("Literal original publisher JSON", { exact: true }).click();
+        assert.equal(await publicPage.locator(":scope > details").last().locator("pre").textContent(), fixture.publisherRawJson);
+      } else {
+        await publicPage.getByText("Literal original HTML (inert source)", { exact: true }).click();
+        assert.equal(await publicPage.locator("details pre").textContent(), fixture.observation.model.html);
+      }
       assert.equal(await embedded.locator("iframe,img,script").count(), 0);
       assert.equal(await content.locator(".captured-questions").count(), 0);
       assert.deepEqual(await page.evaluate(() => [window.__CTI_INLINE_HTML_EXECUTED__ || false,
-        window.__CTI_INLINE_IMAGE_EXECUTED__ || false]), [false, false]);
+        window.__CTI_INLINE_IMAGE_EXECUTED__ || false, window.__CTI_PUBLISHER_HTML_EXECUTED__ || false,
+        window.__CTI_PUBLISHER_IMAGE_EXECUTED__ || false]), [false, false, false, false]);
       await page.setViewportSize({ width: 390, height: 844 });
       await embedded.scrollIntoViewIfNeeded();
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Embedded source HTML and identity fit mobile width");
-      await page.screenshot({ path: path.join(shots, `inline-public-${reloaded ? "reload" : "first"}-mobile.png`) });
+      await page.screenshot({ path: path.join(shots, `${fixtureName}-${reloaded ? "reload" : "first"}-mobile.png`) });
       await page.setViewportSize({ width: 1440, height: 1000 });
     }
     const evidenceEvent = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download full evidence", exact: true }).click();
     const exported = JSON.parse(fs.readFileSync(await (await evidenceEvent).path(), "utf8"));
-    assert.deepEqual(exported.result, report.result, "Showing retained HTML cannot change the original audit");
+    assert.deepEqual(exported.result, report.result, "Showing retained publisher sources cannot change the original audit");
     assert.deepEqual(exported.followUp.contentEvidence.coursera[0].content.inlineWidgetContent, originalContent.inlineWidgetContent);
     assert.equal(exported.followUp.contentEvidence.coursera[0].content.textCoverage, originalContent.textCoverage);
     assert.equal(exported.followUp.contentEvidence.coursera[0].content.questions.length, 0);
@@ -2100,8 +2117,8 @@ async function checkInlinePublicContent(page, tab, shots) {
     await page.getByRole("button", { name: "Download complete report", exact: true }).click();
     const text = fs.readFileSync(await (await textEvent).path(), "utf8");
     assert.match(text, /CAPTURED EMBEDDED PAGES/);
-    assert.match(text, /Authored example: area = length × width/);
-    assert.match(text, /CAPTURED_PARTIAL_PUBLIC_HTML/);
+    assert.match(text, publisher ? /Publisher-authored example: area = length × width/ : /Authored example: area = length × width/);
+    assert.match(text, publisher ? /CAPTURED_PUBLISHER_API_CHAPTER/ : /CAPTURED_PARTIAL_PUBLIC_HTML/);
     assert.deepEqual(external, [], "The retained HTML preview does not request any source resource");
   } finally { page.off("request", observeRequest); }
 }
@@ -3270,6 +3287,7 @@ try {
   await checkSourceShellEvidence(page, tab, shots);
   await checkNativeGradingEvidence(page, tab, shots);
   await checkInlinePublicContent(page, tab, shots);
+  await checkInlinePublicContent(page, tab, shots, true);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -3300,6 +3318,7 @@ try {
           "independently bound native graded and not-graded settings with identity/scope/time, foreign-course and missing-proof suppression, unchanged owner item counts and original findings, exact exported readouts and 390px layout",
           "separate retained reflection/instruction/invalid-CML native content: authored prompt/options, literal raw fallback, no invented keys or normalized-question upgrade, exact proof exports and reload persistence",
           "inline widget/public HTML: exact versioned provider proof, separate static text and literal HTML, inert scripts/images/iframes, unchanged native text and questions, preserved JSON/TXT exports and reload at desktop/390px",
+          "publisher API chapter: exact original browser-CORS JSON, separate raw/rendered author fields and historical HTML, inert resource/script source, unchanged native coverage, exact JSON/TXT exports and saved reload at desktop/390px",
         ],
         screenshots: shots,
       },

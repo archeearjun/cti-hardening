@@ -4,6 +4,7 @@ import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-
 import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
 import { directInlineWidgetEvidenceV1, directSourceBindingEvidenceV1 } from "../extractors/coursera/direct-data-contracts.js";
 import { directPublicHtmlEvidenceV1 } from "../extractors/coursera/direct-data-public-page.js";
+import { directPublisherEvidenceV1, directPublisherChapterV1 } from "../extractors/coursera/direct-data-publisher.js";
 
 type Obj = Record<string, any>;
 const object = (value: unknown): Obj => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
@@ -33,10 +34,25 @@ export interface InlineWidgetProviderContent {
   configurationObservedAt: string;
   configuredTargets: { url: string; sourceField: string }[];
   publicPages: InlineWidgetPublicPage[];
+  publisherPages?: InlineWidgetPublisherPage[];
+}
+export interface InlineWidgetPublisherPage {
+  targetUrl: string;
+  sourceFields: string[];
+  status: "CAPTURED_PUBLISHER_API_CHAPTER" | "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" | "UNRESOLVED";
+  endpointUrl: string;
+  chapterId: number | null;
+  chapterLink: string;
+  observedAt: string;
+  bytes: number;
+  sha256: string;
+  responseType: "cors" | "";
+  credentials: "omit" | "include" | "";
+  failures: string[];
 }
 export interface CourseraInlineWidgetContent {
   schemaVersion: 1;
-  scope: "INLINE_CONFIGURATION_AND_PARTIAL_PUBLIC_HTML";
+  scope: "INLINE_CONFIGURATION_AND_PARTIAL_PUBLIC_HTML" | "INLINE_CONFIGURATION_AND_PARTIAL_PUBLISHER_CONTENT";
   courseId: string;
   itemId: string;
   atomId: string;
@@ -97,7 +113,7 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
       source = directSourceBindingEvidenceV1(fp, bound),
       checked = directInlineWidgetEvidenceV1(fp, bound, hash);
     if (!source || !checked || Object.entries(source).some(([key, value]) => proof.evidence[key] !== value)) return null;
-    let retainedHtmlBytes = 0;
+    let retainedPublicBytes = 0, hasPublisherPages = false;
     const providers: InlineWidgetProviderContent[] = [];
     for (const validated of checked.providers) {
       const binding = validated.binding, original = list(proof.inlineProviderEvidence.providers)
@@ -118,7 +134,7 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
         if (observation && entry.failures.length) return null;
         if (hasRetained && (!retained || observation || !entry.failures.length)) return null;
         const selected = observation || retained, model = object(selected?.model);
-        if (selected && (retainedHtmlBytes += model.bytes) > 8 * 1024 * 1024) return null;
+        if (selected && (retainedPublicBytes += model.bytes) > 8 * 1024 * 1024) return null;
         publicPages.push({ targetUrl, sourceFields: fields,
           status: observation ? "CAPTURED_PARTIAL_PUBLIC_HTML" : retained ? "HISTORICAL_RETAINED_PUBLIC_HTML" : "UNRESOLVED",
           finalUrl: selected ? model.finalUrl : "", observedAt: selected ? model.observedAt : "",
@@ -126,11 +142,49 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
           failures: entry.failures.map((failure: unknown) => text(object(failure).reason))
             .filter(reason => /^[A-Z0-9_]{1,96}$/.test(reason)) });
       }
+      let publisherPages: InlineWidgetPublisherPage[] | undefined;
+      if (original?.publisherPages !== undefined) {
+        hasPublisherPages = true;
+        if (!Array.isArray(original.publisherPages) || original.publisherPages.length > targets.length) return null;
+        publisherPages = [];
+        const seenPublisherTargets = new Set<string>();
+        for (const rawPage of original.publisherPages) {
+          const entry = object(rawPage), targetUrl = text(entry.targetUrl),
+            fields = targets.filter(value => value.url === targetUrl).map(value => value.sourceField);
+          if (!fields.length || seenPublisherTargets.has(targetUrl) || canonical(entry.sourceFields) !== canonical(fields) ||
+              !Array.isArray(entry.failures) || entry.failures.length > 32) return null;
+          seenPublisherTargets.add(targetUrl);
+          const observation = entry.observation === null ? null : directPublisherEvidenceV1(entry.observation, targetUrl, hashBytes),
+            hasRetained = entry.retainedObservation !== undefined,
+            retained = hasRetained ? directPublisherEvidenceV1(entry.retainedObservation, targetUrl, hashBytes) : null;
+          if (entry.observation !== null && !observation || observation && entry.failures.length ||
+              hasRetained && (!retained || observation || !entry.failures.length)) return null;
+          const selected = observation || retained, model = object(selected?.model),
+            chapter = selected ? directPublisherChapterV1(model.rawJson, targetUrl) : null;
+          if (selected && (!chapter || (retainedPublicBytes += model.bytes) > 8 * 1024 * 1024)) return null;
+          if (selected) {
+            const finalAtomAt = Date.parse(proof.sources.receipts.stability.receipt.observedAt);
+            // These clocks belong to the same collecting browser. Server HTML
+            // observations deliberately do not take part in this comparison.
+            if (Date.parse(selected.receipt.observedAt) > finalAtomAt ||
+                Date.parse(selected.receipt.receivedAt) > finalAtomAt) return null;
+          }
+          publisherPages.push({ targetUrl, sourceFields: fields,
+            status: observation ? "CAPTURED_PUBLISHER_API_CHAPTER" : retained ? "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" : "UNRESOLVED",
+            endpointUrl: selected ? model.endpointUrl : "", chapterId: chapter?.id ?? null,
+            chapterLink: chapter?.link ?? "", observedAt: selected ? model.observedAt : "",
+            bytes: selected ? model.bytes : 0, sha256: selected ? model.sha256 : "",
+            responseType: selected ? "cors" : "", credentials: selected ? selected.receipt.credentials : "",
+            failures: entry.failures.map((failure: unknown) => text(object(failure).reason))
+              .filter(reason => /^[A-Z0-9_]{1,96}$/.test(reason)) });
+        }
+      }
       providers.push({ providerId: binding.providerId, providerBaseId: binding.providerBaseId,
         requestedVersion: binding.requestedVersion, occurrences: binding.occurrences,
-        configurationObservedAt: validated.final.receipt.observedAt, configuredTargets: targets, publicPages });
+        configurationObservedAt: validated.final.receipt.observedAt, configuredTargets: targets, publicPages,
+        ...(publisherPages === undefined ? {} : { publisherPages }) });
     }
-    return { schemaVersion: 1, scope: "INLINE_CONFIGURATION_AND_PARTIAL_PUBLIC_HTML",
+    return { schemaVersion: 1, scope: hasPublisherPages ? "INLINE_CONFIGURATION_AND_PARTIAL_PUBLISHER_CONTENT" : "INLINE_CONFIGURATION_AND_PARTIAL_PUBLIC_HTML",
       courseId: proof.courseId, itemId: proof.item.id, atomId: proof.item.atomId, draftHash: source.draftHash,
       providers, failures: checked.failures, proof };
   } catch { return null; }
@@ -145,7 +199,7 @@ export function validateCourseraInlineWidgetContent(value: unknown, itemId: stri
   courseraInlineWidgetContentSize(value);
   const derived = derive(object(object(value).proof) as CourseraInlineWidgetContent["proof"]);
   if (!derived || !courseId || derived.courseId !== courseId || derived.itemId !== itemId || canonical(value) !== canonical(derived))
-    throw Error("Captured embedded-page content differs from its native configuration or public HTML source evidence.");
+    throw Error("Captured embedded-page content differs from its native configuration or publisher source evidence.");
 }
 
 /** The preview is inert plain text. Original HTML remains literal in the proof;
@@ -177,8 +231,24 @@ export function courseraInlineWidgetPage(content: CourseraInlineWidgetContent, p
   return { html: checked.model.html, text: inlineWidgetStaticHtmlText(checked.model.html), historical };
 }
 
+/** Parse only independently verified publisher JSON. Returned author fields
+ * remain source strings; no HTML, notation or absent content is fabricated. */
+export function courseraInlinePublisherPage(content: CourseraInlineWidgetContent, providerId: string, targetUrl: string): { rawJson: string; chapter: Obj; historical: boolean } | null {
+  const provider = content.providers.find(value => value.providerId === providerId),
+    page = provider?.publisherPages?.find(value => value.targetUrl === targetUrl && value.status !== "UNRESOLVED"),
+    raw = list(content.proof.inlineProviderEvidence.providers).find(value => value?.providerId === providerId),
+    entry = list(raw?.publisherPages).find(value => value?.targetUrl === targetUrl),
+    historical = page?.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER",
+    observation = historical ? entry?.retainedObservation : entry?.observation,
+    checked = page && directPublisherEvidenceV1(observation, targetUrl, hashBytes),
+    chapter = checked && directPublisherChapterV1(checked.model.rawJson, targetUrl);
+  if (!checked || !chapter || checked.model.sha256 !== page!.sha256 || checked.model.bytes !== page!.bytes ||
+      checked.model.endpointUrl !== page!.endpointUrl || chapter.id !== page!.chapterId || chapter.link !== page!.chapterLink) return null;
+  return { rawJson: checked.model.rawJson, chapter, historical };
+}
+
 export function courseraInlineWidgetContentText(content: CourseraInlineWidgetContent): string {
-  const out = ["CAPTURED EMBEDDED PAGES", "Native configuration and separately retained public static HTML only. Dynamic interactions, images, media and whole-widget completeness remain unverified.",
+  const out = ["CAPTURED EMBEDDED PAGES", "Native configuration and separately retained publisher sources only. Dynamic interactions, images, media and whole-widget completeness remain unverified.",
     `Course ${content.courseId} | item ${content.itemId} | atom ${content.atomId} | draft SHA-256 ${content.draftHash}`];
   for (const provider of content.providers) {
     out.push(`Provider selector: ${provider.providerId} | response base ID: ${provider.providerBaseId} | requested version ${provider.requestedVersion} (selected by request; not echoed by response)`,
@@ -190,10 +260,30 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
         out.push(`Final URL: ${page.finalUrl}`, `Observed: ${page.observedAt} | ${page.bytes} bytes | SHA-256 ${page.sha256}`);
         const original = courseraInlineWidgetPage(content, provider.providerId, page.targetUrl);
         if (original) out.push(original.historical
-          ? "Earlier retained public HTML (current read failed; content freshness unverified):"
+          ? "Earlier retained public HTML (no current HTML observation; content freshness unverified):"
           : "Inert static text preview (rendering and runtime unverified):", original.text);
       }
       out.push(...page.failures.map(reason => `Current read outcome: ${reason}`));
+    }
+    for (const page of provider.publisherPages || []) {
+      out.push(`Publisher API chapter content: ${page.targetUrl} | ${page.status}`);
+      if (page.status !== "UNRESOLVED") {
+        out.push(`API endpoint: ${page.endpointUrl}`, `Publisher chapter ID: ${page.chapterId} | published chapter link: ${page.chapterLink}`,
+          `Observed: ${page.observedAt} | ${page.bytes} original JSON UTF-8 bytes | SHA-256 ${page.sha256}`,
+          `Browser response: ${page.responseType}; credentials mode: ${page.credentials}.`);
+        const original = courseraInlinePublisherPage(content, provider.providerId, page.targetUrl);
+        if (original) {
+          out.push(original.historical ? "Earlier publisher API observation retained; no current chapter response is established." : "Publisher-provided chapter fields; partial content only.");
+          for (const field of ["title", "content", "excerpt"]) {
+            for (const format of ["raw", "rendered"]) {
+              const value = original.chapter[field]?.[format];
+              if (typeof value === "string") out.push(`Publisher ${field}.${format} ${format === "rendered" ? "(inert plain-text approximation; inspect original JSON for exact markup)" : "(literal authored field)"}:`,
+                format === "rendered" ? inlineWidgetStaticHtmlText(value) : value);
+            }
+          }
+        }
+      }
+      out.push(...page.failures.map(reason => `Current publisher read outcome: ${reason}`));
     }
   }
   out.push(...content.failures.map(failure => `Provider ${failure.providerId}: ${failure.reason}`));

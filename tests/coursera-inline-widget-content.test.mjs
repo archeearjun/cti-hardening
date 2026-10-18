@@ -81,7 +81,7 @@ test("a failed refresh retains earlier HTML separately with its original timesta
   assert.equal(retained.html, originalHtml);
   assert.equal(JSON.stringify(content).match(/__CTI_INLINE_HTML_EXECUTED__/g)?.length, 1);
   validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(content)), f.fp.id, f.courseId);
-  assert(courseraInlineWidgetContentText(content).includes("current read failed; content freshness unverified"));
+  assert(courseraInlineWidgetContentText(content).includes("no current HTML observation; content freshness unverified"));
   assert.equal(f.fp.captureContract.complete, false);
   const wrongTarget = structuredClone(content);
   wrongTarget.proof.inlineProviderEvidence.providers[0].publicPages[0].retainedObservation.model.requestedUrl += "other";

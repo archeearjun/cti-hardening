@@ -87,3 +87,38 @@ export function createInlinePublicContentFixture({ itemId = "InlineReading", ato
     meta: {}, fingerprints: [f.fp] };
   return { fp: f.fp, courseId, raw, providerId, targetUrl, finalUrl, observation, bound };
 }
+
+/** Exact synthetic browser-CORS JSON response. Its spacing is intentionally
+ * noncanonical: the captured publisher response must not be rewritten. */
+export function createInlinePublisherContentFixture({ keepHistoricalHtml = false, ...options } = {}) {
+  const f = createInlinePublicContentFixture(options),
+    chapter = { id: 179, type: "chapter", status: "publish", link: f.finalUrl,
+      title: { raw: "Synthetic publisher area", rendered: "Synthetic publisher area" },
+      content: { raw: "Publisher authored raw field: [latex]A = L \\times W[/latex]",
+        rendered: '<p>Publisher-authored example: area = length × width.</p>' +
+          '<p>Keep the literal &lt;drawing&gt; label &amp; original publisher wording.</p>' +
+          '<script>window.__CTI_PUBLISHER_HTML_EXECUTED__ = true;</script>' +
+          '<img src="https://images.example.test/not-fetched.png" onerror="window.__CTI_PUBLISHER_IMAGE_EXECUTED__=true">' +
+          '<iframe src="https://activities.example.test/not-fetched"></iframe>', protected: false },
+      excerpt: { rendered: "<p>Publisher-provided excerpt.</p>", protected: false } },
+    rawJson = JSON.stringify(chapter, null, 2) + "\n", bytes = new TextEncoder().encode(rawJson),
+    endpointUrl = "https://opentextbc.ca/synthetic-book/wp-json/pressbooks/v2/chapters/179",
+    model = { kind: "CTI_BROWSER_PUBLISHER_CHAPTER", schemaVersion: 1, statusCoverage: "PARTIAL_PUBLISHER_API_ONLY",
+      requestedUrl: f.targetUrl, endpointUrl, observedAt: "2027-01-15T08:00:00.006Z", status: 200,
+      mime: "application/json", contentType: "application/json; charset=UTF-8", encoding: "UTF8",
+      bytes: bytes.length, sha256: hashBytes(bytes), rawJson },
+    publisherObservation = { model, receipt: { transport: "BROWSER_PUBLISHER_API", resource: "PublisherChapter",
+      id: f.targetUrl, requestedUrl: f.targetUrl, endpointUrl, origin: "https://opentextbc.ca",
+      requestPath: "/synthetic-book/wp-json/pressbooks/v2/chapters/179", requestQuery: [], method: "GET",
+      bodyFormat: "ORIGINAL_PUBLISHER_JSON", responseType: "cors", credentials: "omit",
+      observedAtBasis: "BROWSER_RESPONSE", observedAt: model.observedAt, receivedAt: "2027-01-15T08:00:00.007Z",
+      status: 200, bytes: bytes.length, originalResponseSha256: model.sha256,
+      attempts: [{ credentials: "omit", observedAt: model.observedAt, status: 200, responseType: "cors", bytes: bytes.length, reason: "" }] } },
+    provider = f.fp.payload.directInlineWidgetProviderEvidence.providers[0];
+  provider.publicPages = keepHistoricalHtml ? [{ targetUrl: f.targetUrl,
+    sourceFields: provider.targets.map(target => target.sourceField), observation: null,
+    retainedObservation: f.observation, failures: [{ reason: "PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED" }] }] : [];
+  provider.publisherPages = [{ targetUrl: f.targetUrl, sourceFields: provider.targets.map(target => target.sourceField),
+    observation: publisherObservation, failures: [] }];
+  return { ...f, publisherObservation, publisherChapter: chapter, publisherRawJson: rawJson };
+}

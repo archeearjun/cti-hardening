@@ -143,6 +143,29 @@ test("one public static HTML GET preserves exact UTF-8 bytes, URL spelling and a
   );
 });
 
+test("an explicit upstream Cloudflare challenge is distinguished without reading its body", async () => {
+  let cancelled = false;
+  const response = await readPublicHtmlProvider(target, {
+    fetcher: async (url) =>
+      responseAt(
+        url,
+        new ReadableStream({
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        {
+          status: 403,
+          headers: { "cf-mitigated": "challenge", "Content-Type": "text/html" },
+        },
+      ),
+  });
+  await safeError(response, "PUBLIC_HTML_PROVIDER_CHALLENGE");
+  assert.equal(response.headers.get("X-CTI-Upstream-Status"), "403");
+  assert.equal(response.headers.get("X-CTI-Upstream-Bytes"), "0");
+  assert.equal(cancelled, true);
+});
+
 test("both closed public providers and historical page-ID spelling are accepted without changing the original", async () => {
   for (const url of [
     "https://pressbooks.bccampus.ca/tradesmath/chapter/fractions/#main",

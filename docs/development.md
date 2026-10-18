@@ -399,6 +399,15 @@ delivery copy receives parser-backed whitespace formatting; console source
 remains source-preserving and the 500 KiB bookmark limit is unchanged. See
 [inline-widget evidence and limits](audits/coursera-inline-widget-reader-2026-10-18.md).
 
+Version 1.8.1 adds a distinct browser CORS reader for supported publisher chapter
+JSON and a bounded access check in the same bookmark. Original API JSON and its
+raw/rendered authored fields stay separate from page HTML, native Coursera text
+and completeness. The capture summary reports inline settings and external-page
+outcomes independently. The TRDE120 v1.8.0 audit and actual Cloudflare challenge
+diagnostic explain this transport change; real access in the user's browser
+still requires an exposed response. See
+[browser publisher evidence and limits](audits/coursera-browser-publisher-reader-2026-10-18.md).
+
 The automatic background path uses a service-bound Worker because Browser Run
 and durable Workflows are Worker capabilities. Launch it only when sufficient
 remote-browser quota has been provisioned. The same private Worker now hosts

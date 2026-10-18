@@ -22,6 +22,7 @@ import {bindDirectAuthoringDraftV1} from '../src/extractors/coursera/direct-data
 import {directInlineWidgetEvidenceV1} from '../src/extractors/coursera/direct-data-contracts.js';
 import {directCanonicalSourceTextV1} from '../src/extractors/coursera/direct-data-canonical.js';
 import {directPublicHtmlEvidenceV1} from '../src/extractors/coursera/direct-data-public-page.js';
+import {directPublisherEvidenceV1,directPublisherChapterV1} from '../src/extractors/coursera/direct-data-publisher.js';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -43,14 +44,16 @@ const resources=new Set(['authoringCourseMaterials.v1','authoringCourses.v2','au
 const mediaOrigin='https://fixture-cdn.cloudfront.net';
 const helperOrigin='https://cti-hardening.pages.dev';
 const panoptoOrigin='https://fixture.hosted.panopto.com',panoptoMediaOrigin='https://d2y36twrtb17ty.cloudfront.net';
+const publisherOrigin='https://opentextbc.ca',publisherBook='syntheticbook';
 const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-token','fixture-asset-signed-secret','fixture-cti-helper-cookie'];
 const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),assets=new Map(),providers=new Map(),fileSizes=new WeakMap();
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 const panoptoDeliveries=new Map(),panoptoRequests=[];
 const publicPages=new Map(),publicPageRequests=[];
+const publisherRequests=[],publisherCases=new Map();
 const helperRequests=[],helperUpstreamRequests=[],helperErrors=[];
 const readerFixtureEntry=path.join(scratch,'direct-reader-entry.js');
-fs.writeFileSync(readerFixtureEntry,"import {createDirectDataReaderV1} from "+JSON.stringify(path.resolve('src/extractors/coursera/direct-data-network.js'))+";window.fixtureReadDirectProvider=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPanoptoDeliveryInfo(targetUrl);return{ok:result.ok,reason:result.reason,receipt:result.receipt};}finally{reader.abort('FIXTURE_FINISHED');}};");
+fs.writeFileSync(readerFixtureEntry,"import {createDirectDataReaderV1} from "+JSON.stringify(path.resolve('src/extractors/coursera/direct-data-network.js'))+";window.fixtureReadDirectProvider=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPanoptoDeliveryInfo(targetUrl);return{ok:result.ok,reason:result.reason,receipt:result.receipt};}finally{reader.abort('FIXTURE_FINISHED');}};window.fixtureReadPublisher=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPublisherPage(targetUrl,{itemId:'item_0002',providerId:'abcdefghijklmnopqrstuv@1'});return{ok:result.ok,data:result.data,reason:result.reason,receipt:result.receipt,stats:reader.snapshot()};}finally{reader.abort('FIXTURE_FINISHED');}};");
 const directReaderBundle=await build({configFile:false,logLevel:'silent',publicDir:false,
   build:{write:false,emptyOutDir:false,minify:false,lib:{entry:readerFixtureEntry,name:'ctiDirectReaderFixture',formats:['iife']}}});
 const directReaderSource=(Array.isArray(directReaderBundle)?directReaderBundle[0]:directReaderBundle).output.find(file=>file.type==='chunk').code;
@@ -226,6 +229,28 @@ function makePublicInlineWidgetCourse(id,mode='public-success',duplicatePlacemen
   provider.value.draft.configuration.url=config.publicTarget;provider.value.draft.pageSrc=config.publicTarget;
   publicPages.set(config.publicTarget.split('#')[0],config);return config;
 }
+function makePublisherCase(chapterId,mode){
+  const chapter={id:chapterId,status:'publish',type:'chapter',link:publisherOrigin+'/'+publisherBook+'/chapter/area-'+chapterId+'/',
+    title:{raw:'Original Area café 日本語',rendered:'<span>Rendered Area</span>'},
+    content:{raw:'  [latex]a + b[/latex]\nOriginal raw source.  ',rendered:'<p>Distinct rendered café 日本語.</p><script>window.__CTI_PUBLISHER_EXECUTED=true</script>',protected:false}};
+  const config={chapterId,mode,chapter,targetUrl:publisherOrigin+'/'+publisherBook+'/?p='+chapterId+'/#main',requests:0};
+  if(mode==='wrong-id')chapter.id++;
+  if(mode==='wrong-book')chapter.link=publisherOrigin+'/anotherbook/chapter/area/';
+  if(mode==='protected')chapter.content.protected=true;
+  if(mode==='draft')chapter.status='draft';
+  if(mode==='body-limit')chapter.content.raw='x'.repeat(1048576);
+  if(mode==='escaped-credential')chapter.content.raw='https://example.test/?access_token=synthetic-sensitive-value';
+  config.rawJson='\ufeff'+JSON.stringify(chapter,null,2)+'\n';
+  if(mode==='escaped-credential')config.rawJson=config.rawJson.replace('access_token','access_\\u0074oken');
+  config.bytes=mode==='invalid-utf8'?Buffer.from([0xc3,0x28]):Buffer.from(config.rawJson);
+  publisherCases.set(chapterId,config);return config;
+}
+const publisherFixtures=[
+  'omit-wildcard','include-exact','include-wildcard','wrong-origin','missing-acac','no-cors',
+  'wrong-id','wrong-book','invalid-utf8','http-403','redirect','protected','draft','wrong-mime','http-429',
+  'body-limit','escaped-credential',
+].map((mode,index)=>makePublisherCase(179+index,mode));
+const publisherOpaque=makePublisherCase(199,'opaque-probe');
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 for(const row of definitions.values())if(row.courseId===complete.id){
@@ -258,6 +283,13 @@ const inlineWidgetDiscussion=makeInlineWidgetCourse('Direct_inline_discussion_12
 const publicInlineWidget=makePublicInlineWidgetCourse('Direct_inline_public_123','public-success',true);
 const publicInlineHtmlError=makePublicInlineWidgetCourse('Direct_inline_html_error_123','public-html-error');
 const publicInlineChanged=makePublicInlineWidgetCourse('Direct_inline_public_changed_123','inline-source-changed');
+const publisherReaderCourse=makeCourse('Direct_publisher_browser_123','complete');
+publisherReaderCourse.directReaderCase=true;publisherReaderCourse.publisherReaderCase=true;
+const publisherInlineCase=makePublisherCase(999,'omit-wildcard');
+const publisherInlineCourse=makeInlineWidgetCourse('Direct_inline_publisher_123','publisher-success',true);
+publisherInlineCourse.publisherReaderCase=true;
+providers.get(publisherInlineCourse.inlineProviderId).value.draft.configuration.url=publisherInlineCase.targetUrl;
+providers.get(publisherInlineCourse.inlineProviderId).value.draft.pageSrc=publisherInlineCase.targetUrl;
 const inlineDiscussionRow=[...atoms.values()].find(row=>row.courseId===inlineWidgetDiscussion.id&&row.itemId==='item_0002');
 const inlineDiscussionCml=inlineDiscussionRow.atom.draft.content.definition.content;
 inlineDiscussionRow.atom.draft.content={typeName:'discussionPromptDraft',definition:{promptType:{typeName:'questionPerSession',definition:{
@@ -402,6 +434,34 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       response.end(fs.readFileSync(file));
     }catch(error){helperErrors.push(error.message);response.statusCode=404;response.end();}return;
   }
+  if(host===new URL(publisherOrigin).hostname){
+    const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/([1-9]\\d*)$').exec(url.pathname);
+    assert(match,'Only the configured public chapter endpoint is requested; redirects are not followed');
+    const config=publisherCases.get(Number(match[1]));assert(config,'Only a synthetic native chapter ID is requested');
+    assert.equal(url.search,'');assert.equal(request.method,'GET');
+    if(config.mode!=='opaque-probe')assert.equal(request.headers.origin,origin);
+    assert.equal(request.headers['sec-fetch-mode'],config.mode==='opaque-probe'?'no-cors':'cors');assert.equal(request.headers.authorization,undefined);
+    assert.equal(request.headers.referer,undefined,'No private Coursera path is forwarded to the public publisher');
+    assert.equal(request.headers['x-coursera-naptime-fields'],undefined);
+    assert.equal(request.headers['content-type'],undefined,'A simple public GET has no copied JSON/auth request headers');
+    assert(!String(request.headers.cookie||'').includes(secrets[0]),'Coursera cookies cannot reach the publisher');
+    const attempt=++config.requests;
+    publisherRequests.push({chapterId:config.chapterId,mode:config.mode,attempt,method:request.method,
+      cookiePresent:!!request.headers.cookie,authorizationPresent:!!request.headers.authorization});
+    response.setHeader('Cache-Control','no-store');response.setHeader('Vary','Origin, Cookie');
+    const initialDenied=['include-exact','include-wildcard','missing-acac','http-403'].includes(config.mode)&&attempt===1;
+    const cors=config.mode==='no-cors'?'none':config.mode==='wrong-origin'?'wrong':
+      ['include-exact','missing-acac','http-403'].includes(config.mode)&&attempt>1?'exact':'wildcard';
+    if(cors!=='none')response.setHeader('Access-Control-Allow-Origin',cors==='exact'?origin:cors==='wrong'?'https://another.example.test':'*');
+    if(['include-exact','include-wildcard','http-403'].includes(config.mode)&&attempt>1)response.setHeader('Access-Control-Allow-Credentials','true');
+    response.setHeader('Content-Type',config.mode==='wrong-mime'?'text/html; charset=utf-8':'application/json; charset=utf-8');
+    if(config.mode==='redirect'){
+      response.statusCode=302;response.setHeader('Location',publisherOrigin+'/'+publisherBook+'/chapter/never-follow/');response.end();return;
+    }
+    if(initialDenied||config.mode==='http-403'){response.statusCode=403;response.end('{"error":"synthetic public denial"}');return;}
+    if(config.mode==='http-429'){response.statusCode=429;response.end('{"error":"synthetic public rate limit"}');return;}
+    response.setHeader('Content-Length',String(config.bytes.length));response.end(config.bytes);return;
+  }
   if(url.pathname==='/fixture-direct-provider-reader.js'){
     response.setHeader('Content-Type','text/javascript');response.end(directReaderSource);return;
   }
@@ -458,7 +518,8 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     response.setHeader('Content-Type','text/html; charset=utf-8');
     response.setHeader('Set-Cookie','fixtureSession='+secrets[0]+'; HttpOnly; Secure; SameSite=Lax; Path=/');
     if(!url.searchParams.has('open'))response.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'nonce-fixture'; style-src 'self'; connect-src 'self' "+mediaOrigin+
-      (config?.panoptoMode&&config.panoptoMode!=='metadata-csp'?' '+panoptoOrigin+' '+panoptoMediaOrigin:''));
+      (config?.panoptoMode&&config.panoptoMode!=='metadata-csp'?' '+panoptoOrigin+' '+panoptoMediaOrigin:'')+
+      (config?.publisherReaderCase&&!config.publisherCspBlocked?' '+publisherOrigin:''));
     response.end(`<!doctype html><title>Direct capture fixture</title><main><a id="editor" href="/teach/${slug}/${courseId}/content/item/project/item_0000">Open quiz normally</a><button id="foreign">Open unrelated test window</button></main><script nonce="fixture">
       window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixtureCsp=[];window.fixtureCspEvents=[];
       document.getElementById('editor').onclick=()=>{window.fixtureEditorClicks++;};
@@ -555,7 +616,8 @@ try{
     ...(process.env.CTI_CHROMIUM_PATH?{executablePath:process.env.CTI_CHROMIUM_PATH}:{channel:'chromium'}),
     args:['--no-sandbox','--disable-dev-shm-usage','--no-proxy-server','--host-resolver-rules=MAP www.coursera.org 127.0.0.1:'+server.address().port+
       ',MAP fixture-cdn.cloudfront.net 127.0.0.1:'+server.address().port+',MAP fixture.hosted.panopto.com 127.0.0.1:'+server.address().port+
-      ',MAP d2y36twrtb17ty.cloudfront.net 127.0.0.1:'+server.address().port+',MAP cti-hardening.pages.dev 127.0.0.1:'+server.address().port],
+      ',MAP d2y36twrtb17ty.cloudfront.net 127.0.0.1:'+server.address().port+',MAP cti-hardening.pages.dev 127.0.0.1:'+server.address().port+
+      ',MAP opentextbc.ca 127.0.0.1:'+server.address().port],
   });
   if(process.env.CTI_DIRECT_BROWSER_PROGRESS==='1')heartbeat=setInterval(async()=>{
     for(const context of browser.contexts())for(const page of context.pages())try{
@@ -643,6 +705,16 @@ try{
       const body=config.mode==='media-body-limit'?Buffer.concat([pngBytes,Buffer.alloc(17*1024*1024)]):asset.body;
       await route.fulfill({status:200,headers:responseHeaders,body});
     });
+    await context.route(publisherOrigin+'/**',async route=>{
+      const request=route.request(),url=new URL(request.url());
+      assert.equal(request.method(),'GET');
+      assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/chapters/[1-9]\\d*$'));
+      assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
+      // Fulfilled browser interceptions can synthesize CORS approval. Let the
+      // native fetch reach the mapped HTTPS server so the browser enforces the
+      // actual ACAO/credential combinations, including deliberate denials.
+      await route.continue();
+    });
     const destinations=[];page.on('request',request=>destinations.push(new URL(request.url()).origin));
     await page.goto(origin+'/teach/'+slug+'/'+config.id+'/content/edit');
     return {context,page,destinations,contextDownloads,popups};
@@ -702,7 +774,8 @@ try{
   async function assertNoEditor(page,destinations){
     const config=configs.get(new URL(page.url()).pathname.split('/')[3]);
     assert([...new Set(destinations)].every(destination=>destination===origin||destination===mediaOrigin||
-      config?.panoptoMode&&[panoptoOrigin,panoptoMediaOrigin].includes(destination)),
+      config?.panoptoMode&&[panoptoOrigin,panoptoMediaOrigin].includes(destination)||
+      config?.publisherReaderCase&&destination===publisherOrigin),
       'Only the authenticated authoring API and exact metadata-returned CDN can be requested');
     assert.equal(await page.evaluate(()=>window.fixtureEditorClicks),0);assert.equal(await page.evaluate(()=>window.fixtureScrolls),0);
     assert(!documents.some(address=>address.includes('/content/item/')),'No authoring editor is opened');
@@ -965,6 +1038,49 @@ try{
     }
     await result.context.close();
   }
+  const integratedPublisherStart=publisherRequests.length,integratedPublisherHelperStart=helperRequests.length;
+  const publisherIntegrated=await runFileCase(publisherInlineCourse);
+  assert.equal(publisherIntegrated.state.state,'INCOMPLETE');
+  assert.equal(evaluateCourseraCapture(publisherIntegrated.capture,publisherInlineCourse.id).complete,false);
+  const publisherPlacements=publisherIntegrated.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+  assert.equal(publisherPlacements.length,2);
+  for(const fp of publisherPlacements){
+    const source=atoms.get(fp.atomId),provider=fp.payload.directInlineWidgetProviderEvidence.providers[0];
+    assert.equal(provider.stableSource,true);assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);
+    assert.equal(fp.captureContract.complete,false,'An observed publisher chapter does not certify the containing interactive reading');
+    assert.deepEqual(fp.payload.directDraftCml,source.atom.draft.content.definition.content,'Original Coursera CML remains separate from publisher JSON');
+    assert.equal(provider.publisherPages.length,1);const page=provider.publisherPages[0];
+    assert.equal(page.targetUrl,publisherInlineCase.targetUrl);assert.deepEqual(page.sourceFields,['draft.configuration.url','draft.pageSrc']);
+    assert.equal(page.failures.length,0);assert.equal(page.observation.model.rawJson,publisherInlineCase.rawJson);
+    assert.equal(page.observation.model.html,undefined);assert.equal(page.observation.receipt.transport,'BROWSER_PUBLISHER_API');
+    assert(directPublisherEvidenceV1(page.observation,publisherInlineCase.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    assert(!provider.publicPages.some(page=>page.observation),'Publisher API JSON is never represented as captured page HTML');
+  }
+  assert.equal(publisherRequests.length-integratedPublisherStart,1,'Repeated native placements reuse one original publisher response');
+  assert.equal(helperRequests.length,integratedPublisherHelperStart,'A successful browser API read never invokes a server fallback');
+  const integratedStats=publisherIntegrated.capture.meta.directDataCapture.stats;
+  assert.equal(integratedStats.byResource.PublisherChapter,1);assert.equal(integratedStats.publisherPages.readerOperations,1);
+  assert.equal(integratedStats.publisherPages.observedBytes,publisherInlineCase.bytes.length);
+  assert.equal(integratedStats.publicPages.retainedUtf8Bytes,publisherInlineCase.bytes.length*2,'Every retained placement is charged to the shared original-text budget');
+  assert.equal(publisherIntegrated.capture.meta.directDataCapture.coverage.readings.verified,0);
+  assert.equal(publisherIntegrated.capture.meta.directDataCapture.coverage.questions,10,'External publisher text is not turned into synthetic Coursera questions');
+  const publisherCheckpointBefore=await checkpointSnapshot(publisherIntegrated.page),publisherAccessNativeStart=requests.length,
+    publisherAccessProviderStart=publisherRequests.length,publisherAccessHelperStart=helperRequests.length;
+  await publisherIntegrated.page.getByRole('button',{name:'Check embedded page access',exact:true}).click();
+  await publisherIntegrated.page.waitForFunction(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__?.diagnosing===false&&
+    window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__?.accessDiagnostic?.kind==='CTI_PUBLISHER_ACCESS_DIAGNOSTIC');
+  const publisherAccess=await publisherIntegrated.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.accessDiagnostic);
+  assert.equal(publisherAccess.diagnosticOnly,true);assert.equal(publisherAccess.accepted,true);assert.equal(publisherAccess.requests,1);
+  assert.equal(publisherAccess.courseCaptured,false);assert.equal(publisherAccess.progressChanged,false);
+  assert.equal(publisherAccess.source.targetUrl,publisherInlineCase.targetUrl);assert.equal(publisherAccess.chapter.id,999);
+  assert.equal(publisherAccess.body.sha256,createHash('sha256').update(publisherInlineCase.bytes).digest('hex'));
+  assert.equal(publisherRequests.length-publisherAccessProviderStart,1);assert.equal(helperRequests.length,publisherAccessHelperStart);
+  assert.equal(requests.length,publisherAccessNativeStart,'The lightweight access check selects saved native sources without rereading questions or course APIs');
+  assert.deepEqual(await checkpointSnapshot(publisherIntegrated.page),publisherCheckpointBefore,'Access checks do not replace saved raw sources, answers, dates or progress');
+  const publisherAccessText=JSON.stringify(publisherAccess);
+  assert(!publisherAccessText.includes('rawJson')&&!publisherAccessText.includes('Distinct rendered')&&!publisherAccessText.includes('[latex]'));
+  assert.equal(publisherIntegrated.contextDownloads.length,1,'The access check does not automatically download another artifact');
+  await publisherIntegrated.context.close();
   for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
     const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
     assert.equal(result.state.state,'INCOMPLETE');assert.equal(fp.captureContract.complete,false);assert(proof);
@@ -1464,6 +1580,92 @@ try{
   }
   panoptoComplete.directReaderCase=false;panoptoComplete.panoptoMode='allowed';await directPolicy.context.close();
 
+  // These engineering fixtures exercise standard browser CORS through actual
+  // HTTPS responses. They establish no policy for the publisher's live site,
+  // the operator's Chrome profile, or the private Coursera course.
+  const publisherPolicy=await open(publisherReaderCourse);
+  await publisherPolicy.context.addCookies([{name:'syntheticPublisherCookie',value:'synthetic-publisher-cookie',
+    url:publisherOrigin,httpOnly:true,secure:true,sameSite:'None'}]);
+  await publisherPolicy.page.waitForFunction(()=>typeof window.fixtureReadPublisher==='function');
+  const publisherNativeStart=requests.length,publisherHelperStart=helperRequests.length;
+  let successfulPublisherObservation=null;
+  for(const config of publisherFixtures){
+    const start=publisherRequests.length;
+    const result=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),config.targetUrl);
+    const actual=publisherRequests.slice(start);
+    const secondAttempt=['include-exact','include-wildcard','wrong-origin','missing-acac','no-cors','http-403','redirect'].includes(config.mode);
+    assert.equal(actual.length,secondAttempt?2:1,'The native public endpoint must be exercised for '+config.mode);
+    assert.equal(result.stats.requests,actual.length);assert.equal(result.stats.byResource.PublisherChapter,actual.length);
+    assert.equal(result.receipt.attempts.length,actual.length);assert.equal(result.receipt.attempts[0].credentials,'omit');
+    assert.equal(actual[0].cookiePresent,false,'The first public attempt omits even browser-owned publisher cookies');
+    assert(actual.every(request=>request.method==='GET'&&!request.authorizationPresent));
+    if(secondAttempt)assert.equal(result.receipt.attempts[1].credentials,'include');
+    if(['omit-wildcard','include-exact'].includes(config.mode)){
+      assert.equal(result.ok,true);assert.equal(result.reason,'');assert.equal(result.receipt.status,200);
+      assert.equal(result.receipt.responseType,'cors');assert.equal(result.receipt.observedAtBasis,'BROWSER_RESPONSE');
+      assert.equal(result.receipt.credentials,secondAttempt?'include':'omit');assert.equal(result.data.rawJson,config.rawJson);
+      assert.equal(result.data.bytes,config.bytes.length);assert.equal(result.stats.bytes,config.bytes.length);
+      assert.equal(result.data.sha256,createHash('sha256').update(config.bytes).digest('hex'));
+      assert.equal(result.receipt.originalResponseSha256,result.data.sha256);
+      assert.equal(result.data.statusCoverage,'PARTIAL_PUBLISHER_API_ONLY');assert.equal(result.data.html,undefined);
+      assert.equal(result.receipt.transport,'BROWSER_PUBLISHER_API');assert.equal(result.receipt.serviceOrigin,undefined);
+      const observation={model:result.data,receipt:result.receipt};
+      assert(directPublisherEvidenceV1(observation,config.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')));
+      const native=directPublisherChapterV1(result.data.rawJson,config.targetUrl);
+      assert.equal(native.content.raw,config.chapter.content.raw);assert.equal(native.content.rendered,config.chapter.content.rendered);
+      assert.notEqual(native.content.raw,native.content.rendered,'Raw publisher source is not replaced with rendered page HTML');
+      assert.equal(native.title.raw,config.chapter.title.raw);assert.equal(native.title.rendered,config.chapter.title.rendered);
+      assert.equal(result.stats.completed,1);assert.equal(result.stats.failed,0);
+      successfulPublisherObservation=observation;
+    }else{
+      assert.equal(result.ok,false);assert.equal(result.data,null);assert(result.reason);
+      assert.equal(result.stats.completed,0);assert.equal(result.stats.failed,1);
+      if(['include-wildcard','wrong-origin','missing-acac','no-cors','redirect'].includes(config.mode)){
+        assert.equal(result.reason,'PUBLISHER_BROWSER_BLOCKED_OR_FAILED');
+        assert.equal(result.receipt.status,0,'A server HTTP response hidden by browser policy is not an observed HTTP status');
+        assert.equal(result.receipt.responseType,'unreadable');assert.equal(result.receipt.observedAtBasis,'BROWSER_ATTEMPT');
+        assert.equal(result.receipt.bytes,0);assert.equal(result.receipt.originalResponseSha256,'');
+        assert.equal(result.receipt.attempts.at(-1).status,0);
+        if(['include-wildcard','missing-acac'].includes(config.mode))assert.equal(result.receipt.attempts[0].status,403,
+          'A prior omit response remains separate from the final unreadable credentialed response');
+      }else if(config.mode==='http-403')assert.equal(result.receipt.status,403);
+      else if(config.mode==='http-429')assert.equal(result.receipt.status,429);
+      else assert.equal(result.receipt.status,200,'An exposed HTTP 200 may still contain invalid or unsupported source evidence');
+      if(config.mode==='invalid-utf8')assert.equal(result.reason,'PUBLISHER_BROWSER_UTF8');
+      if(config.mode==='wrong-mime')assert.equal(result.reason,'PUBLISHER_BROWSER_MIME');
+      if(['wrong-id','wrong-book','protected','draft','escaped-credential'].includes(config.mode))assert.equal(result.reason,'PUBLISHER_BROWSER_SOURCE_INVALID');
+      if(config.mode==='body-limit')assert.match(result.reason,/BYTE_LIMIT/);
+    }
+  }
+  assert(successfulPublisherObservation);
+  for(const responseType of ['basic','opaque']){
+    const changed=structuredClone(successfulPublisherObservation);changed.receipt.responseType=responseType;
+    assert.equal(directPublisherEvidenceV1(changed,changed.model.requestedUrl,bytes=>createHash('sha256').update(bytes).digest('hex')),null,
+      'The importer never accepts a basic/opaque response as a browser CORS observation');
+  }
+  const opaque=await publisherPolicy.page.evaluate(async endpoint=>{const response=await fetch(endpoint,{mode:'no-cors',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
+    return{type:response.type,status:response.status,bytes:(await response.arrayBuffer()).byteLength};},
+    publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/chapters/'+publisherOpaque.chapterId);
+  assert.deepEqual(opaque,{type:'opaque',status:0,bytes:0},'A native no-cors response cannot reveal publisher content');
+  const beforeInvalidPublisher=publisherRequests.length;
+  const invalidPublisher=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),publisherOrigin+'/'+publisherBook+'/chapter/no-native-id/');
+  assert.equal(invalidPublisher.ok,false);assert.equal(invalidPublisher.reason,'INVALID_PUBLISHER_TARGET');
+  assert.equal(publisherRequests.length,beforeInvalidPublisher,'A chapter URL without a native numeric ID is not guessed or searched');
+  publisherReaderCourse.publisherCspBlocked=true;await publisherPolicy.page.reload();
+  await publisherPolicy.page.waitForFunction(()=>typeof window.fixtureReadPublisher==='function');
+  const beforePublisherCsp=publisherRequests.length;
+  const cspPublisher=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),publisherFixtures[0].targetUrl);
+  assert.equal(cspPublisher.ok,false);assert.equal(cspPublisher.receipt.status,0);assert.equal(cspPublisher.receipt.responseType,'unreadable');
+  assert.equal(cspPublisher.reason,'PUBLISHER_BROWSER_BLOCKED_OR_FAILED');assert.equal(publisherRequests.length,beforePublisherCsp);
+  assert((await publisherPolicy.page.evaluate(()=>window.fixtureCspEvents)).some(event=>event.disposition==='enforce'&&
+    ['connect-src','default-src'].includes(event.effectiveDirective)&&event.blockedURI.startsWith(publisherOrigin)),
+    'The direct public reader respects the actual course-page CSP');
+  assert.equal(await publisherPolicy.page.evaluate(()=>window.__CTI_PUBLISHER_EXECUTED===true),false);
+  assert.equal(requests.length,publisherNativeStart,'A provider access check does not reread course content or questions');
+  assert.equal(helperRequests.length,publisherHelperStart,'No CTI proxy silently retries a blocked browser publisher response');
+  assert.equal((await publisherPolicy.page.evaluate(()=>indexedDB.databases())).some(database=>database.name==='cti-coursera-direct-data-v1'),false);
+  publisherReaderCourse.publisherCspBlocked=false;await publisherPolicy.context.close();
+
   for(const config of [panoptoMetadataCors,panoptoBodyCors]){
     const target=await runFileCase(config);assert.equal(target.state.state,'INCOMPLETE');
     assertMixedNativeItems(config,target.capture);assertPanoptoMetadata(config,target.capture,true);
@@ -1573,6 +1775,8 @@ try{
     panoptoResumeFreshlyDownloadsMutableRenditionAndPreservesAssessments:true,changedRenditionSourceInvalidatesReuse:true,
     bookmarkWaitsForExplicitCaptureOrAccessCheck:true,accessDiagnosticSeparatesUpstreamAndCtiServiceAndUnavailableHelper:true,
     directReaderPreservesGenuineCspAndCorsFailures:true,popupBlockedAndCoopAndAccessDeniedRemainExplicitGaps:true,
+    publisherBrowserCorsAndCredentialModesEnforced:true,publisherApiRetainsExactUtf8JsonAndDistinctRawRenderedFields:true,
+    publisherApiWrongIdentityProtectedDraftMimeUtf8AndBodyLimitRemainGaps:true,publisherBrowserBlockedResponseNeverInventsHttpStatus:true,
     foreignSameOriginWindowCannotForgeProviderResult:true,cancelClosesHelperAndPreservesNativeAndHistoricalBytes:true,
     accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,
