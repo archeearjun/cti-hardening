@@ -120,6 +120,44 @@ test("metadata operation sends only its fixed body and streams headers and bound
   } finally { f.close(); }
 });
 
+test("public HTML helper operation uses only its closed endpoint/body and checks complete JSON-envelope length", async () => {
+  const publicTarget = "https://opentextbc.ca/syntheticbook/chapter/area/#main", providerId = "p".repeat(22) + "@3", body = "{}";
+  for (const declared of ["2", "3", null]) {
+    const f = fixture({ fetcher: async () => new Response(body, { headers: { "content-type": "application/json",
+      ...(declared === null ? {} : { "X-CTI-Response-Envelope-Bytes": declared }), "set-cookie": "PRIVATE_SOURCE_COOKIE" } }) });
+    const scopedIdentity = { ...identity, providerId };
+    try {
+      await nextTurn(); f.emit({ type: "init" });
+      f.emit({ type: "request", ...scopedIdentity, kind: "publicHtml", payload: { targetUrl: publicTarget, itemId: identity.itemId, providerId } });
+      await nextTurn();
+      assert.equal(f.calls[1].url, "/api/provider/public-html");
+      assert.equal(f.calls[1].options.credentials, "same-origin");
+      assert.equal(f.calls[1].options.redirect, "error");
+      assert.deepEqual(JSON.parse(f.calls[1].options.body), { targetUrl: publicTarget });
+      assert(!JSON.stringify(f.messages).includes("PRIVATE_SOURCE_COOKIE"));
+      if (declared === null) { assert.equal(f.messages.at(-1).code, "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_UNAVAILABLE"); continue; }
+      assert.equal(f.messages.at(-1).type, "head");
+      f.emit({ type: "pull", ...scopedIdentity, seq: 0, offset: 0 }); await nextTurn();
+      assert.equal(f.messages.at(-1).type, "chunk");
+      f.emit({ type: "pull", ...scopedIdentity, seq: 1, offset: 2 }); await nextTurn();
+      if (declared === "2") assert.equal(f.messages.at(-1).type, "end");
+      else assert.equal(f.messages.at(-1).code, "PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH");
+    } finally { f.close(); }
+  }
+});
+
+test("public HTML helper counts decoded bytes using the service envelope header rather than compressed wire length", async () => {
+  const publicTarget="https://opentextbc.ca/syntheticbook/chapter/area/",providerId="p".repeat(22)+"@3",scoped={...identity,providerId};
+  const f=fixture({fetcher:async()=>new Response("{}",{headers:{"content-type":"application/json","content-encoding":"gzip","content-length":"20","X-CTI-Response-Envelope-Bytes":"2"}})});
+  try{
+    await nextTurn();f.emit({type:"init"});f.emit({type:"request",...scoped,kind:"publicHtml",payload:{targetUrl:publicTarget,itemId:identity.itemId,providerId}});await nextTurn();
+    const head=f.messages.at(-1);assert.equal(head.type,"head");
+    assert(head.headers.some(([key,value])=>key==="x-cti-response-envelope-bytes"&&value==="2"));
+    f.emit({type:"pull",...scoped,seq:0,offset:0});await nextTurn();assert.equal(f.messages.at(-1).bytes.byteLength,2);
+    f.emit({type:"pull",...scoped,seq:1,offset:2});await nextTurn();assert.equal(f.messages.at(-1).type,"end");
+  }finally{f.close();}
+});
+
 test("podcast helper preserves full upstream length and only ends an exact body", async () => {
   const source = new Uint8Array(100000).fill(47);
   for (const declared of [100000, 100001, 99999]) {

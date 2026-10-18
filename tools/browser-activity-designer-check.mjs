@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import JSZip from "jszip";
 import { gzipSync } from "node:zlib";
+import { courseraDirectDataSource } from "../src/generated/extractor-sources.js";
+import { createCourseraDirectDataCaptureBookmark } from "../src/domain/coursera-direct-data-capture.ts";
 import { clickDisclosedControl } from "./browser-workspace-navigation.mjs";
 import {
   captureFixture,
@@ -87,9 +89,12 @@ try {
   );
   assert.equal(
     await page.locator("#capture-bookmark").getAttribute("href"),
-    await page.evaluate(() =>
-      CourseCtiUnifiedCapture.bookmark(CourseCtiCaptureScript),
-    ),
+    createCourseraDirectDataCaptureBookmark(),
+  );
+  assert.equal(
+    await page.locator("#capture-script-text").inputValue(),
+    courseraDirectDataSource,
+    "The activity console fallback keeps the original readable source.",
   );
   assert.equal(
     await page.locator("#capture-bookmark-address").inputValue(),

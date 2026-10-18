@@ -175,18 +175,18 @@ test('Direct course bookmark reports compare their captured build against the in
     directDataCapture:{mode:'BOUND_AUTHORING_DRAFT_API',version:1}};
   const before=JSON.stringify(meta),readiness=c.qaCourseraCaptureReadiness_(meta,[]);
   assert.equal(readiness.observedVersion,'v1.7.2');
-  assert.equal(readiness.expectedVersion,'v1.7.6');
+  assert.equal(readiness.expectedVersion,'v1.8.0');
   assert.equal(readiness.olderCapture,true);
   const report=buildPostQaText_({success:true,stats:{extractorMeta:meta},captureReadiness:readiness,
     summary:{headlineStatus:'REVIEW'},itemResults:[],missing:[],injected:[]});
   assert.match(report,/Coursera captured extractor: v1\.7\.2-content-and-structure-coverage-20261017/);
-  assert.match(report,/Current available Coursera extractor: v1\.7\.6/);
+  assert.match(report,/Current available Coursera extractor: v1\.8\.0/);
   assert.doesNotMatch(report,/Current available Coursera extractor: v6\./);
   assert.match(report,/Version relationship: HISTORICAL_CAPTURE/);
   assert.equal(JSON.stringify(meta),before);
-  const current=c.qaCourseraCaptureReadiness_({...meta,buildId:'v1.7.6-native-dwg-originals-20261018'},[]);
+  const current=c.qaCourseraCaptureReadiness_({...meta,buildId:'v1.8.0-inline-widget-public-html-20261018'},[]);
   assert.equal(current.status,'CURRENT_VERSION');
-  assert.equal(current.expectedVersion,'v1.7.6');
+  assert.equal(current.expectedVersion,'v1.8.0');
   assert.equal(current.olderCapture,false);
 });
 

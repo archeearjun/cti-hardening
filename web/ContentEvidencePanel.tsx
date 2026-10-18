@@ -10,12 +10,60 @@ import PublicContentFetch from "./PublicContentFetch";
 import CtiAnswerPanel from "./CtiAnswerPanel";
 import BrightspaceHtmlStructureEvidence from "./BrightspaceHtmlStructure";
 import { choiceLabel, ctiAnswerCheck } from "../src/domain/cti-answer-check";
+import {
+  courseraInlineWidgetPage,
+  type CourseraInlineWidgetContent,
+  type InlineWidgetPublicPage,
+} from "../src/domain/coursera-inline-widget-content";
 const labels = {
   COMPLETE: "Complete captured field",
   PARTIAL: "Partial / coverage unverified",
   UNVERIFIED: "Unverified",
   EMPTY: "Confirmed empty",
 };
+function InlineWidgetPageEvidence({ content, providerId, page }: {
+  content: CourseraInlineWidgetContent;
+  providerId: string;
+  page: InlineWidgetPublicPage;
+}) {
+  const [open, setOpen] = useState(false),
+    original = open && page.status !== "UNRESOLVED"
+      ? courseraInlineWidgetPage(content, providerId, page.targetUrl) : null;
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>{page.status === "CAPTURED_PARTIAL_PUBLIC_HTML" ? "Captured public static HTML · partial content" : page.status === "HISTORICAL_RETAINED_PUBLIC_HTML" ? "Earlier public HTML retained · current read failed" : "Public page read unresolved"}</summary>
+    <p className="captured-text">Configured target: {page.targetUrl}</p>
+    {page.status !== "UNRESOLVED" ? <>
+      {page.status === "HISTORICAL_RETAINED_PUBLIC_HTML" && <p className="hint">This HTML was retained from an earlier observation of this exact target. The current read failed. Its original timestamp remains below; current content and freshness are unverified.</p>}
+      <p className="captured-text">Final URL: {page.finalUrl}</p>
+      <p className="hint">Observed: {page.observedAt} · {page.bytes.toLocaleString()} UTF-8 bytes</p>
+      <p className="captured-text">SHA-256: {page.sha256}</p>
+      <p className="hint">This is a plain-text approximation of the retained HTML. Rendered appearance, mathematical notation, images, video and dynamic activities remain unverified.</p>
+      {original && <>
+        <pre className="captured-text">{original.text.slice(0, 300000)}</pre>
+        {original.text.length > 300000 && <p className="hint">The preview stops at 300,000 characters. The original HTML remains in this report's JSON evidence.</p>}
+        <details><summary>Literal original HTML (inert source)</summary><pre className="captured-text">{original.html}</pre></details>
+      </>}
+    </> : null}
+    {page.failures.map((reason, index) => <p className="hint" key={index}>Current read outcome: {reason}</p>)}
+  </details>;
+}
+function InlineWidgetContentEvidence({ content }: { content: CourseraInlineWidgetContent }) {
+  return <section className="scope" aria-label="Captured embedded pages">
+    <h6>Captured embedded pages</h6>
+    <p className="hint">These are this item's native widget configurations and separately retained public HTML. They remain separate from the reading's native text and completion status. Complete widget content and learner interactions remain unverified.</p>
+    {content.providers.map(provider => <details key={provider.providerId}>
+      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current public page observations{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
+      <p className="hint">Native response base ID: {provider.providerBaseId}. Requested version {provider.requestedVersion} comes from the exact CML selector; the response does not echo that version.</p>
+      <p className="hint">Configuration observed: {provider.configurationObservedAt} · {provider.occurrences} placement{provider.occurrences === 1 ? "" : "s"} in this item</p>
+      {provider.configuredTargets.map((target, index) => <p className="captured-text" key={index}>
+        {target.sourceField}: {safeWebUrl(target.url) ? <a href={safeWebUrl(target.url)} target="_blank" rel="noopener noreferrer">{target.url}</a> : target.url}
+      </p>)}
+      {!provider.publicPages.length && <p className="hint">No retained public HTML is established for these configured targets.</p>}
+      {provider.publicPages.map(page => <InlineWidgetPageEvidence key={page.targetUrl} content={content} providerId={provider.providerId} page={page} />)}
+    </details>)}
+    {content.failures.map((failure, index) => <p className="hint" key={index}>Widget {failure.providerId}: {failure.reason}</p>)}
+  </section>;
+}
 function SourceBodyEvidence({ body }: { body: BrightspaceSourceBody }) {
   const originalVerified =
     body.originalIntegrity === "VERIFIED_RETAINED_ORIGINAL";
@@ -203,6 +251,7 @@ function Evidence({
         )}
       </p>
       {content.sourceBody && <SourceBodyEvidence body={content.sourceBody} />}
+      {content.inlineWidgetContent && <InlineWidgetContentEvidence content={content.inlineWidgetContent} />}
       {content.linkedSourceAssessments && (
         <section className="scope" aria-label="Linked source native assessments">
           <h6>Linked source native assessments</h6>

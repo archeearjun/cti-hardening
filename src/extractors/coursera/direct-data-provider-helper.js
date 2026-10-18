@@ -1,11 +1,12 @@
 import { directPanoptoAutomaticTargetV1 } from './direct-data-panopto.js';
+import { directPublicPageTargetV1, CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 } from './direct-data-public-page.js';
 
 export const CTI_PROVIDER_HELPER_PROTOCOL_V1 = 'CTI_PROVIDER_HELPER_V1';
 export const CTI_PROVIDER_HELPER_ORIGIN_V1 = 'https://cti-hardening.pages.dev';
-export const CTI_PROVIDER_HELPER_HEADERS_V1 = 'content-type,content-length,content-range,content-encoding,x-cti-provider-transport,x-cti-provider-origin,x-cti-upstream-status,x-cti-upstream-observed-at,x-cti-upstream-bytes,x-cti-upstream-content-length,x-cti-upstream-requests,x-cti-validation-bytes,x-cti-validation-source-hash,x-cti-validation-observed-at';
+export const CTI_PROVIDER_HELPER_HEADERS_V1 = 'content-type,content-length,content-range,content-encoding,x-cti-provider-transport,x-cti-provider-origin,x-cti-upstream-status,x-cti-upstream-observed-at,x-cti-upstream-bytes,x-cti-upstream-content-length,x-cti-upstream-requests,x-cti-validation-bytes,x-cti-validation-source-hash,x-cti-validation-observed-at,x-cti-response-envelope-bytes';
 
 /** The click handler opens one authenticated CTI helper synchronously. Only
- * fixed Panopto operations cross this channel; no credentials cross it. */
+ * fixed public provider operations cross this channel; no credentials cross it. */
 export function createDirectProviderHelperV1(options = {}) {
   function failure(code) {return Object.assign(Error(code),{code});}
   const host=options.windowImpl || globalThis.window, courseId=options.courseId;
@@ -89,7 +90,16 @@ export function createDirectProviderHelperV1(options = {}) {
               !headerNames.includes(pair[0]) || headers.has(pair[0])) throw Error();
           headers.set(pair[0],pair[1]);
         }
-        if (Number(headers.get('content-length') || 0)>job.limit) throw Error();
+        if (job.kind!=='publicHtml' && Number(headers.get('content-length') || 0)>job.limit) throw Error();
+        if (job.kind==='publicHtml' && m.status===200) {
+          const declared=headers.get('x-cti-response-envelope-bytes');
+          const expected=/^[1-9]\d*$/.test(declared || '')?Number(declared):NaN;
+          if (!Number.isSafeInteger(expected) || expected>job.limit) throw Error();
+          const wire=headers.get('content-length');
+          if (headers.get('content-encoding')?.trim().toLowerCase()==='identity' && wire!==null &&
+              (!/^[1-9]\d*$/.test(wire) || Number(wire)!==expected)) throw Error();
+          job.declaredBytes=expected;
+        }
         const body=new ReadableStream({start(controller){job.controller=controller;},
           pull(){if (!job.waiting && jobs.has(job.id)) {job.waiting=true;send('pull',{
             ...job.binding,seq:job.seq,offset:job.bytes});}},
@@ -101,23 +111,29 @@ export function createDirectProviderHelperV1(options = {}) {
         m.offset===job.bytes && m.bytes instanceof ArrayBuffer && m.bytes.byteLength>0 &&
         m.bytes.byteLength<=65536) {
       const size=m.bytes.byteLength;total+=size;job.bytes+=size;
-      if (job.bytes>job.limit || total>512*1024*1024) {
+      if (job.bytes>job.limit || (job.declaredBytes!==undefined && job.bytes>job.declaredBytes) || total>512*1024*1024) {
         send('cancel',job.binding);finish(job,'PROVIDER_HELPER_BYTE_LIMIT');return;
       }
       job.seq++;job.waiting=false;job.controller.enqueue(new Uint8Array(m.bytes));return;
     }
     if (m.type==='end' && job.controller && job.waiting && m.seq===job.seq && m.offset===job.bytes) {
+      if (job.declaredBytes!==undefined && job.bytes!==job.declaredBytes) {
+        finish(job,'PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH');return;
+      }
       job.controller.close();finish(job);return;
     }
     send('cancel',job.binding);finish(job,'PROVIDER_HELPER_INVALID_RESPONSE');
   }
   function request(kind,payload,signal) {
     if (stopped) return Promise.reject(failure(stopped));
-    if (!payload || typeof payload!=='object' || !directPanoptoAutomaticTargetV1(payload.targetUrl) ||
-        !['metadata','podcast'].includes(kind) || Object.keys(payload).some(key=>
+    if (!payload || typeof payload!=='object' ||
+        !(kind==='publicHtml' ? directPublicPageTargetV1(payload.targetUrl) : directPanoptoAutomaticTargetV1(payload.targetUrl)) ||
+        !['metadata','podcast','publicHtml'].includes(kind) || Object.keys(payload).some(key=>
           !['targetUrl','itemId','providerId',...(kind==='podcast'?['streamFileId','sourceHash']:[])].includes(key)) ||
         ['itemId','providerId'].some(key=>payload[key]!==undefined &&
-          (typeof payload[key]!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(payload[key]))) ||
+          (typeof payload[key]!=='string' || !(key==='providerId' && kind==='publicHtml'
+            ? /^[A-Za-z0-9_-]{22}@\d{1,12}$/.test(payload[key]) || /^[A-Za-z0-9_-]{1,128}$/.test(payload[key])
+            : /^[A-Za-z0-9_-]{1,128}$/.test(payload[key])))) ||
         (kind==='podcast' && (typeof payload.streamFileId!=='string' || typeof payload.sourceHash!=='string' ||
           !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(payload.streamFileId) ||
           !/^[a-f0-9]{64}$/.test(payload.sourceHash))))
@@ -127,7 +143,7 @@ export function createDirectProviderHelperV1(options = {}) {
     return new Promise((resolve,reject)=>{
       const id=String(++counter),binding={id,itemId:payload.itemId,providerId:payload.providerId};
       const job={id,binding,kind,payload:{...payload},signal,resolve,reject,seq:0,bytes:0,
-        limit:kind==='metadata'?512*1024:128*1024*1024,started:false,waiting:false};
+        limit:kind==='metadata'?512*1024:kind==='publicHtml'?CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1:128*1024*1024,started:false,waiting:false};
       job.abort=()=>{send('cancel',binding);finish(job,'PROVIDER_HELPER_ABORTED');};
       jobs.set(id,job);queue.push(job);signal?.addEventListener('abort',job.abort,{once:true});pump();
     });

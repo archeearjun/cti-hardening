@@ -4,6 +4,7 @@ import {
   readPanoptoProviderPodcast,
   panoptoProviderErrorResponse,
 } from "./panopto-provider.ts";
+import { readPublicHtmlProvider, publicHtmlProviderErrorResponse } from "./public-html-provider.ts";
 import {
   validateRecord,
   validateWorkspaceTransition,
@@ -32,6 +33,7 @@ import {
 } from "./workspace-upload.ts";
 import {
   isWorkspaceApiPath,
+  isPublicHtmlApiPath,
   forwardWorkspaceApi,
 } from "./workspace-runtime.ts";
 interface Statement {
@@ -279,6 +281,17 @@ function panoptoProviderAction(
   );
   return match ? (match[1] as "metadata" | "podcast") : null;
 }
+async function handlePublicHtmlProvider(request: Request, user: { role: string }, providerFetcher: typeof fetch): Promise<Response> {
+  requireWriteAccess(request, user);
+  const origin = new URL(request.url).origin;
+  if (request.method !== "POST") return publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_METHOD_NOT_ALLOWED", 405, origin);
+  let input: Record<string, unknown>;
+  try {
+    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await boundedBody(request, 8192)));
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 1 || typeof input.targetUrl !== "string") throw Error();
+  } catch { return publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_INVALID_REQUEST", 400, origin); }
+  return readPublicHtmlProvider(input.targetUrl as string, { fetcher: providerFetcher, signal: request.signal, serviceOrigin: origin });
+}
 async function handlePanoptoProvider(
   request: Request,
   user: { role: string },
@@ -354,12 +367,13 @@ export function createApiHandler(
           ? "editor"
           : "viewer";
       const providerAction = panoptoProviderAction(request);
-      if (providerAction) {
+      const publicHtmlAction = isPublicHtmlApiPath(new URL(request.url).pathname);
+      if (providerAction || publicHtmlAction) {
         requireWriteAccess(request, { role });
         if (request.method !== "POST")
-          return panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin);
+          return publicHtmlAction ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_METHOD_NOT_ALLOWED", 405, new URL(request.url).origin);
         if (!env.CTI_EXTRACTOR)
-          return panoptoProviderErrorResponse("PANOPTO_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin);
+          return publicHtmlAction ? publicHtmlProviderErrorResponse("PUBLIC_HTML_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin) : panoptoProviderErrorResponse("PANOPTO_PROVIDER_RUNTIME_UNAVAILABLE", 503, new URL(request.url).origin);
         // Provider parsing, source hashing and streaming callbacks run inside
         // the private Durable Object. Pages forwards the body without reading it.
         return await forwardWorkspaceApi(request, { ...identity, role }, env.CTI_EXTRACTOR);
@@ -418,6 +432,7 @@ export async function handleAuthorized(
       .filter(Boolean),
     method = request.method;
   const providerAction = panoptoProviderAction(request);
+  if (isPublicHtmlApiPath(url.pathname)) return handlePublicHtmlProvider(request, user, providerFetcher);
   if (providerAction)
     return handlePanoptoProvider(
       request,

@@ -5,6 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as bridge from "../server/workspace-runtime.ts";
 import { panoptoProviderErrorResponse } from "../server/panopto-provider.ts";
+import { publicHtmlProviderErrorResponse } from "../server/public-html-provider.ts";
 import { CTI_OWNER_EMAIL } from "../server/access.ts";
 
 const origin="https://cti-hardening.pages.dev";
@@ -21,6 +22,7 @@ function fixture(handler,env={}) {
     "cloudflare:workers":{DurableObject:class{constructor(context,environment){this.env=environment;}}},
     "../../server/api.ts":{handleAuthorized:handler},
     "../../server/panopto-provider.ts":{panoptoProviderErrorResponse},
+    "../../server/public-html-provider.ts":{publicHtmlProviderErrorResponse},
     "../../server/workspace-runtime.ts":bridge,
   };
   vm.runInNewContext(compiled,{exports,require:name=>{
@@ -29,7 +31,7 @@ function fixture(handler,env={}) {
   return {...exports,object:new exports.WorkspaceRuntime({},env)};
 }
 function request(path="/api/provider/panopto/podcast",signal) {
-  const provider=bridge.isPanoptoApiPath(path);
+  const provider=bridge.isProviderApiPath(path);
   return new Request(bridge.WORKSPACE_SERVICE_ORIGIN+bridge.WORKSPACE_RUNTIME_PREFIX+path,{
     method:provider?"POST":"GET",...(provider?{body:"{}"}:{}),signal,
     headers:{...(provider?{Origin:bridge.WORKSPACE_SERVICE_ORIGIN,"x-cti-public-origin":origin}:{}),
@@ -45,8 +47,31 @@ test("private frontdoor selects distinct provider and record object identities",
   };}}};
   assert.equal((await f.forwardWorkspaceRuntime(request(),env)).status,200);
   assert.equal((await f.forwardWorkspaceRuntime(request("/api/records"),env)).status,200);
-  assert.deepEqual(names,[f.PANOPTO_RUNTIME_OBJECT_NAME,f.WORKSPACE_RUNTIME_OBJECT_NAME]);
+  assert.equal((await f.forwardWorkspaceRuntime(request("/api/provider/public-html"),env)).status,200);
+  assert.deepEqual(names,[f.PANOPTO_RUNTIME_OBJECT_NAME,f.WORKSPACE_RUNTIME_OBJECT_NAME,f.PANOPTO_RUNTIME_OBJECT_NAME]);
   assert.notEqual(names[0],names[1]);
+});
+
+test("public HTML shares the bounded provider object without D1 and returns its own busy code",async()=>{
+  let calls=0;
+  const f=fixture(async(api,db,user)=>{
+    calls++;assert.equal(db,undefined);assert.equal(api.url,origin+"/api/provider/public-html");
+    assert.equal(api.headers.get("Origin"),origin);assert.equal(user.email,CTI_OWNER_EMAIL);
+    return new Response(new ReadableStream(),{headers:{"Content-Type":"application/json","Content-Length":"2","X-CTI-Response-Envelope-Bytes":"2"}});
+  });
+  const active=[];
+  for(let index=0;index<f.PANOPTO_RUNTIME_MAX_STREAMS;index++){
+    const response=await f.object.fetch(request("/api/provider/public-html"));
+    assert.equal(response.headers.get("X-CTI-Response-Envelope-Bytes"),"2","Private DO response wrappers preserve decoded-envelope framing");
+    active.push(response);
+  }
+  assert.equal(calls,f.PANOPTO_RUNTIME_MAX_STREAMS);
+  const busy=await f.object.fetch(request("/api/provider/public-html"));
+  assert.equal(busy.status,503);assert.equal((await busy.json()).error,"PUBLIC_HTML_PROVIDER_BUSY");
+  await active.shift().body.cancel();
+  const next=await f.object.fetch(request("/api/provider/public-html"));assert.equal(next.status,200);active.push(next);
+  assert.equal(calls,f.PANOPTO_RUNTIME_MAX_STREAMS+1);
+  for(const response of active)await response.body.cancel();
 });
 
 test("provider computation runs without D1 and retains the original public receipt origin",async()=>{

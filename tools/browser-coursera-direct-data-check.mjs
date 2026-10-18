@@ -18,6 +18,10 @@ import {panoptoDeliveryFixture} from '../tests/panopto-delivery-fixtures.mjs';
 import {validateProviderAccessDiagnostic,providerAccessDiagnosticText} from '../src/domain/provider-access-diagnostic.ts';
 import {createCourseraDirectDataCaptureBookmark,createCourseraDirectDataCaptureScript} from '../src/domain/coursera-direct-data-capture.ts';
 import {encodeJavaScriptBookmarkPayload} from '../src/domain/bookmark-address.js';
+import {bindDirectAuthoringDraftV1} from '../src/extractors/coursera/direct-data-models.js';
+import {directInlineWidgetEvidenceV1} from '../src/extractors/coursera/direct-data-contracts.js';
+import {directCanonicalSourceTextV1} from '../src/extractors/coursera/direct-data-canonical.js';
+import {directPublicHtmlEvidenceV1} from '../src/extractors/coursera/direct-data-public-page.js';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -43,6 +47,7 @@ const secrets=['fixture-http-only-cookie','fixture-write-token','fixture-nested-
 const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),assets=new Map(),providers=new Map(),fileSizes=new WeakMap();
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 const panoptoDeliveries=new Map(),panoptoRequests=[];
+const publicPages=new Map(),publicPageRequests=[];
 const helperRequests=[],helperUpstreamRequests=[],helperErrors=[];
 const readerFixtureEntry=path.join(scratch,'direct-reader-entry.js');
 fs.writeFileSync(readerFixtureEntry,"import {createDirectDataReaderV1} from "+JSON.stringify(path.resolve('src/extractors/coursera/direct-data-network.js'))+";window.fixtureReadDirectProvider=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPanoptoDeliveryInfo(targetUrl);return{ok:result.ok,reason:result.reason,receipt:result.receipt};}finally{reader.abort('FIXTURE_FINISHED');}};");
@@ -195,6 +200,32 @@ function makePanoptoCourse(id,mode){
   }
   config.contentCount+=3;return config;
 }
+function makeInlineWidgetCourse(id,mode='inline-success',duplicatePlacement=false){
+  const config=makeCourse(id,'complete'),row=[...atoms.values()].find(value=>value.courseId===id&&value.itemId==='item_0002');
+  config.inlineMode=mode;config.providerGets=new Map();config.inlineProviderId=key('iw'+configs.size+'_',1)+'@1';
+  const markup='<co-content><p>Exact reading, 2 + 3 = 5.</p><widget id="'+config.inlineProviderId+'"/><widget id="'+config.inlineProviderId+'"/></co-content>';
+  row.atom.draft.content.definition.content={typeName:'cml',definition:{dtdId:'assess/1',value:markup}};
+  providers.set(config.inlineProviderId,{courseId:id,itemId:row.itemId,value:{id:config.inlineProviderId.split('@')[0],
+    isPublished:true,owners:['COURSE~'+id],metadata:{updatedAt:1000},draft:{configuration:{url:'https://unavailable.example.test/recorded-inline-page'},
+      pageSrc:'https://unavailable.example.test/recorded-inline-page',iframeTitle:'Exact inline page',widgetVersionId:'synthetic-widget@1'}}});
+  if(duplicatePlacement){
+    const itemId='item_0003',atomId=key('ia'+configs.size+'_',3),atom=structuredClone(row.atom);
+    atom.id=atomId;atom.contentId='atom~'+atomId;
+    const relation={id:atomId,atomId,branchRelationMap:{[id+'~'+itemId]:{courseId:id,itemId,courseSlug:slug}}};
+    atoms.set(atomId,{courseId:id,itemId,atom,relation});
+    config.material.material.elements[0].elements[0].elements.push({id:itemId,name:'Second native placement',atomId,contentId:atom.contentId,
+      content:{typeName:'supplement',definition:{assetId:key('inlineReading_',configs.size)+'@1',assetTypeName:'html'}}});
+    config.contentCount++;
+  }
+  return config;
+}
+function makePublicInlineWidgetCourse(id,mode='public-success',duplicatePlacement=false){
+  const config=makeInlineWidgetCourse(id,mode,duplicatePlacement),provider=providers.get(config.inlineProviderId);
+  config.publicTarget='https://opentextbc.ca/mathfortrades2/chapter/'+id.toLowerCase().replaceAll('_','-')+'/#main';
+  config.publicHtml='<!doctype html><html><body><main><h1>Authored Area fixture</h1><p>Exact café 日本語 content.</p><section hidden>Original hidden lesson text.</section></main></body></html>';
+  provider.value.draft.configuration.url=config.publicTarget;provider.value.draft.pageSrc=config.publicTarget;
+  publicPages.set(config.publicTarget.split('#')[0],config);return config;
+}
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 for(const row of definitions.values())if(row.courseId===complete.id){
@@ -219,10 +250,25 @@ const dwgOriginals=makeDwgMediaCourse('Direct_dwg_originals_123');
 const assessReadingMedia=makeMediaCourse('Direct_assess_reading_123');
 const assessReading=[...atoms.values()].find(row=>row.courseId===assessReadingMedia.id&&row.itemId==='item_0002');
 assessReading.atom.draft.content.definition.content.definition.dtdId='assess/1';
-const inlineWidgetReading=makeCourse('Direct_inline_widget_123','complete');
-const inlineWidget=[...atoms.values()].find(row=>row.courseId===inlineWidgetReading.id&&row.itemId==='item_0002');
-inlineWidget.atom.draft.content.definition.content.definition.dtdId='assess/1';
-inlineWidget.atom.draft.content.definition.content.definition.value='<co-content><p>Exact reading, 2 + 3 = 5.</p><widget id="'+key('w',1)+'@1"/></co-content>';
+const inlineWidgetReading=makeInlineWidgetCourse('Direct_inline_widget_123','inline-success',true);
+const inlineWidgetWrongOwner=makeInlineWidgetCourse('Direct_inline_owner_123','inline-wrong-owner');
+const inlineWidgetChanged=makeInlineWidgetCourse('Direct_inline_changed_123','inline-source-changed');
+const inlineWidgetPartial=makeInlineWidgetCourse('Direct_inline_partial_123','inline-partial');
+const inlineWidgetDiscussion=makeInlineWidgetCourse('Direct_inline_discussion_123');
+const publicInlineWidget=makePublicInlineWidgetCourse('Direct_inline_public_123','public-success',true);
+const publicInlineHtmlError=makePublicInlineWidgetCourse('Direct_inline_html_error_123','public-html-error');
+const publicInlineChanged=makePublicInlineWidgetCourse('Direct_inline_public_changed_123','inline-source-changed');
+const inlineDiscussionRow=[...atoms.values()].find(row=>row.courseId===inlineWidgetDiscussion.id&&row.itemId==='item_0002');
+const inlineDiscussionCml=inlineDiscussionRow.atom.draft.content.definition.content;
+inlineDiscussionRow.atom.draft.content={typeName:'discussionPromptDraft',definition:{promptType:{typeName:'questionPerSession',definition:{
+  title:'Exact discussion with an embedded page',promptPermissions:{viewAnswersBeforeReplying:false},
+  prompt:{...inlineDiscussionCml,definition:{...inlineDiscussionCml.definition,dtdId:'discussion/1'}}}}}};
+inlineWidgetDiscussion.material.material.elements[0].elements[0].elements[2].content={typeName:'discussionPrompt',definition:{discussionPromptId:key('inlineDiscussion_',1)+'@1'}};
+const failedInlineProviderId=key('missing_inline_',1)+'@2';
+providers.set(failedInlineProviderId,{courseId:inlineWidgetPartial.id,itemId:'item_0002',fail:true,value:{id:failedInlineProviderId.split('@')[0]}});
+const partialInlineRow=[...atoms.values()].find(row=>row.courseId===inlineWidgetPartial.id&&row.itemId==='item_0002');
+partialInlineRow.atom.draft.content.definition.content.definition.value=partialInlineRow.atom.draft.content.definition.content.definition.value.replace('</co-content>',
+  '<widget id="'+failedInlineProviderId+'"/></co-content>');
 const mediaEnrichment=makeMediaCourse('Direct_media_enrichment_123','media-legacy-gap');
 const mediaCheckpoint=makeDiscussionMediaCourse('Direct_media_checkpoint_123','media-legacy-gap');
 const discussionMedia=makeDiscussionMediaCourse('Direct_discussion_media_123');
@@ -271,6 +317,12 @@ async function fixtureProviderFetch(address,init){
   const url=new URL(address),headers=new Headers(init.headers);
   assert.equal(init.credentials,'omit');assert.equal(init.redirect,'manual');
   assert.equal(headers.get('cookie'),null);assert.equal(headers.get('authorization'),null);
+  if(url.origin==='https://opentextbc.ca'){
+    assert.equal(init.method,'GET');const config=publicPages.get(url.href);assert(config);
+    publicPageRequests.push({courseId:config.id,url:url.href,method:init.method});
+    return new Response(config.inlineMode==='public-html-error'?'<html><body><input type="password"></body></html>':config.publicHtml,
+      {headers:{'Content-Type':'text/html; charset=utf-8'}});
+  }
   if(url.origin===panoptoOrigin){
     assert.equal(url.pathname,'/Panopto/Pages/Viewer/DeliveryInfo.aspx');assert.equal(init.method,'POST');
     const form=new URLSearchParams(init.body),config=panoptoDeliveries.get(form.get('deliveryId'));
@@ -322,7 +374,8 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
           ...(body?{body}:{}),signal:controller.signal});
         let providerConfig;
         if(url.pathname.startsWith('/api/provider/')){
-          const payload=JSON.parse(body),identity=new URL(payload.targetUrl).searchParams.get('id'),config=panoptoDeliveries.get(identity);
+          const payload=JSON.parse(body),target=new URL(payload.targetUrl),identity=target.searchParams.get('id'),
+            config=url.pathname==='/api/provider/public-html'?publicPages.get(target.href.split('#')[0]):panoptoDeliveries.get(identity);
           assert(config);helperRequests.push({courseId:config.id,kind:url.pathname.split('/').at(-1),mode:helperMode(input)});
           providerConfig=config;
         }
@@ -437,7 +490,13 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     assert.equal(url.searchParams.get('courseId'),courseId);
     assert.equal(url.searchParams.get('widgetSessionProviderId'),reference);
     assert(!url.searchParams.has('action'));
+    if(binding.fail){response.statusCode=404;response.end('{}');return;}
     value=structuredClone(binding.value);
+    if(config.providerGets){
+      const count=(config.providerGets.get(reference)||0)+1;config.providerGets.set(reference,count);
+      if(config.inlineMode==='inline-wrong-owner')value.owners=['COURSE~Another_native_course_123'];
+      if(config.inlineMode==='inline-source-changed'&&count>1){value.metadata.updatedAt++;value.draft.configuration.url+='?revision=2';}
+    }
   }
   else if(resource==='assets.v1'){
     const count=(config.assetGets.get(reference)||0)+1;config.assetGets.set(reference,count);
@@ -483,11 +542,11 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
 });
 let browser,heartbeat;
 try{
-  const {courseraDirectDataSource}=await import('../src/generated/extractor-sources.js');
+  const {courseraDirectDataSource,courseraDirectDataBookmarkSource}=await import('../src/generated/extractor-sources.js');
   assert.equal(typeof courseraDirectDataSource,'string','Generate the maintained direct-data delivery source first');
   assert.match(courseraDirectDataSource,/__CTI_COURSERA_DIRECT_DATA_CAPTURE__/);
-  const deliveredProgram=createCourseraDirectDataCaptureScript(courseraDirectDataSource);
-  const bookmark=createCourseraDirectDataCaptureBookmark(courseraDirectDataSource),parsedBookmark=new URL(bookmark);
+  const deliveredProgram=createCourseraDirectDataCaptureScript(courseraDirectDataBookmarkSource);
+  const bookmark=createCourseraDirectDataCaptureBookmark(),parsedBookmark=new URL(bookmark);
   assert.equal(parsedBookmark.href,bookmark);assert.equal(parsedBookmark.search,'');assert.equal(parsedBookmark.hash,'');
   assert.equal(decodeURIComponent(parsedBookmark.pathname),deliveredProgram,'The compact address preserves the exact delivered source');
   assert(Buffer.byteLength(bookmark,'utf8')<=500*1024,'The exact emitted bookmark must fit Chrome Bookmark Manager\'s URL limit');
@@ -843,8 +902,81 @@ try{
   assert.equal(boundInlineWidget.state.state,'INCOMPLETE');
   assert.equal(widgetReading.captureContract.complete,false,'Retained reading text does not establish the content of its embedded widget');
   assert.equal(evaluateCourseraCapture(boundInlineWidget.capture,inlineWidgetReading.id).complete,false);
-  assert(widgetReading.payload.directDraftCml.definition.value.includes('<widget id="'+key('w',1)+'@1"/>'),'Exact versioned widget references survive export');
+  assert(widgetReading.payload.directDraftCml.definition.value.includes('<widget id="'+inlineWidgetReading.inlineProviderId+'"/>'),'Exact versioned widget references survive export');
+  const inlinePlacements=boundInlineWidget.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+  assert.equal(inlinePlacements.length,2,'Repeated reading placements keep separate native item evidence');
+  for(const fp of inlinePlacements){
+    const evidence=fp.payload.directInlineWidgetProviderEvidence,provider=evidence.providers[0];
+    assert.equal(evidence.method,'BOUND_INLINE_CML_WIDGET_PROVIDERS');assert.equal(evidence.itemId,fp.id);
+    assert.equal(provider.itemId,fp.id);assert.equal(provider.atomId,fp.atomId);assert.equal(provider.occurrences,2);
+    assert.equal(provider.providerId,inlineWidgetReading.inlineProviderId);assert.equal(provider.stableSource,true);
+    assert.equal(provider.initial.model.elements[0].id,inlineWidgetReading.inlineProviderId.split('@')[0]);
+    assert.equal(provider.initial.receipt.id,inlineWidgetReading.inlineProviderId);
+    assert.equal(new Map(provider.initial.receipt.requestQuery).get('widgetSessionProviderId'),inlineWidgetReading.inlineProviderId);
+    assert.equal(provider.targets[0].itemId,fp.id);assert.equal(provider.bodyVerified,false);
+    assert.equal(provider.wholeWidgetVerified,false);assert.equal(fp.captureContract.complete,false);
+    assert.equal(provider.initial.modelHash,provider.final.modelHash);assert.equal(provider.initial.sourceHash,provider.final.sourceHash);
+    const validate=target=>directInlineWidgetEvidenceV1(target,bindDirectAuthoringDraftV1(target,inlineWidgetReading.id,slug,
+      target.payload.directDataSources.atom,target.payload.directDataSources.relation),
+      value=>createHash('sha256').update(directCanonicalSourceTextV1(value)).digest('hex'));
+    const checked=validate(fp);assert.equal(checked.providers.length,1);assert.equal(checked.failures.length,0);
+    const forged=structuredClone(fp);
+    forged.payload.directInlineWidgetProviderEvidence.providers[0].initial.receipt.requestQuery.find(pair=>pair[0]==='widgetSessionProviderId')[1]=key('other_widget_',1)+'@1';
+    assert.equal(validate(forged),null,'A rewritten native provider query cannot bind inline configuration to the reading');
+  }
+  const inlineReads=requests.filter(request=>request.courseId===inlineWidgetReading.id&&request.resource===providerResource);
+  assert.equal(inlineReads.length,2,'Same versioned inline provider is read twice per attempt without losing repeated placements');
+  assert(inlineReads.every(request=>request.method==='GET'&&new Map(request.query).get('widgetSessionProviderId')===inlineWidgetReading.inlineProviderId));
   await boundInlineWidget.context.close();
+  const inlineDiscussionResult=await runFileCase(inlineWidgetDiscussion),inlineDiscussion=inlineDiscussionResult.capture.fingerprints.find(fp=>fp.id==='item_0002');
+  assert.equal(inlineDiscussion.captureContract.complete,false);assert.equal(inlineDiscussion.payload.directInlineWidgetProviderEvidence.providers[0].stableSource,true);
+  assert.equal(inlineDiscussion.payload.directDraftCml.definition.dtdId,'discussion/1');
+  assert.equal(evaluateCourseraCapture(inlineDiscussionResult.capture,inlineWidgetDiscussion.id).complete,false);
+  await inlineDiscussionResult.context.close();
+  for(const config of [publicInlineWidget,publicInlineHtmlError,publicInlineChanged]){
+    const result=await runFileCase(config),placements=result.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+    assert.equal(result.state.state,'INCOMPLETE');assert.equal(evaluateCourseraCapture(result.capture,config.id).complete,false);
+    for(const fp of placements){
+      const proof=fp.payload.directInlineWidgetProviderEvidence.providers[0];
+      assert.equal(fp.captureContract.complete,false);assert.equal(proof.bodyVerified,false);assert.equal(proof.wholeWidgetVerified,false);
+      if(config.inlineMode==='inline-source-changed'){
+        assert.equal(proof.stableSource,false);assert(!proof.publicPages?.some(page=>page.observation));
+      }else{
+        assert.equal(proof.stableSource,true);assert.equal(proof.failures.length,0,'A page acquisition gap must not erase independently valid native configuration');
+        assert.equal(proof.publicPages.length,1,'Matching authored URL fields dedupe into one retained public page');
+        const page=proof.publicPages[0];assert.equal(page.targetUrl,config.publicTarget);
+        assert.deepEqual(page.sourceFields,['draft.configuration.url','draft.pageSrc']);
+        if(config.inlineMode==='public-success'){
+          assert.equal(page.failures.length,0);assert.equal(page.observation.model.html,config.publicHtml);
+          assert.equal(page.observation.model.requestedUrl,config.publicTarget);
+          assert.equal(page.observation.model.normalizedUrl,config.publicTarget.split('#')[0]);
+          assert.equal(page.observation.model.encoding,'UTF8');assert.equal(page.observation.receipt.transport,'CTI_PUBLIC_BACKEND');
+          assert.equal(page.observation.receipt.declaredEnvelopeBytes,page.observation.receipt.bytes,'The decoded JSON envelope length survives the real helper channel');
+          assert(directPublicHtmlEvidenceV1(page.observation,config.publicTarget,bytes=>createHash('sha256').update(bytes).digest('hex')));
+        }else{assert.equal(page.observation,null);assert(page.failures.length>0);}
+      }
+    }
+    const pageGets=publicPageRequests.filter(request=>request.courseId===config.id);
+    assert.equal(pageGets.length,config.inlineMode==='inline-source-changed'?0:1,'Only a stable native target triggers one bounded public GET, including repeated reading placements');
+    if(config.inlineMode==='public-success'){
+      const retained=placements.reduce((sum,fp)=>sum+fp.payload.directInlineWidgetProviderEvidence.providers[0].publicPages[0].observation.model.bytes,0);
+      assert.equal(result.capture.meta.directDataCapture.stats.publicPages.retainedUtf8Bytes,retained,'The byte budget counts every retained placement copy');
+      assert.equal(result.capture.meta.directDataCapture.stats.byResource.PublicStaticHtml,1,'Cached page reuse does not count another network request');
+    }
+    await result.context.close();
+  }
+  for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
+    const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
+    assert.equal(result.state.state,'INCOMPLETE');assert.equal(fp.captureContract.complete,false);assert(proof);
+    assert(fp.payload.directDraftCml.definition.value.includes(config.inlineProviderId),'Native CML is preserved when a provider read fails');
+    if(config.inlineMode==='inline-partial'){
+      assert.equal(proof.providers.length,2);assert.equal(proof.providers[0].stableSource,true);
+      assert.equal(proof.providers[1].stableSource,false);assert(proof.providers[1].failures.length>0);
+    }else{assert.equal(proof.providers[0].stableSource,false);assert(proof.providers[0].failures.length>0);}
+    assert(requests.filter(request=>request.courseId===config.id).every(request=>request.method==='GET'),'Reading inline widget metadata never launches a POST preview');
+    assert.equal(evaluateCourseraCapture(result.capture,config.id).complete,false);
+    await result.context.close();
+  }
   const boundDiscussion=await runFileCase(discussionMedia);
   assert.equal(boundDiscussion.state.state,'COMPLETE');assertOriginalMedia(discussionMedia,boundDiscussion.capture);
   const discussion=boundDiscussion.capture.fingerprints.find(fp=>fp.id==='item_0002');

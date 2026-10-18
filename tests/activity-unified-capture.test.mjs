@@ -7,7 +7,10 @@ import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import * as unified from "../src/activity-designer/unified-capture.ts";
-import { courseraDirectDataSource } from "../src/generated/extractor-sources.js";
+import {
+  courseraDirectDataSource,
+  courseraDirectDataBookmarkSource,
+} from "../src/generated/extractor-sources.js";
 import { createCourseraDirectDataCaptureBookmark } from "../src/domain/coursera-direct-data-capture.ts";
 import { createDirectDataReaderV1 } from "../src/extractors/coursera/direct-data-network.js";
 import { createDirectDataMediaReaderV1 } from "../src/extractors/coursera/direct-data-media.js";
@@ -138,12 +141,12 @@ function context() {
 
 test("activity delivery uses the exact universal bookmark without another source reader", () => {
   assert.equal(
-    unified.bookmark(courseraDirectDataSource),
+    unified.bookmark(courseraDirectDataBookmarkSource),
     createCourseraDirectDataCaptureBookmark(),
   );
   assert.equal(
-    decodeURIComponent(unified.bookmark(courseraDirectDataSource).slice(11)),
-    "void " + courseraDirectDataSource,
+    decodeURIComponent(unified.bookmark(courseraDirectDataBookmarkSource).slice(11)),
+    "void " + courseraDirectDataBookmarkSource,
   );
   const ctx = vm.createContext({});
   vm.runInContext(
@@ -156,7 +159,7 @@ test("activity delivery uses the exact universal bookmark without another source
   assert.equal(ctx.CourseCtiCaptureScript, courseraDirectDataSource);
   assert.equal(
     ctx.CourseCtiCaptureBookmark,
-    unified.bookmark(courseraDirectDataSource),
+    unified.bookmark(courseraDirectDataBookmarkSource),
   );
   assert.throws(() => unified.bookmark(""), /unavailable/);
   assert.throws(() => unified.bookmark("a".repeat(500 * 1024)), /limit/);

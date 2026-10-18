@@ -1,7 +1,14 @@
 import { readPanoptoProviderMetadata, readPanoptoProviderPodcast } from "../../server/panopto-provider.ts";
 import { directPanoptoSourceV1, sanitizeDirectPanoptoModelV1 } from "../../src/extractors/coursera/direct-data-panopto.js";
 import { directCanonicalSourceTextV1 } from "../../src/extractors/coursera/direct-data-canonical.js";
-import { expectedForm, mediaBytes, metadataPath, source, stateUrl } from "./worker-panopto-source.mjs";
+import { createDirectDataReaderV1 } from "../../src/extractors/coursera/direct-data-network.js";
+import { createApiHandler } from "../../server/api.ts";
+import { CTI_OWNER_EMAIL } from "../../server/access.ts";
+import { forwardWorkspaceRuntime, WorkspaceRuntime } from "../../workers/coursera-extractor/workspace-runtime.ts";
+import { expectedForm, mediaBytes, metadataPath, source, stateUrl,
+  publicHtmlBytes, publicHtmlRaw, publicHtmlUrl, publicHtmlOrigin, publicHtmlPath } from "./worker-panopto-source.mjs";
+
+export { WorkspaceRuntime };
 
 function assert(condition, message) { if (!condition) throw Error(message); }
 function equal(actual, expected, message) { assert(JSON.stringify(actual) === JSON.stringify(expected), message + ": " + JSON.stringify({ actual, expected })); }
@@ -20,8 +27,106 @@ function status(response, service, upstream, requests) {
   equal(response.headers.get("X-CTI-Provider-Transport"), "CTI_PUBLIC_BACKEND", "Public transport declaration");
 }
 
+/** The actual Pages forwarder, private service envelope, Durable Object and
+ * provider body reader run unchanged. Only Access identity is a fixture; both
+ * outbound routes stay inside workerd's existing in-memory mock service. */
+async function publicHtmlRuntimeChecks(env) {
+  assert(env.PRIVATE_RUNTIME && env.WORKSPACE_RUNTIME, "The private service and actual Durable Object namespace are bound");
+  let pagesProviderCalls = 0;
+  const api = createApiHandler(async () => ({ email: CTI_OWNER_EMAIL }), async () => {
+    pagesProviderCalls++; throw Error("Pages cannot parse or fetch public HTML");
+  });
+  const origin = "https://cti-hardening.pages.dev",
+    environment = { CTI_EDITORS: CTI_OWNER_EMAIL, CTI_EXTRACTOR: env.PRIVATE_RUNTIME,
+      CTI_DB: { prepare() { throw Error("Provider reads must not reach D1"); } } };
+  function read(targetUrl, changes = {}) {
+    const { role = "editor", extraInput = {}, requestOrigin = origin } = changes;
+    return api(new Request(origin + "/api/provider/public-html", { method: "POST",
+      headers: { Origin: requestOrigin, "Content-Type": "application/json", Cookie: "synthetic=must-not-forward",
+        Authorization: "Bearer synthetic-must-not-forward", "x-cti-user": "forged@example.test" },
+      body: JSON.stringify({ targetUrl, ...extraInput }) }),
+    role === "viewer" ? { ...environment, CTI_EDITORS: "" } : environment);
+  }
+  for (const name of ["success", "chunked", "same-book-redirect"]) {
+    const targetUrl = publicHtmlUrl(name), response = await read(targetUrl);
+    status(response, 200, 200, name === "same-book-redirect" ? 2 : 1);
+    equal(response.headers.get("X-CTI-Provider-Origin"), origin, "The public receipt belongs to the actual service origin");
+    equal(response.headers.get("X-CTI-Upstream-Bytes"), String(publicHtmlBytes.length), "Public UTF-8 body byte receipt");
+    const wire = new Uint8Array(await response.arrayBuffer()), model = JSON.parse(new TextDecoder().decode(wire));
+    equal(Number(response.headers.get("X-CTI-Response-Envelope-Bytes")), wire.length, "The canonical decoded JSON envelope retains exact framing through the private DO");
+    if (response.headers.get("Content-Encoding")?.trim().toLowerCase() === "identity" && response.headers.has("Content-Length"))
+      equal(Number(response.headers.get("Content-Length")), wire.length, "An explicitly identity-encoded HTTP length agrees with decoded framing");
+    equal(model.requestedUrl, targetUrl, "The authored public URL stays separate");
+    equal(model.normalizedUrl, targetUrl, "The normalized GET target is explicit");
+    equal(model.finalUrl, name === "same-book-redirect" ? publicHtmlUrl("success") : targetUrl, "The observed final same-book URL is explicit");
+    equal(model.redirects.length, name === "same-book-redirect" ? 1 : 0, "Every followed redirect is retained");
+    equal(model.html, publicHtmlRaw, "Public HTML retains exact original markup, Unicode and BOM");
+    equal([...bytesOf(model.html)], [...publicHtmlBytes], "UTF-8 decode/encode preserves every original byte");
+    equal(model.sha256, await sha256(publicHtmlBytes), "The public original's SHA-256 is recomputed from actual bytes");
+    equal(model.statusCoverage, "PARTIAL_PUBLIC_HTML_ONLY", "HTML alone cannot certify an entire widget");
+  }
+  const networkReader = createDirectDataReaderV1({ providerTransport: { async request(kind, input) {
+    equal(kind, "publicHtml", "The bookmark requests the closed public operation");
+    equal(input.itemId, "SyntheticReading", "The item binding crosses the helper operation");
+    return read(input.targetUrl);
+  } } });
+  const observed = await networkReader.readPublicPage(publicHtmlUrl("success"), {
+    itemId: "SyntheticReading", providerId: "p".repeat(22) + "@1",
+  });
+  assert(observed.ok, "The maintained bookmark reader accepts the actual private runtime response: " + observed.reason);
+  equal(observed.data.html, publicHtmlRaw, "The bookmark stores the unchanged public original");
+  equal(observed.receipt.upstreamBytes, publicHtmlBytes.length, "Bookmark receipt distinguishes source bytes from JSON envelope bytes");
+  equal(observed.receipt.method, "GET", "The retained public source method is GET");
+  equal(observed.receipt.transport, "CTI_PUBLIC_BACKEND", "Bookmark receipt records the observed transport");
+  const decodedServiceReader = createDirectDataReaderV1({ providerTransport: { async request(_kind, input) {
+    const response = await read(input.targetUrl), headers = new Headers(response.headers);
+    // Model what browser fetch exposes after HTTP decompression. This is a
+    // client framing case, not a claim that the mock sent a gzip wire stream.
+    headers.set("Content-Encoding", "gzip"); headers.set("Content-Length", "17");
+    return new Response(response.body, { status: response.status, headers });
+  } } });
+  const decoded = await decodedServiceReader.readPublicPage(publicHtmlUrl("success"));
+  assert(decoded.ok, "Canonical decoded framing survives differing compressed wire length: " + decoded.reason);
+  equal(decoded.data.html, publicHtmlRaw, "Service compression context does not alter the captured original HTML");
+  equal(globalThis.__CTI_PUBLIC_HTML_EXECUTED__, undefined, "Captured HTML scripts are never executed");
+
+  const forbidden = await read("https://never-follow.invalid/not-an-approved-book/");
+  status(forbidden, 400, 0, 0);
+  equal((await forbidden.json()).error, "PUBLIC_HTML_PROVIDER_INVALID_TARGET", "Arbitrary URLs cannot become a generic proxy");
+  for (const [name, expected] of [
+    ["foreign-redirect", "PUBLIC_HTML_PROVIDER_REDIRECT_SCOPE"],
+    ["other-book-redirect", "PUBLIC_HTML_PROVIDER_REDIRECT_SCOPE"],
+    ["invalid-utf8", "PUBLIC_HTML_PROVIDER_INVALID_UTF8"],
+    ["wrong-charset", "PUBLIC_HTML_PROVIDER_MIME_OR_CHARSET"],
+    ["range", "PUBLIC_HTML_PROVIDER_HTTP_200"],
+    ["encoded", "PUBLIC_HTML_PROVIDER_ENCODING"],
+    ["too-large", "PUBLIC_HTML_PROVIDER_BODY_LIMIT_OR_LENGTH"],
+    ["stream-too-large", "PUBLIC_HTML_PROVIDER_BODY_LIMIT_OR_LENGTH"],
+  ]) {
+    const response = await read(publicHtmlUrl(name));
+    status(response, 502, name === "foreign-redirect" ? 302 : name === "other-book-redirect" ? 308 : 200, 1);
+    equal(await response.json(), { error: expected }, "Native public source failure stays structured and contains no source/error page: " + name);
+  }
+  const short = await read(publicHtmlUrl("short-framed"));
+  status(short, 502, 200, 1);
+  assert(/^PUBLIC_HTML_PROVIDER_/.test((await short.json()).error), "A native short framed EOF cannot become a captured HTML page");
+  equal((await read(publicHtmlUrl("success"), { role: "viewer" })).status, 403, "Read-only CTI users cannot launch a provider read");
+  equal((await read(publicHtmlUrl("success"), { requestOrigin: "https://untrusted.example.test" })).status, 403, "The provider still requires the same-origin boundary");
+  equal((await read(publicHtmlUrl("success"), { extraInput: { headers: { Cookie: "forbidden" } } })).status, 400, "Caller headers cannot enter the closed input shape");
+  equal(pagesProviderCalls, 0, "All public HTML parsing and source fetching ran inside the private DO, outside Pages");
+  const observedCalls = (await state()).calls.filter(call => call.url.startsWith(publicHtmlOrigin + publicHtmlPath));
+  assert(observedCalls.length >= 12 && observedCalls.every(call => call.method === "GET" && !call.body), "Every public source acquisition is a bodyless native GET");
+  assert(observedCalls.every(call => call.headers.every(([name]) => !["cookie", "authorization", "referer", "x-cti-user", "x-cti-role"].includes(name.toLowerCase()))), "Neither caller credentials nor CTI delegation identity reaches a public book");
+  console.log("CTI_WORKERD_PUBLIC_HTML_PROVIDER_PASS " + JSON.stringify({ actualWorkersRuntime: true,
+    actualPrivateDurableObject: true, pagesParsesSource: false, nativePublicGet: true,
+    rawUtf8BomAndHash: true, serviceEnvelopeFraming: true, decodedServiceFraming: true, sameBookRedirectsOnly: true,
+    malformedUtf8Rejected: true, sizeLimits: true, shortFramingRejected: true,
+    credentialsForwarded: false, livePublicAccessVerified: false, sockets: 0, externalNetwork: false }));
+}
+
 export default {
-  async test() {
+  async fetch(request, env) { return forwardWorkspaceRuntime(request, env); },
+  async test(_controller, env) {
     equal(bytesOf(expectedForm).byteLength, 193, "The observed eight-field form remains exact");
     const { fixture, input } = await inputFor("success.hosted.panopto.com");
     // No fetcher injection: these maintained readers call native workerd fetch.
@@ -76,6 +181,8 @@ export default {
     equal([...(await reader.read()).value], [...mediaBytes], "The native rendition stream starts before the pending remainder");
     await reader.cancel();
     await new Promise(resolve => setTimeout(resolve, 10));
+
+    await publicHtmlRuntimeChecks(env);
 
     const observed = await state();
     assert(observed.calls.every(call => !call.url.startsWith("https://never-follow.invalid/")), "Neither metadata nor media redirects are followed");

@@ -58,3 +58,52 @@ export function directWidgetProviderTargetsV1(bound, model) {
   }
   return targets;
 }
+
+/** A CML selector includes its requested version; the response has only a base
+ * ID. Never turn that base ID into a claim that the response echoed a version. */
+export function directInlineWidgetProviderSourceV1(binding, model) {
+  const match = /^([A-Za-z0-9_-]{22})@([1-9]\d{0,11})$/.exec(binding?.providerId || ""),
+    provider = model?.elements?.[0], sanitized = sanitizeCourseraCourseDataModel(model);
+  if (!match || binding.providerBaseId !== match[1] || binding.requestedVersion !== match[2] ||
+      binding.sourceState !== "AUTHORING_DRAFT" ||
+      !/^[A-Za-z0-9_-]{8,128}$/.test(binding.courseId || "") ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(binding.itemId || "") ||
+      !/^[A-Za-z0-9_-]{22}$/.test(binding.atomId || "") ||
+      !Array.isArray(model?.elements) || model.elements.length !== 1 ||
+      provider?.id !== match[1] || !provider.draft || typeof provider.draft !== "object" || Array.isArray(provider.draft) ||
+      typeof provider.metadata?.updatedAt !== "number" || !Number.isFinite(provider.metadata.updatedAt) ||
+      !Array.isArray(provider.owners) || !provider.owners.length || provider.owners.length > 64 ||
+      provider.owners.some(owner => typeof owner !== "string" || owner.length > 256) ||
+      new Set(provider.owners).size !== provider.owners.length ||
+      !provider.owners.includes("COURSE~" + binding.courseId) ||
+      provider.owners.some(owner => owner.startsWith("COURSE~") && owner !== "COURSE~" + binding.courseId) ||
+      (provider.courseId !== undefined && provider.courseId !== binding.courseId) ||
+      (model.paging !== undefined && (!model.paging || typeof model.paging !== "object" || Array.isArray(model.paging) ||
+        Object.keys(model.paging).some(key => key !== "next") || model.paging.next != null)) ||
+      sanitized.limitReached || sanitized.removedFields || sanitized.redactedUrls)
+    throw Error("DIRECT_INLINE_WIDGET_PROVIDER_MODEL_UNSUPPORTED");
+  return {id: provider.id, requestedProviderId: binding.providerId,
+    versionBinding: "REQUEST_SELECTOR_ONLY", owners: provider.owners,
+    draft: provider.draft, updatedAt: provider.metadata.updatedAt};
+}
+
+/** Inline configuration targets remain separate from page bodies and runtime. */
+export function directInlineWidgetProviderTargetsV1(binding, model) {
+  const source = directInlineWidgetProviderSourceV1(binding, model), targets = [];
+  for (const [sourceField, value] of [
+    ["draft.configuration.url", source.draft.configuration?.url],
+    ["draft.pageSrc", source.draft.pageSrc],
+  ]) {
+    if (typeof value !== "string" || !value || value.length > 8192 || value.trim() !== value) continue;
+    try {
+      const url = new URL(value);
+      if (!/^https?:$/.test(url.protocol) || url.username || url.password) continue;
+      targets.push({url: value, sourceField, providerId: binding.providerId,
+        providerBaseId: binding.providerBaseId, requestedVersion: binding.requestedVersion,
+        versionBinding: "REQUEST_SELECTOR_ONLY", courseId: binding.courseId,
+        itemId: binding.itemId, atomId: binding.atomId,
+        bodyVerified: false, playbackVerified: false, launchVerified: false});
+    } catch (_) { /* Unrecognized values remain only in the original native model. */ }
+  }
+  return targets;
+}

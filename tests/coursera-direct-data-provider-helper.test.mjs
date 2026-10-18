@@ -144,6 +144,47 @@ test("request kinds, addresses, methods, credentials and native podcast bindings
   } finally { f.helper.close(); }
 });
 
+test("public HTML is a separate closed operation retaining the exact versioned inline-provider binding", async () => {
+  const f = fixture(), publicTarget = "https://opentextbc.ca/syntheticbook/chapter/area/#main", providerId = "p".repeat(22) + "@3";
+  try {
+    await f.helper.ready();
+    for (const payload of [{ targetUrl: "https://evil.test/book/page/" }, { targetUrl: publicTarget, method: "GET" },
+      { targetUrl: publicTarget, cookie: "PRIVATE" }, { targetUrl: publicTarget, providerId: "bad@1&extra" }])
+      await assert.rejects(f.helper.request("publicHtml", payload), { code: "PROVIDER_HELPER_INVALID_REQUEST" });
+    const pending = f.helper.request("publicHtml", { targetUrl: publicTarget, itemId: "nativeItem", providerId });
+    const request = f.messages.find(message => message.type === "request");
+    assert.equal(request.kind, "publicHtml");
+    assert.equal(request.providerId, providerId);
+    assert.deepEqual(request.payload, { targetUrl: publicTarget, itemId: "nativeItem", providerId });
+    respondHead(f, request, [["content-type", "application/json"], ["content-length", "2"], ["x-cti-response-envelope-bytes", "2"]]);
+    const response = await pending, reading = response.arrayBuffer();
+    await nextTurn();
+    f.emit({ type: "chunk", ...binding(request), seq: 0, offset: 0, bytes: new TextEncoder().encode("{}").buffer });
+    await nextTurn();
+    f.emit({ type: "end", ...binding(request), seq: 1, offset: 2 });
+    assert.equal(new TextDecoder().decode(await reading), "{}");
+  } finally { f.helper.close(); }
+});
+
+test("public HTML relay requires decoded framing and rejects truncated EOF while permitting compressed wire-length differences", async () => {
+  for (const framing of [null, "bad", "2", "3"]) {
+    const f = fixture();
+    try {
+      await f.helper.ready();
+      const pending = f.helper.request("publicHtml", {targetUrl:"https://opentextbc.ca/syntheticbook/chapter/area/"});
+      const request = f.messages.find(message => message.type === "request");
+      respondHead(f, request, [["content-type","application/json"],["content-encoding","gzip"],["content-length","20"],
+        ...(framing===null?[]:[["x-cti-response-envelope-bytes",framing]])]);
+      if (framing===null || framing==="bad") { await assert.rejects(pending,{code:"PROVIDER_HELPER_INVALID_RESPONSE"});continue; }
+      const response=await pending, reading=response.arrayBuffer();
+      await nextTurn();f.emit({type:"chunk",...binding(request),seq:0,offset:0,bytes:new TextEncoder().encode("{}").buffer});
+      await nextTurn();f.emit({type:"end",...binding(request),seq:1,offset:2});
+      if (framing==="2") assert.equal(new TextDecoder().decode(await reading),"{}");
+      else await assert.rejects(reading,{code:"PROVIDER_HELPER_PUBLIC_HTML_LENGTH_MISMATCH"});
+    }finally{f.helper.close();}
+  }
+});
+
 test("invalid sequence, offset, chunk size and unsafe response headers fail closed", async () => {
   for (const variant of ["sequence", "offset", "large", "header"]) {
     const f = fixture();

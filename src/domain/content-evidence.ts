@@ -59,6 +59,15 @@ import {
   type RetainedAuthoringContent,
 } from "./coursera-retained-authoring-content.ts";
 import {
+  courseraInlineWidgetContent,
+  courseraInlineWidgetContentSize,
+  courseraInlineWidgetItemReservation,
+  courseraInlineWidgetContentText,
+  validateCourseraInlineWidgetContent,
+  MAX_INLINE_WIDGET_SNAPSHOT_BYTES,
+  type CourseraInlineWidgetContent,
+} from "./coursera-inline-widget-content.ts";
+import {
   qaBrightspaceFlattenTopics_,
   qaBrightspaceQuizToAssessment_,
   qaBrightspaceText_,
@@ -156,6 +165,7 @@ export interface ContentEvidence {
   sourceBody?: BrightspaceSourceBody;
   nativeGrading?: CapturedNativeGrading;
   retainedAuthoringContent?: RetainedAuthoringContent;
+  inlineWidgetContent?: CourseraInlineWidgetContent;
   sourceFileBank?: BrightspaceCsvBank;
   linkedSourceAssessments?: BrightspaceLinkedAssessmentEvidence;
   limitations: string[];
@@ -185,10 +195,18 @@ export function validateContentSnapshot(
   // Bound all supplemental native models before independently deriving any of
   // them. Per-item limits alone would permit an oversized saved snapshot.
   let retainedAuthoringCharacters = 0;
+  let inlineWidgetBytes = 0;
   for (const list of [s.coursera, s.brightspace]) {
     if (list.length > 20000) throw Error("Content snapshot exceeds the item limit.");
     for (const entry of list) {
-      const supplemental = contentObject(contentObject(entry).content).retainedAuthoringContent;
+      const savedContent = contentObject(contentObject(entry).content),
+        inline = savedContent.inlineWidgetContent;
+      if (inline !== undefined) {
+        inlineWidgetBytes += courseraInlineWidgetContentSize(inline);
+        if (inlineWidgetBytes > MAX_INLINE_WIDGET_SNAPSHOT_BYTES)
+          throw Error("Captured embedded-page evidence exceeds the snapshot review limit.");
+      }
+      const supplemental = savedContent.retainedAuthoringContent;
       if (supplemental === undefined) continue;
       retainedAuthoringCharacters += retainedCourseraAuthoringSize(supplemental);
       if (retainedAuthoringCharacters > MAX_RETAINED_AUTHORING_SNAPSHOT_CHARACTERS)
@@ -241,6 +259,12 @@ export function validateContentSnapshot(
           throw Error("Retained Coursera authoring content differs from its recorded course item URL.");
         validateRetainedCourseraAuthoringContent(c.retainedAuthoringContent, string(item.id),
           c.questions.map((question: unknown) => string(contentObject(question).id)), location.courseId);
+      }
+      if (c.inlineWidgetContent !== undefined) {
+        const location = courseraLocation(c.url);
+        if (list !== s.coursera || !location || (location.itemId && location.itemId !== item.id))
+          throw Error("Captured embedded-page evidence differs from its Coursera item URL.");
+        validateCourseraInlineWidgetContent(c.inlineWidgetContent, string(item.id), location.courseId);
       }
       if (c.imageAltText !== undefined) {
         if (!Array.isArray(c.imageAltText) || c.imageAltText.length > 100000)
@@ -1564,6 +1588,7 @@ export function buildContentSnapshot(
     topics = qaBrightspaceFlattenTopics_(array(bs.contentTree));
   let retainedAuthoringCharacters = 0;
   let retainedAuthoringLimitReached = false;
+  let inlineWidgetBytes = 0;
   const coursera: ContentItem[] = fingerprints.map((v) => {
     const f = contentObject(v),
       candidate = !retainedAuthoringLimitReached
@@ -1583,6 +1608,27 @@ export function buildContentSnapshot(
       url: courseraItemUrl({ stats: { extractorMeta: { ...contentObject(raw.meta), page: raw.page } } }, String(f.id ?? ""), "", f) || string(contentObject(raw.page).url),
       itemId: String(f.id ?? ""),
     });
+    let inlineWidgetContent: CourseraInlineWidgetContent | null = null;
+    if (contentObject(f.payload).directInlineWidgetProviderEvidence) {
+      try {
+        const courseId = string(contentObject(raw.page).courseId),
+          reservation = courseraInlineWidgetItemReservation(f, courseId);
+        if (inlineWidgetBytes + reservation > MAX_INLINE_WIDGET_SNAPSHOT_BYTES)
+          throw Error("SNAPSHOT_REVIEW_LIMIT");
+        inlineWidgetContent = courseraInlineWidgetContent(f, courseId);
+        if (inlineWidgetContent) {
+          const size = courseraInlineWidgetContentSize(inlineWidgetContent);
+          if (inlineWidgetBytes + size > MAX_INLINE_WIDGET_SNAPSHOT_BYTES)
+            throw Error("SNAPSHOT_REVIEW_LIMIT");
+          inlineWidgetBytes += size;
+        }
+      } catch {
+        inlineWidgetContent = null;
+        content.limitations.push("Captured embedded-page evidence exceeds this snapshot's review limit. Inspect the original extraction for deferred configurations and public HTML.");
+      }
+      if (!inlineWidgetContent)
+        content.limitations.push("Embedded-page configuration or public HTML could not be independently projected from this item's retained source proof. The original extraction retains its unresolved records.");
+    }
     if (retainedAuthoringLimitReached)
       content.limitations.push("Additional retained authoring content exceeds this snapshot's review limit. Inspect the original extraction for the remaining native records.");
     return {
@@ -1593,6 +1639,7 @@ export function buildContentSnapshot(
         ...content,
         ...(nativeGrading ? { nativeGrading } : {}),
         ...(retainedAuthoringContent ? { retainedAuthoringContent } : {}),
+        ...(inlineWidgetContent ? { inlineWidgetContent } : {}),
       },
     };
   });
@@ -1737,6 +1784,8 @@ export function contentEvidenceText(content: ContentEvidence): string {
   for (const q of content.questions) out.push(contentQuestionText(q));
   if (content.retainedAuthoringContent)
     out.push(retainedCourseraAuthoringText(content.retainedAuthoringContent));
+  if (content.inlineWidgetContent)
+    out.push(courseraInlineWidgetContentText(content.inlineWidgetContent));
   out.push(
     ...content.references.map((r) => `Reference: ${r}`),
     ...(content.imageAltText || [])

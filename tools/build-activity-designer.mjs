@@ -7,7 +7,7 @@ import { encodeJavaScriptBookmarkPayload } from "../src/domain/bookmark-address.
 
 // The standalone UI remains isolated: external scripts and the existing CSP,
 // with pinned CTI parser dependencies. No partner data enters this build.
-export async function buildActivityDesigner(ctiCapture) {
+export async function buildActivityDesigner(ctiCapture, ctiBookmarkCapture = ctiCapture) {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const source = path.join(root, "src/activity-designer");
   const out = path.join(root, "public/activity-designer");
@@ -25,8 +25,10 @@ ${read("shell-runner.js")}
   new vm.Script(capture);
   if (!ctiCapture) throw Error("The maintained CTI extractor is required.");
   new vm.Script(ctiCapture);
+  if (!ctiBookmarkCapture) throw Error("The maintained CTI bookmark is required.");
+  new vm.Script(ctiBookmarkCapture);
   const bookmark =
-    "javascript:" + encodeJavaScriptBookmarkPayload("void " + ctiCapture);
+    "javascript:" + encodeJavaScriptBookmarkPayload("void " + ctiBookmarkCapture);
   if (Buffer.byteLength(bookmark) >= 500 * 1024)
     throw Error("The activity capture bookmark exceeds the safe Chrome limit.");
   await build({
