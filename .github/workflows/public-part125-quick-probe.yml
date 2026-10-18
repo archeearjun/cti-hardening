@@ -1,0 +1,26 @@
+name: Public part 125 read-only probe
+on:
+  push:
+    branches: ["codex/publisher-part125-quick-probe-20261018"]
+permissions:
+  contents: read
+jobs:
+  public-part:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Read only exact public part API
+        run: |
+          node --input-type=module <<'NODE'
+          const url = 'https://opentextbc.ca/mathfortrades2/wp-json/pressbooks/v2/parts/125';
+          const r = await fetch(url, {redirect:'error', headers:{Accept:'application/json'}, signal:AbortSignal.timeout(15000)});
+          const result = {diagnosticOnly:true, transport:'GITHUB_ACTIONS_PUBLIC_GET', url, status:r.status, contentType:r.headers.get('content-type'), allowOrigin:r.headers.get('access-control-allow-origin'), challenge:r.headers.get('cf-mitigated')};
+          if(r.status===200 && /^application\/json(?:;|$)/i.test(result.contentType||'')) {
+            const reader=r.body.getReader(), chunks=[]; let size=0;
+            while(true){const x=await reader.read();if(x.done)break;size+=x.value.length;if(size>1048576){await reader.cancel();throw Error('BODY_LIMIT');}chunks.push(x.value);}
+            const b=Buffer.concat(chunks.map(x=>Buffer.from(x)));
+            result.bytes=b.length; result.sha256=(await import('node:crypto')).createHash('sha256').update(b).digest('hex');
+            result.rawJson=new TextDecoder('utf-8',{fatal:true}).decode(b);
+          } else await r.body?.cancel();
+          console.log('CTI_PUBLIC_PART125_PROBE '+JSON.stringify(result));
+          NODE
