@@ -290,6 +290,15 @@ const publisherInlineCourse=makeInlineWidgetCourse('Direct_inline_publisher_123'
 publisherInlineCourse.publisherReaderCase=true;
 providers.get(publisherInlineCourse.inlineProviderId).value.draft.configuration.url=publisherInlineCase.targetUrl;
 providers.get(publisherInlineCourse.inlineProviderId).value.draft.pageSrc=publisherInlineCase.targetUrl;
+publisherInlineCourse.assetGets=new Map();publisherInlineCourse.mediaIds=[key('publisher_media_',1)];
+const publisherOriginalId=publisherInlineCourse.mediaIds[0],publisherOriginalName='retained-original.png';
+const publisherOriginalUrl=mediaOrigin+'/'+publisherInlineCourse.id+'/'+publisherOriginalId+'/'+publisherOriginalName+
+  '?X-Amz-Signature='+secrets[3]+'&Expires=2000000000';
+assets.set(publisherOriginalId,{courseId:publisherInlineCourse.id,name:publisherOriginalName,mime:'image/png',body:pngBytes,
+  url:publisherOriginalUrl,value:{id:publisherOriginalId,name:publisherOriginalName,typeName:'image',url:{url:publisherOriginalUrl}}});
+for(const row of atoms.values())if(row.courseId===publisherInlineCourse.id&&row.atom.draft.content.typeName==='supplementDraft')
+  row.atom.draft.content.definition.content.definition.value=row.atom.draft.content.definition.content.definition.value.replace('</co-content>',
+    '<img assetId="'+publisherOriginalId+'"/></co-content>');
 const inlineDiscussionRow=[...atoms.values()].find(row=>row.courseId===inlineWidgetDiscussion.id&&row.itemId==='item_0002');
 const inlineDiscussionCml=inlineDiscussionRow.atom.draft.content.definition.content;
 inlineDiscussionRow.atom.draft.content={typeName:'discussionPromptDraft',definition:{promptType:{typeName:'questionPerSession',definition:{
@@ -1094,6 +1103,94 @@ try{
   const publisherAccessText=JSON.stringify(publisherAccess);
   assert(!publisherAccessText.includes('rawJson')&&!publisherAccessText.includes('Distinct rendered')&&!publisherAccessText.includes('[latex]'));
   assert.equal(publisherIntegrated.contextDownloads.length,1,'The access check does not automatically download another artifact');
+
+  // Derive historical-version fixtures from an actual completed browser run.
+  // Seed only era metadata/evidence, then reload before using the real store's
+  // getActiveRun filter. No current capture may rewrite the seeded checkpoint.
+  const publisherHistoricalSeed=await publisherIntegrated.page.evaluate(async runId=>{
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const rows=await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items'],'readonly'),out={};
+      for(const name of ['runs','items']){const request=transaction.objectStore(name).getAll();request.onsuccess=()=>{out[name]=request.result.filter(row=>row.runId===runId);};}
+      transaction.oncomplete=()=>resolve(out);transaction.onerror=()=>reject(transaction.error);});
+    database.close();return rows;
+  },publisherIntegrated.state.runId);
+  assert.equal(publisherHistoricalSeed.runs.length,1);
+  await publisherIntegrated.page.addInitScript(()=>{
+    window.fixtureCheckpointWrites=[];
+    for(const method of ['put','add','delete','clear']){
+      const descriptor=Object.getOwnPropertyDescriptor(IDBObjectStore.prototype,method),original=descriptor.value;
+      Object.defineProperty(IDBObjectStore.prototype,method,{...descriptor,value:function(...args){
+        window.fixtureCheckpointWrites.push({store:this.name,method});return Reflect.apply(original,this,args);
+      }});
+    }
+    for(const method of ['update','delete']){
+      const descriptor=Object.getOwnPropertyDescriptor(IDBCursor.prototype,method),original=descriptor.value;
+      Object.defineProperty(IDBCursor.prototype,method,{...descriptor,value:function(...args){
+        window.fixtureCheckpointWrites.push({store:'cursor',method});return Reflect.apply(original,this,args);
+      }});
+    }
+    const descriptor=Object.getOwnPropertyDescriptor(IDBDatabase.prototype,'transaction'),original=descriptor.value;
+    Object.defineProperty(IDBDatabase.prototype,'transaction',{...descriptor,value:function(...args){
+      if(args[1]==='readwrite')window.fixtureCheckpointWrites.push({store:'transaction',method:'readwrite'});
+      return Reflect.apply(original,this,args);
+    }});
+  });
+  for(const historical of [
+    {version:'1.8.0',buildId:'v1.8.0-inline-widget-public-html-20261018'},
+    {version:'1.8.1',buildId:'v1.8.1-browser-publisher-api-20261018'},
+  ]){
+    const seeded=await publisherIntegrated.page.evaluate(async ({seed,historical})=>{
+      const rows=structuredClone(seed),run=rows.runs[0];
+      if(run.state!=='INCOMPLETE'||run.counts.processed!==run.counts.total||
+          run.captureMeta.directDataCapture.sourceStable!==true||run.captureMeta.directDataCapture.acquisitionComplete!==true||
+          run.captureMeta.directDataCapture.wholeCourseVerified!==false||
+          run.captureMeta.directDataCapture.stopReason!=='ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS')throw Error('Historical fixture requires a completed native run with evidence gaps');
+      run.buildId=historical.buildId;run.captureMeta.buildId=historical.buildId;
+      run.captureMeta.extractor='CTI Direct Course Capture v'+historical.version;
+      if(historical.version==='1.8.0'){
+        delete run.captureMeta.directDataCapture.stats.publisherPages;
+        delete run.captureMeta.directDataCapture.stats.externalSources;
+        for(const row of rows.items)for(const evidence of [row.fingerprint.payload.directInlineWidgetProviderEvidence,
+          row.fingerprint.payload.directInlineWidgetProviderAttempt])for(const provider of evidence?.providers||[])delete provider.publisherPages;
+      }
+      const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');
+        request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+      await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items'],'readwrite');
+        for(const [name,values] of Object.entries(rows))for(const row of values)transaction.objectStore(name).put(row);
+        transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);});
+      database.close();return{runId:run.runId,buildId:run.buildId,state:run.state,processed:run.counts.processed,total:run.counts.total};
+    },{seed:publisherHistoricalSeed,historical});
+    assert.equal(seeded.buildId,historical.buildId);assert.equal(seeded.state,'INCOMPLETE');
+    assert.equal(seeded.processed,seeded.total);assert(seeded.total>0);
+    const historicalBefore=await checkpointSnapshot(publisherIntegrated.page);
+    assert(historicalBefore.definitions.length>0&&historicalBefore.groups.length>0,'The historical fixture retains real question definitions and groups');
+    assert.equal(historicalBefore.bodies.length,1,'The historical fixture retains a real original-byte Blob');
+    assert.equal(historicalBefore.bodies[0].blob.sha256,createHash('sha256').update(pngBytes).digest('hex'));
+    const historicalNativeStart=requests.length,historicalProviderStart=publisherRequests.length,
+      historicalHelperStart=helperRequests.length,historicalMediaStart=mediaRequests.length,historicalDownloads=publisherIntegrated.contextDownloads.length;
+    await publisherIntegrated.page.reload();await launch(publisherIntegrated.page,publisherIntegrated.context,false);
+    assert.deepEqual(await publisherIntegrated.page.evaluate(()=>{const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;
+      return{state:state.state,running:state.running,runId:state.runId};}),{state:'READY',running:false,runId:''});
+    assert.deepEqual(await checkpointSnapshot(publisherIntegrated.page),historicalBefore,'Opening the new bookmark does not migrate or relabel historical saved data');
+    await publisherIntegrated.page.getByRole('button',{name:'Check embedded page access',exact:true}).click();
+    await publisherIntegrated.page.waitForFunction(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__?.diagnosing===false&&
+      window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__?.accessDiagnostic?.kind==='CTI_PUBLISHER_ACCESS_DIAGNOSTIC');
+    const diagnostic=await publisherIntegrated.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.accessDiagnostic);
+    assert.equal(diagnostic.accepted,true,'The real IndexedDB store must recover the completed '+historical.version+' run for a read-only access check');
+    assert.equal(diagnostic.requests,1);assert.equal(diagnostic.source.targetUrl,publisherInlineCase.targetUrl);
+    assert.equal(diagnostic.source.itemId,'item_0002');assert.equal(diagnostic.source.providerId,publisherInlineCourse.inlineProviderId);
+    assert.equal(diagnostic.source.configuredSourceObservedAt,publisherPlacements[0].payload.directInlineWidgetProviderEvidence.providers[0].final.receipt.observedAt);
+    assert.equal(diagnostic.body.sha256,createHash('sha256').update(publisherInlineCase.bytes).digest('hex'));
+    assert.equal(diagnostic.courseCaptured,false);assert.equal(diagnostic.progressChanged,false);
+    assert.equal(publisherRequests.length-historicalProviderStart,1);assert.equal(requests.length,historicalNativeStart);
+    assert.equal(helperRequests.length,historicalHelperStart);assert.equal(mediaRequests.length,historicalMediaStart);
+    assert.equal(publisherIntegrated.contextDownloads.length,historicalDownloads);
+    assert.deepEqual(await publisherIntegrated.page.evaluate(()=>window.fixtureCheckpointWrites),[],
+      'Historical access checks perform no IndexedDB write transactions, row writes, deletes or cursor updates');
+    assert.deepEqual(await checkpointSnapshot(publisherIntegrated.page),historicalBefore,
+      'Historical run metadata, native items, questions, original receipts, timestamps and original-byte hashes remain unchanged');
+  }
   await publisherIntegrated.context.close();
   for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
     const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
@@ -1807,6 +1904,7 @@ try{
     directReaderPreservesGenuineCspAndCorsFailures:true,popupBlockedAndCoopAndAccessDeniedRemainExplicitGaps:true,
     publisherBrowserCorsAndCredentialModesEnforced:true,publisherApiRetainsExactUtf8JsonAndDistinctRawRenderedFields:true,
     publisherApiWrongIdentityProtectedDraftMimeUtf8AndBodyLimitRemainGaps:true,publisherBrowserBlockedResponseNeverInventsHttpStatus:true,
+    completedV180AndV181CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
     foreignSameOriginWindowCannotForgeProviderResult:true,cancelClosesHelperAndPreservesNativeAndHistoricalBytes:true,
     accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,

@@ -60,8 +60,11 @@ observation time; the check does not claim that Coursera's configuration is
 fresh. Its response body is not saved or adopted into a course capture. Ordinary
 capture/resume refreshes native source bindings before acquiring content.
 
-The exact v1.8.0 build can continue through the existing enrichment path without
-a fresh run. Regression coverage retains 80 distinct bound original files,
+The entry enrichment path permits exact v1.8.0 continuation without a fresh run.
+The released v1.8.1 checkpoint store omitted that build from its completed-run
+selection filter; v1.8.2 fixes the real storage boundary. See
+[checkpoint recovery](coursera-publisher-checkpoint-recovery-2026-10-18.md).
+Entry regression coverage retains 80 distinct bound original files,
 their bytes, ownership, hashes and dates, prior media budgets and completed
 assessment timestamps. With unchanged native bindings, the regression makes no
 original-body or assessment-definition requests. The compatibility allowance

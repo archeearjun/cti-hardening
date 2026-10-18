@@ -1324,6 +1324,8 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       "v1.5.0-bound-widget-configuration-20261015",
       "v1.6.0-integrated-panopto-bookmark-20261015",
       "v1.6.1-provider-access-diagnostics-20261015",
+      "v1.8.0-inline-widget-public-html-20261018",
+      "v1.8.1-browser-publisher-api-20261018",
       CTI_DIRECT_DATA_BUILD_V1,
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));
@@ -1348,6 +1350,9 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       [{ materials: { elements: [{ id: OTHER }] } }, {}],
       [{ materials: undefined }, {}],
       [{}, { buildId: "v1.0.0-bound-authoring-drafts-20261014" }],
+      [{}, { buildId: "v1.7.4-native-cml-block-boundaries-20261017" }],
+      [{}, { buildId: "v1.7.5-bound-reading-and-material-stability-20261018" }],
+      [{}, { buildId: "v1.7.6-native-dwg-originals-20261018" }],
       [{}, { buildId: "unknown-build" }],
       [{}, { buildId: undefined }],
       [{}, { counts: { processed: 184, total: 185 } }],
@@ -1379,6 +1384,69 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
     assert.equal(fake.rows("runs").length, 1);
     store.close();
   });
+});
+
+test("real checkpoint selection recovers exact publisher-era runs read-only with all 80 originals and assessment history intact", async () => {
+  for (const buildId of ["v1.8.0-inline-widget-public-html-20261018", "v1.8.1-browser-publisher-api-20261018"]) {
+    await withDatabase(async fake => {
+      const store = await storeFor(), opened = await store.openRun(), originalObservedAt = "2026-10-18T12:00:00.000Z", originals = [];
+      for (let index = 0; index < 80; index++) {
+        const body = originalBody("Distinct native original " + index, "application/acad");
+        const descriptor = await store.putBody(opened.runId, body.sha256, body.blob, { mime: body.blob.type, kind: "COURSERA_ASSET" });
+        originals.push({ ...body, descriptor });
+        const fp = source("Reading" + index);
+        fp.payload.directAssetEvidence = { assets: [{ assetId: "Original" + String(index).padStart(14, "0"),
+          body: { sha256: body.sha256, size: body.blob.size, mime: body.blob.type, archivePath: descriptor.archivePath,
+            receipt: { observedAt: originalObservedAt, bodyFormat: "ORIGINAL_BINARY_BYTES_ARCHIVE" } } }] };
+        await store.putItem(opened.runId, fp.id, fp, { processed: true });
+      }
+      await store.putDefinition(opened.runId, "saved-native-question@1", { id: "saved-native-question@1",
+        raw: { prompt: "Original native prompt", answerEvidence: "Original native answer evidence" },
+        receipt: { observedAt: originalObservedAt, originalResponseSha256: "a".repeat(64) } });
+      await store.putGroup(opened.runId, "AssessmentZ", "saved-native-group", { questions: ["saved-native-question@1"],
+        receipt: { observedAt: originalObservedAt } });
+      const saved = completedMediaGapRun(opened, {}, { buildId,
+        counts: { processed: 80, total: 80, complete: 39, questions: 7 } });
+      saved.captureMeta.buildId = buildId;
+      saved.budget.media = { requests: 80, bytes: originals.reduce((sum, body) => sum + body.blob.size, 0) };
+      await store.saveRun(saved);
+      const before = structuredClone(Object.fromEntries(["runs", "items", "groups", "definitions", "bodies"].map(name => [name, fake.rows(name)]))),
+        writes = fake.metrics.writes.length, transactions = fake.metrics.transactions.length;
+      assert.equal(await store.getActiveRun(), null, "Completed evidence gaps require explicit recovery opt-in");
+      const selected = await store.getActiveRun({ recoverMediaGaps: true, recoverExportLimit: true });
+      assert.equal(selected.runId, opened.runId, buildId + " must reach ENTRY source selection through the real store");
+      assert.equal(selected.buildId, buildId); assert.deepEqual(selected.captureMeta, saved.captureMeta);
+      assert.deepEqual(selected.budget, saved.budget); assert.deepEqual(selected.counts, saved.counts);
+      assert.equal(fake.metrics.writes.length, writes, "Selecting a diagnostic source cannot migrate or update saved evidence");
+      assert(fake.metrics.transactions.slice(transactions).every(tx => tx.mode === "readonly"));
+      for (const name of Object.keys(before)) assert.deepEqual(fake.rows(name), before[name], name + " changed during selection");
+      for (const original of originals) {
+        const retained = await store.getBody(opened.runId, original.sha256);
+        assert.deepEqual(Buffer.from(await retained.blob.arrayBuffer()), Buffer.from(await original.blob.arrayBuffer()));
+        assert.equal(retained.archivePath, original.descriptor.archivePath);
+      }
+      assert.equal((await store.getDefinition(opened.runId, "saved-native-question@1")).value.receipt.observedAt, originalObservedAt);
+      for (const [captureChanges, runChanges] of [
+        [{ sourceStable: false }, {}], [{ acquisitionComplete: false }, {}], [{ wholeCourseVerified: true }, {}],
+        [{ materials: { elements: [{ id: OTHER }] } }, {}], [{ runId: "99999999-9999-4999-8999-999999999999" }, {}],
+        [{}, { state: "COMPLETE" }], [{}, { state: "FAILED" }], [{}, { state: "CANCELLED" }],
+        [{}, { counts: { processed: 79, total: 80 } }],
+      ]) {
+        await store.saveRun({ ...saved, ...runChanges, captureMeta: { ...saved.captureMeta,
+          directDataCapture: { ...saved.captureMeta.directDataCapture, ...captureChanges } } });
+        assert.equal(await store.getActiveRun({ recoverMediaGaps: true, recoverExportLimit: true }), null, buildId + " rejected guard " + JSON.stringify([captureChanges, runChanges]));
+      }
+      for (const [used, limit] of [["requests", "requests"], ["bytes", "totalBytes"], ["elapsedMs", "durationMs"]]) {
+        await store.saveRun({ ...saved, budget: { ...saved.budget, [used]: saved.budget.limits[limit] } });
+        assert.equal(await store.getActiveRun({ recoverMediaGaps: true, recoverExportLimit: true }), null, buildId + " cannot reset " + used);
+      }
+      await store.saveRun(saved);
+      ageRow(fake.rows("runs").find(row => row.runId === opened.runId), WEEK + 1000);
+      assert.equal(await store.getActiveRun({ recoverMediaGaps: true, recoverExportLimit: true }), null, "The seven-day checkpoint limit remains unchanged");
+      assert.equal(fake.rows("bodies").length, 80, "Rejected selection never prunes original bodies");
+      store.close();
+    });
+  }
 });
 
 test("media-gap recovery excludes exhausted cumulative budgets, verified captures and terminal failures", async () => {
