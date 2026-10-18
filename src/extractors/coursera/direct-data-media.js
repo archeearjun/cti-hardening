@@ -2,6 +2,7 @@ import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directPanoptoSourceV1, directPanoptoPodcastBindingsV1 } from "./direct-data-panopto.js";
 import { directProviderTransportReceiptV1, directProviderTransportErrorV1 } from "./direct-data-network.js";
+import { directPublisherMediaInventoryV1, directPublisherImageKindV1 } from "./direct-data-publisher-media.js";
 
 /** Only locations returned by the bound asset API are eligible for downloads. */
 export function canonicalDirectAssetUrlV1(value) {
@@ -835,10 +836,73 @@ export function createDirectDataMediaReaderV1(options = {}) {
       );
     }
   }
+  async function capturePublisherImage(job, controller) {
+    const failed = reason => failure(job.assetId, reason, {url:job.url});
+    if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+    if (stats.bytes >= limits.totalBytes) return failed("DIRECT_MEDIA_BYTE_LIMIT");
+    let response;
+    try {
+      stats.requests++; notify();
+      response = await fetchImpl(job.url, {method:"GET", mode:"cors", credentials:"omit",
+        redirect:"error", referrerPolicy:"no-referrer", signal:controller.signal});
+      if (!jobCurrent(controller)) { await discard(response); return failed(jobStopReason(controller)); }
+      if (response?.type !== "cors" || response.url !== job.url || response.status !== 200) {
+        await discard(response); return failed(response?.type === "cors" && response.status !== 200
+          ? "PUBLISHER_IMAGE_HTTP_" + Number(response.status) : "PUBLISHER_IMAGE_RESPONSE_UNREADABLE");
+      }
+      const originalContentType = response.headers.get("content-type") || "",
+        mime = originalContentType.split(";")[0].trim().toLowerCase();
+      if (originalContentType.length > 256 || /[\u0000-\u001f\u007f]/.test(originalContentType) ||
+          !["image/png","image/jpeg","image/jpg","image/gif","image/webp"].includes(mime) ||
+          response.headers.get("content-range")) {
+        await discard(response); return failed("PUBLISHER_IMAGE_MIME_OR_RANGE_UNSUPPORTED");
+      }
+      // Browser bytes may be content-decoded; a wire Content-Length is not
+      // evidence of their decoded length. EOF, actual limits and SHA bind them.
+      const reader = response.body?.getReader();
+      if (!reader) return failed("PUBLISHER_IMAGE_BODY_UNREADABLE");
+      const chunks = []; let count = 0;
+      try {
+        while (true) {
+          const part = await reader.read();
+          if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+          if (part.done) break;
+          if (!(part.value instanceof Uint8Array)) return failed("PUBLISHER_IMAGE_BODY_UNREADABLE");
+          stats.bytes += part.value.byteLength; count += part.value.byteLength; notify();
+          if (stats.bytes > limits.totalBytes) {
+            bodyBudgetExhausted = true;
+            for (const activeController of controllers) activeController.abort("DIRECT_MEDIA_BYTE_LIMIT");
+            return failed("DIRECT_MEDIA_BYTE_LIMIT");
+          }
+          if (count > limits.bodyBytes) return failed("PUBLISHER_IMAGE_BODY_BYTE_LIMIT");
+          if (part.value.length) chunks.push(part.value);
+          if (chunks.length > 8192) return failed("PUBLISHER_IMAGE_CHUNK_LIMIT");
+        }
+      } finally { try { await reader.cancel(); } catch (_) {} }
+      if (!count) return failed("PUBLISHER_IMAGE_BODY_EMPTY");
+      const bytes = new Uint8Array(count); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.length; }
+      if (!directPublisherImageKindV1(bytes,mime)) return failed("PUBLISHER_IMAGE_MAGIC_INVALID");
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),
+        sha256 = [...digest].map(v => v.toString(16).padStart(2,"0")).join("");
+      if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+      const body = {archivePath:"files/" + sha256, sha256,size:count,mime,canonicalUrl:job.url,
+        receipt:{resource:"PublisherImage",transport:"BROWSER_PUBLISHER_IMAGE",sourceSha256:job.sourceSha256,
+          requestedUrl:job.url,finalUrl:job.url,method:"GET",credentials:"omit",responseType:"cors",status:200,
+          bytes:count,mime,sha256,observedAt:new Date().toISOString(),originalContentType,
+          bodyFormat:"ORIGINAL_BINARY_BYTES_ARCHIVE"}};
+      Object.defineProperty(body,"bytes",{value:bytes,enumerable:false,configurable:true});
+      return {url:job.url,body};
+    } catch (_) {
+      if (response) await discard(response);
+      return failed(jobCurrent(controller) ? "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" : jobStopReason(controller));
+    }
+  }
   async function work(job, controller) {
     const assetId = job.assetId;
     if (!jobCurrent(controller))
       return failure(assetId, jobStopReason(controller));
+    if (job.kind === "PUBLISHER_IMAGE") return capturePublisherImage(job,controller);
     if (job.kind === "PANOPTO_PODCAST") {
       const partial = {...job.binding};
       // Old attempt bodies cannot prove the bytes currently served by a
@@ -1094,5 +1158,24 @@ export function createDirectDataMediaReaderV1(options = {}) {
       notify();pump();
     });
   }
-  return { capture, capturePanoptoPodcast, snapshot, abort, release };
+  async function readPublisherImage(observation, targetUrl, resource) {
+    const inventory = directPublisherMediaInventoryV1(observation,targetUrl),
+      expected = inventory?.resources.find(value => value.url === resource?.url);
+    if (!expected || directCanonicalSourceTextV1(expected) !== directCanonicalSourceTextV1(resource))
+      return {url:resource?.url || "",reason:"PUBLISHER_IMAGE_SOURCE_INVALID"};
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(observation.model.rawJson)));
+    if ([...digest].map(v => v.toString(16).padStart(2,"0")).join("") !== inventory.sourceSha256)
+      return {url:resource.url,reason:"PUBLISHER_IMAGE_SOURCE_HASH_INVALID"};
+    if (!current() || stats.bytes >= limits.totalBytes)
+      return {url:resource.url,reason:stopReason || "DIRECT_MEDIA_BYTE_LIMIT"};
+    const key = "PUBLISHER_IMAGE:" + inventory.sourceSha256 + ":" + resource.url;
+    if (pending.has(key)) return pending.get(key).promise;
+    const promise = new Promise(resolve => {
+      queue.push({kind:"PUBLISHER_IMAGE",assetId:resource.url,url:resource.url,sourceSha256:inventory.sourceSha256,resolve});
+      notify(); pump();
+    });
+    pending.set(key,{promise});
+    return promise;
+  }
+  return { capture, capturePanoptoPodcast, readPublisherImage, snapshot, abort, release };
 }

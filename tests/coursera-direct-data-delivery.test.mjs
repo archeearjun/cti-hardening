@@ -43,10 +43,10 @@ test("the universal bookmark carries the parser-formatted current program while 
   );
   assert(courseraDirectDataBookmarkSource.length < courseraDirectDataSource.length);
   assert(address.length < 400 * 1024, "Parser formatting leaves headroom below the unchanged 500 KiB browser limit.");
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.8.2");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.8.3");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.8.2-historical-publisher-checkpoint-20261018",
+    "v1.8.3-publisher-sections-original-images-20261018",
   );
   assert.deepEqual(CTI_RELEASE_REGISTRY_.directDataCourseraExtractor, {
     version: "v" + COURSERA_DIRECT_DATA_CAPTURE_VERSION,

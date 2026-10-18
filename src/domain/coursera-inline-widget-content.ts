@@ -4,7 +4,9 @@ import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-
 import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
 import { directInlineWidgetEvidenceV1, directSourceBindingEvidenceV1 } from "../extractors/coursera/direct-data-contracts.js";
 import { directPublicHtmlEvidenceV1 } from "../extractors/coursera/direct-data-public-page.js";
-import { directPublisherEvidenceV1, directPublisherChapterV1 } from "../extractors/coursera/direct-data-publisher.js";
+import { directPublisherEvidenceV1, directPublisherChapterV1,
+  directPublisherResourceEvidenceV1, directPublisherResourceV1 } from "../extractors/coursera/direct-data-publisher.js";
+import { directPublisherMediaStructureV1 } from "../extractors/coursera/direct-data-publisher-media.js";
 
 type Obj = Record<string, any>;
 const object = (value: unknown): Obj => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
@@ -36,20 +38,49 @@ export interface InlineWidgetProviderContent {
   publicPages: InlineWidgetPublicPage[];
   publisherPages?: InlineWidgetPublisherPage[];
 }
-export interface InlineWidgetPublisherPage {
+interface InlineWidgetPublisherPageBase {
   targetUrl: string;
   sourceFields: string[];
-  status: "CAPTURED_PUBLISHER_API_CHAPTER" | "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" | "UNRESOLVED";
   endpointUrl: string;
-  chapterId: number | null;
-  chapterLink: string;
   observedAt: string;
   bytes: number;
   sha256: string;
   responseType: "cors" | "";
   credentials: "omit" | "include" | "";
   failures: string[];
+  media?: InlineWidgetPublisherMedia;
+  mediaFailures?: string[];
 }
+export interface InlineWidgetPublisherFileReference {
+  url: string;
+  references: { field: string; tag: string; attribute: string; ordinal: number; attributeValue: string }[];
+  status: "CAPTURED_ORIGINAL_FILE_REFERENCE" | "UNRESOLVED";
+  originalRef: string;
+  observedAt: string;
+  bytes: number | null;
+  mime: string;
+  sha256: string;
+  reason: string;
+}
+export interface InlineWidgetPublisherMedia {
+  scope: "ORIGINAL_FILE_REFERENCES_ONLY";
+  sourceSha256: string;
+  resources: InlineWidgetPublisherFileReference[];
+  retainedSources: { sourceSha256: string; observedAt: string; resources: InlineWidgetPublisherFileReference[] }[];
+  failures: string[];
+}
+export interface InlineWidgetPublisherChapterPage extends InlineWidgetPublisherPageBase {
+  status: "CAPTURED_PUBLISHER_API_CHAPTER" | "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" | "UNRESOLVED";
+  chapterId: number | null;
+  chapterLink: string;
+}
+export interface InlineWidgetPublisherPartPage extends InlineWidgetPublisherPageBase {
+  status: "CAPTURED_PUBLISHER_API_PART" | "HISTORICAL_RETAINED_PUBLISHER_API_PART";
+  resourceType: "part";
+  resourceId: number;
+  resourceLink: string;
+}
+export type InlineWidgetPublisherPage = InlineWidgetPublisherChapterPage | InlineWidgetPublisherPartPage;
 export interface CourseraInlineWidgetContent {
   schemaVersion: 1;
   scope: "INLINE_CONFIGURATION_AND_PARTIAL_PUBLIC_HTML" | "INLINE_CONFIGURATION_AND_PARTIAL_PUBLISHER_CONTENT";
@@ -94,6 +125,41 @@ function proofFor(item: unknown, courseId: string): CourseraInlineWidgetContent[
     evidence: object(p.directDataEvidence), sources: object(p.directDataSources),
     inlineProviderEvidence: object(p.directInlineWidgetProviderEvidence),
     ...(p.directResumeRevalidation === undefined ? {} : { resumeRevalidation: p.directResumeRevalidation }) };
+}
+
+/** Snapshots retain owned archive descriptors, not image bytes or a persisted
+ * import attestation. Actual byte validation belongs to archive acceptance. */
+function publisherMediaContent(observation: Obj | null, targetUrl: string, media: unknown, finalAtomAt: number): {
+  content: InlineWidgetPublisherMedia; historicalJsonBytes: number;
+} {
+  const unavailable = (reason: string) => ({ content: { scope: "ORIGINAL_FILE_REFERENCES_ONLY" as const,
+    sourceSha256: text(observation?.model?.sha256), resources: [], retainedSources: [], failures: [reason] }, historicalJsonBytes: 0 });
+  try {
+    const checked = observation && directPublisherMediaStructureV1(observation, targetUrl, media);
+    if (!checked) return unavailable("PUBLISHER_IMAGE_MEDIA_EVIDENCE_INVALID");
+    const resources = (values: Obj[]): InlineWidgetPublisherFileReference[] => values.map(value => {
+      const body = object(value.body);
+      if (value.body && Date.parse(body.receipt?.observedAt) > finalAtomAt) throw Error("PUBLISHER_IMAGE_SOURCE_TIME_INVALID");
+      return { url: value.url, references: value.references.map((reference: Obj) => ({ field: reference.field,
+        tag: reference.tag, attribute: reference.attribute, ordinal: reference.ordinal, attributeValue: reference.attributeValue })),
+      status: value.body ? "CAPTURED_ORIGINAL_FILE_REFERENCE" : "UNRESOLVED",
+      originalRef: value.body ? body.archivePath : "", observedAt: value.body ? body.receipt.observedAt : "",
+      bytes: value.body ? body.size : null, mime: value.body ? body.mime : "", sha256: value.body ? body.sha256 : "",
+      reason: text(value.reason) };
+    });
+    let historicalJsonBytes = 0;
+    const retainedSources: InlineWidgetPublisherMedia["retainedSources"] = [];
+    for (const group of checked.retained || []) {
+      const source = directPublisherResourceEvidenceV1(group.observation, targetUrl, hashBytes);
+      if (!source || Date.parse(source.receipt.observedAt) > finalAtomAt || Date.parse(source.receipt.receivedAt) > finalAtomAt)
+        return unavailable("PUBLISHER_IMAGE_HISTORICAL_SOURCE_INVALID");
+      historicalJsonBytes += source.model.bytes;
+      retainedSources.push({ sourceSha256: source.model.sha256, observedAt: source.model.observedAt, resources: resources(group.resources) });
+    }
+    return { content: { scope: "ORIGINAL_FILE_REFERENCES_ONLY", sourceSha256: checked.sourceSha256,
+      resources: resources(checked.resources), retainedSources,
+      failures: checked.failures.map((failure: Obj) => text(failure.reason)).filter((reason: string) => /^[A-Z0-9_]{1,96}$/.test(reason)) }, historicalJsonBytes };
+  } catch { return unavailable("PUBLISHER_IMAGE_MEDIA_EVIDENCE_INVALID"); }
 }
 
 /** Conservative reservation lets the snapshot apply an aggregate limit before
@@ -154,14 +220,15 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
           if (!fields.length || seenPublisherTargets.has(targetUrl) || canonical(entry.sourceFields) !== canonical(fields) ||
               !Array.isArray(entry.failures) || entry.failures.length > 32) return null;
           seenPublisherTargets.add(targetUrl);
-          const observation = entry.observation === null ? null : directPublisherEvidenceV1(entry.observation, targetUrl, hashBytes),
+          const observation = entry.observation === null ? null : directPublisherResourceEvidenceV1(entry.observation, targetUrl, hashBytes),
             hasRetained = entry.retainedObservation !== undefined,
-            retained = hasRetained ? directPublisherEvidenceV1(entry.retainedObservation, targetUrl, hashBytes) : null;
+            retained = hasRetained ? directPublisherResourceEvidenceV1(entry.retainedObservation, targetUrl, hashBytes) : null;
           if (entry.observation !== null && !observation || observation && entry.failures.length ||
               hasRetained && (!retained || observation || !entry.failures.length)) return null;
           const selected = observation || retained, model = object(selected?.model),
-            chapter = selected ? directPublisherChapterV1(model.rawJson, targetUrl) : null;
-          if (selected && (!chapter || (retainedPublicBytes += model.bytes) > 8 * 1024 * 1024)) return null;
+            resourceType = model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+            resource = selected ? directPublisherResourceV1(model.rawJson, targetUrl, resourceType) : null;
+          if (selected && (!resource || (retainedPublicBytes += model.bytes) > 8 * 1024 * 1024)) return null;
           if (selected) {
             const finalAtomAt = Date.parse(proof.sources.receipts.stability.receipt.observedAt);
             // These clocks belong to the same collecting browser. Server HTML
@@ -169,14 +236,29 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
             if (Date.parse(selected.receipt.observedAt) > finalAtomAt ||
                 Date.parse(selected.receipt.receivedAt) > finalAtomAt) return null;
           }
+          let media: InlineWidgetPublisherMedia | undefined;
+          if (entry.media !== undefined) {
+            const projected = publisherMediaContent(selected, targetUrl, entry.media, Date.parse(proof.sources.receipts.stability.receipt.observedAt));
+            if (retainedPublicBytes + projected.historicalJsonBytes > 8 * 1024 * 1024)
+              media = { scope: "ORIGINAL_FILE_REFERENCES_ONLY", sourceSha256: text(model.sha256), resources: [], retainedSources: [], failures: ["PUBLISHER_IMAGE_HISTORICAL_SOURCE_BYTE_LIMIT"] };
+            else { media = projected.content; retainedPublicBytes += projected.historicalJsonBytes; }
+          }
           publisherPages.push({ targetUrl, sourceFields: fields,
-            status: observation ? "CAPTURED_PUBLISHER_API_CHAPTER" : retained ? "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" : "UNRESOLVED",
-            endpointUrl: selected ? model.endpointUrl : "", chapterId: chapter?.id ?? null,
-            chapterLink: chapter?.link ?? "", observedAt: selected ? model.observedAt : "",
+            status: resourceType === "part" && selected
+              ? observation ? "CAPTURED_PUBLISHER_API_PART" : "HISTORICAL_RETAINED_PUBLISHER_API_PART"
+              : observation ? "CAPTURED_PUBLISHER_API_CHAPTER" : retained ? "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" : "UNRESOLVED",
+            endpointUrl: selected ? model.endpointUrl : "",
+            ...(resourceType === "part" && resource ? { resourceType: "part" as const, resourceId: resource.id, resourceLink: resource.link }
+              : { chapterId: resource?.id ?? null, chapterLink: resource?.link ?? "" }),
+            observedAt: selected ? model.observedAt : "",
             bytes: selected ? model.bytes : 0, sha256: selected ? model.sha256 : "",
             responseType: selected ? "cors" : "", credentials: selected ? selected.receipt.credentials : "",
             failures: entry.failures.map((failure: unknown) => text(object(failure).reason))
-              .filter(reason => /^[A-Z0-9_]{1,96}$/.test(reason)) });
+              .filter(reason => /^[A-Z0-9_]{1,96}$/.test(reason)),
+            ...(media === undefined ? {} : { media }),
+            ...(entry.mediaFailures === undefined ? {} : { mediaFailures: Array.isArray(entry.mediaFailures) && entry.mediaFailures.length <= 32 &&
+              entry.mediaFailures.every((failure: Obj) => /^[A-Z0-9_]{1,96}$/.test(text(failure?.reason)))
+              ? entry.mediaFailures.map((failure: Obj) => failure.reason) : ["PUBLISHER_IMAGE_FAILURE_EVIDENCE_INVALID"] }) } as InlineWidgetPublisherPage);
         }
       }
       providers.push({ providerId: binding.providerId, providerBaseId: binding.providerBaseId,
@@ -235,7 +317,8 @@ export function courseraInlineWidgetPage(content: CourseraInlineWidgetContent, p
  * remain source strings; no HTML, notation or absent content is fabricated. */
 export function courseraInlinePublisherPage(content: CourseraInlineWidgetContent, providerId: string, targetUrl: string): { rawJson: string; chapter: Obj; historical: boolean } | null {
   const provider = content.providers.find(value => value.providerId === providerId),
-    page = provider?.publisherPages?.find(value => value.targetUrl === targetUrl && value.status !== "UNRESOLVED"),
+    page = provider?.publisherPages?.find((value): value is InlineWidgetPublisherChapterPage =>
+      value.targetUrl === targetUrl && value.status !== "UNRESOLVED" && !("resourceType" in value)),
     raw = list(content.proof.inlineProviderEvidence.providers).find(value => value?.providerId === providerId),
     entry = list(raw?.publisherPages).find(value => value?.targetUrl === targetUrl),
     historical = page?.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER",
@@ -245,6 +328,29 @@ export function courseraInlinePublisherPage(content: CourseraInlineWidgetContent
   if (!checked || !chapter || checked.model.sha256 !== page!.sha256 || checked.model.bytes !== page!.bytes ||
       checked.model.endpointUrl !== page!.endpointUrl || chapter.id !== page!.chapterId || chapter.link !== page!.chapterLink) return null;
   return { rawJson: checked.model.rawJson, chapter, historical };
+}
+
+/** Parts are distinct publisher resources. The legacy chapter accessor above
+ * remains chapter-only and retains its original return shape. */
+export function courseraInlinePublisherResource(content: CourseraInlineWidgetContent, providerId: string, targetUrl: string): {
+  rawJson: string; resource: Obj; resourceType: "chapter" | "part"; historical: boolean;
+} | null {
+  const provider = content.providers.find(value => value.providerId === providerId),
+    page = provider?.publisherPages?.find(value => value.targetUrl === targetUrl && value.status !== "UNRESOLVED");
+  if (!page) return null;
+  if (!("resourceType" in page)) {
+    const original = courseraInlinePublisherPage(content, providerId, targetUrl);
+    return original ? { rawJson: original.rawJson, resource: original.chapter, resourceType: "chapter", historical: original.historical } : null;
+  }
+  const raw = list(content.proof.inlineProviderEvidence.providers).find(value => value?.providerId === providerId),
+    entry = list(raw?.publisherPages).find(value => value?.targetUrl === targetUrl),
+    historical = page.status === "HISTORICAL_RETAINED_PUBLISHER_API_PART",
+    checked = directPublisherResourceEvidenceV1(historical ? entry?.retainedObservation : entry?.observation, targetUrl, hashBytes),
+    resource = checked && directPublisherResourceV1(checked.model.rawJson, targetUrl, "part");
+  if (!checked || checked.model.kind !== "CTI_BROWSER_PUBLISHER_PART" || !resource ||
+      checked.model.sha256 !== page.sha256 || checked.model.bytes !== page.bytes || checked.model.endpointUrl !== page.endpointUrl ||
+      resource.id !== page.resourceId || resource.link !== page.resourceLink) return null;
+  return { rawJson: checked.model.rawJson, resource, resourceType: "part", historical };
 }
 
 export function courseraInlineWidgetContentText(content: CourseraInlineWidgetContent): string {
@@ -266,23 +372,43 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
       out.push(...page.failures.map(reason => `Current read outcome: ${reason}`));
     }
     for (const page of provider.publisherPages || []) {
-      out.push(`Publisher API chapter content: ${page.targetUrl} | ${page.status}`);
+      const isPart = "resourceType" in page;
+      out.push(`Publisher API ${isPart ? "book section" : "chapter"} content: ${page.targetUrl} | ${page.status}`);
       if (page.status !== "UNRESOLVED") {
-        out.push(`API endpoint: ${page.endpointUrl}`, `Publisher chapter ID: ${page.chapterId} | published chapter link: ${page.chapterLink}`,
+        out.push(`API endpoint: ${page.endpointUrl}`, isPart
+          ? `Publisher book section ID: ${page.resourceId} | published book section link: ${page.resourceLink}`
+          : `Publisher chapter ID: ${page.chapterId} | published chapter link: ${page.chapterLink}`,
           `Observed: ${page.observedAt} | ${page.bytes} original JSON UTF-8 bytes | SHA-256 ${page.sha256}`,
           `Browser response: ${page.responseType}; credentials mode: ${page.credentials}.`);
-        const original = courseraInlinePublisherPage(content, provider.providerId, page.targetUrl);
+        const original = courseraInlinePublisherResource(content, provider.providerId, page.targetUrl);
         if (original) {
-          out.push(original.historical ? "Earlier publisher API observation retained; no current chapter response is established." : "Publisher-provided chapter fields; partial content only.");
+          out.push(original.historical ? `Earlier publisher API observation retained; no current ${isPart ? "book section" : "chapter"} response is established.`
+            : `Publisher-provided ${isPart ? "book section" : "chapter"} fields; partial content only.`);
           for (const field of ["title", "content", "excerpt"]) {
             for (const format of ["raw", "rendered"]) {
-              const value = original.chapter[field]?.[format];
+              const value = original.resource[field]?.[format];
               if (typeof value === "string") out.push(`Publisher ${field}.${format} ${format === "rendered" ? "(inert plain-text approximation; inspect original JSON for exact markup)" : "(literal authored field)"}:`,
                 format === "rendered" ? inlineWidgetStaticHtmlText(value) : value);
             }
           }
         }
       }
+      if (page.media) {
+        out.push("Publisher original-file references: original bytes are not embedded in this report snapshot.",
+          `Parent publisher JSON SHA-256: ${page.media.sourceSha256}`);
+        for (const group of [{ sourceSha256: page.media.sourceSha256, observedAt: "", resources: page.media.resources }, ...page.media.retainedSources]) {
+          if (group.observedAt) out.push(`Earlier publisher source observed: ${group.observedAt} | SHA-256 ${group.sourceSha256}`);
+          for (const resource of group.resources) {
+            out.push(`Publisher image source: ${resource.url} | ${resource.status}`);
+            if (resource.originalRef) out.push(`Captured original file reference: ${resource.originalRef} | ${resource.bytes} bytes | ${resource.mime} | SHA-256 ${resource.sha256}`,
+              `Original file read observed: ${resource.observedAt}`);
+            for (const reference of resource.references) out.push(`Authored ${reference.tag}.${reference.attribute} in ${reference.field}, reference ${reference.ordinal}: ${reference.attributeValue}`);
+            if (resource.reason) out.push(`Publisher image read outcome: ${resource.reason}`);
+          }
+        }
+        out.push(...page.media.failures.map(reason => `Publisher image source outcome: ${reason}`));
+      }
+      out.push(...(page.mediaFailures || []).map(reason => `Publisher image collection outcome: ${reason}`));
       out.push(...page.failures.map(reason => `Current publisher read outcome: ${reason}`));
     }
   }

@@ -42,6 +42,21 @@ export function directPublisherTargetV1(value) {
   }
 }
 
+/** Only these observed Pressbooks resource routes are supported. A part is
+ * tried for the identical native post ID after an exposed chapter 404. */
+export function directPublisherResourceTargetV1(value, resourceType) {
+  const target = directPublisherTargetV1(value);
+  if (!target || !["chapter", "part"].includes(resourceType)) return null;
+  return {
+    ...target,
+    resourceType,
+    endpointUrl:
+      resourceType === "part"
+        ? target.bookUrl + "wp-json/pressbooks/v2/parts/" + target.chapterId
+        : target.endpointUrl,
+  };
+}
+
 export function directPublisherContentTypeV1(value) {
   if (
     typeof value !== "string" ||
@@ -87,9 +102,14 @@ export function directPublisherJsonBytesV1(rawJson) {
   }
 }
 
-export function directPublisherChapterV1(rawJson, targetUrl) {
+export function directPublisherResourceV1(rawJson, targetUrl, resourceType) {
   const target = directPublisherTargetV1(targetUrl);
-  if (!target || !directPublisherJsonBytesV1(rawJson)) return null;
+  if (
+    !target ||
+    !["chapter", "part"].includes(resourceType) ||
+    !directPublisherJsonBytesV1(rawJson)
+  )
+    return null;
   try {
     const chapter = JSON.parse(
       rawJson.charCodeAt(0) === 0xfeff ? rawJson.slice(1) : rawJson,
@@ -100,11 +120,25 @@ export function directPublisherChapterV1(rawJson, targetUrl) {
       !object(chapter) ||
       chapter.id !== target.chapterId ||
       chapter.status !== "publish" ||
-      chapter.type !== "chapter" ||
+      chapter.type !== resourceType ||
       typeof chapter.link !== "string" ||
       chapter.link.length > 4000
     )
       return null;
+    if (resourceType === "part" && chapter._links?.self !== undefined) {
+      const self = chapter._links.self,
+        endpoint = directPublisherResourceTargetV1(
+          targetUrl,
+          "part",
+        ).endpointUrl;
+      if (
+        !Array.isArray(self) ||
+        !self.length ||
+        self.length > 8 ||
+        self.some((value) => !object(value) || value.href !== endpoint)
+      )
+        return null;
+    }
     const link = new URL(chapter.link),
       book = new URL(target.bookUrl);
     if (
@@ -172,8 +206,12 @@ export function directPublisherChapterV1(rawJson, targetUrl) {
   }
 }
 
-export function directPublisherSourceValidV1(value, targetUrl) {
-  const target = directPublisherTargetV1(targetUrl),
+export function directPublisherChapterV1(rawJson, targetUrl) {
+  return directPublisherResourceV1(rawJson, targetUrl, "chapter");
+}
+
+export function directPublisherSourceForTypeV1(value, targetUrl, resourceType) {
+  const target = directPublisherResourceTargetV1(targetUrl, resourceType),
     object = value && typeof value === "object" && !Array.isArray(value);
   if (
     !target ||
@@ -196,7 +234,10 @@ export function directPublisherSourceValidV1(value, targetUrl) {
           "rawJson",
         ].includes(key),
     ) ||
-    value.kind !== "CTI_BROWSER_PUBLISHER_CHAPTER" ||
+    value.kind !==
+      (resourceType === "part"
+        ? "CTI_BROWSER_PUBLISHER_PART"
+        : "CTI_BROWSER_PUBLISHER_CHAPTER") ||
     value.schemaVersion !== 1 ||
     value.statusCoverage !== "PARTIAL_PUBLISHER_API_ONLY" ||
     value.requestedUrl !== targetUrl ||
@@ -219,24 +260,136 @@ export function directPublisherSourceValidV1(value, targetUrl) {
   return (
     !!bytes &&
     bytes.length === value.bytes &&
-    !!directPublisherChapterV1(value.rawJson, targetUrl)
+    !!directPublisherResourceV1(value.rawJson, targetUrl, resourceType)
+  );
+}
+
+export function directPublisherSourceValidV1(value, targetUrl) {
+  return directPublisherSourceForTypeV1(value, targetUrl, "chapter");
+}
+
+export function directPublisherResourceSourceValidV1(value, targetUrl) {
+  return directPublisherSourceForTypeV1(
+    value,
+    targetUrl,
+    value?.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+  );
+}
+
+/** Resolution history has no response body: the original exposed 404 is
+ * preserved as browser context, not as a successful chapter observation. */
+export function directPublisherPartResolutionValidV1(
+  value,
+  targetUrl,
+  observedAt,
+) {
+  const target = directPublisherTargetV1(targetUrl),
+    r = value?.chapterReceipt;
+  if (
+    !target ||
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).some(
+      (key) => !["method", "chapterReceipt"].includes(key),
+    ) ||
+    value.method !== "CHAPTER_404_TO_PART" ||
+    !r ||
+    typeof r !== "object" ||
+    Array.isArray(r) ||
+    Object.keys(r).some(
+      (key) =>
+        ![
+          "transport",
+          "resource",
+          "id",
+          "requestedUrl",
+          "endpointUrl",
+          "origin",
+          "requestPath",
+          "requestQuery",
+          "method",
+          "bodyFormat",
+          "responseType",
+          "credentials",
+          "observedAtBasis",
+          "observedAt",
+          "receivedAt",
+          "status",
+          "bytes",
+          "originalResponseSha256",
+          "attempts",
+        ].includes(key),
+    )
+  )
+    return false;
+  const endpoint = new URL(target.endpointUrl),
+    a = r.attempts?.[0];
+  return (
+    r.transport === "BROWSER_PUBLISHER_API" &&
+    r.resource === "PublisherChapter" &&
+    r.id === targetUrl &&
+    r.requestedUrl === targetUrl &&
+    r.endpointUrl === target.endpointUrl &&
+    r.origin === endpoint.origin &&
+    r.requestPath === endpoint.pathname &&
+    Array.isArray(r.requestQuery) &&
+    !r.requestQuery.length &&
+    r.method === "GET" &&
+    r.bodyFormat === "ORIGINAL_PUBLISHER_JSON" &&
+    r.responseType === "cors" &&
+    r.credentials === "omit" &&
+    r.observedAtBasis === "BROWSER_RESPONSE" &&
+    typeof r.observedAt === "string" &&
+    Number.isFinite(Date.parse(r.observedAt)) &&
+    new Date(r.observedAt).toISOString() === r.observedAt &&
+    Date.parse(r.observedAt) <= Date.parse(observedAt) &&
+    r.receivedAt === "" &&
+    r.status === 404 &&
+    r.bytes === 0 &&
+    r.originalResponseSha256 === "" &&
+    Array.isArray(r.attempts) &&
+    r.attempts.length === 1 &&
+    !!a &&
+    typeof a === "object" &&
+    !Array.isArray(a) &&
+    Object.keys(a).every((key) =>
+      [
+        "credentials",
+        "observedAt",
+        "status",
+        "responseType",
+        "bytes",
+        "reason",
+      ].includes(key),
+    ) &&
+    a.credentials === "omit" &&
+    a.observedAt === r.observedAt &&
+    a.status === 404 &&
+    a.responseType === "cors" &&
+    a.bytes === 0 &&
+    a.reason === "PUBLISHER_BROWSER_HTTP_404"
   );
 }
 
 /** Browser CORS success is observed in the browser, not attested by a CTI
  * server. Native widget ownership is validated separately by its caller. */
-export function directPublisherObservationValidV1(value, targetUrl) {
+export function directPublisherObservationForTypeV1(
+  value,
+  targetUrl,
+  resourceType,
+) {
   if (
     !value ||
     typeof value !== "object" ||
     Array.isArray(value) ||
     Object.keys(value).some((key) => !["model", "receipt"].includes(key)) ||
-    !directPublisherSourceValidV1(value.model, targetUrl)
+    !directPublisherSourceForTypeV1(value.model, targetUrl, resourceType)
   )
     return false;
   const t = value.receipt,
     m = value.model,
-    target = directPublisherTargetV1(targetUrl),
+    target = directPublisherResourceTargetV1(targetUrl, resourceType),
     endpoint = new URL(target.endpointUrl);
   if (
     !t ||
@@ -264,10 +417,12 @@ export function directPublisherObservationValidV1(value, targetUrl) {
           "bytes",
           "originalResponseSha256",
           "attempts",
+          ...(resourceType === "part" ? ["resolution"] : []),
         ].includes(key),
     ) ||
     t.transport !== "BROWSER_PUBLISHER_API" ||
-    t.resource !== "PublisherChapter" ||
+    t.resource !==
+      (resourceType === "part" ? "PublisherPart" : "PublisherChapter") ||
     t.id !== targetUrl ||
     t.requestedUrl !== targetUrl ||
     t.endpointUrl !== target.endpointUrl ||
@@ -290,6 +445,17 @@ export function directPublisherObservationValidV1(value, targetUrl) {
     Date.parse(t.receivedAt) < Date.parse(m.observedAt) ||
     !Array.isArray(t.attempts) ||
     ![1, 2].includes(t.attempts.length)
+  )
+    return false;
+  if (
+    resourceType === "part" &&
+    (t.attempts.length !== 1 ||
+      t.credentials !== "omit" ||
+      !directPublisherPartResolutionValidV1(
+        t.resolution,
+        targetUrl,
+        m.observedAt,
+      ))
   )
     return false;
   let previous = 0;
@@ -349,10 +515,42 @@ export function directPublisherObservationValidV1(value, targetUrl) {
   return true;
 }
 
+export function directPublisherObservationValidV1(value, targetUrl) {
+  return directPublisherObservationForTypeV1(value, targetUrl, "chapter");
+}
+
+export function directPublisherResourceObservationValidV1(value, targetUrl) {
+  return directPublisherObservationForTypeV1(
+    value,
+    targetUrl,
+    value?.model?.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+  );
+}
+
 export function directPublisherEvidenceV1(observation, targetUrl, hashBytes) {
   if (
     typeof hashBytes !== "function" ||
     !directPublisherObservationValidV1(observation, targetUrl)
+  )
+    return null;
+  try {
+    const bytes = directPublisherJsonBytesV1(observation.model.rawJson);
+    return bytes && hashBytes(bytes) === observation.model.sha256
+      ? observation
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function directPublisherResourceEvidenceV1(
+  observation,
+  targetUrl,
+  hashBytes,
+) {
+  if (
+    typeof hashBytes !== "function" ||
+    !directPublisherResourceObservationValidV1(observation, targetUrl)
   )
     return null;
   try {

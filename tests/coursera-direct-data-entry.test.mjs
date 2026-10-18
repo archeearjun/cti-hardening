@@ -13,11 +13,13 @@ import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
   directInlineWidgetEvidenceV1, directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
 import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource } from "../src/extractors/coursera/direct-data-models.js";
 import { directCanonicalSourceTextV1 as canonicalSource } from "../src/extractors/coursera/direct-data-canonical.js";
-import { createInlinePublicContentFixture, createInlinePublisherContentFixture } from "./coursera-inline-content-fixtures.mjs";
+import { createInlinePublicContentFixture, createInlinePublisherContentFixture, createInlinePublisherMediaContentFixture } from "./coursera-inline-content-fixtures.mjs";
 import { WIDGET_COURSE, WIDGET_SLUG } from "./coursera-direct-widget-fixtures.mjs";
 import { directPublicPageTargetV1, directPublicPageObservationValidV1,
   CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1, CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
-import { directPublisherTargetV1, directPublisherObservationValidV1, directPublisherChapterV1 } from "../src/extractors/coursera/direct-data-publisher.js";
+import { directPublisherTargetV1, directPublisherObservationValidV1, directPublisherChapterV1,
+  directPublisherResourceObservationValidV1, directPublisherResourceV1, directPublisherPartResolutionValidV1 } from "../src/extractors/coursera/direct-data-publisher.js";
+import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
@@ -517,6 +519,11 @@ function harness(options = {}) {
     directPublisherTargetV1,
     directPublisherObservationValidV1,
     directPublisherChapterV1,
+    directPublisherResourceObservationValidV1,
+    directPublisherResourceV1,
+    directPublisherPartResolutionValidV1,
+    directPublisherMediaInventoryV1,
+    directPublisherMediaStructureV1,
     directWidgetContractV1: (fp) => {
       const valid = fp.payload.directWidgetProviderEvidence?.stableSource === true;
       const result = contract(fp, "DIRECT_WIDGET", false,
@@ -715,7 +722,7 @@ test("inline page refresh replaces its own near-limit allocation and preserves t
   assert.equal(app.state().inlineExternalContent.pages.saved, 0);
   assert.equal(app.state().inlineExternalContent.pages.historical, 1);
   assert.deepEqual(clone(app.state().inlineExternalContent.failures.upstreamHttp), { "403": 1 }, "Repeated placements count one failed source URL, using upstream HTTP status");
-  assert(app.nodes.some(node => node.textContent.includes("External pages 0/1 saved (1 HTTP 403)")), "The existing overlay explains the failed page acquisition");
+  assert(app.nodes.some(node => node.textContent.includes("HTML fallbacks 0/1 saved (1 HTTP 403)")), "The existing overlay identifies the transport that failed");
   assert.equal(app.calls.filter(call => call.resource === "public").length, 3, "A new attempt refreshes the public source once");
   assert.equal(app.runs.get(runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes, 8 * Buffer.byteLength(html));
   assert(app.items.get(runId + "/" + fixtures[0].fp.id).fingerprint.captureContract.complete === false);
@@ -998,6 +1005,131 @@ test("the bounded inline overlay summary distinguishes configuration from unique
   } });
   const bounded = context.inlineExternalContentSummary();
   assert.equal(bounded.pages.unique, 256); assert.equal(bounded.failures.timeouts, 256); assert.equal(bounded.limited, true);
+});
+
+test("inline progress separates exposed publisher API HTTP outcomes from HTML fallback failures", () => {
+  const declarations = ["publicPageFailureOutcome", "summarizeInlineItem", "inlineExternalContentSummary"].map(name => {
+    let declaration;
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === name) declaration = node;
+      else ts.forEachChild(node, visit);
+    }
+    visit(parsedEntry); assert(declaration); return declaration.getText(parsedEntry);
+  }).join("\n"), context = vm.createContext({ itemStates: new Map(), courseId: COURSE });
+  new vm.Script(declarations).runInContext(context);
+  const fingerprints = [];
+  let position = 0;
+  for (let index = 0; index < 24; index++) {
+    const fp = { id: "Reading" + index, atomId: String.fromCharCode(65 + index).repeat(22), payload: {
+      directDataSources: { receipts: { stability: { stable: true } } },
+      directInlineWidgetProviderEvidence: { method: "BOUND_INLINE_CML_WIDGET_PROVIDERS", providers: [] },
+    } };
+    for (let providerIndex = 0; providerIndex < (index < 6 ? 3 : 2); providerIndex++, position++) {
+      const target = position % 44, targetUrl = "https://opentextbc.ca/synthetic-book/?p=" + (target + 1),
+        saved = target < 29, apiStatus = target < 43 ? 404 : 401, htmlStatus = target < 43 ? 403 : 404;
+      fp.payload.directInlineWidgetProviderEvidence.providers.push({ courseId: COURSE, itemId: fp.id, atomId: fp.atomId,
+        stableSource: true, failures: [], initial: { modelHash: "a".repeat(64), sourceHash: "b".repeat(64) },
+        final: { modelHash: "a".repeat(64), sourceHash: "b".repeat(64) },
+        publisherPages: [{ targetUrl, observation: saved ? { model: { sha256: "c".repeat(64) } } : null,
+          failures: saved ? [] : [{ reason: "PUBLISHER_BROWSER_HTTP_" + apiStatus, receipt: {
+            transport: "BROWSER_PUBLISHER_API", resource: "PublisherChapter", observedAtBasis: "BROWSER_RESPONSE",
+            responseType: "cors", status: apiStatus,
+          } }] }],
+        publicPages: [{ targetUrl, observation: null, failures: [{ reason: saved
+          ? "PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED" : "PUBLIC_HTML_PROVIDER_HTTP_" + htmlStatus }] }],
+      });
+    }
+    fingerprints.push(fp);
+    context.itemStates.set(fp.id, { inlineExternalContent: context.summarizeInlineItem(fp) });
+  }
+  const original = JSON.stringify(fingerprints), summary = clone(context.inlineExternalContentSummary());
+  assert.equal(summary.readings, 24); assert.deepEqual(summary.settings, { captured: 54, total: 54 });
+  assert.deepEqual(summary.pages, { saved: 29, unique: 44, historical: 0 });
+  assert.equal(summary.publisherApi.saved, 29); assert.equal(summary.publisherApi.unique, 44);
+  assert.deepEqual(summary.publisherApi.failures.observedHttp, { "401": 1, "404": 14 });
+  assert.equal(summary.publisherApi.failures.other, 0); assert.equal(summary.publisherApi.failures.unclassified, 0);
+  assert.equal(summary.htmlPages.saved, 0); assert.equal(summary.htmlPages.unique, 44);
+  assert.equal(summary.htmlPages.readTargets, 15); assert.equal(summary.htmlPages.skipped, 29);
+  assert.deepEqual(summary.htmlPages.failures.upstreamHttp, { "403": 14, "404": 1 });
+  assert.deepEqual(summary.failures.upstreamHttp, { "403": 14, "404": 1 }, "Legacy failures retain their HTML scope");
+  assert.equal(summary.htmlPages.failures.other, 0, "Selecting the API is not an HTML failure");
+  assert.equal(JSON.stringify(fingerprints), original, "Summaries cannot change captured source or completeness");
+  const renderStart = source.indexOf("      const inline = stats.inlineExternalContent;"),
+    renderEnd = source.indexOf("      count.hidden =", renderStart),
+    renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
+  assert(renderStart >= 0 && renderEnd > renderStart);
+  new vm.Script(source.slice(renderStart, renderEnd)).runInContext(renderContext);
+  const text = renderContext.count.textContent;
+  assert(text.includes("External pages 29/44 saved · Publisher API sources 29/44 saved (1 HTTP 401; 14 HTTP 404)"));
+  assert(text.includes("HTML fallbacks 0/15 saved (14 HTTP 403; 1 HTTP 404)"));
+  assert(!text.includes("External pages 29/44 saved ("), "Combined counts cannot imply that HTML errors are API errors");
+  context.itemStates.clear();
+  const opaque = clone(fingerprints[0]), provider = opaque.payload.directInlineWidgetProviderEvidence.providers[0];
+  opaque.payload.directInlineWidgetProviderEvidence.providers = [provider];
+  provider.publicPages = [];
+  provider.publisherPages[0].observation = null;
+  provider.publisherPages[0].failures = [{ reason: "PUBLISHER_BROWSER_BLOCKED_OR_FAILED", receipt: {
+    transport: "BROWSER_PUBLISHER_API", resource: "PublisherChapter", observedAtBasis: "BROWSER_RESPONSE",
+    responseType: "unreadable", status: 0,
+  } }];
+  context.itemStates.set(opaque.id, { inlineExternalContent: context.summarizeInlineItem(opaque) });
+  const blocked = clone(context.inlineExternalContentSummary());
+  assert.deepEqual(blocked.publisherApi.failures.observedHttp, {});
+  assert.equal(blocked.publisherApi.failures.browserUnavailable, 1);
+  assert.equal(blocked.publisherApi.browserUnavailable, 1);
+  provider.publisherPages[0].failures[0].reason = "PUBLISHER_BROWSER_HTTP_404";
+  provider.publisherPages[0].failures[0].receipt.status = 404;
+  context.itemStates.set(opaque.id, { inlineExternalContent: context.summarizeInlineItem(opaque) });
+  assert.deepEqual(clone(context.inlineExternalContentSummary()).publisherApi.failures.observedHttp, {},
+    "An unreadable response cannot establish an observed HTTP status even if a code or stored number says 404");
+  assert.equal(context.publicPageFailureOutcome({ reason: "PUBLISHER_BROWSER_HTTP_401", receipt: {
+    transport: "BROWSER_PUBLISHER_API", resource: "PublisherPart", observedAtBasis: "BROWSER_RESPONSE",
+    responseType: "cors", status: 401,
+  } }), "HTTP_401", "An exposed book-section response retains its own observed HTTP outcome");
+  provider.publisherPages[0].failures[0].reason = "PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT";
+  provider.publisherPages[0].failures[0].receipt.responseType = "cors";
+  context.itemStates.set(opaque.id, { inlineExternalContent: context.summarizeInlineItem(opaque) });
+  const limited = clone(context.inlineExternalContentSummary());
+  assert.equal(limited.publisherApi.failures.limits, 1);
+  assert.deepEqual(limited.publisherApi.failures.observedHttp, {}, "A bounded route-resolution stop is labelled separately from an ordinary 404");
+});
+
+test("publisher image progress deduplicates owned originals and distinguishes blocked reads from historical files", () => {
+  const declarations = ["publicPageFailureOutcome", "summarizeInlineItem", "inlineExternalContentSummary"].map(name => {
+    let declaration;
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === name) declaration = node;
+      else ts.forEachChild(node, visit);
+    }
+    visit(parsedEntry); assert(declaration); return declaration.getText(parsedEntry);
+  }).join("\n"), context = vm.createContext({ itemStates: new Map(), courseId: WIDGET_COURSE, directPublisherMediaStructureV1 }),
+    outcomes = ["CAPTURED", "PUBLISHER_IMAGE_BLOCKED_OR_FAILED", "PUBLISHER_IMAGE_HTTP_404"],
+    fixtures = [createInlinePublisherMediaContentFixture({ itemId: "ImageReadingA", atomId: "A".repeat(22), outcomes }),
+      createInlinePublisherMediaContentFixture({ itemId: "ImageReadingB", atomId: "B".repeat(22), outcomes })],
+    previous = createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED", "CAPTURED", "CAPTURED"] });
+  fixtures[0].publisherMedia.retained = [{ observation: previous.publisherObservation, resources: [previous.publisherMedia.resources[1]] }];
+  new vm.Script(declarations).runInContext(context);
+  const before = fixtures.map(f => JSON.stringify(f.raw));
+  for (const f of fixtures) context.itemStates.set(f.fp.id, { inlineExternalContent: context.summarizeInlineItem(f.fp) });
+  const summary = clone(context.inlineExternalContentSummary());
+  assert.deepEqual(summary.publisherImages, { unique: 3, saved: 1, historical: 1, browserUnavailable: 1, failed: 1, unverified: 0 });
+  assert.equal(summary.pages.saved, 1); assert.equal(summary.publisherApi.saved, 1);
+  assert.deepEqual(summary.settings, { captured: 2, total: 2 });
+  assert.equal(summary.wholeWidgetVerified, false);
+  assert.deepEqual(fixtures.map(f => JSON.stringify(f.raw)), before);
+  assert(fixtures.every(f => f.fp.captureContract.complete === false));
+  const start = source.indexOf("      const inline = stats.inlineExternalContent;"), end = source.indexOf("      count.hidden =", start),
+    renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
+  new vm.Script(source.slice(start, end)).runInContext(renderContext);
+  assert(renderContext.count.textContent.includes("Publisher image sources 1/3 saved (1 browser-blocked or unreadable; 1 other read failures)"));
+  assert(renderContext.count.textContent.includes("1 historical image originals retained"));
+  context.itemStates.clear();
+  const metadataOnly = createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED"] });
+  delete metadataOnly.publisherMedia.resources[0].body;
+  context.itemStates.set(metadataOnly.fp.id, { inlineExternalContent: context.summarizeInlineItem(metadataOnly.fp) });
+  const metadataSummary = context.inlineExternalContentSummary().publisherImages;
+  assert.equal(metadataSummary.saved, 0); assert.equal(metadataSummary.unique, 0);
+  assert.equal(metadataSummary.sourceGaps, 1, "A discovered image URL without an original body or read outcome stays an explicit evidence gap");
 });
 
 test("the actual entry records separate native and flag-set comparison hashes without calling a flag reorder a course edit", async () => {
@@ -2079,6 +2211,7 @@ test("completed v1.5 and v1.6 gap captures continue in the original run without 
 for (const [version, originalBuild] of [
   ["v1.8.0", "v1.8.0-inline-widget-public-html-20261018"],
   ["v1.8.1", "v1.8.1-browser-publisher-api-20261018"],
+  ["v1.8.2", "v1.8.2-historical-publisher-checkpoint-20261018"],
 ]) test("exact " + version + " continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(), source = f.fixtures[0],
