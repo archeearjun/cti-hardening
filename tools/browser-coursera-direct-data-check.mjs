@@ -133,6 +133,18 @@ function makeDiscussionMediaCourse(id,mode='media-success'){
   leaf.content={typeName:'discussionPrompt',definition:{discussionPromptId:key('discussion_',configs.size)+'@1'}};
   return config;
 }
+function makeDwgMediaCourse(id){
+  const config=makeMediaCourse(id),assetId=key('cad'+configs.size+'_',0),name='original-plan.dwg',mime='application/acad';
+  // Synthetic format header checks original retention, not CAD interoperability.
+  const body=Buffer.alloc(512);body.write('AC1032');body.write('Original opaque drawing fixture',128);
+  const url=mediaOrigin+'/'+id+'/'+assetId+'/'+name+'?X-Amz-Signature='+secrets[3]+'&Expires=2000000000';
+  config.mediaIds.push(assetId);
+  assets.set(assetId,{courseId:id,name,mime,body,url,value:{id:assetId,name,filename:name,fileExtension:'dwg',typeName:'generic',url:{url}}});
+  const row=[...atoms.values()].find(value=>value.courseId===id&&value.itemId==='item_0002');
+  row.atom.draft.content.definition.content.definition.value=row.atom.draft.content.definition.content.definition.value.replace('</co-content>',
+    '<asset id="'+assetId+'" name="'+name+'" extension="dwg" assetType="generic"/></co-content>');
+  return config;
+}
 function makeLargeMediaCourse(id){
   const config=makeCourse(id,'large-export');config.mode='media-success';config.assetGets=new Map();config.mediaIds=[];
   let index=0;
@@ -203,6 +215,7 @@ const authentication=makeCourse('Direct_auth_fixture_123','authentication');
 const limited=makeCourse('Direct_limit_fixture_123','limited');
 const largeExport=makeCourse('Direct_large_export_123','large-export');
 const mediaSuccess=makeMediaCourse('Direct_media_complete_123');
+const dwgOriginals=makeDwgMediaCourse('Direct_dwg_originals_123');
 const assessReadingMedia=makeMediaCourse('Direct_assess_reading_123');
 const assessReading=[...atoms.values()].find(row=>row.courseId===assessReadingMedia.id&&row.itemId==='item_0002');
 assessReading.atom.draft.content.definition.content.definition.dtdId='assess/1';
@@ -559,6 +572,7 @@ try{
       assert.equal(url.searchParams.get('X-Amz-Signature'),secrets[3],
         'The signed response location is used ephemerally for the one fetch');
       const responseHeaders={'Content-Type':asset.mime,'Access-Control-Allow-Origin':origin};
+      if(/\.dwg$/i.test(asset.name))responseHeaders['Content-Length']=String(asset.body.length);
       if(config.mode==='media-body-403'){await route.fulfill({status:403,headers:responseHeaders,body:'denied'});return;}
       if(config.mode==='media-body-cors'){await route.continue();return;}
       if(config.mode==='media-body-redirect'){
@@ -812,6 +826,12 @@ try{
   }
   const boundMedia=await runFileCase(mediaSuccess);assert.equal(boundMedia.state.state,'COMPLETE');
   assertOriginalMedia(mediaSuccess,boundMedia.capture);await boundMedia.context.close();
+  const boundDwg=await runFileCase(dwgOriginals);
+  assert.equal(boundDwg.state.state,'COMPLETE');assertOriginalMedia(dwgOriginals,boundDwg.capture);
+  const dwgBody=retainedMediaBodies(boundDwg.capture).get(dwgOriginals.mediaIds.at(-1)).body;
+  assert.equal(dwgBody.mime,'application/acad');assert.equal(dwgBody.receipt.originalContentType,'application/acad');
+  assert.equal(dwgBody.receipt.declaredBodyBytes,512,'DWG originals retain exact framing evidence');
+  await boundDwg.context.close();
   const boundAssessReading=await runFileCase(assessReadingMedia);
   assert.equal(boundAssessReading.state.state,'COMPLETE');
   assertOriginalMedia(assessReadingMedia,boundAssessReading.capture);

@@ -6,7 +6,9 @@ export const BRIGHTSPACE_CHECKPOINT_MAX_RUNS_V110 = 3;
  * download only. Never rewrite its build, dates, scope or run identity, and
  * never save new observations through the old checkpoint session. */
 export async function loadBrightspacePreviousRecoveryV111(options) {
-  const builds = options.buildId === "v1.2.0-blob-archive-20261017"
+  const builds = options.buildId === "v1.2.1-course-dwg-originals-20261018"
+    ? ["v1.2.0-blob-archive-20261017", "v1.1.1-native-image-view-20261017", "v1.1.0-faithful-bookmark-20261016"]
+    : options.buildId === "v1.2.0-blob-archive-20261017"
     ? ["v1.1.1-native-image-view-20261017", "v1.1.0-faithful-bookmark-20261016"]
     : options.buildId === "v1.1.1-native-image-view-20261017"
       ? ["v1.1.0-faithful-bookmark-20261016"] : [];

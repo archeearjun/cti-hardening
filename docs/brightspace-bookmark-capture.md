@@ -1,6 +1,6 @@
 # Brightspace bookmark capture
 
-The current Brightspace collector is **v1.2.0, schema 2**. Its primary delivery
+The current Brightspace collector is **v1.2.1, schema 2**. Its primary delivery
 is a saved **CTI Brightspace capture** bookmark. It reads supported source
 evidence in the operator’s existing signed-in Chrome tab and downloads one `.cti.zip`
 file containing a compressed manifest and the retained original files. It does not change the course or create replacement content.
@@ -111,6 +111,15 @@ old metadata checkpoints age out, so download captures and manage browser
 site storage when space is needed. Clearing that storage removes local recovery.
 
 ## Recovery and freshness
+
+Version 1.2.1 adds original DWG retention for explicit same-origin paths inside
+the identified course's enforced-content container. Native scope, supported
+signature/MIME, complete identity-framed bytes and hashes are checked during
+collection and import. This preserves drawing files without establishing that
+they render or contain correct drawings. Previously uncollected DWG references
+remain historical gaps; update the bookmark and capture the source again to
+obtain their original bytes. Earlier v1.2.0 checkpoints remain available for
+read-only historical download, with their original build and observation dates.
 
 Checkpoints are local to the Brightspace origin, native course ID, extractor
 build and Chrome profile. They retain partial, paused or finished observations

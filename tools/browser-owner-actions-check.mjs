@@ -6,6 +6,7 @@ import fs from "node:fs";
 import http from "node:http";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { digest } from "../src/domain/workspace-store.ts";
 import {
@@ -39,6 +40,7 @@ import {
   gradingCourseId,
   gradingCourseSlug,
 } from "../tests/native-grading-fixtures.mjs";
+import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
 const root = path.resolve(".");
 const policy = fs
   .readFileSync(root + "/public/_headers", "utf8")
@@ -1699,6 +1701,34 @@ async function checkSourceShellEvidence(page, tab, shots) {
     "Read-only source-shell rendering never launches recorded external resources",
   );
 }
+function addRetainedAuthoringBrowserFixture(item) {
+  const p = item.payload, sources = p.directDataSources, atom = sources.atom.elements[0];
+  const cml = (value, dtdId = "assess/1") => ({ typeName: "cml", definition: { dtdId, value: `<co-content><text>${value}</text></co-content>` } });
+  const receipt = (resource, id) => ({ resource, id, status: 200, bodyFormat: "PARSED_SANITIZED_JSON_MODEL", originalResponseSha256: "b".repeat(64), sha256: "b".repeat(64), requestPath: `/api/${resource}/${id}` });
+  const parts = [{ typeName: "storedTextBlockPart", definition: { id: "textBlock~synthetic", title: "Submission instructions", body: cml("Use the associated dropbox; this is an instruction block.") } }];
+  const groups = [], definitions = [], receipts = [], groupStability = [];
+  for (const [index, invalid] of [false, true].entries()) {
+    const local = (invalid ? "v" : "r").repeat(22), groupId = item.atomId + "~" + local;
+    const definitionId = item.atomId + "~" + (invalid ? "j" : "k").repeat(22) + "@1";
+    parts.push({ typeName: "storedQuestionGroupPart", definition: { id: local } });
+    const group = { id: groupId, questions: [definitionId], questionReferences: [{ internalId: `synthetic-${index}`, authoringId: definitionId }] };
+    groups.push(group);
+    definitions.push({ id: definitionId, definition: { typeName: invalid ? "mcq" : "mcqReflect", definition: {
+      prompt: cml(invalid ? "9 + 7 =" : "Which skill do you want to practise?", invalid ? "" : "assess/1"),
+      options: [{ id: invalid ? "blank-option" : "source-choice", display: cml(invalid ? "" : "Authored reflection choice", invalid ? "" : "assess/1") }],
+    } }, validation: { definition: { isReadyForPublish: !invalid, invalidMembers: invalid ? [{ path: "/options/0/display", status: "EMPTY" }] : [] } } });
+    receipts.push(receipt("authoringAssignmentQuestionGroups.v1", groupId), receipt("authoringAssignmentMachineEvaluableQuestions.v1", definitionId));
+    groupStability.push({ id: groupId, stable: true, group: structuredClone(group), receipt: receipt("authoringAssignmentQuestionGroups.v1", groupId) });
+  }
+  atom.draft.content.definition.parts = parts;
+  const draftHash = createHash("sha256").update(directCanonicalSourceTextV1(atom.draft)).digest("hex");
+  sources.receipts.stability.atom.elements = [structuredClone(atom)];
+  sources.receipts.stability.draftHash = draftHash;
+  p.directDataEvidence.draftHash = draftHash;
+  p.assessmentApiEvidence = { method: "BOUND_AUTHORING_DRAFT_API", courseId: gradingCourseId, itemId: item.id, assignmentId: item.atomId, rawParts: parts, groups, questionDefinitions: definitions, receipts, groupStability };
+  p.structuredAssessment.declaredQuestionCount = 2;
+  p.structuredAssessment.captureCompleteness = { declared: 2, questionCoverageComplete: false };
+}
 function nativeGradingBrowserFixture() {
   const source = comparisonFixture(),
     title = gradingFixture().item.name;
@@ -1745,6 +1775,7 @@ function nativeGradingBrowserFixture() {
           : gradingCourseId;
     item.path = "Module 1";
     item.lesson = "Lesson 1";
+    if (variant.key === "true") addRetainedAuthoringBrowserFixture(item);
     if (variant.key === "missing-proof") delete item.payload.directDataSources;
     const capture = {
       schemaVersion: 34,
@@ -1777,7 +1808,7 @@ function nativeGradingBrowserFixture() {
     );
     assert.equal(
       report.contentEvidence.coursera[0].content.expectedQuestions,
-      null,
+      variant.key === "true" ? 2 : null,
     );
     assert.equal(
       report.result.ownerView.items.length,
@@ -1903,6 +1934,24 @@ async function checkNativeGradingEvidence(page, tab, shots) {
           identity.includes(field),
           `Captured grading identity must retain ${field}`,
         );
+      if (entry.key === "true") {
+        const retained = content.getByRole("region", { name: "Additional retained authoring content", exact: true });
+        await retained.getByRole("heading", { name: "Additional retained authoring content", exact: true }).waitFor();
+        const blocks = retained.locator(":scope > details");
+        assert.equal(await blocks.count(), 3);
+        for (const block of await blocks.all()) await block.locator(":scope > summary").click();
+        await retained.getByText("Use the associated dropbox; this is an instruction block.", { exact: true }).waitFor();
+        await retained.getByText("Which skill do you want to practise?", { exact: true }).waitFor();
+        assert.match(await retained.innerText(), /Authored reflection choice/);
+        assert.match(await retained.innerText(), /Native ready-for-publish flag: false/);
+        assert.match(await retained.innerText(), /CML format is unsupported/);
+        const raw = blocks.nth(2).getByText("Literal retained native model", { exact: true });
+        await raw.click();
+        assert.match(await blocks.nth(2).locator("pre").textContent(), /9 \+ 7/);
+        assert.equal(await content.locator(".captured-questions").count(), 0, "Instruction and raw native definitions never become normalized question positions");
+        assert.equal(await retained.getByRole("button", { name: /Copy question and answer/ }).count(), 0);
+        assert.equal(await retained.getByText("16", { exact: true }).count(), 0, "No calculated or invented answer fills an unsupported source model");
+      }
       assert.equal(
         await card
           .getByRole("region", { name: "Source captured content", exact: true })
@@ -1943,6 +1992,22 @@ async function checkNativeGradingEvidence(page, tab, shots) {
       exported.followUp.contentEvidence.coursera[0].content.nativeGrading,
       entry.setting,
     );
+    if (entry.key === "true") {
+      assert.deepEqual(exported.followUp.contentEvidence.coursera[0].content.retainedAuthoringContent,
+        entry.report.contentEvidence.coursera[0].content.retainedAuthoringContent);
+      assert.equal(exported.followUp.contentEvidence.coursera[0].content.questions.length, 0);
+      assert.equal(exported.followUp.contentEvidence.coursera[0].content.questionCoverage, "UNVERIFIED");
+      // The backup import persists the proof; reload must revalidate it and
+      // render the same separate section without changing the original audit.
+      await page.reload();
+      await page.getByRole("combobox", { name: "Selected source course", exact: true }).selectOption(fixture.source.course.id);
+      await tab("History");
+      await page.getByRole("button", { name: entry.audit.title, exact: true }).click();
+      await page.getByRole("heading", { name: "Coursera content view", exact: true }).waitFor();
+      await page.getByRole("group", { name: "Show owner work" }).getByRole("button", { name: "All items (1)", exact: true }).click();
+      await page.locator(".action-card > summary").click();
+      await page.getByRole("region", { name: "Coursera captured content", exact: true }).getByRole("heading", { name: "Additional retained authoring content", exact: true }).waitFor();
+    }
     assert.deepEqual(
       exported.followUp.contentComparisons[0].view.coursera.nativeGrading,
       entry.setting,
@@ -3142,6 +3207,7 @@ try {
           "verified literal source captions, retained binary versus failed-read outcomes, native topic identity, authored resource alt/read reasons, immutable exports, empty native shell folders, repeated-title Archive placements, unsupported-kind links and visible invalid-proof rejection at desktop and 390px",
           "verified source HTML: hidden tab content, scoped repeated D2L keys, table headers/cell order/empty cells/spans, named LTI and authored image-alt distinctions, exact native topic exports, unchanged partial text coverage and observation times, inert scripts and zero external resource requests at desktop and 390px",
           "independently bound native graded and not-graded settings with identity/scope/time, foreign-course and missing-proof suppression, unchanged owner item counts and original findings, exact exported readouts and 390px layout",
+          "separate retained reflection/instruction/invalid-CML native content: authored prompt/options, literal raw fallback, no invented keys or normalized-question upgrade, exact proof exports and reload persistence",
         ],
         screenshots: shots,
       },

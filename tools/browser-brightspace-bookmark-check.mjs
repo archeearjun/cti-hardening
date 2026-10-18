@@ -8,6 +8,7 @@ import { createServer } from "vite";
 import { chromium } from "playwright";
 import JSZip from "jszip";
 import { gunzipSync } from "node:zlib";
+import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 
 // Synthetic, authenticated source fixtures only. This verifies the maintained
 // bookmark and browser mechanics, not the completeness of any private course.
@@ -27,6 +28,11 @@ const image = Buffer.from(
   "base64",
 );
 const pdf = Buffer.from("%PDF-1.4\n% CTI original outline fixture\n%%EOF\n");
+// Synthetic original-file header; this does not certify CAD rendering.
+const dwg = Buffer.alloc(512);
+dwg.write("AC1032");
+dwg.write("Original opaque drawing fixture", 128);
+const dwgPath = `/content/enforced/${orgUnitId}-DEV/Content/original-plan.dwg`;
 const captions =
   "1\n00:00:00,000 --> 00:00:01,200\nUse <valve> & keep 10 > 5.\n\n2\n00:00:02,000 --> 00:00:03,500\nOriginal résumé, untouched.\n\n";
 const plainText =
@@ -63,6 +69,7 @@ const topics = [
     ActivityType: 2,
   },
   { Id: 107, Title: "Original plain text", Url: "/content/literal.txt" },
+  { Id: 108, Title: "Original CAD drawing", Url: dwgPath },
 ].map((topic) => ({ Type: 1, TopicType: 1, ParentModuleId: 9001, ...topic }));
 const requests = [];
 const unexpectedRequests = [];
@@ -226,6 +233,7 @@ const sourceServer = http.createServer((request, response) => {
     ],
     "/content/shared.png": ["image/png", image],
     "/content/outline.pdf": ["application/pdf", pdf],
+    [dwgPath]: ["application/acad", dwg],
   };
   if (originals[url.pathname]) {
     const [type, body] = originals[url.pathname];
@@ -330,6 +338,10 @@ function verifyCapture(capture) {
   const drawing = nodes.find((node) => node.id === "103").contentEvidence;
   assert.equal(drawing.status, "CAPTURED_ORIGINAL");
   assertOriginal(capture, drawing.originalRef, image);
+  const cad = nodes.find((node) => node.id === "108").contentEvidence;
+  assert.equal(cad.status, "CAPTURED_ORIGINAL");
+  assert.equal(cad.contentType, "application/acad");
+  assertOriginal(capture, cad.originalRef, dwg);
   const assets = capture.contentAcquisition.assets;
   const shared = assets.find(
     (asset) => asset.url === origin + "/content/shared.png",
@@ -791,7 +803,7 @@ try {
   assert.match(
     download.suggestedFilename(),
     new RegExp(
-      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__v1\\.2\\.0_s2__SOURCE_GROUND_TRUTH\\.cti\\.zip$`,
+      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__${CTI_RELEASE_REGISTRY_.brightspaceExtractor.version.replaceAll(".", "\\.")}_s2__SOURCE_GROUND_TRUTH\\.cti\\.zip$`,
     ),
   );
   assert.equal(download.suggestedFilename(), capture.exportFileName);

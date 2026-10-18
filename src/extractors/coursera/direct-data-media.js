@@ -77,8 +77,58 @@ export function directAssetMetadataBindingV1(envelope, assetId) {
   }
 }
 
-/** Inert original bytes must match both declared MIME and a supported signature. */
-export function directAssetBodyKindV1(bytes, mime, name = "") {
+/** Native drawing identity is required before accepting any DWG response MIME. */
+export function directDwgAssetBindingV1(name, sourceModel = null) {
+  if (typeof name !== "string" || !/\.dwg$/i.test(name)) return false;
+  if (sourceModel === null) return true;
+  if (!sourceModel || typeof sourceModel !== "object") return false;
+  for (const key of ["filename", "sourcePath"])
+    if (
+      sourceModel[key] !== undefined &&
+      (typeof sourceModel[key] !== "string" ||
+        !/\.dwg$/i.test(sourceModel[key]))
+    )
+      return false;
+  if (
+    sourceModel.fileExtension !== undefined &&
+    (typeof sourceModel.fileExtension !== "string" ||
+      !/^dwg$/i.test(sourceModel.fileExtension))
+  )
+    return false;
+  return true;
+}
+
+/** Recognized DWG media types still require native filename and binary proof. */
+export function directDwgMimeSupportedV1(mime) {
+  return (
+    typeof mime === "string" &&
+    /^(?:image\/(?:vnd\.dwg|x-dwg)|application\/(?:acad|x-acad|autocad|x-autocad|dwg|x-dwg|octet-stream)|drawing\/dwg)$/.test(
+      mime.split(";")[0].trim().toLowerCase(),
+    )
+  );
+}
+
+/** DWG framing and the exact observed MIME declaration travel with its bytes. */
+export function directDwgBodyReceiptValidV1(receipt, mime, size) {
+  return Boolean(
+    receipt &&
+      receipt.declaredBodyBytes === size &&
+      typeof receipt.originalContentType === "string" &&
+      receipt.originalContentType.length > 0 &&
+      receipt.originalContentType.length <= 256 &&
+      !/[\u0000-\u001f\u007f]/.test(receipt.originalContentType) &&
+      receipt.originalContentType.split(";")[0].trim().toLowerCase() === mime,
+  );
+}
+
+/** Inert original bytes must match both declared MIME and a supported signature.
+ * DWG recognition retains a file; it does not parse or render drawing content. */
+export function directAssetBodyKindV1(
+  bytes,
+  mime,
+  name = "",
+  sourceModel = null,
+) {
   if (
     !(bytes instanceof Uint8Array) ||
     !bytes.length ||
@@ -92,6 +142,17 @@ export function directAssetBodyKindV1(bytes, mime, name = "") {
     values.every((value, index) => bytes[index] === value);
   const ascii = (start, end) =>
     String.fromCharCode(...bytes.subarray(start, end));
+  if (/\.dwg$/i.test(name)) {
+    // AutoCAD 2000–2018 format families have a six-byte version followed by
+    // five reserved zero bytes. Reject short headers and unknown future types.
+    return directDwgAssetBindingV1(name, sourceModel) &&
+      directDwgMimeSupportedV1(type) &&
+      bytes.length >= 128 &&
+      /^AC(?:1015|1018|1021|1024|1027|1032)$/.test(ascii(0, 6)) &&
+      bytes.subarray(6, 11).every((value) => value === 0)
+      ? "DWG"
+      : "";
+  }
   if (
     prefix(137, 80, 78, 71, 13, 10, 26, 10) &&
     (type === "image/png" || generic)
@@ -327,9 +388,13 @@ export async function directRetainedAssetBodyV1(
   )
     return null;
   const bytes = decodeDirectAssetBodyV1(body, maxBytes);
+  const kind =
+    bytes &&
+    directAssetBodyKindV1(bytes, body.mime, initial.name, initial.sourceModel);
   if (
-    !bytes ||
-    !directAssetBodyKindV1(bytes, body.mime, initial.name) ||
+    !kind ||
+    (kind === "DWG" &&
+      !directDwgBodyReceiptValidV1(receipt, body.mime, body.size)) ||
     !globalThis.crypto?.subtle
   )
     return null;
@@ -580,10 +645,11 @@ export function createDirectDataMediaReaderV1(options = {}) {
         await discard(response);
         return failed("DIRECT_ASSET_BODY_REDIRECT");
       }
-      const mime = String(response.headers.get("content-type") || "")
-        .split(";")[0]
-        .trim()
-        .toLowerCase();
+      const originalContentType = String(
+          response.headers.get("content-type") || "",
+        ),
+        mime = originalContentType.split(";")[0].trim().toLowerCase(),
+        drawing = directDwgAssetBindingV1(binding.name, binding.sourceModel);
       if (binding.role === "PODCAST_STREAM_RENDITION" && mime !== "video/mp4") {
         await discard(response);
         return failed("PANOPTO_PODCAST_MIME_UNSUPPORTED");
@@ -591,7 +657,8 @@ export function createDirectDataMediaReaderV1(options = {}) {
       if (
         !/^(?:image\/(?:png|jpe?g|gif|webp)|application\/(?:pdf|zip|x-zip-compressed|octet-stream|vnd\.openxmlformats-officedocument\.(?:presentationml\.presentation|wordprocessingml\.document|spreadsheetml\.sheet))|(?:video|audio)\/mp4|audio\/(?:mpeg|mp3))$/.test(
           mime,
-        )
+        ) &&
+        !(drawing && directDwgMimeSupportedV1(mime))
       ) {
         await discard(response);
         return failed("DIRECT_ASSET_BODY_MIME_UNSUPPORTED");
@@ -606,6 +673,32 @@ export function createDirectDataMediaReaderV1(options = {}) {
         declaredBodyBytes=/^[1-9]\d*$/.test(declared || "") ? Number(declared) : NaN;
         if (!Number.isSafeInteger(declaredBodyBytes)) {
           await discard(response);return failed("PANOPTO_PODCAST_LENGTH_UNAVAILABLE");
+        }
+      }
+      if (drawing) {
+        if (
+          !directDwgMimeSupportedV1(mime) ||
+          originalContentType.length > 256 ||
+          /[\u0000-\u001f\u007f]/.test(originalContentType)
+        ) {
+          await discard(response);
+          return failed("DIRECT_ASSET_BODY_MIME_UNSUPPORTED");
+        }
+        if (response.headers.get("content-range") !== null) {
+          await discard(response);
+          return failed("DIRECT_ASSET_BODY_PARTIAL_RESPONSE");
+        }
+        if (encoding !== null && encoding.trim().toLowerCase() !== "identity") {
+          await discard(response);
+          return failed("DIRECT_ASSET_BODY_ENCODING_UNSUPPORTED");
+        }
+        const declared = response.headers.get("content-length");
+        declaredBodyBytes = /^[1-9]\d*$/.test(declared || "")
+          ? Number(declared)
+          : NaN;
+        if (!Number.isSafeInteger(declaredBodyBytes)) {
+          await discard(response);
+          return failed("DIRECT_ASSET_BODY_LENGTH_UNAVAILABLE");
         }
       }
       const chunks = [];
@@ -672,7 +765,11 @@ export function createDirectDataMediaReaderV1(options = {}) {
           );
       } else return failed("DIRECT_ASSET_BODY_UNAVAILABLE");
       if (declaredBodyBytes !== undefined && count !== declaredBodyBytes)
-        return failed("PANOPTO_PODCAST_LENGTH_MISMATCH");
+        return failed(
+          drawing
+            ? "DIRECT_ASSET_BODY_LENGTH_MISMATCH"
+            : "PANOPTO_PODCAST_LENGTH_MISMATCH",
+        );
       const bytes = new Uint8Array(count);
       let offset = 0;
       for (const chunk of chunks) {
@@ -680,7 +777,9 @@ export function createDirectDataMediaReaderV1(options = {}) {
         offset += chunk.byteLength;
       }
       chunks.length = 0;
-      if (!directAssetBodyKindV1(bytes, mime, binding.name))
+      if (
+        !directAssetBodyKindV1(bytes, mime, binding.name, binding.sourceModel)
+      )
         return failed("DIRECT_ASSET_BODY_MAGIC_INVALID");
       if (!globalThis.crypto?.subtle)
         return failed("RESPONSE_HASH_UNAVAILABLE");
@@ -705,6 +804,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
           ...(binding.role === "PODCAST_STREAM_RENDITION" ? {role:"PODCAST_STREAM_RENDITION"} : {}),
           ...(serviceReceipt || {}),
           ...(declaredBodyBytes !== undefined ? {declaredBodyBytes} : {}),
+          ...(drawing ? { originalContentType } : {}),
           status: serviceReceipt?.status || Number(response.status),
           bytes: count,
           mime,

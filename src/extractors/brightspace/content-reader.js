@@ -11,7 +11,9 @@ export async function readBrightspaceBoundedBodyV110(response, options = {}) {
     return error;
   };
   const lengthHeader = response.headers.get("content-length"),
-    encoding = (response.headers.get("content-encoding") || "").trim().toLowerCase();
+    encoding = (response.headers.get("content-encoding") || "")
+      .trim()
+      .toLowerCase();
   let declared = null;
   // Fetch exposes decoded response bytes. A compressed wire Content-Length
   // cannot establish their size; an identity length can detect a clean but
@@ -46,7 +48,8 @@ export async function readBrightspaceBoundedBodyV110(response, options = {}) {
       options.signal?.throwIfAborted();
       if (next.done) {
         finished = true;
-        if (declared !== null && length !== declared) throw fail("BODY_LENGTH_MISMATCH");
+        if (declared !== null && length !== declared)
+          throw fail("BODY_LENGTH_MISMATCH");
         break;
       }
       const bytes =
@@ -56,7 +59,8 @@ export async function readBrightspaceBoundedBodyV110(response, options = {}) {
       length += bytes.byteLength;
       options.onBytes?.(bytes.byteLength);
       if (length > maxBytes) throw fail("BODY_LIMIT_EXCEEDED");
-      if (declared !== null && length > declared) throw fail("BODY_LENGTH_MISMATCH");
+      if (declared !== null && length > declared)
+        throw fail("BODY_LENGTH_MISMATCH");
       chunks.push(bytes);
     }
     const body = new Uint8Array(length);
@@ -100,7 +104,64 @@ export function brightspaceImageViewPathV111(pathname) {
   );
 }
 
-export function classifyBrightspaceReferenceV110(rawUrl, baseUrl, origin) {
+/** Opaque DWG originals are eligible only in this course's native static-file
+ * container. This does not authorize general same-origin tool or file routes. */
+export function brightspaceDwgPathV121(pathname, courseId) {
+  if (
+    !/^\d{1,20}$/.test(String(courseId || "")) ||
+    /%(?:2f|5c|00|25)/i.test(pathname)
+  )
+    return false;
+  let path;
+  try {
+    path = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  if (
+    /\/(?:login|logon|signin|signout|logout|auth|oauth|saml|sso)(?:[/.]|$)/i.test(
+      path,
+    ) ||
+    /\/d2l\/api\//i.test(path)
+  )
+    return false;
+  const match =
+    /^\/content\/enforced\/(\d{1,20})(?:-[A-Za-z0-9_-]{1,160})?\/(.+\.dwg)$/i.exec(
+      path,
+    );
+  return (
+    !!match &&
+    match[1] === String(courseId) &&
+    !/[\\\0\r\n]/.test(path) &&
+    !match[2].split("/").some((part) => !part || part === "." || part === "..")
+  );
+}
+
+export function brightspaceDwgMimeV121(contentType) {
+  return /^(?:image\/(?:vnd\.dwg|x-dwg)|application\/(?:acad|x-acad|autocad|x-autocad|dwg|x-dwg|octet-stream)|drawing\/dwg)$/i.test(
+    String(contentType || "")
+      .split(";", 1)[0]
+      .trim(),
+  );
+}
+
+/** A recognized original header is not CAD semantic or rendering validation. */
+export function brightspaceDwgBytesV121(bytes) {
+  return (
+    bytes.length >= 128 &&
+    /^AC(?:1015|1018|1021|1024|1027|1032)$/.test(
+      String.fromCharCode(...bytes.subarray(0, 6)),
+    ) &&
+    bytes.subarray(6, 11).every((byte) => byte === 0)
+  );
+}
+
+export function classifyBrightspaceReferenceV110(
+  rawUrl,
+  baseUrl,
+  origin,
+  courseId = "",
+) {
   let url;
   try {
     url = new URL(String(rawUrl || ""), baseUrl || origin);
@@ -189,6 +250,8 @@ export function classifyBrightspaceReferenceV110(rawUrl, baseUrl, origin) {
       fetch: false,
       reason: "UNSUPPORTED_NATIVE_IMAGE_VIEW",
     };
+  if (brightspaceDwgPathV121(url.pathname, courseId))
+    return { url: url.href, kind: "SAME_ORIGIN_FILE", fetch: true, reason: "" };
   if (
     /\.(?:html?|xhtml|txt|srt|vtt|csv|json|jpe?g|png|gif|webp|svg|pdf|pptx?|docx?|xlsx?|mp4|webm|mp3|wav|m4a|zip)$/i.test(
       url.pathname,
@@ -207,6 +270,7 @@ export function classifyBrightspaceReferenceV110(rawUrl, baseUrl, origin) {
  * separate even when their exact URLs or retained SHA-256 bodies are shared. */
 export function createBrightspaceContentReader(options = {}) {
   const origin = new URL(options.origin || location.origin).origin;
+  const courseId = String(options.courseId || "");
   const limits = {
     maxTextBytes: options.maxTextBytes || 4 * 1024 * 1024,
     maxAssetBytes: options.maxAssetBytes || 16 * 1024 * 1024,
@@ -368,6 +432,7 @@ export function createBrightspaceContentReader(options = {}) {
         rawUrl,
         resolvedBase,
         origin,
+        courseId,
       );
       const ref = {
         ...classified,
@@ -488,6 +553,7 @@ export function createBrightspaceContentReader(options = {}) {
           responseUrl,
           origin,
           origin,
+          courseId,
         );
         if (
           !response.ok ||
@@ -508,13 +574,39 @@ export function createBrightspaceContentReader(options = {}) {
                 : "HTTP_" + response.status,
           );
         }
+        const isDwg = [url, responseUrl].some((target) =>
+          /\.dwg$/i.test(decodeURIComponent(new URL(target).pathname)),
+        );
+        if (isDwg) {
+          const declared = response.headers.get("content-length"),
+            encoding = (response.headers.get("content-encoding") || "")
+              .trim()
+              .toLowerCase();
+          if (
+            !brightspaceDwgPathV121(new URL(url).pathname, courseId) ||
+            !brightspaceDwgPathV121(new URL(responseUrl).pathname, courseId) ||
+            !brightspaceDwgMimeV121(mediaType) ||
+            declared === null ||
+            !/^[1-9]\d*$/.test(declared.trim()) ||
+            !Number.isSafeInteger(Number(declared)) ||
+            response.headers.has("content-range") ||
+            (encoding && encoding !== "identity")
+          ) {
+            await response.body?.cancel().catch(() => {});
+            throw Error("DWG_ORIGINAL_RESPONSE_UNSUPPORTED");
+          }
+          asset.receipt.declaredBodyBytes = Number(declared);
+          asset.receipt.contentRange = null;
+          asset.receipt.contentEncoding = encoding || "identity";
+        }
         const isText =
-          /^(?:text\/(?:html|plain|srt|vtt|csv)|application\/(?:xhtml\+xml|json|x-subrip))(?:;|$)/i.test(
+          !isDwg &&
+          (/^(?:text\/(?:html|plain|srt|vtt|csv)|application\/(?:xhtml\+xml|json|x-subrip))(?:;|$)/i.test(
             mediaType,
           ) ||
-          [url, responseUrl].some((target) =>
-            /\.(?:txt|srt|vtt|csv|json)(?:[?#]|$)/i.test(target),
-          );
+            [url, responseUrl].some((target) =>
+              /\.(?:txt|srt|vtt|csv|json)(?:[?#]|$)/i.test(target),
+            ));
         const bytes = await readBrightspaceBoundedBodyV110(response, {
           signal: controller.signal,
           maxBytes: isText ? limits.maxTextBytes : limits.maxAssetBytes,
@@ -526,6 +618,8 @@ export function createBrightspaceContentReader(options = {}) {
         });
         const bodyHash = await hash(bytes);
         controller.signal.throwIfAborted();
+        if (isDwg && !brightspaceDwgBytesV121(bytes))
+          throw Error("DWG_ORIGINAL_SIGNATURE_UNSUPPORTED");
         // Authentication forms and an HTML login/error returned for an image or
         // document are not course-file originals. Reject them before retention.
         if (
@@ -558,14 +652,21 @@ export function createBrightspaceContentReader(options = {}) {
           // A storage failure never publishes a successful original receipt.
           if (typeof options.retainOriginal === "function") {
             const stored = await options.retainOriginal(bytes, bodyHash);
-            if (!stored || stored.encoding !== "archive" ||
-                stored.archivePath !== "files/" + bodyHash ||
-                stored.bytes !== bytes.byteLength || stored.sha256 !== bodyHash)
+            if (
+              !stored ||
+              stored.encoding !== "archive" ||
+              stored.archivePath !== "files/" + bodyHash ||
+              stored.bytes !== bytes.byteLength ||
+              stored.sha256 !== bodyHash
+            )
               throw Error("ORIGINAL_STORAGE_IDENTITY_MISMATCH");
             bodies[bodyHash] = { ...stored };
-          } else bodies[bodyHash] = {
-              encoding: "base64", base64: base64(bytes),
-              bytes: bytes.byteLength, sha256: bodyHash,
+          } else
+            bodies[bodyHash] = {
+              encoding: "base64",
+              base64: base64(bytes),
+              bytes: bytes.byteLength,
+              sha256: bodyHash,
             };
           retainedBytes += bytes.byteLength;
         }
@@ -651,6 +752,7 @@ export function createBrightspaceContentReader(options = {}) {
           ref.url,
           ref.url || origin,
           origin,
+          courseId,
         );
       if (!classified.fetch) {
         gap(classified.url, source, classified.reason, {
@@ -679,6 +781,7 @@ export function createBrightspaceContentReader(options = {}) {
       topic.url,
       origin,
       origin,
+      courseId,
     );
     const policy = topic.evidencePolicy;
     if (

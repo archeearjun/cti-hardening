@@ -4,6 +4,7 @@ import {
   directAssetMetadataBindingV1,
   decodeDirectAssetBodyV1,
   directAssetBodyKindV1,
+  directDwgBodyReceiptValidV1,
 } from "./direct-data-media.js";
 
 /** Derive native media ownership and plain text from the original XML without a
@@ -328,10 +329,27 @@ export function directMediaEvidenceStructureV1(media, references) {
     return fail("DIRECT_CML_MEDIA_REFERENCE_UNSUPPORTED");
   if (
     references.some(
-      (reference) => !/^[A-Za-z0-9_-]{22}$/.test(reference.id || ""),
+      (reference) =>
+        !/^[A-Za-z0-9_-]{22}$/.test(reference.id || "") &&
+        !(
+          reference.tag === "a" &&
+          !reference.id &&
+          /^https?:\/\//i.test(reference.url || "")
+        ),
     )
   )
     return fail("DIRECT_CML_MEDIA_REFERENCE_MISSING");
+  // An authored external attachment URL is a retained location, not a missing
+  // image pointer or a native assets.v1 identifier. Its body remains unverified.
+  if (
+    references.some(
+      (reference) =>
+        reference.tag === "a" &&
+        !reference.id &&
+        /^https?:\/\//i.test(reference.url || ""),
+    )
+  )
+    return fail("DIRECT_CML_EXTERNAL_ATTACHMENT_UNFETCHED");
   if (
     media?.method !== "BOUND_CML_ASSET_METADATA_AND_BODY" ||
     !Array.isArray(media.assets) ||
@@ -395,8 +413,18 @@ export function directMediaEvidenceStructureV1(media, references) {
       !Number.isFinite(Date.parse(receipt.observedAt))
     )
       return fail("DIRECT_ASSET_SOURCE_OR_BODY_INVALID");
-    const kind = directAssetBodyKindV1(bytes, body.mime, initial.name);
-    if (!kind) return fail("DIRECT_ASSET_SOURCE_OR_BODY_INVALID");
+    const kind = directAssetBodyKindV1(
+      bytes,
+      body.mime,
+      initial.name,
+      initial.sourceModel,
+    );
+    if (
+      !kind ||
+      (kind === "DWG" &&
+        !directDwgBodyReceiptValidV1(receipt, body.mime, body.size))
+    )
+      return fail("DIRECT_ASSET_SOURCE_OR_BODY_INVALID");
     for (const reference of references.filter(
       (reference) => reference.id === id,
     )) {

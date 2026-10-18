@@ -21,10 +21,10 @@ test("the universal capture bookmark carries the exact standalone current progra
   const address = createCourseraDirectDataCaptureBookmark();
   assert.equal(script, "void " + courseraDirectDataSource);
   assert.equal(decode(address), script);
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.7.5");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.7.6");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.7.5-bound-reading-and-material-stability-20261018",
+    "v1.7.6-native-dwg-originals-20261018",
   );
   assert.deepEqual(CTI_RELEASE_REGISTRY_.directDataCourseraExtractor, {
     version: "v" + COURSERA_DIRECT_DATA_CAPTURE_VERSION,

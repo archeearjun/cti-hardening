@@ -1,4 +1,4 @@
-import { safeWebUrl, courseraItemUrl } from "./owner-urls.ts";
+import { safeWebUrl, courseraItemUrl, courseraLocation } from "./owner-urls.ts";
 import { supportedMathText } from "./supported-math-text.ts";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -50,6 +50,14 @@ import {
 import { choiceLabel, ctiAnswerText } from "./cti-answer-check.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import { observeDirectNativeGrading } from "../engine/assessment/native-grading.js";
+import {
+  retainedCourseraAuthoringContent,
+  retainedCourseraAuthoringSize,
+  retainedCourseraAuthoringText,
+  validateRetainedCourseraAuthoringContent,
+  MAX_RETAINED_AUTHORING_SNAPSHOT_CHARACTERS,
+  type RetainedAuthoringContent,
+} from "./coursera-retained-authoring-content.ts";
 import {
   qaBrightspaceFlattenTopics_,
   qaBrightspaceQuizToAssessment_,
@@ -147,6 +155,7 @@ export interface ContentEvidence {
   imageAltText?: { imageOrdinal: number; text: string }[];
   sourceBody?: BrightspaceSourceBody;
   nativeGrading?: CapturedNativeGrading;
+  retainedAuthoringContent?: RetainedAuthoringContent;
   sourceFileBank?: BrightspaceCsvBank;
   linkedSourceAssessments?: BrightspaceLinkedAssessmentEvidence;
   limitations: string[];
@@ -173,6 +182,19 @@ export function validateContentSnapshot(
     !Array.isArray(s.brightspace)
   )
     throw Error("Invalid saved content snapshot.");
+  // Bound all supplemental native models before independently deriving any of
+  // them. Per-item limits alone would permit an oversized saved snapshot.
+  let retainedAuthoringCharacters = 0;
+  for (const list of [s.coursera, s.brightspace]) {
+    if (list.length > 20000) throw Error("Content snapshot exceeds the item limit.");
+    for (const entry of list) {
+      const supplemental = contentObject(contentObject(entry).content).retainedAuthoringContent;
+      if (supplemental === undefined) continue;
+      retainedAuthoringCharacters += retainedCourseraAuthoringSize(supplemental);
+      if (retainedAuthoringCharacters > MAX_RETAINED_AUTHORING_SNAPSHOT_CHARACTERS)
+        throw Error("Retained Coursera authoring content exceeds the snapshot review limit.");
+    }
+  }
   for (const list of [s.coursera, s.brightspace]) {
     if (list.length > 20000)
       throw Error("Content snapshot exceeds the item limit.");
@@ -211,6 +233,15 @@ export function validateContentSnapshot(
         (c.questionCoverage === "EMPTY" && c.questions.length)
       )
         throw Error("Content count contradicts its coverage label.");
+      if (c.retainedAuthoringContent !== undefined) {
+        if (list !== s.coursera)
+          throw Error("Retained Coursera authoring content belongs only to Coursera items.");
+        const location = courseraLocation(c.url);
+        if (!location || (location.itemId && location.itemId !== item.id))
+          throw Error("Retained Coursera authoring content differs from its recorded course item URL.");
+        validateRetainedCourseraAuthoringContent(c.retainedAuthoringContent, string(item.id),
+          c.questions.map((question: unknown) => string(contentObject(question).id)), location.courseId);
+      }
       if (c.imageAltText !== undefined) {
         if (!Array.isArray(c.imageAltText) || c.imageAltText.length > 100000)
           throw Error("Invalid saved image alt text.");
@@ -1531,35 +1562,37 @@ export function buildContentSnapshot(
     assertBrightspaceCaptureIntegrity(bs);
   const fingerprints = array(raw.fingerprints),
     topics = qaBrightspaceFlattenTopics_(array(bs.contentTree));
+  let retainedAuthoringCharacters = 0;
+  let retainedAuthoringLimitReached = false;
   const coursera: ContentItem[] = fingerprints.map((v) => {
     const f = contentObject(v),
+      candidate = !retainedAuthoringLimitReached
+        ? retainedCourseraAuthoringContent(f, string(contentObject(raw.page).courseId)) : null,
       nativeGrading = observeDirectNativeGrading(
         f,
         string(contentObject(raw.page).courseId),
       );
+    const candidateSize = candidate ? retainedCourseraAuthoringSize(candidate) : 0;
+    const retainedAuthoringContent = candidate && retainedAuthoringCharacters + candidateSize <= MAX_RETAINED_AUTHORING_SNAPSHOT_CHARACTERS ? candidate : null;
+    if (retainedAuthoringContent) retainedAuthoringCharacters += candidateSize;
+    if (candidate && !retainedAuthoringContent) retainedAuthoringLimitReached = true;
     if (nativeGrading) validateCapturedNativeGrading(nativeGrading);
+    const content = capturedContent(f.payload, {
+      basis: "Original Coursera extraction",
+      capturedAt: string(raw.extractedAt),
+      url: courseraItemUrl({ stats: { extractorMeta: { ...contentObject(raw.meta), page: raw.page } } }, String(f.id ?? ""), "", f) || string(contentObject(raw.page).url),
+      itemId: String(f.id ?? ""),
+    });
+    if (retainedAuthoringLimitReached)
+      content.limitations.push("Additional retained authoring content exceeds this snapshot's review limit. Inspect the original extraction for the remaining native records.");
     return {
       id: String(f.id ?? ""),
       name: string(f.name),
       path: string(f.path),
       content: {
-        ...capturedContent(f.payload, {
-          basis: "Original Coursera extraction",
-          capturedAt: string(raw.extractedAt),
-          url:
-            courseraItemUrl(
-              {
-                stats: {
-                  extractorMeta: { ...contentObject(raw.meta), page: raw.page },
-                },
-              },
-              String(f.id ?? ""),
-              "",
-              f,
-            ) || string(contentObject(raw.page).url),
-          itemId: String(f.id ?? ""),
-        }),
+        ...content,
         ...(nativeGrading ? { nativeGrading } : {}),
+        ...(retainedAuthoringContent ? { retainedAuthoringContent } : {}),
       },
     };
   });
@@ -1702,6 +1735,8 @@ export function contentEvidenceText(content: ContentEvidence): string {
       out.push(brightspaceHtmlStructureText(body.htmlStructure));
   }
   for (const q of content.questions) out.push(contentQuestionText(q));
+  if (content.retainedAuthoringContent)
+    out.push(retainedCourseraAuthoringText(content.retainedAuthoringContent));
   out.push(
     ...content.references.map((r) => `Reference: ${r}`),
     ...(content.imageAltText || [])

@@ -255,6 +255,30 @@ function Evidence({
           </details>
         </section>
       )}
+      {content.retainedAuthoringContent && (
+        <section className="scope" aria-label="Additional retained authoring content">
+          <h6>Additional retained authoring content</h6>
+          <p className="hint">
+            These instructions and native definitions were retained in this item's authoring draft.
+            They remain separate from the normalized question count. Answer-key validity, complete
+            assessment coverage and learner behavior remain unverified.
+          </p>
+          {content.retainedAuthoringContent.blocks
+            .filter(block => !query.trim() || [block.title, block.prompt, block.originalModelJson].join("\n").toLowerCase().includes(query.toLowerCase()))
+            .map(block => (
+              <details key={`${block.ordinal}:${block.nativeId}`}>
+                <summary>{block.kind === "TEXT_BLOCK" ? "Instruction block" : "Native definition"} · part {block.ordinal} · {block.nativeType}{block.title ? ` · ${block.title}` : ""}</summary>
+                {block.prompt && <p className="captured-text">{block.prompt}</p>}
+                {!!block.options.length && <ul aria-label={`Authored options for retained part ${block.ordinal}`}>
+                  {block.options.map((option, index) => <li key={index}><strong>{option.id}: </strong>{option.text || "No supported display text; inspect the literal native model below."}</li>)}
+                </ul>}
+                <p className="hint">{block.formatStatus === "KNOWN_CML" ? "Authored text projected from known CML." : "CML format is unsupported. Inspect the literal original; no text or choices have been invented."} Native ready-for-publish flag: {block.nativeValidation === "READY" ? "true" : block.nativeValidation === "NOT_READY" ? "false" : "unrecorded"}.</p>
+                <p className="hint">Native identity: {block.nativeId}<br />Original model SHA-256: {block.originalModelSha256}</p>
+                <details><summary>Literal retained native model</summary><pre className="captured-text">{block.originalModelJson}</pre></details>
+              </details>
+            ))}
+        </section>
+      )}
       {showQuestions && (
         <>
           <p>

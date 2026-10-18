@@ -263,7 +263,7 @@ test("course, build and origin scopes never read or prune one another", async ()
   assert.equal(db.rows().length, 1);
 });
 
-for (const currentBuild of ["v1.1.1-native-image-view-20261017", "v1.2.0-blob-archive-20261017"])
+for (const currentBuild of ["v1.1.1-native-image-view-20261017", "v1.2.0-blob-archive-20261017", "v1.2.1-course-dwg-originals-20261018"])
 test(currentBuild + " can recover exact earlier v1.1.0 observations read-only while new attempts retain their own build scope", async () => {
   const db = storageFixture(),
     previousBuild = "v1.1.0-faithful-bookmark-20261016",
