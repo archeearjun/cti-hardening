@@ -8,6 +8,7 @@ import { createServer } from "vite";
 import { chromium } from "playwright";
 import JSZip from "jszip";
 import { gunzipSync } from "node:zlib";
+import { CTI_RELEASE_REGISTRY_ } from "../src/engine/release.js";
 
 // Synthetic, authenticated source fixtures only. This verifies the maintained
 // bookmark and browser mechanics, not the completeness of any private course.
@@ -802,7 +803,7 @@ try {
   assert.match(
     download.suggestedFilename(),
     new RegExp(
-      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__v1\\.2\\.0_s2__SOURCE_GROUND_TRUTH\\.cti\\.zip$`,
+      `^CTI__BRIGHTSPACE__.+__ORG_${orgUnitId}__\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z__${CTI_RELEASE_REGISTRY_.brightspaceExtractor.version.replaceAll(".", "\\.")}_s2__SOURCE_GROUND_TRUTH\\.cti\\.zip$`,
     ),
   );
   assert.equal(download.suggestedFilename(), capture.exportFileName);
