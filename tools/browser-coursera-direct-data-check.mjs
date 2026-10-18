@@ -51,7 +51,7 @@ const configs=new Map(),atoms=new Map(),groups=new Map(),definitions=new Map(),a
 const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maximum=new Map();
 const panoptoDeliveries=new Map(),panoptoRequests=[];
 const publicPages=new Map(),publicPageRequests=[];
-const publisherRequests=[],publisherCases=new Map();
+const publisherRequests=[],publisherCases=new Map(),publisherOpaqueRequests=[];
 const helperRequests=[],helperUpstreamRequests=[],helperErrors=[];
 const readerFixtureEntry=path.join(scratch,'direct-reader-entry.js');
 fs.writeFileSync(readerFixtureEntry,"import {createDirectDataReaderV1} from "+JSON.stringify(path.resolve('src/extractors/coursera/direct-data-network.js'))+";window.fixtureReadDirectProvider=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPanoptoDeliveryInfo(targetUrl);return{ok:result.ok,reason:result.reason,receipt:result.receipt};}finally{reader.abort('FIXTURE_FINISHED');}};window.fixtureReadPublisher=async targetUrl=>{const reader=createDirectDataReaderV1();try{const result=await reader.readPublisherPage(targetUrl,{itemId:'item_0002',providerId:'abcdefghijklmnopqrstuv@1'});return{ok:result.ok,data:result.data,reason:result.reason,receipt:result.receipt,stats:reader.snapshot()};}finally{reader.abort('FIXTURE_FINISHED');}};");
@@ -439,9 +439,10 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       assert.equal(request.method,'GET');assert.equal(request.headers['sec-fetch-mode'],'no-cors');
       assert.equal(request.headers.cookie,undefined);assert.equal(request.headers.authorization,undefined);
       assert.equal(request.headers.referer,undefined);
-      // Chromium may block cross-origin JSON using ORB/CORB before exposing an
-      // opaque response. A separate known-image control proves the native
-      // opaque boundary without treating blocked API JSON as readable content.
+      // A known image isolates the generic opaque response boundary. It is
+      // separate from publisher JSON and never supplies extraction evidence.
+      publisherOpaqueRequests.push({method:request.method,fetchMode:request.headers['sec-fetch-mode']});
+      response.statusCode=200;assert.equal(response.hasHeader('Location'),false);
       response.setHeader('Content-Type','image/png');response.setHeader('Content-Length',String(pngBytes.length));
       response.setHeader('X-Content-Type-Options','nosniff');response.setHeader('Cache-Control','no-store');
       response.end(pngBytes);return;
@@ -1656,9 +1657,25 @@ try{
     assert.equal(directPublisherEvidenceV1(changed,changed.model.requestedUrl,bytes=>createHash('sha256').update(bytes).digest('hex')),null,
       'The importer never accepts a basic/opaque response as a browser CORS observation');
   }
-  const opaque=await publisherPolicy.page.evaluate(async endpoint=>{const response=await fetch(endpoint,{mode:'no-cors',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
-    return{type:response.type,status:response.status,bytes:(await response.arrayBuffer()).byteLength};},
-    publisherOpaqueUrl);
+  const opaqueStart=publisherOpaqueRequests.length,opaqueConsole=[],opaqueFailures=[];
+  const recordOpaqueConsole=message=>{if(message.type()==='error'&&opaqueConsole.length<8)
+    opaqueConsole.push(message.text().slice(0,350));};
+  const recordOpaqueFailure=request=>{if(request.url()===publisherOpaqueUrl&&opaqueFailures.length<8)
+    opaqueFailures.push({url:request.url(),error:request.failure()?.errorText||''});};
+  publisherPolicy.page.on('console',recordOpaqueConsole);publisherPolicy.page.on('requestfailed',recordOpaqueFailure);
+  let opaque;
+  try{
+    // Fetch requires redirect:follow with mode:no-cors. This exact control URL
+    // is served as HTTP 200 without Location; production REST remains cors/error.
+    opaque=await publisherPolicy.page.evaluate(async endpoint=>{const response=await fetch(endpoint,{mode:'no-cors',credentials:'omit',redirect:'follow',referrerPolicy:'no-referrer'});
+      return{type:response.type,status:response.status,bytes:(await response.arrayBuffer()).byteLength};},publisherOpaqueUrl);
+  }catch(error){
+    throw Error('Synthetic opaque image control failed: '+JSON.stringify({observedGets:publisherOpaqueRequests.length-opaqueStart,
+      consoleErrors:opaqueConsole,requestFailures:opaqueFailures})+'; '+error.message);
+  }finally{
+    publisherPolicy.page.off('console',recordOpaqueConsole);publisherPolicy.page.off('requestfailed',recordOpaqueFailure);
+  }
+  assert.equal(publisherOpaqueRequests.length-opaqueStart,1,'The fixed image control reaches the real HTTPS server exactly once');
   assert.deepEqual(opaque,{type:'opaque',status:0,bytes:0},'A native no-cors image control exposes no response body or HTTP status');
   const beforeInvalidPublisher=publisherRequests.length;
   const invalidPublisher=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),publisherOrigin+'/'+publisherBook+'/chapter/no-native-id/');
