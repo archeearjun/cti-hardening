@@ -27,13 +27,13 @@ import {
   readBrightspaceJsonResponse,
 } from "./content-reader.js";
 
-/* CTI Brightspace v1.2.0. Bookmark entry: explicit on-page start, bounded GET-only
+/* CTI Brightspace v1.2.1. Bookmark entry: explicit on-page start, bounded GET-only
  * source observations, native identities, original bodies and honest gaps.
  * No learner attempts, submissions, posts, grades or tool launches are read. */
 (async () => {
   "use strict";
-  const VERSION = "v1.2.0",
-    BUILD_ID = "v1.2.0-blob-archive-20261017",
+  const VERSION = "v1.2.1",
+    BUILD_ID = "v1.2.1-course-dwg-originals-20261018",
     SCHEMA_VERSION = 2;
   const MAX_REQUESTS = 1200,
     MAX_JSON_BYTES = 4 * 1024 * 1024,
@@ -153,7 +153,7 @@ import {
         preparedArchive = archive;
         // The URL remains on a real user-clickable link for browsers that block
         // the automatic download after asynchronous archive preparation.
-        progress.setDownloadArtifact(archive, capture.exportFileName || "CTI__BRIGHTSPACE__ORG_" + courseId + "__v1.2.0.cti.zip").click();
+        progress.setDownloadArtifact(archive, capture.exportFileName || "CTI__BRIGHTSPACE__ORG_" + courseId + "__v1.2.1.cti.zip").click();
       } finally { store.close(); }
       return;
     }
@@ -180,7 +180,7 @@ import {
     }
     await exportCapture(lastCapture || previousFinishedCapture);
   }
-  progress = createBrightspaceProgressPanelV110("CTI · Brightspace v1.2.0", {
+  progress = createBrightspaceProgressPanelV110("CTI · Brightspace v1.2.1", {
     key: "__CTI_BRIGHTSPACE_PROGRESS__",
     courseId,
     buildId: BUILD_ID,
@@ -428,6 +428,7 @@ import {
     }
     const reader = createBrightspaceContentReader({
       origin,
+      courseId,
       signal,
       request,
       maxAssetBytes: 64 * 1024 * 1024,
@@ -787,7 +788,7 @@ import {
           courseId +
           "__" +
           now().replace(/[:.]/g, "-") +
-          "__v1.2.0_s2__SOURCE_GROUND_TRUTH.cti.zip",
+          "__v1.2.1_s2__SOURCE_GROUND_TRUTH.cti.zip",
       };
     }
     async function saveCheckpoint(

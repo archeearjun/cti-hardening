@@ -161,7 +161,47 @@ function sourceUrl(value: unknown, base?: string) {
 }
 /** Re-evaluate the collector's narrow static-source scope independently. This
  * does not infer access permissions or trust a declared redirect policy. */
-function approvedStaticSource(value: string, allowCourseFile: boolean) {
+function approvedDwgSource(value: string, courseId: string) {
+  const url = new URL(value);
+  if (!/^\d{1,20}$/.test(courseId) || /%(?:2f|5c|00|25)/i.test(url.pathname))
+    return false;
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return false;
+  }
+  if (
+    /\/(?:login|logon|signin|signout|logout|auth|oauth|saml|sso)(?:[/.]|$)/i.test(
+      pathname,
+    ) ||
+    /\/d2l\/api\//i.test(pathname)
+  )
+    return false;
+  const match =
+    /^\/content\/enforced\/(\d{1,20})(?:-[A-Za-z0-9_-]{1,160})?\/(.+\.dwg)$/i.exec(
+      pathname,
+    );
+  return (
+    !!match &&
+    match[1] === courseId &&
+    !/[\\\0\r\n]/.test(pathname) &&
+    !match[2].split("/").some((part) => !part || part === "." || part === "..")
+  );
+}
+function approvedDwgMime(value: unknown) {
+  return (
+    typeof value === "string" &&
+    /^(?:image\/(?:vnd\.dwg|x-dwg)|application\/(?:acad|x-acad|autocad|x-autocad|dwg|x-dwg|octet-stream)|drawing\/dwg)$/i.test(
+      value.split(";", 1)[0].trim(),
+    )
+  );
+}
+function approvedStaticSource(
+  value: string,
+  allowCourseFile: boolean,
+  courseId = "",
+) {
   const url = new URL(value);
   let pathname: string;
   try {
@@ -191,6 +231,7 @@ function approvedStaticSource(value: string, allowCourseFile: boolean) {
     return true;
   if (/^\/d2l\/lp\/files\/temp\//.test(pathname) && /;/i.test(pathname))
     return false;
+  if (approvedDwgSource(value, courseId)) return true;
   if (
     /\.(?:html?|xhtml|txt|srt|vtt|csv|json|jpe?g|png|gif|webp|svg|pdf|pptx?|docx?|xlsx?|mp4|webm|mp3|wav|m4a|zip)$/i.test(
       pathname,
@@ -664,6 +705,7 @@ function assertReceipt(
   body: Model,
   label: string,
   captureOrigin: string,
+  courseId: string,
 ) {
   const receipt = object(value),
     request = sourceUrl(receipt.requestUrl),
@@ -681,18 +723,35 @@ function assertReceipt(
     !Number.isFinite(Date.parse(receipt.observedAt))
   )
     throw Error(`Brightspace ${label} has an invalid original-body receipt.`);
+  const dwg = [request, response].some((url) =>
+    /\.dwg$/i.test(decodeURIComponent(new URL(url).pathname)),
+  );
+  if (
+    dwg &&
+    (!approvedDwgSource(request, courseId) ||
+      !approvedDwgSource(response, courseId) ||
+      !approvedDwgMime(receipt.contentType) ||
+      !Number.isSafeInteger(receipt.declaredBodyBytes) ||
+      receipt.declaredBodyBytes <= 0 ||
+      receipt.declaredBodyBytes !== body.bytes ||
+      receipt.contentRange !== null ||
+      receipt.contentEncoding !== "identity")
+  )
+    throw Error(
+      `Brightspace ${label} has an unsupported DWG original-body scope or receipt.`,
+    );
   if (
     request !== response &&
     (receipt.redirectPolicy !== "SAME_ORIGIN_STATIC_CONTENT" ||
       receipt.mode !== "same-origin" ||
       receipt.sourceResponseRedirected !== true ||
-      !approvedStaticSource(request, true) ||
-      !approvedStaticSource(response, false))
+      !approvedStaticSource(request, true, courseId) ||
+      !approvedStaticSource(response, false, courseId))
   )
     throw Error(
       `Brightspace ${label} has an unsupported original-body redirect.`,
     );
-  return { request, response };
+  return { request, response, dwg };
 }
 
 function prepareBrightspaceCaptureIntegrity(value: unknown) {
@@ -701,7 +760,8 @@ function prepareBrightspaceCaptureIntegrity(value: unknown) {
     bodies = object(capture.assetBodies),
     nodes = inventory(capture);
   const pageUrl = sourceUrl(capture.page?.url),
-    captureOrigin = pageUrl ? new URL(pageUrl).origin : "";
+    captureOrigin = pageUrl ? new URL(pageUrl).origin : "",
+    courseId = text(capture.course?.orgUnitId);
   if (Object.keys(bodies).length && !captureOrigin)
     throw Error(
       "Brightspace retained originals require the captured source-page origin.",
@@ -711,7 +771,8 @@ function prepareBrightspaceCaptureIntegrity(value: unknown) {
       "Brightspace original-body inventory exceeds its 10,000-body bound.",
     );
   const textRefs = new Map<string, Model[]>(),
-    referenced = new Set<string>();
+    referenced = new Set<string>(),
+    dwgRefs = new Set<string>();
   let projections = 0;
   const bind = (ref: unknown, label: string) => {
     if (
@@ -728,7 +789,14 @@ function prepareBrightspaceCaptureIntegrity(value: unknown) {
       ref = ev.rawBodyRef || ev.originalRef;
     if (!ref) continue;
     const body = bind(ref, "topic");
-    const receipt = assertReceipt(ev.bodyReceipt, body, "topic", captureOrigin);
+    const receipt = assertReceipt(
+      ev.bodyReceipt,
+      body,
+      "topic",
+      captureOrigin,
+      courseId,
+    );
+    if (receipt.dwg) dwgRefs.add(ref);
     const target = sourceUrl(ev.url || node.url, sourceUrl(capture.page?.url));
     if (
       ev.url &&
@@ -769,7 +837,14 @@ function prepareBrightspaceCaptureIntegrity(value: unknown) {
   for (const asset of rows(capture.contentAcquisition?.assets)) {
     if (!asset.originalRef) continue;
     const body = bind(asset.originalRef, "asset");
-    const receipt = assertReceipt(asset.receipt, body, "asset", captureOrigin);
+    const receipt = assertReceipt(
+      asset.receipt,
+      body,
+      "asset",
+      captureOrigin,
+      courseId,
+    );
+    if (receipt.dwg) dwgRefs.add(asset.originalRef);
     if (
       sourceUrl(asset.url) !== receipt.request ||
       asset.bytes !== body.bytes ||
@@ -826,6 +901,7 @@ function prepareBrightspaceCaptureIntegrity(value: unknown) {
     bodies,
     textRefs,
     referenced,
+    dwgRefs,
     archive,
     bodyMedia: archive
       ? archiveBodyMedia(capture, nodes)
@@ -857,7 +933,7 @@ function assertOriginalProjection(
 export function assertBrightspaceCaptureIntegrity(
   value: unknown,
 ): BrightspaceCaptureEvidence {
-  const { report, bodies, textRefs, referenced, archive, bodyMedia } =
+  const { report, bodies, textRefs, referenced, dwgRefs, archive, bodyMedia } =
     prepareBrightspaceCaptureIntegrity(value);
   let total = 0;
   for (const [key, input] of Object.entries(bodies)) {
@@ -895,6 +971,8 @@ export function assertBrightspaceCaptureIntegrity(
           "Brightspace archive text original exceeds its independent 4 MiB bound.",
         );
       assertArchiveSignature(mimes, proof.prefix);
+      if (dwgRefs.has(key))
+        assertDwgOriginalSignature(proof.prefix, body.bytes);
       assertOriginalProjection(key, textRefs, proof.text);
       continue;
     }
@@ -932,7 +1010,8 @@ export function assertBrightspaceCaptureIntegrity(
           text: "",
         });
     }
-    let length = 0;
+    let length = 0,
+      first = new Uint8Array();
     for (let start = 0; start < base64.length; start += 65536) {
       const encoded = base64.slice(start, start + 65536);
       let binary: string;
@@ -946,6 +1025,7 @@ export function assertBrightspaceCaptureIntegrity(
       const bytes = Uint8Array.from(binary, (character) =>
         character.charCodeAt(0),
       );
+      if (!start) first = bytes.subarray(0, 128);
       length += bytes.length;
       hash.update(bytes);
       for (const projection of decoders.values())
@@ -957,6 +1037,7 @@ export function assertBrightspaceCaptureIntegrity(
       throw Error(
         "Brightspace retained original SHA-256 or actual byte length does not match.",
       );
+    if (dwgRefs.has(key)) assertDwgOriginalSignature(first, body.bytes);
     assertOriginalProjection(
       key,
       textRefs,
@@ -1061,13 +1142,27 @@ function assertArchiveSignature(mimes: string[], bytes: Uint8Array) {
   }
 }
 
+/** Recognize the narrow supported native-file header without interpreting CAD. */
+function assertDwgOriginalSignature(bytes: Uint8Array, size: number) {
+  if (
+    size < 128 ||
+    !/^AC(?:1015|1018|1021|1024|1027|1032)$/.test(
+      String.fromCharCode(...bytes.subarray(0, 6)),
+    ) ||
+    !bytes.subarray(6, 11).every((byte) => byte === 0)
+  )
+    throw Error(
+      "Brightspace DWG original bytes have an unsupported file signature.",
+    );
+}
+
 /** Independently verify one immutable Blob at a time. This is also the worker
  * reattachment boundary: a structured clone does not carry trusted proof. */
 export async function attachBrightspaceArchiveFileBlobs(
   value: unknown,
   archiveFiles: BrightspaceArchiveFile[],
 ): Promise<unknown> {
-  const { capture, bodies, textRefs, referenced, archive, bodyMedia } =
+  const { capture, bodies, textRefs, referenced, dwgRefs, archive, bodyMedia } =
     prepareBrightspaceCaptureIntegrity(value);
   if (!archive || !Array.isArray(archiveFiles))
     throw Error(
@@ -1166,6 +1261,7 @@ export async function attachBrightspaceArchiveFileBlobs(
     for (const decoder of decoders.values())
       decoder.text += decoder.decoder.decode();
     assertArchiveSignature(mimes, first);
+    if (dwgRefs.has(key)) assertDwgOriginalSignature(first, file.size);
     const decoded = new Map(
       [...decoders].map(([charset, projection]) => [charset, projection.text]),
     );

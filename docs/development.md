@@ -379,6 +379,13 @@ for that comparison; lesson, item, question and all other array order remains
 significant. The importer independently repeats the comparison. Historical
 unstable captures retain their original status.
 
+Version 1.7.6 adds signature-checked, identity-framed original DWG files from
+bound native assets. It preserves the server MIME declaration, original bytes
+and hashes without generating a rendering or interpreting CAD content. Import
+and resume require the same proof. An authored external attachment URL remains
+unverified but receives a separate unfetched-source reason instead of being
+described as a missing native media pointer.
+
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct
 capture file.
