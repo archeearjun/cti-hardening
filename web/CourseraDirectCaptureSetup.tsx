@@ -112,8 +112,8 @@ export default function CourseraDirectCaptureSetup({
       </ol>
       <p className="hint">
         Saved progress stays in this Chrome profile. Use the same profile when
-        resuming. This version can continue saved v1.2–v1.7.0 progress that reached
-        its media limit or finished with evidence gaps. It rechecks the current
+        resuming. This version can continue supported saved captures, including
+        v1.8.2 runs that reached a media limit or finished with evidence gaps. It rechecks the current
         course sources and preserves earlier assessment observations and their
         dates. After edits, Start a fresh course capture rereads the course in a
         separate run while keeping prior checkpoints within normal retention.
