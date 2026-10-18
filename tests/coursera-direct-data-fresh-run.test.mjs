@@ -6,6 +6,10 @@ import ts from "typescript";
 import { createHash } from "node:crypto";
 import { directCourseInventoryV1 } from "../src/extractors/coursera/direct-data-inventory.js";
 import {
+  CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+  directMaterialStabilityModelV1,
+} from "../src/extractors/coursera/direct-data-material-stability.js";
+import {
   CTI_DIRECT_DATA_BUILD_V1,
   CTI_DIRECT_DATA_VERSION_V1,
 } from "../src/extractors/coursera/direct-data-config.js";
@@ -147,6 +151,8 @@ function fixture() {
     store: null,
     CTI_DIRECT_DATA_BUILD_V1,
     CTI_DIRECT_DATA_VERSION_V1,
+    CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+    directMaterialStabilityModelV1,
     CTI_DIRECT_DATA_EXPORT_BYTES_V1: 128 * 1024 * 1024,
     CTI_DIRECT_DATA_MAX_PARTS_V1: 5000,
     CTI_DIRECT_DATA_MEDIA_BYTES_V1: 512 * 1024 * 1024,

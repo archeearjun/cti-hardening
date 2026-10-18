@@ -203,6 +203,20 @@ function Evidence({
         )}
       </p>
       {content.sourceBody && <SourceBodyEvidence body={content.sourceBody} />}
+      {content.linkedSourceAssessments && (
+        <section className="scope" aria-label="Linked source native assessments">
+          <h6>Linked source native assessments</h6>
+          <p className="hint">These quizzes are linked from this reading's verified original HTML. Their captured questions remain separate from the reading. Total bank coverage and learner operation remain unverified.</p>
+          {content.linkedSourceAssessments.assessments.map((assessment, index) => (
+            <details key={`${assessment.quizId}:${index}`}>
+              <summary>{assessment.quizName || "Untitled native quiz"} [native quiz {assessment.quizId}] · {assessment.content.questions.length} captured definitions / {assessment.content.expectedQuestions ?? "unknown"} expected</summary>
+              <p className="captured-text">Captured ActivityId: {assessment.activityId}</p>
+              <p className="captured-text">Authored link: {assessment.authoredUrl}</p>
+              <Evidence content={assessment.content} query={query} showQuestions={true} />
+            </details>
+          ))}
+        </section>
+      )}
       {content.nativeGrading && (
         <section className="scope" aria-label="Captured grading setting">
           <h6>Captured grading setting</h6>
@@ -527,7 +541,7 @@ export default function ContentEvidencePanel({
           session from this page.
         </p>
       )}
-      {showQuestions && (
+      {(showQuestions || view.source.some(content => content.linkedSourceAssessments)) && (
         <label>
           Find captured question text
           <input

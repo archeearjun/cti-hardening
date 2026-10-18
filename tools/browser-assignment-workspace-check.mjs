@@ -10,6 +10,7 @@ import { ownerTool, workspaceNav } from "./browser-workspace-navigation.mjs";
 import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
+import { checkContentReviewBundle } from "./browser-content-review-bundle-fixture.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDirectory = "/tmp/cti-assignment-workspace";
@@ -488,6 +489,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   page.off("download", observeDownload);
   page.off("request", observeRequest);
+  await checkContentReviewBundle(page);
+  console.log("Content review bundle worker, exact download, cancellation and narrow layout passed.");
   await ownerTool(page, "Full CTI workspace");
   await page
     .getByRole("heading", { name: "Inspect your title before making changes" })

@@ -216,7 +216,7 @@ export function directCmlMediaInventoryV1(value, textProjectionVersion = 1) {
         return fail();
       if (
         attachment ||
-        /^(?:asset|img|image|iframe|frame|video|audio|source|track|embed|object)$/.test(
+        /^(?:asset|img|image|iframe|frame|video|audio|source|track|embed|object|widget)$/.test(
           tag,
         )
       ) {
@@ -235,7 +235,7 @@ export function directCmlMediaInventoryV1(value, textProjectionVersion = 1) {
             attributes.filename || attributes.name || attributes.title || "",
           locationResolved:
             /^https?:\/\//i.test(url) &&
-            !/^(?:iframe|frame|embed|object)$/.test(tag),
+            !/^(?:iframe|frame|embed|object|widget)$/.test(tag),
           bodyVerified: false,
         });
       }

@@ -189,12 +189,13 @@ export default function CaptureFileTransferPanel({
           </p>
           <p>
             <strong>
-              Download the manifest and every part below, then attach all those
-              files together in this chat.
+              Download the manifest and every part below, then attach them to
+              the same conversation, across multiple messages if needed.
             </strong>{" "}
-            Keep them as files; do not open or paste the part text. The links
-            stay available here until you choose another file or leave this
-            page.
+            Wait until every part has been sent before requesting
+            reconstruction. Chat and account upload limits still apply. Keep the
+            parts as files; do not open or paste their text. The links stay
+            available here until you choose another file or leave this page.
           </p>
           {ready.manifest.warnings.map((warning) => (
             <p className="hint" key={warning}>

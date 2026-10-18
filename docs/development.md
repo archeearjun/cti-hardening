@@ -364,6 +364,21 @@ retained renderer's `courseraExtractor` v6.x family. Report readiness selects th
 bookmark release only for the exact native `BOUND_AUTHORING_DRAFT_API` version-1
 marker; captured build metadata and unmarked historical reports are preserved.
 
+Version 1.7.5 accepts both observed `supplement/1` and `assess/1` CML inside an
+identity-bound supplement draft. It preserves the authored CML and discovers
+its original asset references; unknown content formats still fail closed.
+Embedded `<widget>` references remain explicit gaps until their own content is
+captured. An old unsupported reading cannot gain final stability receipts or
+media merely by being imported with a newer parser: capture it again with the
+updated bookmark.
+
+New captures also record a versioned material-stability comparison. Exact initial
+and final source models and hashes remain separate. Only validated, known
+assignment-feature flag sets at the native material-item path may be reordered
+for that comparison; lesson, item, question and all other array order remains
+significant. The importer independently repeats the comparison. Historical
+unstable captures retain their original status.
+
 The older managed Protocol monitor and diagnostic tools remain available inside
 closed disclosures. They are separate workflows and do not resume a direct
 capture file.

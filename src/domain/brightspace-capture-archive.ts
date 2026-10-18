@@ -33,6 +33,7 @@ interface ArchiveEntry {
 
 export interface BrightspaceArchiveReadResult {
   bytes: Uint8Array;
+  compressedMetadata: Uint8Array;
   capture: unknown;
   archiveFiles: BrightspaceArchiveFile[];
   archiveSha256: string;
@@ -328,9 +329,8 @@ export async function readBrightspaceCaptureArchive(
   const metadataEntry = entries.find(
     (entry) => entry.path === "capture.json.gz",
   )!;
-  const metadata = await expandMetadata(
-    (await readEntry(metadataEntry, true)).bytes,
-  );
+  const compressedMetadata = (await readEntry(metadataEntry, true)).bytes;
+  const metadata = await expandMetadata(compressedMetadata);
   if (!metadata || metadata.length > metadataLimit)
     archiveError("capture metadata exceeds its 128 MiB bound.");
   let parsed: unknown;
@@ -428,6 +428,7 @@ export async function readBrightspaceCaptureArchive(
   await attachBrightspaceArchiveFileBlobs(capture, archiveFiles);
   return {
     bytes: metadata,
+    compressedMetadata,
     capture,
     archiveFiles,
     archiveSha256: bytesToHex(archiveHasher.digest()),

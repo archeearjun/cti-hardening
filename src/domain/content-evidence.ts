@@ -4,7 +4,10 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import { directCmlMediaInventoryV1 } from "../extractors/coursera/direct-data-media-contracts.js";
-import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
+import {
+  bindDirectAuthoringDraftV1,
+  directDraftReadingDtdSupportedV1,
+} from "../extractors/coursera/direct-data-models.js";
 import { directWidgetEvidenceValidV1 } from "../extractors/coursera/direct-data-contracts.js";
 import { directWidgetProviderSourceV1 } from "../extractors/coursera/direct-data-widget.js";
 import { directPanoptoEvidenceStructureV1 } from "../extractors/coursera/direct-data-panopto-contracts.js";
@@ -31,6 +34,14 @@ import {
   type BrightspaceCsvBank,
   type BrightspaceCsvSource,
 } from "./brightspace-csv-bank.ts";
+import {
+  deriveBrightspaceLinkedAssessments,
+  validateBrightspaceLinkedAssessments,
+  LINKED_BRIGHTSPACE_QUIZ_BASIS,
+  LINKED_BRIGHTSPACE_READING_BASIS,
+  type BrightspaceLinkedAssessmentEvidence,
+  type BrightspaceQuizLinkSource,
+} from "./brightspace-linked-assessment.ts";
 import {
   capturedTime,
   validateTimeEstimate,
@@ -137,6 +148,7 @@ export interface ContentEvidence {
   sourceBody?: BrightspaceSourceBody;
   nativeGrading?: CapturedNativeGrading;
   sourceFileBank?: BrightspaceCsvBank;
+  linkedSourceAssessments?: BrightspaceLinkedAssessmentEvidence;
   limitations: string[];
 }
 export interface ContentItem {
@@ -277,6 +289,19 @@ export function validateContentSnapshot(
         throw Error(
           "Source-file question projections require their retained CSV bank original.",
         );
+      if (c.linkedSourceAssessments !== undefined) {
+        const body = contentObject(c.sourceBody);
+        if (list !== s.brightspace || c.basis !== LINKED_BRIGHTSPACE_READING_BASIS || body.originalIntegrity !== "VERIFIED_RETAINED_ORIGINAL" || body.status !== "CAPTURED" || body.format !== "html" || body.textScope !== "ORIGINAL_BODY")
+          throw Error("Linked source assessments require a verified original Brightspace reading body.");
+        validateBrightspaceLinkedAssessments(c.linkedSourceAssessments, {
+          topicId: string(item.id), originalUrl: string(body.originalUrl),
+          originalRef: string(body.originalRef), bytes: Number(body.bytes),
+        }, linkedBrightspaceQuizContent);
+        if (contentObject(contentObject(c.linkedSourceAssessments).source).capturedAt !== c.capturedAt)
+          throw Error("Linked source assessments belong to a different capture observation.");
+      } else if (c.basis === LINKED_BRIGHTSPACE_READING_BASIS) {
+        throw Error("Linked source assessment projections require their retained original relationship evidence.");
+      }
       if (c.nativeGrading !== undefined) {
         validateCapturedNativeGrading(c.nativeGrading);
         if (list !== s.coursera || c.nativeGrading.itemId !== item.id)
@@ -751,7 +776,9 @@ function verifiedDirectDraftText(p: Obj, itemId: string | undefined): boolean {
         (evidence.assetId !== definition.assetId ||
           !/^[A-Za-z0-9_-]{22}@\d+$/.test(string(definition.assetId)))) ||
       cml.typeName !== "cml" ||
-      body.dtdId !== (discussion ? "discussion/1" : "supplement/1") ||
+      (discussion
+        ? body.dtdId !== "discussion/1"
+        : !directDraftReadingDtdSupportedV1(body.dtdId)) ||
       evidence.dtdId !== body.dtdId ||
       canonical(cml) !== canonical(sourceCml) ||
       typeof value !== "string" ||
@@ -1197,6 +1224,27 @@ function brightspaceQuizTopic(topic: Obj) {
     return false;
   }
 }
+function capturedBrightspaceQuizAssessment(quiz: Obj) {
+  const verifiedEmpty = Array.isArray(quiz.questions) && !quiz.questions.length &&
+    contentObject(quiz.questionCoverage).completenessVerified === true &&
+    contentObject(quiz.questionPageEvidence).complete === true &&
+    quiz.questionsStatus === "CAPTURED" && quiz.questionCount === 0;
+  return verifiedEmpty ? {
+    questions: [], declaredQuestionCount: 0,
+    definitionCoverage: { completenessVerified: true, observedDeclaredQuestionCount: 0 },
+  } : qaBrightspaceQuizToAssessment_(quiz);
+}
+function linkedBrightspaceQuizContent(quiz: Obj, source: BrightspaceQuizLinkSource, url: string): ContentEvidence {
+  const content = capturedContent({
+    textSample: qaBrightspaceText_(contentObject(quiz.raw).Description),
+    structuredAssessment: capturedBrightspaceQuizAssessment(quiz),
+  }, { basis: LINKED_BRIGHTSPACE_QUIZ_BASIS, capturedAt: source.capturedAt, url, source: true });
+  content.limitations.push(
+    "This is a separately captured native quiz linked by the reading's original HTML. Its questions do not belong to the reading's native question list.",
+    "The exact same-course quickLink rcode matches this captured quiz ActivityId. API pages and captured definitions do not establish whole-library coverage, random pools or learner operation.",
+  );
+  return content;
+}
 function csvBankCoverage(bank: BrightspaceCsvBank): ContentCoverage {
   return bank.status === "COMPLETE"
     ? "COMPLETE"
@@ -1354,6 +1402,19 @@ function brightspaceSourceContent(
   }
   validateBrightspaceSourceBody(sourceBody);
   content.sourceBody = sourceBody;
+  if (originalVerified && ref === ce.rawBodyRef && ce.status === "CAPTURED" && ce.format === "html" &&
+      typeof originalHtml === "string" && sourceBody.textScope === "ORIGINAL_BODY" && sourceBody.originalUrl && /^(?:utf-8|utf8)$/i.test(string(ce.charset) || "utf-8")) {
+    const linked = deriveBrightspaceLinkedAssessments({
+      topicId: sourceBody.topicId, courseId: String(contentObject(capture.course).orgUnitId ?? ""),
+      pageUrl: string(contentObject(capture.page).url), originalUrl: sourceBody.originalUrl,
+      originalRef: ref, bytes: Number(body.bytes), capturedAt: string(capture.capturedAt), rawHtml: originalHtml,
+    }, array(capture.quizzes), linkedBrightspaceQuizContent);
+    if (linked) {
+      content.basis = LINKED_BRIGHTSPACE_READING_BASIS;
+      content.linkedSourceAssessments = linked;
+    }
+  }
+
   const exactLiteralText =
     originalVerified &&
     ref === ce.rawBodyRef &&
@@ -1508,27 +1569,9 @@ export function buildContentSnapshot(
           (v) => String(contentObject(v).id) === String(topic.toolItemId),
         )
       : [];
-    const quiz = contentObject(quizzes[0]);
-    const verifiedEmpty =
-      Array.isArray(quiz.questions) &&
-      !quiz.questions.length &&
-      contentObject(quiz.questionCoverage).completenessVerified === true &&
-      contentObject(quiz.questionPageEvidence).complete === true &&
-      quiz.questionsStatus === "CAPTURED" &&
-      quiz.questionCount === 0;
-    const assessment =
-      topic.toolItemId != null && quizzes.length === 1
-        ? verifiedEmpty
-          ? {
-              questions: [],
-              declaredQuestionCount: 0,
-              definitionCoverage: {
-                completenessVerified: true,
-                observedDeclaredQuestionCount: 0,
-              },
-            }
-          : qaBrightspaceQuizToAssessment_(quizzes[0])
-        : undefined;
+    const assessment = topic.toolItemId != null && quizzes.length === 1
+      ? capturedBrightspaceQuizAssessment(contentObject(quizzes[0]))
+      : undefined;
     return {
       id: String(topic.id),
       name: string(topic.title),
@@ -1601,6 +1644,12 @@ export function contentEvidenceText(content: ContentEvidence): string {
           ]
         : []),
     );
+  if (content.linkedSourceAssessments) {
+    const linked = content.linkedSourceAssessments;
+    out.push("LINKED SOURCE NATIVE ASSESSMENTS — separate from this reading's questions", `Relationship: ${linked.method} | source course ${linked.source.courseId} | reading topic ${linked.source.topicId} | original HTML SHA-256 ${linked.source.originalRef}`);
+    for (const assessment of linked.assessments)
+      out.push(`Linked native quiz ${assessment.quizId} | ${assessment.quizName || "Untitled native quiz"} | captured ActivityId ${assessment.activityId}`, `Authored quickLink: ${assessment.authoredUrl}`, `Resolved quickLink: ${assessment.resolvedUrl}`, `Retained native quiz record SHA-256: ${assessment.nativeRecordSha256}`, contentEvidenceText(assessment.content));
+  }
   const grading = content.nativeGrading;
   if (grading)
     out.push(

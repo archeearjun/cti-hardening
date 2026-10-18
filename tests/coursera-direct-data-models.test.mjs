@@ -6,6 +6,7 @@ import {
   bindDirectAuthoringDraftV1,
   directDraftAssessmentInventoryV1,
   directDraftReadingSourceV1,
+  directDraftReadingDtdSupportedV1,
   directDraftDiscussionSourceV1,
 } from "../src/extractors/coursera/direct-data-models.js";
 
@@ -368,9 +369,46 @@ test("unobserved reading models and incomplete CML stay unsupported rather than 
   }
 });
 
+test("observed assess/1 CML remains an exact supplementDraft reading rather than an assessment", () => {
+  const f = fixture("supplementDraft"),
+    raw = f.atom.draft.content.definition.content;
+  raw.definition.dtdId = "assess/1";
+  raw.definition.value =
+    '<co-content><heading level="1">Units</heading><text>π × r² = A; $x/2$</text>' +
+    '<list bulletType="bullets"><li><text>Measure exactly</text></li></list>' +
+    '<table rows="1" columns="1"><tr><td><text>25 mm</text></td></tr></table>' +
+    '<asset id="' +
+    "m".repeat(22) +
+    '" name="Original plan" extension="pdf" assetType="pdf"/>' +
+    '<widget id="' +
+    "w".repeat(22) +
+    '@1"/></co-content>';
+  const source = directDraftReadingSourceV1(f.bind());
+  assert.equal(source.rawCML, raw);
+  assert.equal(source.cml, raw.definition.value);
+  assert.equal(source.dtdId, "assess/1");
+  assert.equal(f.atom.draft.content.typeName, "supplementDraft");
+  assert.throws(() => directDraftAssessmentInventoryV1(f.bind()), {
+    message: "DIRECT_AUTHORING_ASSESSMENT_MODEL_UNSUPPORTED",
+  });
+  for (const dtd of [
+    undefined,
+    null,
+    "staffGraded/1",
+    "discussion/1",
+    "assess/2",
+    "different/1",
+  ])
+    assert.equal(directDraftReadingDtdSupportedV1(dtd), false);
+  assert.equal(directDraftReadingDtdSupportedV1("assess/1"), true);
+  assert.equal(directDraftReadingDtdSupportedV1("supplement/1"), true);
+});
+
 test("the native helper declarations run independently of imports and preserve readonly source models", () => {
   const helpers = vm.runInNewContext(
-    "({bind:(" +
+    "const directDraftReadingDtdSupportedV1 = " +
+      directDraftReadingDtdSupportedV1.toString() +
+      "; ({bind:(" +
       bindDirectAuthoringDraftV1.toString() +
       "),inventory:(" +
       directDraftAssessmentInventoryV1.toString() +

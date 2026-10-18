@@ -16,6 +16,7 @@ import { directPanoptoRequestFormV1 } from "../src/extractors/coursera/direct-da
 import { panoptoDeliveryFixture } from "./panopto-delivery-fixtures.mjs";
 import { widgetFixture } from "./coursera-direct-widget-fixtures.mjs";
 import { directProviderAccessDiagnosticV1, directProviderAccessDiagnosticTextV1 } from "../src/extractors/coursera/direct-data-provider-diagnostic.js";
+import { CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1, directMaterialStabilityModelV1 } from "../src/extractors/coursera/direct-data-material-stability.js";
 import ts from "typescript";
 import {
   directDataCoverageSummaryV1,
@@ -472,6 +473,8 @@ function harness(options = {}) {
     },
     sanitizeCourseraCourseDataModel: () => {},
     directCanonicalSourceTextV1: JSON.stringify,
+    CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+    directMaterialStabilityModelV1,
     directCourseInventoryV1: async () => ({
       fingerprints: ids.map(fingerprint),
       leaves: new Map(ids.map((id) => [id, { node: { id }, ancestorIds: [] }])),
@@ -605,6 +608,44 @@ test("the actual entry captures drafts without navigation and exports its saved 
   assert(app.nodes.some(node => node.textContent.includes("0/0 empty structures verified")));
   assert(app.nodes.some(node => node.textContent.includes("0 question occurrences")));
   assert.deepEqual(app.alerts, []);
+});
+
+test("the actual entry records separate native and flag-set comparison hashes without calling a flag reorder a course edit", async () => {
+  let materialReads = 0;
+  const app = harness({ readResult(call) {
+    if (call.resource !== "materials") return;
+    const flags = ["SHOW_GRADE_ON_RELEASE", "LIMITED_SUBMISSIONS", "TAKE_LATEST_GRADE"];
+    if (materialReads++) flags.reverse();
+    return { ok: true, data: { elements: [{ id: COURSE, material: { elements: [{
+      id: "ModuleA", elements: [{ id: "LessonA", elements: [{ id: "ReadingA", content: {
+        typeName: "ungradedAssignment", definition: { assignmentFeatures: flags },
+      } }] }],
+    }] } }] }, receipt: { status: 200, bytes: 64,
+      originalResponseSha256: "a".repeat(64), observedAt: new Date(call.at).toISOString(),
+    } };
+  } });
+  app.launch(); await app.idle();
+  assert.equal(app.state().state, "COMPLETE");
+  const output = (await exportedCapture(app.downloads[0])).capture;
+  const mode = output.meta.directDataCapture;
+  assert.equal(mode.sourceStable, true);
+  assert.notEqual(mode.initialMaterialHash, mode.finalMaterialHash);
+  assert.equal(mode.materialStability.policy, CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1);
+  assert.equal(mode.materialStability.initialSha256, mode.materialStability.finalSha256);
+  assert.notEqual(mode.stopReason, "DIRECT_COURSE_CHANGED_DURING_CAPTURE");
+});
+
+test("the actual entry still stops completion when the native material version changes", async () => {
+  let materialReads = 0;
+  const app = harness({ beforeRead(call) {
+    if (call.resource === "materials" && materialReads++) app.control.materialRevision++;
+  } });
+  app.launch(); await app.idle();
+  assert.equal(app.state().state, "INCOMPLETE");
+  const mode = (await exportedCapture(app.downloads[0])).capture.meta.directDataCapture;
+  assert.equal(mode.sourceStable, false);
+  assert.notEqual(mode.materialStability.initialSha256, mode.materialStability.finalSha256);
+  assert.equal(mode.stopReason, "DIRECT_COURSE_CHANGED_DURING_CAPTURE");
 });
 
 test("a second click focuses an active capture rather than creating another reader", async () => {

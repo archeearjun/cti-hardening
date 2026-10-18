@@ -169,6 +169,12 @@ export function directDraftAssessmentInventoryV1(bound) {
   };
 }
 
+/** Observed CML dialects inside supplementDraft reading models. The DTD name
+ * does not determine item type: assess/1 is also authored inside readings. */
+export function directDraftReadingDtdSupportedV1(dtdId) {
+  return dtdId === "supplement/1" || dtdId === "assess/1";
+}
+
 /** Original CML from the bound authoring draft. This is an API source model,
  * never a fabricated editor observation or a published learner-body receipt. */
 export function directDraftReadingSourceV1(bound) {
@@ -189,7 +195,7 @@ export function directDraftReadingSourceV1(bound) {
     !object(cml) ||
     cml.typeName !== "cml" ||
     !object(cml.definition) ||
-    cml.definition.dtdId !== "supplement/1" ||
+    !directDraftReadingDtdSupportedV1(cml.definition.dtdId) ||
     typeof cml.definition.value !== "string" ||
     typeof definition.assetId !== "string" ||
     !/^[A-Za-z0-9_-]{22}@\d+$/.test(definition.assetId)
