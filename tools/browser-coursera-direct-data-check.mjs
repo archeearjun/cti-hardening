@@ -383,6 +383,23 @@ function fixturePngTextChunk(text){
   const chunk=Buffer.alloc(data.length+12);chunk.writeUInt32BE(data.length,0);type.copy(chunk,4);data.copy(chunk,8);chunk.writeUInt32BE((crc^0xffffffff)>>>0,data.length+8);return chunk;
 }
 const publisherServiceBytes=Buffer.concat([pngBytes.subarray(0,-12),fixturePngTextChunk('Synthetic original image context. '+ 'x'.repeat(160*1024+17)),pngBytes.subarray(-12)]);
+const publisherPipelineCase=makePublisherCase(1349,'omit-wildcard');
+const publisherPipeline={active:0,maximum:0,started:[],completed:[],responses:new Map(),pairTimers:new Map(),timedOut:[]};
+const publisherPipelineUrls=Array.from({length:4},(_,index)=>publisherImageBase+'pipeline-original-'+index+'.png');
+for(const [index,url]of publisherPipelineUrls.entries()){
+  const body=Buffer.concat([pngBytes.subarray(0,-12),fixturePngTextChunk('Literal pipeline original '+index+' '+ 'x'.repeat(index*101)),pngBytes.subarray(-12)]);
+  publisherImages.set(url,{name:url.split('/').at(-1),mode:'allowed',body,requests:0,pipeline:publisherPipeline,pipelineIndex:index});
+}
+publisherPipelineCase.chapter.content.raw='<p>Literal source order differs from response completion order.</p>'+
+  publisherPipelineUrls.map(url=>'<img src="'+url+'">').join('');
+publisherPipelineCase.chapter.content.rendered='<p>Distinct original rendered field.</p>'+
+  publisherPipelineUrls.map(url=>'<a href="'+url+'">Original image</a>').join('');
+publisherPipelineCase.rawJson='\ufeff'+JSON.stringify(publisherPipelineCase.chapter,null,2)+'\n';
+publisherPipelineCase.bytes=Buffer.from(publisherPipelineCase.rawJson);
+const publisherPipelineCourse=makeInlineWidgetCourse('Direct_inline_image_pipeline_123','publisher-image-pipeline',true);
+publisherPipelineCourse.publisherReaderCase=true;
+providers.get(publisherPipelineCourse.inlineProviderId).value.draft.configuration.url=publisherPipelineCase.targetUrl;
+providers.get(publisherPipelineCourse.inlineProviderId).value.draft.pageSrc=publisherPipelineCase.targetUrl;
 const publisherServiceCase=makePublisherCase(1399,'omit-wildcard'),publisherServiceImageUrl=publisherImageBase+'service-original.png';
 publisherServiceCase.chapter.content.raw='<p>Literal service-backed original.</p><img src="'+publisherServiceImageUrl+'">';
 publisherServiceCase.chapter.content.rendered='<p>Rendered field stays literal.</p><a href="'+publisherServiceImageUrl+'">Original raster</a>';
@@ -629,7 +646,31 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       if(image.mode!=='no-cors')response.setHeader('Access-Control-Allow-Origin','*');
       response.setHeader('Content-Type',image.mode==='wrong-mime'?'text/html':'image/png');
       if(image.mode==='redirect'){response.statusCode=302;response.setHeader('Location',publisherImageBase+'never-follow.png');response.end();return;}
-      response.setHeader('Content-Length',String(image.body.length));response.end(image.body);return;
+      response.setHeader('Content-Length',String(image.body.length));
+      if(image.pipeline){
+        const pipeline=image.pipeline,index=image.pipelineIndex,pair=index-index%2;
+        pipeline.started.push(publisherOrigin+url.pathname);pipeline.active++;
+        pipeline.maximum=Math.max(pipeline.maximum,pipeline.active);
+        let finished=false;
+        const complete=()=>{if(!finished){finished=true;pipeline.active--;pipeline.completed.push(publisherOrigin+url.pathname);}};
+        response.once('finish',complete);response.once('close',complete);
+        pipeline.responses.set(index,{response,body:image.body});
+        const earlier=pipeline.responses.get(pair),later=pipeline.responses.get(pair+1);
+        if(earlier&&later){
+          clearTimeout(pipeline.pairTimers.get(pair));pipeline.pairTimers.delete(pair);
+          // Both real browser CORS reads must overlap. The later literal
+          // source completes first, independent of request arrival order.
+          later.response.once('finish',()=>{if(!earlier.response.writableEnded)earlier.response.end(earlier.body);});
+          later.response.end(later.body);
+        }else pipeline.pairTimers.set(pair,setTimeout(()=>{
+          // Drain a serial-reader regression promptly rather than hanging the
+          // whole suite; the final overlap assertions still reject it.
+          pipeline.timedOut.push(pair);pipeline.pairTimers.delete(pair);
+          for(const position of [pair,pair+1]){const held=pipeline.responses.get(position);if(held&&!held.response.writableEnded)held.response.end(held.body);}
+        },10000));
+        return;
+      }
+      response.end(image.body);return;
     }
     const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(chapters|parts|back-matter)/([1-9]\\d*)$').exec(url.pathname);
     assert(match,'Only the configured public chapter endpoint is requested; redirects are not followed');
@@ -908,6 +949,18 @@ try{
         return result;
       };
     });
+    if(config===publisherPipelineCourse)await context.addInitScript(hashes=>{
+      window.fixturePublisherPipelineCommits=[];
+      const original=IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put=function(value,...args){
+        const request=Reflect.apply(original,this,[value,...args]);
+        if(this.name==='bodies'&&hashes.includes(value?.sha256)&&value.blob instanceof Blob){
+          const commit={sha256:value.sha256,bytes:value.blob.size};
+          this.transaction.addEventListener('complete',()=>window.fixturePublisherPipelineCommits.push(commit),{once:true});
+        }
+        return request;
+      };
+    },publisherPipelineUrls.map(url=>createHash('sha256').update(publisherImages.get(url).body).digest('hex')));
     const page=await context.newPage();
     if(config.helperMode)await context.addCookies([{name:'ctiFixtureMode',value:config.helperMode,url:helperOrigin,httpOnly:true,secure:true,sameSite:'None'}]);
     await context.addCookies([{name:'ctiFixtureSession',value:secrets[4],url:helperOrigin,httpOnly:true,secure:true,sameSite:'None'}]);
@@ -942,7 +995,7 @@ try{
         assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(?:chapters|parts|back-matter)/[1-9]\\d*$'));
         assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
       }
-      if(config===publisherImageCourse&&!publisherImageStageChecked&&url.href===publisherImageBase+'no-cors.png'){
+      if(config===publisherImageCourse&&!publisherImageStageChecked&&url.href===publisherImageBase+'redirect.png'){
         const staged=await page.evaluate(async imageUrl=>{
           const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__,observed=window.fixturePublisherImageBodies.find(body=>body.canonicalUrl===imageUrl);
           const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
@@ -954,7 +1007,7 @@ try{
           return{observed:!!observed,released:observed?!Object.hasOwn(observed,'bytes'):false,sha256:observed?.sha256,
             staged:blob?.blob instanceof Blob,stagedBytes:blob?.blob?.size,acceptedSavedItemOwnsBody:rows.items.some(row=>owns(row.fingerprint,observed?.sha256))};
         },publisherImageBase+'main.png');
-        assert.equal(staged.observed,true);assert.equal(staged.released,true,'An acquired image releases its transient byte array before the next image request');
+        assert.equal(staged.observed,true);assert.equal(staged.released,true,'The earlier original is staged and releases its transient byte array before the third image starts');
         assert.equal(staged.staged,true);assert.equal(staged.stagedBytes,pngBytes.length);assert.equal(staged.sha256,createHash('sha256').update(pngBytes).digest('hex'));
         assert.equal(staged.acceptedSavedItemOwnsBody,false,'Early local Blob staging is separate from accepted final native item ownership');
         publisherImageStageChecked=true;config.publisherImageStagingChecked=true;
@@ -1739,6 +1792,58 @@ try{
   assert.equal(await backMatterIntegrated.page.evaluate(()=>window.__CTI_PUBLISHER_EXECUTED),undefined);
   await backMatterIntegrated.context.close();
 
+  const pipelineBrowserStart=publisherImageRequests.length,pipelineApiStart=publisherRequests.length,pipelineHelperStart=helperRequests.length;
+  const pipelineImages=await runFileCase(publisherPipelineCourse);
+  assert.equal(pipelineImages.state.state,'INCOMPLETE');
+  assert.equal(publisherImageRequests.length-pipelineBrowserStart,4,'Each literal image is read once across both native placements');
+  assert.equal(publisherRequests.length-pipelineApiStart,1);assert.equal(helperRequests.length,pipelineHelperStart);
+  assert.equal(publisherPipeline.maximum,2,'Two actual HTTPS image responses overlap within the unchanged two-read ceiling');
+  assert.equal(publisherPipeline.active,0);assert.deepEqual(publisherPipeline.timedOut,[]);
+  assert.deepEqual(publisherPipeline.completed,[1,0,3,2].map(index=>publisherPipelineUrls[index]),
+    'The real HTTPS fixture deliberately completes each later source before its earlier sibling');
+  const pipelineStats=pipelineImages.capture.meta.directDataCapture.stats.media;
+  assert.equal(pipelineStats.maxConcurrentRequests,2);assert.equal(pipelineStats.limits.concurrentRequests,2);
+  assert.equal(pipelineStats.requests,4);assert.equal(pipelineStats.bytes,publisherPipelineUrls.reduce((sum,url)=>sum+publisherImages.get(url).body.length,0));
+  const pipelineOriginals=publisherPipelineUrls.map(url=>({url,body:publisherImages.get(url).body,
+    sha256:createHash('sha256').update(publisherImages.get(url).body).digest('hex')}));
+  const pipelineCommits=await pipelineImages.page.evaluate(()=>window.fixturePublisherPipelineCommits);
+  assert.deepEqual(pipelineCommits,pipelineOriginals.map(original=>({sha256:original.sha256,bytes:original.body.length})),
+    'Immutable original Blobs commit in literal source order despite out-of-order network responses');
+  const pipelinePlacements=pipelineImages.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+  assert.equal(pipelinePlacements.length,2);
+  for(const fp of pipelinePlacements){
+    const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0];
+    assert.equal(page.observation.model.rawJson,publisherPipelineCase.rawJson);
+    assert.equal(page.observation.model.sha256,createHash('sha256').update(publisherPipelineCase.bytes).digest('hex'));
+    assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    assert.deepEqual(page.media.resources.map(resource=>resource.url),publisherPipelineUrls,
+      'The accepted resource list retains literal order rather than response completion order');
+    for(const [index,resource]of page.media.resources.entries()){
+      const original=pipelineOriginals[index];assert.equal(resource.references.length,2);
+      assert.equal(resource.reason,undefined);assert.equal(resource.body.sha256,original.sha256);assert.equal(resource.body.size,original.body.length);
+      assert.equal(resource.body.archivePath,'files/'+original.sha256);assert.deepEqual(Buffer.from(resource.body.bytes),original.body);
+      assert.equal(resource.body.receipt.transport,'BROWSER_PUBLISHER_IMAGE');assert.equal(resource.body.receipt.responseType,'cors');
+      assert.equal(resource.body.receipt.sourceSha256,page.observation.model.sha256);assert.equal(resource.body.receipt.bytes,original.body.length);
+      assert.equal(resource.body.receipt.sha256,original.sha256);assert.equal(resource.body.receipt.credentials,'omit');
+    }
+    assert.equal(fp.captureContract.complete,false);assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);
+    const report=courseraInlineWidgetContent(fp,publisherPipelineCourse.id);assert(report);
+    const projected=report.providers[0].publisherPages[0].media.resources;
+    assert.deepEqual(projected.map(resource=>resource.url),publisherPipelineUrls);
+    assert.deepEqual(projected.map(resource=>resource.bytes),pipelineOriginals.map(original=>original.body.length));
+  }
+  assert.deepEqual(pipelinePlacements[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0].media.resources,
+    pipelinePlacements[1].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0].media.resources,
+    'Both native placements share the same source-bound original observations without duplicate downloads');
+  const pipelineCheckpoint=await checkpointSnapshot(pipelineImages.page);assert.equal(pipelineCheckpoint.bodies.length,4);
+  const pipelineZip=await JSZip.loadAsync(fs.readFileSync(await pipelineImages.contextDownloads[0].download.path()),{checkCRC32:true});
+  assert.deepEqual(Object.keys(pipelineZip.files).filter(name=>/^files\/[a-f0-9]{64}$/.test(name)),pipelineOriginals.map(original=>'files/'+original.sha256),
+    'The one exported ZIP lists original entries in source order');
+  for(const original of pipelineOriginals)assert.deepEqual(await pipelineZip.file('files/'+original.sha256).async('nodebuffer'),original.body);
+  assert.equal(pipelineImages.capture.meta.directDataCapture.coverage.questions,10);
+  assert.equal(evaluateCourseraCapture(pipelineImages.capture,publisherPipelineCourse.id).complete,false);
+  await pipelineImages.context.close();
+
   const imageIntegratedStart=publisherImageRequests.length,imageApiStart=publisherRequests.length,imageHelperStart=helperRequests.length;
   const imageIntegrated=await runFileCase(publisherImageCourse);
   function assertPublisherImageCapture(capture){
@@ -1777,7 +1882,7 @@ try{
   }
   const firstPublisherImage=assertPublisherImageCapture(imageIntegrated.capture);
   assert.equal(imageIntegrated.state.state,'INCOMPLETE');assert.equal(publisherImageRequests.length-imageIntegratedStart,5);
-  assert.equal(publisherImageCourse.publisherImageStagingChecked,true,'The generated bookmark stages and releases one original before requesting the next');
+  assert.equal(publisherImageCourse.publisherImageStagingChecked,true,'The generated bookmark stages and releases the earlier original before starting the third read');
   assert.equal(publisherRequests.length-imageApiStart,1);assert.equal(helperRequests.length,imageHelperStart);
   assert(publisherImageRequests.slice(imageIntegratedStart).every(request=>publisherImages.has(request.url)),
     'Iframes, Kaltura, script text and 64 srcset alternatives produce no guessed media requests');
@@ -1985,14 +2090,16 @@ try{
   const challengeUpstreamCalls=helperUpstreamRequests.slice(challengeUpstreamStart).filter(request=>request.courseId===publisherChallengeCourse.id);
   assert.equal(challengeServiceCalls.length,1);assert.equal(challengeServiceCalls[0].kind,'publisher-image');
   assert.equal(challengeUpstreamCalls.length,1);assert.equal(challengeUpstreamCalls[0].role,'PUBLISHER_IMAGE');
-  assert.equal(challengeUpstreamCalls[0].url,publisherChallengeUrls[0],
+  assert(publisherChallengeUrls.includes(challengeUpstreamCalls[0].url),
     'One observed publisher challenge stops subsequent same-origin service GETs, including duplicate native placements');
   const challengeAssessments=challengedImages.capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence);
   for(const fp of challengedImages.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
     const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0];
     assert.equal(page.observation.model.rawJson,publisherChallengeCase.rawJson);assert.deepEqual(page.failures,[]);
     assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
-    const [trigger,skipped]=publisherChallengeUrls.map(url=>page.media.resources.find(resource=>resource.url===url));
+    assert.deepEqual(page.media.resources.map(resource=>resource.url),publisherChallengeUrls,'Resource order stays literal even when CORS failures finish out of order');
+    const trigger=page.media.resources.find(resource=>resource.url===challengeUpstreamCalls[0].url),
+      skipped=page.media.resources.find(resource=>resource.url!==challengeUpstreamCalls[0].url);
     assert(trigger&&skipped);assert.equal(trigger.body,undefined);assert.equal(skipped.body,undefined);
     assert.equal(trigger.reason,'PUBLISHER_IMAGE_UPSTREAM_CHALLENGE');assert.equal(trigger.attempts.length,2);
     assert.equal(trigger.attempts[0].reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(trigger.attempts[0].status,0);
@@ -2865,6 +2972,7 @@ try{
     syntheticBackMatterResolutionPreservesTwoFlat404ReceiptsAndThreeGetBound:true,
     backMatterOriginalJsonImageOwnershipZipAndReportProjection:true,
     publisherImagesUseActualCorsAndExactSourceBoundOriginalArchiveBytes:true,
+    publisherImagesOverlapAtMostTwoReadsAndCommitOriginalBlobsResourcesAndZipInSourceOrder:true,
     publisherServiceImagesUseAuthenticatedHelperAndBoundedPublicBytesWithoutCorsForgery:true,
     publisherChallengeStopsSameOriginServiceReadsWithoutInventingSkippedHttpResults:true,
     publisherChallengeContextSurvivesZipAndReportWhileExplicitResumeRetriesOriginals:true,
@@ -2877,6 +2985,7 @@ try{
   console.error('::error::Direct-data browser check failed: '+error.message);throw error;
 }finally{
   clearInterval(heartbeat);
+  for(const timer of publisherPipeline.pairTimers.values())clearTimeout(timer);
   await browser?.close();
   if(server.listening)await new Promise(resolve=>server.close(resolve));
   fs.rmSync(scratch,{recursive:true,force:true});

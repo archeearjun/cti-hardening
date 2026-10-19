@@ -1,5 +1,5 @@
-export const CTI_DIRECT_DATA_VERSION_V1 = "1.8.7";
-export const CTI_DIRECT_DATA_BUILD_V1 = "v1.8.7-published-atom-draft-snapshots-20261019";
+export const CTI_DIRECT_DATA_VERSION_V1 = "1.8.8";
+export const CTI_DIRECT_DATA_BUILD_V1 = "v1.8.8-bounded-publisher-image-pipeline-20261019";
 export function directRecoverablePublisherBuildV1(buildId) {
   return buildId === "v1.8.0-inline-widget-public-html-20261018" ||
     buildId === "v1.8.1-browser-publisher-api-20261018" ||
@@ -7,7 +7,8 @@ export function directRecoverablePublisherBuildV1(buildId) {
     buildId === "v1.8.3-publisher-sections-original-images-20261018" ||
     buildId === "v1.8.4-public-publisher-images-20261019" ||
     buildId === "v1.8.5-publisher-challenge-aware-20261019" ||
-    buildId === "v1.8.6-publisher-back-matter-20261019";
+    buildId === "v1.8.6-publisher-back-matter-20261019" ||
+    buildId === "v1.8.7-published-atom-draft-snapshots-20261019";
 }
 export const CTI_DIRECT_DATA_EXPORT_BYTES_V1 = 128 * 1024 * 1024;
 export const CTI_DIRECT_DATA_COMPRESSED_BYTES_V1 = 128 * 1024 * 1024;

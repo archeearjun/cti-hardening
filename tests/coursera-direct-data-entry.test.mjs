@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import { webcrypto, createHash } from "node:crypto";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, crc32 } from "node:zlib";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
@@ -20,9 +20,9 @@ import { directPublicPageTargetV1, directPublicPageObservationValidV1,
   CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1, CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
 import { directPublisherTargetV1, directPublisherObservationValidV1, directPublisherChapterV1,
   directPublisherResourceObservationValidV1, directPublisherResourceV1, directPublisherPartResolutionValidV1, directPublisherBackMatterResolutionValidV1 } from "../src/extractors/coursera/direct-data-publisher.js";
-import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
+import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1, directPublisherImageBodyStructureV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
-import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
+import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1, createDirectDataMediaReaderV1 as createNativeMediaReader } from "../src/extractors/coursera/direct-data-media.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
   directPanoptoPodcastBindingsV1, sanitizeDirectPanoptoModelV1,
   CTI_DIRECT_PANOPTO_MAX_PODCAST_BYTES_V1 } from "../src/extractors/coursera/direct-data-panopto.js";
@@ -277,6 +277,7 @@ function harness(options = {}) {
     async putDefinition() {},
     async putBody(runId, sha256, blob, metadata) {
       assert.equal(createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex"), sha256);
+      await options.beforePutBody?.({runId,sha256,blob,metadata});
       const key = runId + "/" + sha256;
       if (!bodies.has(key)) {
         bodies.set(key, { runId, sha256, size: blob.size, mime: metadata.mime, blob, archivePath: "files/" + sha256 });
@@ -527,6 +528,7 @@ function harness(options = {}) {
     directPublisherBackMatterResolutionValidV1,
     directPublisherMediaInventoryV1,
     directPublisherMediaStructureV1,
+    directPublisherImageBodyStructureV1,
     directWidgetContractV1: (fp) => {
       const valid = fp.payload.directWidgetProviderEvidence?.stableSource === true;
       const result = contract(fp, "DIRECT_WIDGET", false,
@@ -940,6 +942,144 @@ function useNativeCml(t) {
   t.after(() => { if (previousParser) globalThis.DOMParser = previousParser; else delete globalThis.DOMParser; });
 }
 
+function publisherPipelineEntryFixture(width = 2) {
+  const f=publisherEntryFixture(), original=f.fixtures[0], image=createInlinePublisherMediaContentFixture({
+    itemId:original.fp.id,atomId:original.fp.atomId,outcomes:Array(4).fill("CAPTURED"),
+  }), gates=Array.from({length:4},deferred), control={reject:new Set(),stagingFailure:false},
+    calls=[],returned=[],stages=[],metrics={active:0,maxConcurrentRequests:0,requests:0,bytes:0,stopped:false,stopReason:""};
+  f.fixtures[0]=image;
+  const bodies=image.publisherMedia.resources.map((resource,index)=>{
+    const text=Buffer.from("Fixture\0Original "+index),type=Buffer.from("tEXt"),chunk=Buffer.alloc(text.length+12);
+    chunk.writeUInt32BE(text.length,0);type.copy(chunk,4);text.copy(chunk,8);chunk.writeUInt32BE(crc32(Buffer.concat([type,text])),text.length+8);
+    const bytes=Buffer.concat([Buffer.from(image.publisherMediaBytes).subarray(0,-12),chunk,Buffer.from(image.publisherMediaBytes).subarray(-12)]),sha256=createHash("sha256").update(bytes).digest("hex"),
+      body={...clone(resource.body),archivePath:"files/"+sha256,sha256,size:bytes.length,
+        receipt:{...clone(resource.body.receipt),bytes:bytes.length,sha256}};
+    return{body,bytes};
+  });
+  let app,activeStages=0;
+  f.options.beforePutBody=async ({sha256})=>{
+    assert.equal(activeStages,0,"Only the ordered owner stages immutable original Blobs");activeStages++;
+    try{await turn();if(control.stagingFailure&&calls.length>4){control.stagingFailure=false;throw Error("SYNTHETIC_PUBLISHER_STAGE_FAILED");}stages.push(sha256);}
+    finally{activeStages--;}
+  };
+  f.options.mediaReaderFactory=settings=>{
+    Object.assign(metrics,{active:0,maxConcurrentRequests:0,requests:0,bytes:0,stopped:false,stopReason:""});
+    return{
+    snapshot:()=>({...metrics,limits:{concurrentRequests:width,bodyBytes:16*1024*1024,totalBytes:settings.limits.totalBytes}}),
+    abort(reason){metrics.stopped=true;metrics.stopReason=reason;},release(){},
+    async readPublisherImage(observation,targetUrl,resource){
+      const index=image.publisherImageUrls.indexOf(resource.url);assert(index>=0);assert.equal(observation.model.rawJson,image.publisherRawJson);
+      if(index>=width){assert.equal(Object.hasOwn(returned[index-width],"bytes"),false,"Starting a replacement waits for the earlier original's Blob staging");}
+      calls.push(index);metrics.active++;metrics.requests++;metrics.maxConcurrentRequests=Math.max(metrics.maxConcurrentRequests,metrics.active);
+      try{await gates[index].promise;
+        if(control.reject.has(index))throw Error("SYNTHETIC_PUBLISHER_IMAGE_READ_FAILED");
+        if(metrics.stopped)return{reason:metrics.stopReason};
+        const body=clone(bodies[index].body);Object.defineProperty(body,"bytes",{value:new Uint8Array(bodies[index].bytes),configurable:true});returned[index]=body;metrics.bytes+=body.size;
+        return{body};
+      }finally{metrics.active--;}
+    },
+  };};
+  app=harness(f.options);
+  return{...f,app,image,gates,control,calls,returned,stages,metrics,bodies};
+}
+
+test("actual entry pipelines at most two image reads, commits literal order and halves a controlled two-wave delay without changing originals",async t=>{
+  useNativeCml(t);const captures=[];
+  for(const width of [1,2]){
+    const f=publisherPipelineEntryFixture(width);let controlledElapsedMs=0;f.app.launch();
+    await until(()=>f.calls.length===width,"The first bounded image window never started");
+    if(width===2){
+      assert.deepEqual(f.calls,[0,1]);f.gates[1].resolve();await turn();await turn();
+      assert.equal(f.stages.length,0,"An earlier pending source owns commit order even when its sibling finishes first");
+      assert.deepEqual(f.calls,[0,1],"A third result cannot be prefetched while two originals are pending or unstaged");
+      controlledElapsedMs+=100;f.app.advance(100);f.gates[0].resolve();
+      await until(()=>f.calls.length===4,"Two staged originals did not release the next bounded window");
+      controlledElapsedMs+=100;f.app.advance(100);f.gates[3].resolve();f.gates[2].resolve();
+    }else for(let index=0;index<4;index++){
+      await until(()=>f.calls.length===index+1,"The one-slot control did not honor its configured width");
+      controlledElapsedMs+=100;f.app.advance(100);f.gates[index].resolve();
+    }
+    await f.app.idle();assert.equal(f.metrics.maxConcurrentRequests,width);assert.equal(f.metrics.active,0);
+    assert.deepEqual(f.stages,f.bodies.map(value=>value.body.sha256));
+    const {capture,zip}=await exportedCapture(f.app.downloads[0]),page=capture.fingerprints[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+    assert.equal(page.observation.model.rawJson,f.image.publisherRawJson);assert.equal(page.media.resources.length,4);
+    assert.deepEqual(page.media.resources.map(value=>value.url),f.image.publisherImageUrls);
+    for(const [index,resource]of page.media.resources.entries()){
+      assert.equal(resource.body.sha256,f.bodies[index].body.sha256);assert.equal(resource.body.receipt.sourceSha256,page.observation.model.sha256);
+      assert.deepEqual(await zip.file(resource.body.archivePath).async("nodebuffer"),f.bodies[index].bytes);
+    }
+    assert.equal(capture.fingerprints[0].captureContract.complete,false);assert.equal(capture.meta.directDataCapture.wholeCourseVerified,false);
+    captures.push({controlledElapsedMs,resources:page.media.resources,rawJson:page.observation.model.rawJson});
+  }
+  assert.equal(captures[0].controlledElapsedMs,400);assert.equal(captures[1].controlledElapsedMs,200);
+  assert.deepEqual(captures[1].resources,captures[0].resources,"Pipeline scheduling preserves original proof and literal resource order");
+  assert.equal(captures[1].rawJson,captures[0].rawJson);
+});
+
+test("image pipeline handles early prefetched rejection and drains a pending read before final item ownership",async t=>{
+  useNativeCml(t);
+  for(const failedIndex of [0,1]){
+    const f=publisherPipelineEntryFixture();f.control.reject.add(failedIndex);f.app.launch();await until(()=>f.calls.length===2,"Two pending image reads required");
+    f.gates[failedIndex].resolve();await turn();await turn();
+    assert.equal(f.app.items.size,0);assert.equal(f.app.state().running,true,"An item cannot finish while a prefetched read is unresolved");
+    f.gates[1-failedIndex].resolve();await f.app.idle();assert.equal(f.metrics.active,0);assert.deepEqual(f.calls,[0,1]);
+    const {capture}=await exportedCapture(f.app.downloads[0]),page=capture.fingerprints[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+    assert.deepEqual(page.media.resources.map(resource=>resource.url),f.image.publisherImageUrls);
+    assert.equal(page.media.resources[failedIndex].reason,"SYNTHETIC_PUBLISHER_IMAGE_READ_FAILED");
+    assert.equal(page.media.resources[2].reason,"PUBLISHER_IMAGE_NOT_ATTEMPTED_AFTER_CAPTURE_FAILURE");
+    if(failedIndex===0)assert.equal(page.media.resources[1].reason,"PUBLISHER_IMAGE_NOT_RETAINED_AFTER_CAPTURE_FAILURE");
+    assert.equal(capture.fingerprints[0].captureContract.complete,false);
+    const writes=f.app.metrics.writes.length;await turn();assert.equal(f.app.metrics.writes.length,writes,"No drained read may write after terminal state");
+  }
+});
+
+test("image pipeline staging failure keeps current gaps and original historical image ownership",async t=>{
+  useNativeCml(t);const f=publisherPipelineEntryFixture();f.app.launch();
+  for(let index=0;index<4;index++){await until(()=>f.calls.includes(index),"Original image read was not scheduled");f.gates[index].resolve();}
+  await f.app.idle();const runId=f.app.state().runId,old=clone(f.app.items.get(runId+"/"+f.image.fp.id).fingerprint.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0]);
+  f.control.stagingFailure=true;f.app.advance(60000);f.app.launch();await f.app.idle();
+  assert.equal(f.app.downloads.length,2);assert.equal(f.app.state().exportError,"");
+  const {capture}=await exportedCapture(f.app.downloads.at(-1)),page=capture.fingerprints[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+  assert.equal(page.media.resources.length,4);assert(page.media.resources.every(resource=>!resource.body&&resource.reason));
+  assert.equal(page.media.resources[0].reason,"SYNTHETIC_PUBLISHER_STAGE_FAILED");
+  assert.equal(page.media.resources[1].reason,"PUBLISHER_IMAGE_NOT_RETAINED_AFTER_CAPTURE_FAILURE");
+  assert.deepEqual(page.media.retained[0].observation,old.observation);assert.deepEqual(page.media.retained[0].resources,old.media.resources);
+  assert.equal(f.metrics.active,0);assert.equal(f.calls.length,6,"A staging failure drains the first two reads and schedules no third refresh");
+});
+
+test("image pipeline cancellation drains both reads without scheduling or staging later sources",async t=>{
+  useNativeCml(t);const f=publisherPipelineEntryFixture();f.app.launch();await until(()=>f.calls.length===2,"Two active image reads required");
+  f.app.state().stop();await turn();assert.equal(f.app.state().running,true);
+  f.gates[1].resolve();f.gates[0].resolve();await f.app.idle();
+  assert.deepEqual(f.calls,[0,1]);assert.equal(f.metrics.active,0);assert.equal(f.stages.length,0);assert.equal(f.app.state().state,"PAUSED");
+});
+
+test("actual entry's two image reads retain the existing shared-reader byte budget under concurrent stream completion",async t=>{
+  useNativeCml(t);const f=publisherPipelineEntryFixture(),gates=[deferred(),deferred()],fetches=[];
+  const budget=f.bodies[0].bytes.length+Math.floor(f.bodies[1].bytes.length/2);let media;
+  f.options.mediaReaderFactory=settings=>media=createNativeMediaReader({...settings,
+    limits:{...settings.limits,totalBytes:budget},
+    async fetchImpl(url){
+      const index=f.image.publisherImageUrls.indexOf(url);fetches.push(index);assert(index<2,"Exhausted shared media budget prevents a later source GET");
+      let sent=false,cancelled=false;
+      const stream=new ReadableStream({async pull(controller){
+        if(sent)return;sent=true;await gates[index].promise;
+        if(!cancelled){controller.enqueue(new Uint8Array(f.bodies[index].bytes));controller.close();}
+      },cancel(){cancelled=true;}});
+      const response=new Response(stream,{status:200,headers:{"Content-Type":"image/png"}});
+      Object.defineProperties(response,{url:{value:url},type:{value:"cors"}});return response;
+    },
+  });
+  f.app.launch();await until(()=>fetches.length===2,"The actual shared media pool did not overlap two bounded streams");
+  gates[1].resolve();gates[0].resolve();await f.app.idle();
+  const stats=media.snapshot();assert.equal(stats.limits.totalBytes,budget);assert.equal(stats.maxConcurrentRequests,2);
+  assert.equal(stats.active,0);assert.equal(stats.bodyBudgetExhausted,true);assert.deepEqual(fetches,[0,1]);
+  const {capture}=await exportedCapture(f.app.downloads[0]),page=capture.fingerprints[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+  assert.equal(page.media.resources.length,4);assert(page.media.resources.reduce((sum,resource)=>sum+(resource.body?.size||0),0)<=budget);
+  assert(page.media.resources.some(resource=>resource.reason?.includes("BYTE_LIMIT")));
+  assert.equal(capture.fingerprints[0].captureContract.complete,false);
+});
+
 test("native publisher JSON is acquired once across placements and failed refresh keeps its original proof", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(2), app = harness(f.options);
@@ -1258,7 +1398,7 @@ test("publisher image progress deduplicates owned originals and distinguishes bl
   const start = source.indexOf("      const inline = stats.inlineExternalContent;"), end = source.indexOf("      count.hidden =", start),
     renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
   new vm.Script(source.slice(start, end)).runInContext(renderContext);
-  assert(renderContext.count.textContent.includes("Publisher image sources 1/3 saved (1 browser-blocked or unreadable; 1 other read failures)"));
+  assert(renderContext.count.textContent.includes("Publisher image sources 1/3 saved (1 browser-blocked or unreadable; 1 other uncaptured image sources)"));
   assert(renderContext.count.textContent.includes("1 historical image originals retained"));
   context.itemStates.clear();
   const metadataOnly = createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED"] });
@@ -1330,7 +1470,7 @@ test("publisher image progress distinguishes observed publisher failures from CT
   const start = source.indexOf("      const inline = stats.inlineExternalContent;"), end = source.indexOf("      count.hidden =", start),
     renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
   new vm.Script(source.slice(start, end)).runInContext(renderContext);
-  assert(renderContext.count.textContent.includes("Publisher image sources 0/3 saved (1 publisher HTTP 403; 1 CTI service HTTP 502; 1 other read failures)"));
+  assert(renderContext.count.textContent.includes("Publisher image sources 0/3 saved (1 publisher HTTP 403; 1 CTI service HTTP 502; 1 other uncaptured image sources)"));
   assert(!renderContext.count.textContent.includes("2 CTI service HTTP 502"), "A service 502 wrapping the observed publisher 403 is the same failed image read");
   assert(!renderContext.count.textContent.includes("Cloudflare check"),"A generic 403 reason or status is not an observed Cloudflare challenge");
   assert.equal(summary.publisherImages.publisherHttp["403"], 1,
