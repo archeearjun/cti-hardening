@@ -80,6 +80,36 @@ export interface InlineWidgetPublisherFileReference {
     upstreamBytes: number;
     browserAttempt: { transport: "BROWSER_PUBLISHER_IMAGE"; observedAt: string; status: 0; responseType: "unreadable"; reason: string };
   };
+  firstPartyAcquisition?: {
+    transport: "FIRST_PARTY_BROWSER";
+    responseType: "basic";
+    credentials: "same-origin";
+    collectorContext: "PROVIDER_PAGE_BROWSER";
+    origin: string;
+    responseObservedAt: string;
+    planSha256: string;
+    sessionId: string;
+  };
+  firstPartyAttempt?: InlineWidgetPublisherFirstPartyAttempt;
+  priorFailures?: { reason: string; attempts?: InlineWidgetPublisherFileReference["attempts"]; firstPartyAttempt?: InlineWidgetPublisherFirstPartyAttempt }[];
+}
+export interface InlineWidgetPublisherFirstPartyAttempt {
+  transport: "FIRST_PARTY_BROWSER";
+  origin: string;
+  requestedUrl: string;
+  method: "GET";
+  credentials: "same-origin";
+  mode: "same-origin";
+  collectorContext: "PROVIDER_PAGE_BROWSER";
+  firstPartyBinding: { courseId: string; itemId: string; atomId: string; providerId: string; targetUrl: string; sourceSha256: string; planSha256: string; sessionId: string };
+  attemptedAt: string;
+  requestAttempted: boolean;
+  reason: string;
+  observedBytes: number;
+  status: number;
+  responseType: "basic" | "unreadable";
+  observedAt?: string;
+  challenge?: "cloudflare";
 }
 export interface InlineWidgetPublisherMedia {
   scope: "ORIGINAL_FILE_REFERENCES_ONLY";
@@ -154,13 +184,13 @@ function proofFor(item: unknown, courseId: string): CourseraInlineWidgetContent[
 
 /** Snapshots retain owned archive descriptors, not image bytes or a persisted
  * import attestation. Actual byte validation belongs to archive acceptance. */
-function publisherMediaContent(observation: Obj | null, targetUrl: string, media: unknown, finalAtomAt: number): {
+function publisherMediaContent(observation: Obj | null, targetUrl: string, media: unknown, finalAtomAt: number, nativeBinding: Obj): {
   content: InlineWidgetPublisherMedia; historicalJsonBytes: number;
 } {
   const unavailable = (reason: string) => ({ content: { scope: "ORIGINAL_FILE_REFERENCES_ONLY" as const,
     sourceSha256: text(observation?.model?.sha256), resources: [], retainedSources: [], failures: [reason] }, historicalJsonBytes: 0 });
   try {
-    const checked = observation && directPublisherMediaStructureV1(observation, targetUrl, media);
+    const checked = observation && directPublisherMediaStructureV1(observation, targetUrl, media, nativeBinding);
     if (!checked) return unavailable("PUBLISHER_IMAGE_MEDIA_EVIDENCE_INVALID");
     const resources = (values: Obj[]): InlineWidgetPublisherFileReference[] => values.map(value => {
       const body = object(value.body);
@@ -172,6 +202,16 @@ function publisherMediaContent(observation: Obj | null, targetUrl: string, media
       bytes: value.body ? body.size : null, mime: value.body ? body.mime : "", sha256: value.body ? body.sha256 : "",
       reason: text(value.reason),
       ...(value.attempts === undefined ? {} : { attempts: value.attempts.map((attempt: Obj) => ({ ...attempt })) as InlineWidgetPublisherFileReference["attempts"] }),
+      ...(value.priorFailures === undefined ? {} : { priorFailures: value.priorFailures.map((failure: Obj) => ({ reason: failure.reason,
+        ...(failure.firstPartyAttempt === undefined ? {} : { firstPartyAttempt: {...failure.firstPartyAttempt,firstPartyBinding:{...failure.firstPartyAttempt.firstPartyBinding}} }),
+        ...(failure.attempts === undefined ? {} : { attempts: failure.attempts.map((attempt: Obj) => ({ ...attempt })) }) })) }),
+      ...(value.firstPartyAttempt === undefined ? {} : { firstPartyAttempt: {...value.firstPartyAttempt,firstPartyBinding:{...value.firstPartyAttempt.firstPartyBinding}} }),
+      ...(body.receipt?.transport === "FIRST_PARTY_BROWSER" ? { firstPartyAcquisition: {
+        transport: "FIRST_PARTY_BROWSER" as const, responseType: "basic" as const, credentials: "same-origin" as const,
+        collectorContext: "PROVIDER_PAGE_BROWSER" as const, origin: body.receipt.origin,
+        responseObservedAt: body.receipt.responseObservedAt,
+        planSha256: body.receipt.firstPartyBinding.planSha256, sessionId: body.receipt.firstPartyBinding.sessionId,
+      } } : {}),
       ...(body.receipt?.transport === "CTI_SERVICE_PUBLIC_IMAGE" ? { acquisition: {
         transport: "CTI_SERVICE_PUBLIC_IMAGE" as const, responseType: "service" as const,
         observedAtBasis: "BROWSER_RESPONSE" as const, serviceOrigin: body.receipt.serviceOrigin,
@@ -272,7 +312,8 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
           }
           let media: InlineWidgetPublisherMedia | undefined;
           if (entry.media !== undefined) {
-            const projected = publisherMediaContent(selected, targetUrl, entry.media, Date.parse(proof.sources.receipts.stability.receipt.observedAt));
+            const projected = publisherMediaContent(selected, targetUrl, entry.media, Date.parse(proof.sources.receipts.stability.receipt.observedAt),
+              {courseId:proof.courseId,itemId:proof.item.id,atomId:proof.item.atomId,providerId:binding.providerId});
             if (retainedPublicBytes + projected.historicalJsonBytes > 8 * 1024 * 1024)
               media = { scope: "ORIGINAL_FILE_REFERENCES_ONLY", sourceSha256: text(model.sha256), resources: [], retainedSources: [], failures: ["PUBLISHER_IMAGE_HISTORICAL_SOURCE_BYTE_LIMIT"] };
             else { media = projected.content; retainedPublicBytes += projected.historicalJsonBytes; }
@@ -444,6 +485,16 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
               `Upstream observed (service clock): ${resource.acquisition.upstreamObservedAt} | ${resource.acquisition.upstreamBytes} bytes`,
               `Browser attempt: ${resource.acquisition.browserAttempt.reason}; response unreadable, HTTP status unavailable.`,
               "Transport records describe the collection route; authentication and independent attestation are unverified.");
+            if (resource.firstPartyAcquisition) out.push(
+              `Image acquisition: FIRST_PARTY_BROWSER | basic response | same-origin | provider page ${resource.firstPartyAcquisition.origin}`,
+              `Provider response observed: ${resource.firstPartyAcquisition.responseObservedAt}; original bytes retained: ${resource.observedAt}`,
+              `Frozen recovery plan SHA-256: ${resource.firstPartyAcquisition.planSha256}`,
+              "Provider-page browser context is collector-declared; it is not independent HTTP attestation or proof of complete widget behavior.");
+            for (const attempt of [resource.firstPartyAttempt,...(resource.priorFailures || []).map(earlier => earlier.firstPartyAttempt)].filter(Boolean) as InlineWidgetPublisherFirstPartyAttempt[]) out.push(
+              `Provider-page image attempt: ${attempt.attemptedAt} | ${attempt.reason} | ${attempt.observedBytes} observed bytes`,
+              attempt.status ? `Provider response: HTTP ${attempt.status} | ${attempt.observedAt}${attempt.challenge ? " | Cloudflare challenge" : ""}` : "No publisher HTTP response was exposed for this attempt.");
+            for (const earlier of resource.priorFailures || []) out.push(`Earlier publisher image read outcome retained: ${earlier.reason}`,
+              ...(earlier.attempts ? earlier.attempts.map(attempt => `Earlier image attempt: ${attempt.transport} | ${attempt.observedAt} | ${attempt.reason}`) : []));
             if (resource.attempts) {
               const [browser, service] = resource.attempts;
               out.push(`Browser image attempt: ${browser.observedAt} | response unreadable; HTTP status unavailable | ${browser.reason}`);

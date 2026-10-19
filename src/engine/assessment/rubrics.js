@@ -268,6 +268,17 @@ export function qaAssessmentMediaOnlyGap_(q) {
 
 export function qaAssessmentAnswerEvidenceSide_(q, side) {
     if(!q || q.answerEvidenceApplicable===false)return 'NOT_APPLICABLE';
+    var native=q[side+'NativeReflectionEvidence'];
+    // This descriptor is emitted only after the comparator replays the full
+    // bound native source. A question flag or a zero answerable count is not it.
+    if(q.nativeReflectionKeyApplicability===true && q[side+'AnswerEvidenceApplicable']===false &&
+        native && native.method==='BOUND_NATIVE_UNGRADED_REFLECTION_DEFINITIONS' &&
+        native.answerKeyApplicable===false && typeof native.courseId==='string' && /^[A-Za-z0-9_-]{8,}$/.test(native.courseId) &&
+        typeof native.itemId==='string' && /^[A-Za-z0-9_-]+$/.test(native.itemId) &&
+        typeof native.atomId==='string' && /^[A-Za-z0-9_-]{22}$/.test(native.atomId) &&
+        /^[a-f0-9]{64}$/.test(native.sourceDraftSha256 || '') &&
+        Number.isSafeInteger(native.questionCount) && native.questionCount>0 &&
+        native.questionCount===q[side+'QuestionCount'] && native.questionCount===q[side+'NativeReflectionQuestionCount'])return 'NOT_APPLICABLE';
     var total=q[side+'AnswerableQuestionCount'],captured=q[side+'AnswerEvidenceQuestionCount'];
     if(total==null || captured==null || !Number.isFinite(Number(total)) || !Number.isFinite(Number(captured)) || Number(total)<0 || Number(captured)<0)return 'UNKNOWN';
     if(Number(captured)<Number(total))return 'INCOMPLETE';

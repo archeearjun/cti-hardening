@@ -154,6 +154,8 @@ function fixture({ assignmentFlags = false, originalCount = 0 } = {}) {
     window: {},
     encoder: new TextEncoder(),
     exporting: false,
+    exportFinished: Promise.resolve(),
+    partialExportBoundary: async () => {},
     operatorStopped: false,
     fatalReason: "",
     providerTransport: null,

@@ -104,7 +104,9 @@ export default function CourseraDirectCaptureSetup({
             Select the .cti.zip file directly in CTI; no unzipping is needed.
             Earlier JSON and .json.gz captures still open directly.
             The progress card offers Download saved capture if Chrome blocks the
-            download. Check the file below before using it in Compare. If
+            download. You can also request a provisional snapshot while capture
+            runs; it keeps pending items visible and capture continues. Check
+            the file below before using it in Compare. If
             capture is interrupted, reopen the same course’s Content page and
             click the same bookmark and choose Capture/resume course. CTI checks current sources before reusing
             matching saved reads. A finished capture with evidence gaps can
@@ -120,6 +122,16 @@ export default function CourseraDirectCaptureSetup({
         course sources and preserves earlier assessment observations and their
         dates. After edits, Start a fresh course capture rereads the course in a
         separate run while keeping prior checkpoints within normal retention.
+      </p>
+      <p className="hint">
+        If publisher images remain blocked, choose Prepare publisher recovery
+        on the Coursera capture card, then Open publisher recovery. In that
+        publisher tab, complete any normal access check and click the same CTI
+        course capture bookmark. Keep both tabs open. CTI uses the prepared
+        image references and rechecks their Coursera ownership before saving
+        recovered originals in the course archive. Publisher cookies stay in
+        that browser tab. This guided step does not verify an entire external
+        activity or video.
       </p>
       <p className="hint">
         If a previous Panopto error is no longer visible, use Check Panopto

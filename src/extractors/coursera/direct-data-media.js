@@ -3,7 +3,8 @@ import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directPanoptoSourceV1, directPanoptoPodcastBindingsV1 } from "./direct-data-panopto.js";
 import { directProviderTransportReceiptV1, directProviderTransportErrorV1 } from "./direct-data-network.js";
 import { directPublisherMediaInventoryV1, directPublisherImageKindV1,
-  directPublisherImageServiceHeadersV1, directPublisherImageDateV1 } from "./direct-data-publisher-media.js";
+  directPublisherImageServiceHeadersV1, directPublisherImageDateV1,
+  directPublisherFirstPartyImageBindingV1 } from "./direct-data-publisher-media.js";
 
 /** Only locations returned by the bound asset API are eligible for downloads. */
 export function canonicalDirectAssetUrlV1(value) {
@@ -840,14 +841,37 @@ export function createDirectDataMediaReaderV1(options = {}) {
     }
   }
   async function capturePublisherImage(job, controller) {
-    let response, serviceContext = null, browserAttempt = null, serviceObservedAt = "",
+    let response, serviceContext = null, firstPartyContext = null, firstPartyCharged = 0, firstPartyRequestAttempted = false,
+      firstPartyFailureContext = null, browserAttempt = null, serviceObservedAt = "",
       serviceFailure = {serviceOrigin:"https://cti-hardening.pages.dev",serviceStatus:0,
         upstreamStatus:0,upstreamObservedAt:"",upstreamRequests:0,upstreamBytes:0};
+    const firstPartyAttemptedAt = new Date().toISOString();
+    const chargeFirstParty = (delivered = 0, reported = 0) => {
+      if (!job.firstPartyBinding) return 0;
+      const observed = typeof response?.observedBytes === "function" ? response.observedBytes() : 0;
+      if (![delivered,reported,observed].every(value => Number.isSafeInteger(value) && value >= 0))
+        throw Error("PUBLISHER_FIRST_PARTY_BYTE_CONTEXT_INVALID");
+      const total = Math.max(delivered,reported,observed,firstPartyCharged), delta = total - firstPartyCharged;
+      if (!Number.isSafeInteger(stats.bytes + delta)) throw Error("PUBLISHER_FIRST_PARTY_BYTE_CONTEXT_INVALID");
+      stats.bytes += delta; firstPartyCharged = total; notify();
+      if (stats.bytes > limits.totalBytes) {
+        bodyBudgetExhausted = true;
+        for (const activeController of controllers) activeController.abort("DIRECT_MEDIA_BYTE_LIMIT");
+      }
+      return total;
+    };
     const failed = reason => {
+      if (job.firstPartyBinding) try { chargeFirstParty(); } catch (_) { reason = "PUBLISHER_FIRST_PARTY_BYTE_CONTEXT_INVALID"; }
       const context = {...serviceFailure};
       if (reason !== "PUBLISHER_IMAGE_UPSTREAM_CHALLENGE") delete context.upstreamChallenge;
       if (reason !== "PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED") { delete context.notAttempted; delete context.blockedBy; }
       return failure(job.assetId, reason, {url:job.url,
+        ...(job.firstPartyBinding ? {firstPartyAttempt:{transport:"FIRST_PARTY_BROWSER",origin:new URL(job.url).origin,requestedUrl:job.url,
+          method:"GET",credentials:"same-origin",mode:"same-origin",collectorContext:"PROVIDER_PAGE_BROWSER",firstPartyBinding:{...job.firstPartyBinding},
+          attemptedAt:firstPartyAttemptedAt,requestAttempted:firstPartyRequestAttempted,reason,observedBytes:firstPartyCharged,
+          ...(firstPartyContext ? {status:200,responseType:"basic",observedAt:firstPartyContext.observedAt} :
+            firstPartyFailureContext ? {status:firstPartyFailureContext.status,responseType:"basic",observedAt:firstPartyFailureContext.observedAt,
+              ...(firstPartyFailureContext.challenge ? {challenge:firstPartyFailureContext.challenge} : {})} : {status:0,responseType:"unreadable"})}} : {}),
         ...(browserAttempt ? {attempts:[browserAttempt,{transport:"CTI_SERVICE_PUBLIC_IMAGE",
           observedAt:reason === "PUBLISHER_IMAGE_UPSTREAM_CHALLENGE" ? serviceObservedAt : new Date().toISOString(),
           ...context,reason}]} : {})});
@@ -938,8 +962,28 @@ export function createDirectDataMediaReaderV1(options = {}) {
     }
     try {
       const browserObservedAt = new Date().toISOString();
-      stats.requests++; notify();
-      try {
+      if (job.firstPartyBinding) {
+        const helper = options.publisherFirstPartyTransport,
+          payload = {targetUrl:job.targetUrl,imageUrl:job.url,sourceSha256:job.sourceSha256,binding:job.firstPartyBinding};
+        if (!helper || typeof helper.request !== "function" || typeof helper.supports !== "function" || !helper.supports(payload))
+          return failed("PUBLISHER_FIRST_PARTY_PLAN_INVALID");
+        firstPartyRequestAttempted=true;stats.requests++; notify();
+        const read = await helper.request(payload,controller.signal), r = read?.receipt;
+        response = read?.response;
+        if (!jobCurrent(controller)) { await discard(response); return failed(jobStopReason(controller)); }
+        if (!r || r.transport !== "FIRST_PARTY_BROWSER" || r.origin !== new URL(job.url).origin || r.requestedUrl !== job.url || r.finalUrl !== job.url ||
+            r.method !== "GET" || r.credentials !== "same-origin" || r.mode !== "same-origin" || r.responseType !== "basic" || r.status !== 200 ||
+            r.collectorContext !== "PROVIDER_PAGE_BROWSER" || !directPublisherImageDateV1(r.observedAt) ||
+            directCanonicalSourceTextV1(read.firstPartyBinding) !== directCanonicalSourceTextV1(job.firstPartyBinding) ||
+            directCanonicalSourceTextV1(r.firstPartyBinding) !== directCanonicalSourceTextV1(job.firstPartyBinding) ||
+            response?.type !== "basic" || response.url !== job.url || response.status !== 200 ||
+            r.originalContentType !== response.headers?.get("content-type") ||
+            !directPublisherFirstPartyImageBindingV1(r,job.url,job.sourceSha256,job.firstPartyBinding)) {
+          await discard(response); return failed("PUBLISHER_FIRST_PARTY_RECEIPT_INVALID");
+        }
+        firstPartyContext = r;
+      } else try {
+        stats.requests++; notify();
         response = await fetchImpl(job.url, {method:"GET", mode:"cors", credentials:"omit",
           redirect:"error", referrerPolicy:"no-referrer", signal:controller.signal});
       } catch (_) {
@@ -948,7 +992,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
         if (unavailable) return unavailable;
       }
       if (!jobCurrent(controller)) { await discard(response); return failed(jobStopReason(controller)); }
-      if (!serviceContext && response?.type !== "cors") {
+      if (!serviceContext && !firstPartyContext && response?.type !== "cors") {
         await discard(response);
         const unavailable = await fallback("PUBLISHER_IMAGE_RESPONSE_UNREADABLE",browserObservedAt);
         if (unavailable) return unavailable;
@@ -972,12 +1016,14 @@ export function createDirectDataMediaReaderV1(options = {}) {
       try {
         while (true) {
           const part = await reader.read();
+          if (firstPartyContext) chargeFirstParty();
           if (!jobCurrent(controller)) return failed(jobStopReason(controller));
           if (part.done) break;
           if (!(part.value instanceof Uint8Array)) return failed("PUBLISHER_IMAGE_BODY_UNREADABLE");
           const priorCount = count;
           count += part.value.byteLength;
-          stats.bytes += serviceContext
+          if (firstPartyContext) chargeFirstParty(count);
+          else stats.bytes += serviceContext
             ? Math.max(0,count - serviceContext.declaredBodyBytes) - Math.max(0,priorCount - serviceContext.declaredBodyBytes)
             : part.value.byteLength;
           notify();
@@ -986,7 +1032,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
             for (const activeController of controllers) activeController.abort("DIRECT_MEDIA_BYTE_LIMIT");
             return failed("DIRECT_MEDIA_BYTE_LIMIT");
           }
-          if (count > limits.bodyBytes) return failed("PUBLISHER_IMAGE_BODY_BYTE_LIMIT");
+          if (count > limits.bodyBytes || firstPartyContext && firstPartyCharged > limits.bodyBytes) return failed("PUBLISHER_IMAGE_BODY_BYTE_LIMIT");
           if (serviceContext && count > serviceContext.declaredBodyBytes) return failed("PUBLISHER_IMAGE_SERVICE_LENGTH_MISMATCH");
           if (part.value.length) chunks.push(part.value);
           if (chunks.length > 8192) return failed("PUBLISHER_IMAGE_CHUNK_LIMIT");
@@ -994,6 +1040,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
       } finally { try { await reader.cancel(); } catch (_) {} }
       if (!count) return failed("PUBLISHER_IMAGE_BODY_EMPTY");
       if (serviceContext && count !== serviceContext.declaredBodyBytes) return failed("PUBLISHER_IMAGE_SERVICE_LENGTH_MISMATCH");
+      if (firstPartyContext && firstPartyCharged !== count) return failed("PUBLISHER_FIRST_PARTY_LENGTH_MISMATCH");
       const bytes = new Uint8Array(count); let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.length; }
       if (!directPublisherImageKindV1(bytes,mime)) return failed("PUBLISHER_IMAGE_MAGIC_INVALID");
@@ -1002,16 +1049,23 @@ export function createDirectDataMediaReaderV1(options = {}) {
       if (!jobCurrent(controller)) return failed(jobStopReason(controller));
       if (serviceContext && sha256 !== serviceContext.upstreamSha256) return failed("PUBLISHER_IMAGE_SERVICE_HASH_MISMATCH");
       const body = {archivePath:"files/" + sha256, sha256,size:count,mime,canonicalUrl:job.url,
-        receipt:{resource:"PublisherImage",transport:serviceContext ? "CTI_SERVICE_PUBLIC_IMAGE" : "BROWSER_PUBLISHER_IMAGE",sourceSha256:job.sourceSha256,
-          requestedUrl:job.url,finalUrl:job.url,method:"GET",credentials:"omit",responseType:serviceContext ? "service" : "cors",status:200,
+        receipt:{resource:"PublisherImage",transport:firstPartyContext ? "FIRST_PARTY_BROWSER" : serviceContext ? "CTI_SERVICE_PUBLIC_IMAGE" : "BROWSER_PUBLISHER_IMAGE",sourceSha256:job.sourceSha256,
+          requestedUrl:job.url,finalUrl:job.url,method:"GET",credentials:firstPartyContext ? "same-origin" : "omit",responseType:firstPartyContext ? "basic" : serviceContext ? "service" : "cors",status:200,
           bytes:count,mime,sha256,observedAt:new Date().toISOString(),originalContentType,
           ...(serviceContext ? {...serviceContext,observedAtBasis:"BROWSER_RESPONSE",browserAttempt} : {}),
+          ...(firstPartyContext ? {origin:firstPartyContext.origin,mode:"same-origin",collectorContext:"PROVIDER_PAGE_BROWSER",
+            responseObservedAt:firstPartyContext.observedAt,firstPartyBinding:{...job.firstPartyBinding}} : {}),
           bodyFormat:"ORIGINAL_BINARY_BYTES_ARCHIVE"}};
       Object.defineProperty(body,"bytes",{value:bytes,enumerable:false,configurable:true});
       return {url:job.url,body};
-    } catch (_) {
+    } catch (error) {
+      if (job.firstPartyBinding && Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599 && directPublisherImageDateV1(error.observedAt))
+        firstPartyFailureContext={status:error.status,observedAt:error.observedAt,...(error.status === 403 && error.challenge === "cloudflare" ? {challenge:"cloudflare"} : {})};
+      if (job.firstPartyBinding) try { chargeFirstParty(0,Number(error?.observedBytes || 0)); } catch (_) { return failed("PUBLISHER_FIRST_PARTY_BYTE_CONTEXT_INVALID"); }
       if (response) await discard(response);
-      return failed(jobCurrent(controller) ? serviceContext ? "PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED" : "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" : jobStopReason(controller));
+      const safeCode = /^PUBLISHER_FIRST_PARTY_[A-Z0-9_]{1,70}$/.test(error?.code || "") &&
+        (!/^PUBLISHER_FIRST_PARTY_HTTP_/.test(error.code) || error.code === "PUBLISHER_FIRST_PARTY_HTTP_" + firstPartyFailureContext?.status) ? error.code : "PUBLISHER_FIRST_PARTY_BLOCKED_OR_FAILED";
+      return failed(jobCurrent(controller) ? job.firstPartyBinding ? safeCode : serviceContext ? "PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED" : "PUBLISHER_IMAGE_BLOCKED_OR_FAILED" : jobStopReason(controller));
     }
   }
   async function work(job, controller) {
@@ -1276,7 +1330,7 @@ export function createDirectDataMediaReaderV1(options = {}) {
       notify();pump();
     });
   }
-  async function readPublisherImage(observation, targetUrl, resource) {
+  async function readPublisherImage(observation, targetUrl, resource, firstPartyBinding) {
     const inventory = directPublisherMediaInventoryV1(observation,targetUrl),
       expected = inventory?.resources.find(value => value.url === resource?.url);
     if (!expected || directCanonicalSourceTextV1(expected) !== directCanonicalSourceTextV1(resource))
@@ -1284,16 +1338,26 @@ export function createDirectDataMediaReaderV1(options = {}) {
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(observation.model.rawJson)));
     if ([...digest].map(v => v.toString(16).padStart(2,"0")).join("") !== inventory.sourceSha256)
       return {url:resource.url,reason:"PUBLISHER_IMAGE_SOURCE_HASH_INVALID"};
+    if (firstPartyBinding && (!options.publisherFirstPartyTransport ||
+        firstPartyBinding.targetUrl !== targetUrl ||
+        !directPublisherFirstPartyImageBindingV1({transport:"FIRST_PARTY_BROWSER",firstPartyBinding},resource.url,inventory.sourceSha256)))
+      return {url:resource.url,reason:"PUBLISHER_FIRST_PARTY_PLAN_INVALID"};
     if (!current() || stats.bytes >= limits.totalBytes)
       return {url:resource.url,reason:stopReason || "DIRECT_MEDIA_BYTE_LIMIT"};
-    const key = "PUBLISHER_IMAGE:" + inventory.sourceSha256 + ":" + resource.url;
+    const key = "PUBLISHER_IMAGE:" + inventory.sourceSha256 + ":" + resource.url +
+      (firstPartyBinding ? ":" + directCanonicalSourceTextV1(firstPartyBinding) : "");
     if (pending.has(key)) return pending.get(key).promise;
     const promise = new Promise(resolve => {
-      queue.push({kind:"PUBLISHER_IMAGE",assetId:resource.url,url:resource.url,targetUrl,sourceSha256:inventory.sourceSha256,resolve});
+      queue.push({kind:"PUBLISHER_IMAGE",assetId:resource.url,url:resource.url,targetUrl,sourceSha256:inventory.sourceSha256,
+        ...(firstPartyBinding ? {firstPartyBinding:{...firstPartyBinding}} : {}),resolve});
       notify(); pump();
     });
     pending.set(key,{promise});
     return promise;
   }
-  return { capture, capturePanoptoPodcast, readPublisherImage, snapshot, abort, release };
+  function readPublisherImageFirstParty(observation,targetUrl,resource,binding) {
+    if (!binding) return Promise.resolve({url:resource?.url || "",reason:"PUBLISHER_FIRST_PARTY_PLAN_INVALID"});
+    return readPublisherImage(observation,targetUrl,resource,binding);
+  }
+  return { capture, capturePanoptoPodcast, readPublisherImage, readPublisherImageFirstParty, snapshot, abort, release };
 }

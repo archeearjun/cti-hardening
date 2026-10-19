@@ -61,6 +61,50 @@ test("a source-key conflict is separate, traceable and cannot change either orig
   q.answerCoverage = "UNVERIFIED";
   assert.equal(ctiAnswerCheck(q).comparison, "UNVERIFIED");
 });
+test("arithmetic-looking reflections never acquire a calculated key or an answer-key correction task", () => {
+  for (const type of [
+    "mcqReflect",
+    "checkboxReflect",
+    "reflection-single-select",
+    "reflection-multiple-select",
+  ]) {
+    const q = question("2 + 2 =", ["4", "5"], {
+        type,
+        correctAnswers: ["5"],
+        answerTextReliable: false,
+      }),
+      before = JSON.stringify(q),
+      check = ctiAnswerCheck(q);
+    assert.equal(check.status, "NEEDS_REVIEW", type);
+    assert.equal(check.answer, "Not calculated for reflection", type);
+    assert.equal(check.comparison, "UNVERIFIED", type);
+    assert.match(
+      check.comparisonReason,
+      /type label alone does not establish native answer-key applicability/i,
+    );
+    assert.match(check.nextAction, /requests no answer-key correction/);
+    assert.doesNotMatch(
+      check.nextAction,
+      /Blocked|Record the reference|proposed answer|Refresh/,
+    );
+    assert.doesNotMatch(check.working, /2\s*\+\s*2\s*=\s*4|calculated 4/);
+    assert.equal(JSON.stringify(q), before);
+    q.mathTextChecked = false;
+    assert.equal(
+      ctiAnswerCheck(q).answer,
+      "Not calculated for reflection",
+      "Historical reflection text does not trigger a calculation-refresh task",
+    );
+  }
+  const keyed = question("2 + 2 =", ["4", "5"], {
+      correctAnswers: ["4"],
+      answerTextReliable: true,
+    }),
+    ordinary = ctiAnswerCheck(keyed);
+  assert.equal(ordinary.status, "CALCULATED");
+  assert.match(ordinary.answer, /^A — 4/);
+  assert.equal(ordinary.comparison, "AGREES");
+});
 test("exact arithmetic preserves decimal equality, precedence, fractions, negatives, zero and explicit percentage units", () => {
   for (const [expr, answer] of [
     ["0.1+0.2", "0.3"],

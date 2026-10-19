@@ -17,6 +17,9 @@ import {
 } from "./direct-data-summary.js";
 import { createDirectDataReaderV1 } from "./direct-data-network.js";
 import { createDirectProviderHelperV1 } from "./direct-data-provider-helper.js";
+import { directPublisherFirstPartyPlanV1, directPublisherFirstPartyPlanHashV1,
+  directPublisherFirstPartyContextV1, createDirectPublisherFirstPartyV1,
+  runDirectPublisherFirstPartyV1 } from "./direct-data-publisher-first-party.js";
 import { createDirectDataCheckpointStoreV1 } from "./direct-data-checkpoints.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
@@ -66,6 +69,9 @@ import {
   directWidgetProviderReceiptValidV1,
   directInlineWidgetEvidenceV1,
   parseCourseraCheckboxDefinitionDirectV1,
+  parseCourseraTextExactMatchDefinitionDirectV1,
+  parseCourseraReflectionDefinitionDirectV1,
+  directInstructionAssessmentModelV1,
   directCmlTextV1,
   directAssessmentQuestionProjectionV1,
 } from "./direct-data-contracts.js";
@@ -76,6 +82,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
 (() => {
   "use strict";
   void (async () => {
+    if (window === window.top && ["https://opentextbc.ca", "https://pressbooks.bccampus.ca"].includes(location.origin) &&
+        new URLSearchParams((location.hash || "").slice(1)).has("cti-publisher-recovery")) {
+      const prior = window.__CTI_PUBLISHER_FIRST_PARTY_CAPTURE__;
+      if (prior && prior.contextUrl === location.href && !prior.snapshot().stopped) { prior.focus(); return; }
+      prior?.close();
+      document.getElementById("cti-publisher-recovery-panel")?.remove();
+      const panel=document.createElement("section"),message=document.createElement("p"),stop=document.createElement("button");
+      panel.id="cti-publisher-recovery-panel";
+      panel.style.cssText="position:fixed;right:16px;bottom:16px;max-width:400px;padding:16px;background:white;color:#172b4d;border:1px solid #cad5e5;z-index:2147483647;font:14px/1.5 system-ui";
+      message.textContent="Connecting image recovery. Cookies stay here; download the capture in Coursera.";
+      stop.textContent="Stop publisher recovery";panel.append(message,stop);document.body.append(panel);
+      const helper=directPublisherFirstPartyContextV1(location) && runDirectPublisherFirstPartyV1({onStatus:value=>{message.textContent=value;}});
+      if (!helper) {message.textContent="Recovery could not connect. No image content is established. Return to Coursera and prepare again; the browser may have separated the tabs.";stop.disabled=true;return;}
+      window.__CTI_PUBLISHER_FIRST_PARTY_CAPTURE__={...helper,contextUrl:location.href};stop.onclick=()=>helper.close();
+      window.addEventListener("pagehide",()=>helper.close());return;
+    }
     const match = location.pathname.match(
       /^\/teach\/([A-Za-z0-9-]+)\/([A-Za-z0-9_-]{8,})\/content(?:\/edit)?\/?$/,
     );
@@ -90,7 +112,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return;
     }
     const prior = window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;
-    if (prior?.courseId === match[2] && (prior?.running || prior?.exporting || prior?.diagnosing)) {
+    if (prior?.courseId === match[2] && (prior?.running || prior?.exporting || prior?.diagnosing || prior?.recovering)) {
       prior.focus?.();
       return;
     }
@@ -104,7 +126,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       prior.focus?.();
       return;
     }
-    if (prior?.running) prior.stop?.();
+    if (prior?.running || prior?.recovering) prior.stop?.();
     if (window.__CTI_ITEM_FIDELITY_RUN_LOCK?.running) {
       alert(
         "Stop the earlier CTI editor capture before starting the full course bookmark.",
@@ -144,6 +166,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     resumeButton.hidden = true;
     const startButton = document.createElement("button"),
       recheckButton = document.createElement("button"),
+      recoveryButton = document.createElement("button"),
       freshButton = document.createElement("button"),
       accessButton = document.createElement("button"),
       publisherAccessButton = document.createElement("button"),
@@ -153,6 +176,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       accessFallback = document.createElement("textarea");
     startButton.textContent = "Capture/resume course";
     recheckButton.textContent = "Recheck native course content";
+    recoveryButton.textContent = "Prepare publisher recovery";
     freshButton.textContent = "Start a fresh course capture";
     accessButton.textContent = "Check Panopto access";
     publisherAccessButton.textContent = "Check embedded page access";
@@ -164,7 +188,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     accessFallback.readOnly = true;
     accessFallback.hidden = true;
     accessFallback.style.cssText = "width:95%;height:100px";
-    for (const button of [freshButton, startButton, recheckButton, accessButton, publisherAccessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
+    for (const button of [freshButton, startButton, recheckButton, recoveryButton, accessButton, publisherAccessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
       button.style.cssText =
         "margin:4px;padding:8px;background:#fff;border:1px solid #adc2de;border-radius:6px;color:#172b4d;cursor:pointer";
     freshButton.style.background = "#0052cc";
@@ -178,6 +202,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       freshButton,
       startButton,
       recheckButton,
+      recoveryButton,
       accessButton,
       publisherAccessButton,
       stopButton,
@@ -194,6 +219,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       state: "READY",
       phase: "Ready",
       diagnosing: false,
+      recovering: false,
       accessDiagnostic: null,
       runId: "",
       courseId,
@@ -222,6 +248,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       externalSourceTargets = new Set(),
       publicPageRetainedByItem = new Map(),
       exporting = false,
+      partialExportRequest = null,
+      exportFinished = Promise.resolve(),
       fatalReason = "";
     let budgetBase = { requests: 0, bytes: 0, elapsedMs: 0 },
       budgetLimits = null,
@@ -235,18 +263,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       materialHash = "",
       metadataReserveBytes = 256 * 1024,
       checkpointReady = false;
-    let accessReader = null, providerTransport = null;
+    let accessReader = null, providerTransport = null, preparedRecovery = null,
+      activeRecovery = null, publisherFirstPartyTransport = null;
     let publicPageStats = { readerOperations: 0, observedEnvelopeBytes: 0, retainedUtf8Bytes: 0 };
     let publisherPageStats = { readerOperations: 0, observedBytes: 0 };
     const publisherImageTargets = new Set();
     const encoder = new TextEncoder();
-    const hash = async (value) => {
-      const bytes = encoder.encode(directCanonicalSourceTextV1(value));
-      return Array.from(
-        new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-        (byte) => byte.toString(16).padStart(2, "0"),
-      ).join("");
-    };
+    const hashBytes = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),
+      byte=>byte.toString(16).padStart(2,"0")).join("");
+    const hashText = text => hashBytes(encoder.encode(text));
+    const hash = value => hashText(directCanonicalSourceTextV1(value));
     const receipt = (read, id) => ({
       ...read.receipt,
       id,
@@ -259,7 +285,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const mediaOnly = ["REFERENCED_READING_MEDIA_ONLY", "REFERENCED_CML_MEDIA_ONLY", "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES"].includes(
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
-      hint.textContent = state.diagnosing || state.state === "READY"
+      hint.textContent = state.recovering || preparedRecovery
+        ? "Prepare saves image references; Open launches the publisher. Complete its access check, then click this same bookmark there. Keep both tabs open. Cookies stay there; earlier snapshots keep their dates."
+        : activeRecovery
+        ? "Recovering planned images and rechecking native bindings. Publisher snapshots keep their original dates. Whole widgets and published bodies remain unverified."
+        : state.diagnosing || state.state === "READY"
         ? "Capture/resume continues saved progress and media. Recheck native course content checks every current item and question reference, keeping exact-version originals and their dates. Start fresh uses a separate run. External runtime content and all media bytes are not certified by a native recheck."
         : meta?.directDataCapture?.nativeRecheck?.scope === "ALL_NATIVE_ITEMS"
         ? "This check reads native items, mutable groups and source bindings. Reused exact-version definitions and files keep original dates. External runtime content and all media bytes are not certified by this check. Keep the Content page open."
@@ -312,6 +342,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       if (summary.retainedDraftSnapshots)
         count.textContent += " · Additional draft definitions " + summary.retainedDraftSnapshots.definitions +
           " retained across " + summary.retainedDraftSnapshots.items + " published items; current published bodies unverified";
+      if (summary.assessmentKinds) {
+        const kinds = summary.assessmentKinds;
+        count.textContent += " · Verified native drafts: " + kinds.emptyDrafts + " explicitly empty, " +
+          kinds.instructionOnly + " instruction-only, " + kinds.unkeyedReflections + " unkeyed reflection";
+      }
       if (summary.retainedDraftSnapshots?.historicalObservations)
         count.textContent += " · " + summary.retainedDraftSnapshots.historicalObservations + " earlier draft observations retained";
       const inline = stats.inlineExternalContent;
@@ -356,17 +391,20 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (inline.limited) count.textContent += " · External-page summary limited; retained source records remain in the capture";
       }
       count.hidden = !meta || state.diagnosing;
-      const busy = state.running || state.diagnosing || exporting;
+      const busy = state.running || state.diagnosing || state.recovering || exporting;
       startButton.disabled = busy || state.terminal;
       recheckButton.disabled = busy || state.terminal;
+      recoveryButton.disabled = busy;
+      recoveryButton.textContent = preparedRecovery ? "Open publisher recovery" : "Prepare publisher recovery";
       freshButton.disabled = busy;
       accessButton.disabled = busy;
       publisherAccessButton.disabled = busy;
-      stopButton.disabled = !state.running && !state.diagnosing;
-      downloadButton.disabled = busy || !meta;
+      stopButton.disabled = !state.running && !state.diagnosing && !state.recovering;
+      downloadButton.textContent = state.running ? "Download partial capture" : "Download saved capture";
+      downloadButton.disabled = state.diagnosing || state.recovering || exporting || !meta || (state.running && !checkpointReady);
       resumeButton.hidden =
         state.running || state.terminal || state.state !== "PAUSED";
-      resumeButton.disabled = exporting || state.diagnosing;
+      resumeButton.disabled = exporting || state.diagnosing || state.recovering;
       copyAccessButton.hidden = downloadAccessButton.hidden = !state.accessDiagnostic;
       copyAccessButton.disabled = downloadAccessButton.disabled = busy;
     }
@@ -938,8 +976,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (!bytes) throw Error("DIRECT_ARCHIVE_BODY_INVALID");
         const blob = new Blob([bytes], {type: body.mime});
         if (temporaryBodies) {
-          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-          if ([...digest].map(byte => byte.toString(16).padStart(2, "0")).join("") !== body.sha256)
+          if (await hashBytes(bytes) !== body.sha256)
             throw Error("DIRECT_ARCHIVE_BODY_HASH_INVALID");
           temporaryBodies.set("files/" + body.sha256, blob);
         } else await store.putBody(state.runId, body.sha256, blob, {mime: body.mime, kind});
@@ -1011,6 +1048,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         failures,
       };
       const evidence = fp.payload.assessmentApiEvidence;
+      if (parts.instructionOnly === true) {
+        fp.payload.structuredAssessment = await directInstructionAssessmentModelV1(parts);
+        fp.payload.directAssessmentInventory = parts;
+        directAssessmentContractV1(fp, fp.payload.structuredAssessment, parts, bound);
+        return;
+      }
       async function readCandidate(candidate) {
         if (reader.snapshot().stopped) return;
         const currentGroupRead = await reader.readGroup(candidate.id);
@@ -1117,6 +1160,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 ? parseCourseraMcqDefinitionV61524(raw, candidate)
                 : raw.definition?.typeName === "checkbox"
                   ? parseCourseraCheckboxDefinitionDirectV1(raw, candidate)
+                  : raw.definition?.typeName === "textExactMatch"
+                    ? parseCourseraTextExactMatchDefinitionDirectV1(raw, candidate)
+                  : /^(?:mcqReflect|checkboxReflect)$/.test(raw.definition?.typeName || "")
+                    ? parseCourseraReflectionDefinitionDirectV1(raw, candidate)
                   : null;
         }
         const projection = parsed && directAssessmentQuestionProjectionV1(raw);
@@ -1217,7 +1264,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         origin: "coursera-authoring-api",
         declaredQuestionCount: parts.declared,
         questionCount: questions.length,
-        answerEvidenceQuestionCount: questions.length,
+        answerEvidenceQuestionCount: questions.filter(question => question.answerTextReliable === true).length,
         questions,
         captureCompleteness: coverage,
         parserConfidence: coverage.requiredAnswerCoverageComplete ? 0.98 : 0.84,
@@ -1400,6 +1447,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       if (!mediaReader)
         mediaReader = createDirectDataMediaReaderV1({
           providerTransport,
+          publisherFirstPartyTransport: activeRecovery?.transport,
           archiveMode: true,
           apiReader: reader,
           assertCurrent: assertContext,
@@ -1656,8 +1704,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (!publisher && (await hash(observation.model) !== observation.receipt.originalResponseSha256 ||
               encoder.encode(directCanonicalSourceTextV1(observation.model)).byteLength !== observation.receipt.bytes)
             ) continue;
-          const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(publisher ? observation.model.rawJson : observation.model.html))),
-            byte => byte.toString(16).padStart(2, "0")).join("");
+          const digest = await hashText(publisher ? observation.model.rawJson : observation.model.html);
           if (digest !== observation.model.sha256) continue;
           if (publicPageStats.retainedUtf8Bytes + observation.model.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
             throw Error("DIRECT_PUBLIC_PAGE_RETAINED_LIMIT");
@@ -1667,8 +1714,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             const media = pages[0].media;
             let historyBytes = 0, valid = true;
             for (const group of media.retained || []) {
-              const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",encoder.encode(group.observation.model.rawJson))),
-                byte => byte.toString(16).padStart(2,"0")).join("");
+              const actual = await hashText(group.observation.model.rawJson);
               if (actual !== group.observation.model.sha256) valid = false;
               historyBytes += group.observation.model.bytes;
             }
@@ -1693,6 +1739,19 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         let attemptedRead = null;
         try {
           claimExternalSource(page.targetUrl);
+          if (activeRecovery) {
+            const pinned = activeRecovery.pages.get(recoveryPageKey(fp.id,fp.atomId,provider.providerId,page.targetUrl));
+            if (!pinned || !directPublisherResourceObservationValidV1(pinned,page.targetUrl))
+              throw Error("PUBLISHER_FIRST_PARTY_PAGE_NOT_PLANNED");
+            const actual = await hashText(pinned.model.rawJson);
+            if (actual !== pinned.model.sha256) throw Error("PUBLISHER_FIRST_PARTY_SOURCE_HASH_INVALID");
+            const previousBytes = page.retainedObservation?.model?.bytes || 0;
+            if (publicPageStats.retainedUtf8Bytes - previousBytes + pinned.model.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
+              throw Error("DIRECT_PUBLISHER_RETAINED_LIMIT");
+            publicPageStats.retainedUtf8Bytes += pinned.model.bytes - previousBytes;
+            page.observation = pinned; delete page.retainedObservation;
+            await capturePublisherImages(fp,page,provider); continue;
+          }
           if (!publisherPageSources.has(page.targetUrl)) {
             publisherPageStats.readerOperations++;
             publisherPageSources.set(page.targetUrl, (async () => {
@@ -1705,8 +1764,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           attemptedRead = read; requireRead(read);
           if (!directPublisherResourceObservationValidV1({ model: read.data, receipt: read.receipt }, page.targetUrl))
             throw Error("DIRECT_PUBLISHER_SOURCE_INVALID");
-          const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.rawJson))),
-            byte => byte.toString(16).padStart(2, "0")).join("");
+          const actual = await hashText(read.data.rawJson);
           if (actual !== read.data.sha256) throw Error("DIRECT_PUBLISHER_HASH_INVALID");
           const previousBytes = page.retainedObservation?.model?.bytes || 0;
           if (publicPageStats.retainedUtf8Bytes - previousBytes + read.data.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
@@ -1714,7 +1772,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           publicPageStats.retainedUtf8Bytes += read.data.bytes - previousBytes;
           page.observation = { model: read.data, receipt: read.receipt };
           delete page.retainedObservation;
-          await capturePublisherImages(fp, page);
+          await capturePublisherImages(fp, page, provider);
         } catch (error) {
           const retainedReceipt = retainPublisherFailureReceipt(attemptedRead, page.targetUrl);
           page.failures.push({ reason: /^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "DIRECT_PUBLISHER_CAPTURE_FAILED",
@@ -1722,9 +1780,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
       }
     }
-    async function capturePublisherImages(fp, page) {
+    async function capturePublisherImages(fp, page, provider) {
       const before = publicPageStats.retainedUtf8Bytes, current = page.observation;
-      try { await collectPublisherImages(fp,page); }
+      try { await collectPublisherImages(fp,page,provider); }
       catch (error) {
         const reason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_IMAGE_CAPTURE_FAILED";
         if (page.previousMedia && page.observation &&
@@ -1738,10 +1796,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         else page.mediaFailures = [{reason}];
       }
     }
-    async function collectPublisherImages(fp, page) {
+    async function collectPublisherImages(fp, page, provider) {
       const observation = page.observation, inventory = directPublisherMediaInventoryV1(observation,page.targetUrl),
         previous = page.previousMedia;
       if (!inventory) throw Error("PUBLISHER_IMAGE_INVENTORY_UNSUPPORTED");
+      if (activeRecovery && previous && !directPublisherMediaStructureV1(previous.observation,page.targetUrl,previous.media,
+          {courseId,itemId:fp.id,atomId:fp.atomId,providerId:provider?.providerId}))
+        throw Error("PUBLISHER_FIRST_PARTY_PREVIOUS_MEDIA_INVALID");
       const groups = new Map();
       for (const group of previous?.media.retained || []) groups.set(group.observation.model.sha256,
         {observation:group.observation,resources:group.resources.map(resource => ({...resource}))});
@@ -1766,6 +1827,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         throw Error("PUBLISHER_IMAGE_HISTORY_LIMIT");
       }
+      const failureHistory = new Map();
+      if (previous?.observation.model.sha256 === observation.model.sha256)
+        for (const old of previous.media.resources) {
+          const failures = [...(old.priorFailures || []),...(old.reason ? [{reason:old.reason,
+            ...(old.attempts ? {attempts:old.attempts} : {}),...(old.firstPartyAttempt ? {firstPartyAttempt:old.firstPartyAttempt} : {})}] : [])];
+          if (failures.length > 16) throw Error("PUBLISHER_IMAGE_FAILURE_HISTORY_LIMIT");
+          if (failures.length) failureHistory.set(old.url,failures);
+        }
+      const currentResource = (resource,fields) => ({...resource,...fields,
+        ...(failureHistory.has(resource.url) ? {priorFailures:failureHistory.get(resource.url)} : {})});
       const media = {...inventory,resources:[]};
       page.media = media;
       let count = 0;
@@ -1790,9 +1861,21 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const nativeState = reader.snapshot(), mediaState = ensureMediaReader().snapshot();
           if (nativeState.stopped || mediaState.stopped || !assertContext())
             return {reason:nativeState.stopReason || mediaState.stopReason || "DIRECT_MEDIA_CONTEXT_CHANGED"};
-          return withinItem && withinCourse
-            ? ensureMediaReader().readPublisherImage(observation,page.targetUrl,resource)
-            : {reason:withinItem ? "PUBLISHER_IMAGE_COURSE_URL_LIMIT" : "PUBLISHER_IMAGE_ITEM_URL_LIMIT"};
+          if (!withinItem || !withinCourse) return {reason:withinItem ? "PUBLISHER_IMAGE_COURSE_URL_LIMIT" : "PUBLISHER_IMAGE_ITEM_URL_LIMIT"};
+          if (activeRecovery) {
+            const old = previous?.observation.model.sha256 === observation.model.sha256 &&
+              previous.media.resources.find(value=>value.url === resource.url && value.body) ||
+              groups.get(observation.model.sha256)?.resources.find(value=>value.url === resource.url && value.body);
+            if (old) return {body:old.body};
+            const entry = activeRecovery.plan.entries.find(value=>value.itemId === fp.id && value.atomId === fp.atomId &&
+              value.providerId === provider?.providerId && value.targetUrl === page.targetUrl && value.imageUrl === resource.url &&
+              value.sourceSha256 === observation.model.sha256);
+            if (!entry) return {reason:"PUBLISHER_FIRST_PARTY_IMAGE_NOT_PLANNED"};
+            const {imageUrl,...binding} = entry;
+            return ensureMediaReader().readPublisherImageFirstParty(observation,page.targetUrl,resource,
+              {...binding,courseId,planSha256:activeRecovery.planSha256,sessionId:activeRecovery.sessionId});
+          }
+          return ensureMediaReader().readPublisherImage(observation,page.targetUrl,resource);
         });
         // Handle rejection immediately, including a prefetched response that
         // settles before its earlier sibling. It must never become unhandled.
@@ -1804,11 +1887,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const resource = inventory.resources[index], result = await pending.get(index);
           pending.delete(index);
           if (result.error) {
-            media.resources.push({...resource,reason:reasonFor(result.error)});
+            media.resources.push(currentResource(resource,{reason:reasonFor(result.error)}));
             throw result.error;
           }
           const read = result.read;
-          media.resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason || "PUBLISHER_IMAGE_CAPTURE_FAILED",...(read.attempts ? {attempts:read.attempts} : {})})});
+          media.resources.push(currentResource(resource,read.body ? {body:read.body} : {reason:read.reason || "PUBLISHER_IMAGE_CAPTURE_FAILED",
+            ...(read.attempts ? {attempts:read.attempts} : {}),...(read.firstPartyAttempt ? {firstPartyAttempt:read.firstPartyAttempt} : {})}));
           if (read.body) {
             try {
               if (!directPublisherImageBodyStructureV1(read.body,resource.url,observation.model.sha256))
@@ -1818,7 +1902,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               // at most one prefetched result can retain another original.
               await archiveItemBodies(fp);
             } catch (error) {
-              media.resources[index] = {...resource,reason:reasonFor(error)};
+              media.resources[index] = currentResource(resource,{reason:reasonFor(error)});
               throw error;
             }
           }
@@ -1835,11 +1919,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           drained = new Map(remaining.map(([index],position) => [index,settled[position]]));
         for (let index = media.resources.length; index < inventory.resources.length; index++) {
           const resource = inventory.resources[index], result = drained.get(index), read = result?.read;
-          media.resources.push({...resource,...(read?.reason
-            ? {reason:read.reason,...(read.attempts ? {attempts:read.attempts} : {})}
+          media.resources.push(currentResource(resource,read?.reason
+            ? {reason:read.reason,...(read.attempts ? {attempts:read.attempts} : {}),...(read.firstPartyAttempt ? {firstPartyAttempt:read.firstPartyAttempt} : {})}
             : {reason:result?.error ? reasonFor(result.error) : read?.body
               ? "PUBLISHER_IMAGE_NOT_RETAINED_AFTER_CAPTURE_FAILURE"
-              : "PUBLISHER_IMAGE_NOT_ATTEMPTED_AFTER_CAPTURE_FAILURE"})});
+              : "PUBLISHER_IMAGE_NOT_ATTEMPTED_AFTER_CAPTURE_FAILURE"}));
         }
         pending.clear();
       }
@@ -1862,6 +1946,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const targetUrl = page.targetUrl;
         let attemptedRead = null;
         try {
+          if (activeRecovery) throw Error("PUBLISHER_FIRST_PARTY_HTML_NOT_REFETCHED");
           if (provider.publisherPages?.some(value => value.targetUrl === targetUrl && value.observation && !value.failures.length))
             throw Error("PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED");
           if (!directPublicPageTargetV1(targetUrl)) throw Error("DIRECT_PUBLIC_PAGE_TARGET_UNSUPPORTED");
@@ -1885,8 +1970,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (await hash(read.data) !== read.receipt.originalResponseSha256 ||
               encoder.encode(directCanonicalSourceTextV1(read.data)).byteLength !== read.receipt.bytes)
             throw Error("DIRECT_PUBLIC_PAGE_ENVELOPE_HASH_INVALID");
-          const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.html))),
-            byte => byte.toString(16).padStart(2, "0")).join("");
+          const actual = await hashText(read.data.html);
           if (actual !== read.data.sha256) throw Error("DIRECT_PUBLIC_PAGE_HASH_INVALID");
           const previousBytes = page.retainedObservation?.model?.bytes || 0;
           if (publicPageStats.retainedUtf8Bytes - previousBytes + read.data.bytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1)
@@ -2209,13 +2293,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       for (const delivery of fp.payload.directPanoptoEvidence?.deliveries || [])
         for (const podcast of delivery.podcasts || []) mediaReader?.release?.(podcast.assetId);
     }
-    async function prepareResult() {
+    async function prepareResult(partial = false) {
       if (!meta) throw Error("DIRECT_INVENTORY_NOT_AVAILABLE");
       const captureItems = items,
         captureRunId = state.runId,
-        captureMeta = meta;
+        captureMeta = partial ? { ...meta, directDataCapture: { ...meta.directDataCapture } } : meta;
       const output = [],
         summaries = [],
+        partialStates = [],
         unvisited = [],
         bodyPaths = new Map(),
         temporaryBodies = new Map();
@@ -2230,18 +2315,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             captureContract: undefined,
           };
         const pendingRecheck = withdrawPendingNativeRecheck(fp);
-        if (pendingRecheck) summarizeItem(fp, false, encoder.encode(JSON.stringify(fp)).byteLength);
+        if (pendingRecheck && !partial) summarizeItem(fp, false, encoder.encode(JSON.stringify(fp)).byteLength);
         // A quota/write failure must not prevent exporting older embedded
         // originals that are still readable. Migrate those only in this
         // download snapshot, without requiring another storage transaction.
         await archiveItemBodies(fp, temporaryBodies);
         if (pendingRecheck || !row?.state?.processed) {
           unvisited.push(fp.id);
-          if (!fp.captureContract)
+          if (!fp.captureContract || partial)
             applyDirectContractV1(fp, "UNVISITED_DIRECT_ITEM", false, [
               "DIRECT_ACQUISITION_STOPPED",
             ]);
         }
+        if (partial) partialStates.push({ ...itemStates.get(fp.id), type: fp.type,
+          structural: inventory.leaves.get(fp.id)?.structural === true,
+          processed: !pendingRecheck && row?.state?.processed === true,
+          contract: fp.captureContract, questions: fp.payload.structuredAssessment?.questions?.length || 0 });
         summaries.push({ id: fp.id, type: fp.type, ...fp.captureContract });
         for (const {body, kind, maxBytes} of itemBodyEntries(fp)) {
           if (body.archivePath !== "files/" + body.sha256 ||
@@ -2267,8 +2356,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         unvisitedTargetIds: unvisited,
       });
       captureMeta.noSilentMisses = captureMeta.captureAccounting.noSilentMisses;
-      captureMeta.directDataCapture.coverage = coverageSummary();
+      captureMeta.directDataCapture.coverage = partial ? directDataCoverageSummaryV1(partialStates) : coverageSummary();
       captureMeta.directDataCapture.acquisitionComplete =
+        !partial &&
         unvisited.length === 0 &&
         state.counts.processed === captureItems.length &&
         !fatalReason;
@@ -2277,14 +2367,17 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         captureMeta.directDataCapture.sourceStable === true &&
         captureMeta.captureAccounting.complete;
       captureMeta.directDataCapture.stopReason =
-        fatalReason ||
+        (partial ? "PROVISIONAL_RUNNING_SNAPSHOT" : fatalReason) ||
         (captureMeta.directDataCapture.wholeCourseVerified
           ? "COMPLETE_BOUND_AUTHORING_DRAFT"
           : captureMeta.directDataCapture.acquisitionComplete
             ? "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS"
             : "ACQUISITION_PAUSED");
-      captureMeta.directDataCapture.stats =
-        captureMeta.directDataCapture.stats || budgetSnapshot();
+      if (partial) {
+        captureMeta.directDataCapture.sourceStable = false;
+        captureMeta.directDataCapture.partialExport = { provisional: true, scope: "COMMITTED_ITEM_BOUNDARY", capturedAt: new Date().toISOString(), stateAtSnapshot: operatorStopped ? "OPERATOR_PAUSED" : state.state };
+      }
+      captureMeta.directDataCapture.stats = partial ? budgetSnapshot() : captureMeta.directDataCapture.stats || budgetSnapshot();
       if (typeof CompressionStream !== "function")
         throw Error("DIRECT_ARCHIVE_COMPRESSION_UNAVAILABLE");
       captureMeta.directDataCapture.exportTransport = {
@@ -2301,7 +2394,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         courseId +
         "__" +
         new Date().toISOString().replace(/[:.]/g, "-") +
-        "__direct-v1__ITEM_FINGERPRINT.cti.zip";
+        (partial ? "__PARTIAL" : "") + "__direct-v1__ITEM_FINGERPRINT.cti.zip";
       const prefix =
         JSON.stringify({
           schemaVersion: 35,
@@ -2326,26 +2419,43 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const blob = new Blob(pieces, { type: "application/json" });
       if (blob.size > CTI_DIRECT_DATA_EXPORT_BYTES_V1)
         throw Error("DIRECT_CAPTURE_EXPORT_BYTE_LIMIT");
-      state.result = {
+      if (!partial) state.result = {
         schemaVersion: 35,
         meta: captureMeta,
         inventoryCount: captureItems.length,
       };
-      return {blob, bodyPaths, temporaryBodies};
+      return {blob, bodyPaths, temporaryBodies, captureMeta, captureRunId};
+    }
+    async function partialExportBoundary() {
+      const request = partialExportRequest;
+      if (!request) return;
+      partialExportRequest = null;
+      render(state.state === "RUNNING" && !operatorStopped
+        ? "Preparing a partial snapshot between item reads. Capture resumes while the archive is packed."
+        : "Preparing the requested partial snapshot from saved item checkpoints.");
+      try { request.resolve(await prepareResult(true)); }
+      catch (error) { request.reject(error); }
     }
     async function download() {
-      if (exporting || state.running || state.diagnosing) return;
+      if (exporting || state.diagnosing || state.recovering || (state.running && !checkpointReady)) return;
+      const partial = state.running, requestedRunId = state.runId;
       exporting = true;
       state.exporting = true;
       state.exportError = "";
-      render();
+      let finishExport;
+      exportFinished = new Promise(resolve => { finishExport = resolve; });
+      render(partial ? "Waiting for the current item checkpoint. New item reads wait briefly while the partial snapshot is prepared." : "");
       try {
-        const prepared = await prepareResult();
+        const prepared = partial
+          ? await new Promise((resolve, reject) => { partialExportRequest = { resolve, reject }; })
+          : await prepareResult();
+        if (location.origin !== "https://www.coursera.org" || location.pathname !== initialPath || requestedRunId !== state.runId)
+          throw Error("DIRECT_EXPORT_CONTEXT_CHANGED");
         let blob = prepared.blob;
-        await saveRun(state.state, true).catch(() => {
+        if (!partial) await saveRun(state.state, true).catch(() => {
           state.exportError = "Capture prepared from readable checkpoints; saving the export status failed.";
         });
-        if (meta.directDataCapture.exportTransport.format === "ZIP_GZIP_JSON_V1") {
+        if (prepared.captureMeta.directDataCapture.exportTransport.format === "ZIP_GZIP_JSON_V1") {
           const stream = blob
               .stream()
               .pipeThrough(new CompressionStream("gzip")),
@@ -2374,16 +2484,18 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             entries.push({path, blob: temporary, kind});
             continue;
           }
-          const original = await store.getBody(state.runId, path.slice(6));
+          const original = await store.getBody(prepared.captureRunId, path.slice(6));
           if (!original?.blob || original.size !== size)
             throw Error("DIRECT_ARCHIVE_BODY_UNAVAILABLE");
           entries.push({path, blob: original.blob, kind});
         }
         blob = await createDirectDataArchiveV1(entries);
+        if (location.origin !== "https://www.coursera.org" || location.pathname !== initialPath || requestedRunId !== state.runId)
+          throw Error("DIRECT_EXPORT_CONTEXT_CHANGED");
         const url = URL.createObjectURL(blob),
           anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = meta.exportFileName;
+        anchor.download = prepared.captureMeta.exportFileName;
         anchor.style.display = "none";
         document.body.append(anchor);
         state.downloadAttempts++;
@@ -2397,11 +2509,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       } finally {
         exporting = false;
         state.exporting = false;
+        finishExport();
         render();
       }
     }
     async function checkProviderAccess() {
-      if (state.running || state.diagnosing || exporting ||
+      if (state.running || state.diagnosing || state.recovering || exporting ||
           location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
       operatorStopped = false;
       providerTransport?.close();
@@ -2488,7 +2601,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         render("The diagnostic exceeded its report limit or could not validate its source binding. Saved course progress was not changed.");
       }
     }
-    async function checkpointPublisherTarget(fp) {
+    async function checkpointPublisherProviders(fp) {
       try {
         // Bound saved JSON before canonical hashing. The diagnostic consumes
         // native configuration proof only, never retained page/media bodies.
@@ -2529,15 +2642,123 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           }
         }
         const verified = directInlineWidgetEvidenceV1(fp, bound, value => hashes.get(directCanonicalSourceTextV1(value)));
-        for (const provider of verified?.providers || [])
-          for (const target of provider.targets)
-            if (directPublisherTargetV1(target.url)) return { itemId: fp.id, providerId: provider.binding.providerId,
-              targetUrl: target.url, configuredSourceObservedAt: provider.final.receipt.observedAt };
+        return verified;
       } catch (_) { /* A stored declaration alone cannot select a request. */ }
       return null;
     }
+    async function checkpointPublisherTarget(fp) {
+      const verified = await checkpointPublisherProviders(fp);
+      for (const provider of verified?.providers || [])
+        for (const target of provider.targets)
+          if (directPublisherTargetV1(target.url)) return {itemId:fp.id,providerId:provider.binding.providerId,
+            targetUrl:target.url,configuredSourceObservedAt:provider.final.receipt.observedAt};
+      return null;
+    }
+    async function publisherRecoveryItem(fp) {
+      const inline = fp.payload?.directInlineWidgetProviderEvidence,
+        verified = await checkpointPublisherProviders(fp), output = [];
+      for (const provider of verified?.providers || []) {
+        const proof = inline.providers.find(value => value.providerId === provider.binding.providerId);
+        for (const target of provider.targets) {
+          if (!directPublisherTargetV1(target.url)) continue;
+          const pages = proof.publisherPages?.filter(page => page.targetUrl === target.url);
+          if (pages?.length !== 1) continue;
+          const page = pages[0], observation = page.observation || page.retainedObservation;
+          if (!directPublisherResourceObservationValidV1(observation, target.url)) continue;
+          const actual = await hashText(observation.model.rawJson);
+          if (actual !== observation.model.sha256) throw Error("PUBLISHER_FIRST_PARTY_SOURCE_HASH_INVALID");
+          const inventory = directPublisherMediaInventoryV1(observation, target.url);
+          if (!inventory) continue;
+          const validMedia = page.media && directPublisherMediaStructureV1(observation,target.url,page.media,
+            {courseId,itemId:fp.id,atomId:fp.atomId,providerId:provider.binding.providerId}) ? page.media : null;
+          for (const resource of inventory.resources) {
+            if ([...(validMedia?.resources || []),...(validMedia?.retained || []).filter(group=>group.observation.model.sha256 === observation.model.sha256).flatMap(group=>group.resources)]
+                .some(old => old.url === resource.url && old.body)) continue;
+            output.push({entry:{itemId:fp.id,atomId:fp.atomId,providerId:provider.binding.providerId,
+              targetUrl:target.url,imageUrl:resource.url,sourceSha256:observation.model.sha256},observation});
+            if (output.length > 1024) throw Error("PUBLISHER_FIRST_PARTY_PLAN_LIMIT");
+          }
+        }
+      }
+      return output;
+    }
+    function recoveryPageKey(itemId, atomId, providerId, targetUrl) {
+      return [itemId,atomId,providerId,targetUrl].join("~");
+    }
+    async function preparePublisherRecovery() {
+      if (state.running || state.diagnosing || state.recovering || exporting ||
+          location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
+      operatorStopped = false; state.recovering = true; preparedRecovery = null;
+      state.phase = "Preparing publisher recovery";
+      render("Preparation reads saved evidence only, with no network requests or checkpoint writes.");
+      try {
+        const checkpoint = store?.available ? store : await createDirectDataCheckpointStoreV1(courseId);
+        if (!checkpoint.available) throw Error("DIRECT_CHECKPOINT_STORAGE_UNAVAILABLE");
+        const saved = await checkpoint.getActiveRun({recoverMediaGaps:true,recoverExportLimit:true}), capture = saved?.captureMeta?.directDataCapture;
+        if (!saved || !(saved.buildId === CTI_DIRECT_DATA_BUILD_V1 || directRecoverablePublisherBuildV1(saved.buildId)) ||
+            capture?.runId !== saved.runId || capture.acquisitionComplete !== true || capture.sourceStable !== true ||
+            capture.materialStability?.policy !== CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1 ||
+            capture.materials?.elements?.[0]?.id !== courseId || capture.finalMaterials?.elements?.[0]?.id !== courseId)
+          throw Error("PUBLISHER_FIRST_PARTY_NO_ELIGIBLE_CAPTURE");
+        if (capture.firstPartyRecoveryHistory !== undefined && !Array.isArray(capture.firstPartyRecoveryHistory) ||
+            (capture.firstPartyRecoveryHistory?.length || 0) + Number(!!capture.firstPartyRecovery) > 16)
+          throw Error("PUBLISHER_FIRST_PARTY_HISTORY_LIMIT");
+        const captured = await directCourseInventoryV1(capture.materials,courseId);
+        await directCourseInventoryV1(capture.finalMaterials,courseId);
+        const initial = capture.materials.elements[0], final = capture.finalMaterials.elements[0],
+          comparison = await hash(directMaterialStabilityModelV1(initial));
+        if (saved.materialHash !== await hash(initial) || capture.initialMaterialHash !== saved.materialHash ||
+            capture.finalMaterialHash !== await hash(final) || comparison !== await hash(directMaterialStabilityModelV1(final)) ||
+            capture.materialStability.initialSha256 !== comparison || capture.materialStability.finalSha256 !== comparison)
+          throw Error("PUBLISHER_FIRST_PARTY_MATERIAL_PROOF_INVALID");
+        const selections = [], pages = new Map();
+        for (const item of captured.fingerprints) {
+          if (!assertContext()) throw Error("PUBLISHER_FIRST_PARTY_CONTEXT_CHANGED");
+          const row = await checkpoint.getItem(saved.runId,item.id), fp = row?.fingerprint;
+          if (!fp || fp.id !== item.id || fp.atomId !== item.atomId || fp.typeName !== item.typeName) continue;
+          for (const selected of await publisherRecoveryItem(fp)) {
+            selections.push(selected.entry);
+            if (selections.length > 1024) throw Error("PUBLISHER_FIRST_PARTY_PLAN_LIMIT");
+            const key = recoveryPageKey(fp.id,fp.atomId,selected.entry.providerId,selected.entry.targetUrl), old = pages.get(key);
+            if (old && old.model.sha256 !== selected.observation.model.sha256) throw Error("PUBLISHER_FIRST_PARTY_SOURCE_AMBIGUOUS");
+            pages.set(key,JSON.parse(JSON.stringify(selected.observation)));
+          }
+        }
+        const plan = directPublisherFirstPartyPlanV1(courseId,selections), planSha256 = await directPublisherFirstPartyPlanHashV1(plan);
+        if (!assertContext()) throw Error("PUBLISHER_FIRST_PARTY_CONTEXT_CHANGED");
+        preparedRecovery = {plan,planSha256,pages,pinnedRunId:saved.runId,pinnedMaterialHash:saved.materialHash,
+          pinnedComparisonSha256:comparison,requestedAt:new Date().toISOString()};
+        state.phase = "Publisher recovery prepared";
+        render(plan.entries.length + " image placements prepared. Choose Open publisher recovery, then click the same bookmark there after its access check.");
+      } catch (error) {
+        state.phase = "Publisher recovery could not be prepared";
+        render((/^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_FIRST_PARTY_PREPARATION_FAILED") + ". Saved course progress was not changed.");
+      } finally { state.recovering = false; render(); }
+    }
+    async function openPublisherRecovery() {
+      if (state.running || state.diagnosing || state.recovering || exporting || !preparedRecovery || !assertContext()) return;
+      const prepared = preparedRecovery;
+      operatorStopped = false; state.recovering = true; state.phase = "Waiting for publisher recovery";
+      try {
+        // Open synchronously inside this second button click. No asynchronous
+        // preparation may consume the browser's user-gesture popup permission.
+        publisherFirstPartyTransport = createDirectPublisherFirstPartyV1({courseId,entries:prepared.plan.entries,onStatus:message=>render(message)});
+        render("Complete the publisher access check, then click the same bookmark there. Keep both tabs open; cookies stay in the publisher tab.");
+        const ready = await publisherFirstPartyTransport.ready();
+        if (!assertContext() || ready.planSha256 !== prepared.planSha256) throw Error("PUBLISHER_FIRST_PARTY_PLAN_CHANGED");
+        const recovery = {...prepared,...ready,readyAt:new Date().toISOString(),transport:publisherFirstPartyTransport};
+        preparedRecovery = null; state.recovering = false;
+        await run(false,true,recovery);
+      } catch (error) {
+        state.phase = "Publisher recovery stopped";
+        render((/^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_FIRST_PARTY_CONNECTION_FAILED") + ". Opening a tab proves no image content. Prepare again to reconnect.");
+      } finally {
+        publisherFirstPartyTransport?.close(); publisherFirstPartyTransport = null;
+        preparedRecovery = null; state.recovering = false; render();
+      }
+    }
     async function checkPublisherAccess() {
-      if (state.running || state.diagnosing || exporting || location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
+      if (state.running || state.diagnosing || state.recovering || exporting || location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
       operatorStopped = false; state.diagnosing = true; state.accessDiagnostic = null;
       state.phase = "Checking embedded page access"; accessText.textContent = ""; accessFallback.hidden = true;
       const report = { kind: "CTI_PUBLISHER_ACCESS_DIAGNOSTIC", schemaVersion: 1, diagnosticOnly: true, courseId,
@@ -2570,8 +2791,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         report.reason = read.reason || "";
         report.receipt = retainPublisherFailureReceipt(read, target.targetUrl);
         if (read.ok && directPublisherResourceObservationValidV1({ model: read.data, receipt: read.receipt }, target.targetUrl)) {
-          const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.rawJson))),
-            byte => byte.toString(16).padStart(2, "0")).join("");
+          const actual = await hashText(read.data.rawJson);
           if (operatorStopped || !assertContext()) throw Error("PUBLISHER_CHECK_STOPPED_OR_CONTEXT_CHANGED");
           const resourceType = read.data.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : read.data.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
             resource = actual === read.data.sha256 && directPublisherResourceV1(read.data.rawJson, target.targetUrl, resourceType);
@@ -2626,10 +2846,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
-    async function run(fresh = false, recheckNative = false) {
+    async function run(fresh = false, recheckNative = false, recovery = null) {
       if (
         state.running ||
         state.diagnosing ||
+        state.recovering ||
         exporting ||
         (state.terminal && !fresh) ||
         location.origin !== "https://www.coursera.org" ||
@@ -2637,10 +2858,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       )
         return;
       state.running = true;
+      activeRecovery = recovery;
       state.terminal = false;
       state.runId = "";
       providerTransport?.close();
-      providerTransport = createDirectProviderHelperV1({courseId,
+      providerTransport = recovery ? null : createDirectProviderHelperV1({courseId,
         onStatus: message => render(message)});
       state.state = "RUNNING";
       state.phase = "Reading course structure";
@@ -2674,6 +2896,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         retainedDefinitionObservations: true, externalRuntimeVerified: false, allMediaRefetched: false,
       } : null;
       render();
+      let recoveryRunOwned = false;
       const clock = setInterval(() => {
         render();
         checkpointBudget();
@@ -2712,8 +2935,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           ].includes(active?.buildId))
             ? active
             : null;
+        if (recovery && (!candidate || candidate.runId !== recovery.pinnedRunId || candidate.materialHash !== recovery.pinnedMaterialHash ||
+            candidate.captureMeta?.directDataCapture?.materialStability?.initialSha256 !== recovery.pinnedComparisonSha256))
+          throw Error("PUBLISHER_FIRST_PARTY_PINNED_CAPTURE_CHANGED");
         if (candidate) {
-          state.runId = candidate.runId;
           materialHash = candidate.materialHash || "";
           const saved = candidate.budget;
           if (
@@ -2752,6 +2977,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               candidate.buildId !== CTI_DIRECT_DATA_BUILD_V1
                 ? policy[key]
                 : Math.min(policy[key], saved.limits[key]);
+          state.runId = candidate.runId;
           // An interrupted run can be exported locally even if its hard
           // network budget has already been consumed. Never silently reset it.
           if (
@@ -2772,7 +2998,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               encoder.encode(JSON.stringify(meta.directDataCapture.materials))
                 .byteLength +
               256 * 1024;
-            if (!recheckNative) await hydrateSavedItems();
+            if (!recheckNative && !recovery) await hydrateSavedItems();
             // Discovery reads have no confirmed graph owner yet. Only the
             // eventual selected/new run may receive their charged budget.
           }
@@ -2823,6 +3049,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               initialComparisonHash === finalComparisonHash && finalComparisonHash === currentComparisonHash;
           } catch (_) { /* Invalid historical proof cannot authorize reuse. */ }
         }
+        if (recovery && await hash(directMaterialStabilityModelV1(materialData.elements[0])) !== recovery.pinnedComparisonSha256)
+          resuming = false;
         const enriching =
           !recheckNative &&
           resuming &&
@@ -2858,12 +3086,15 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           state.counts = { processed: 0, complete: 0, questions: 0, total: 0 };
           reader = createReader();
         }
+        if (recovery && resuming && (baseCapture.firstPartyRecoveryHistory?.length || 0) + Number(!!baseCapture.firstPartyRecovery) > 16)
+          throw Error("PUBLISHER_FIRST_PARTY_HISTORY_LIMIT");
         materialHash = currentMaterialHash;
         const opened = await store.openRun(
           resuming ? candidate.runId : undefined,
           { state: "RUNNING", materialHash, buildId: CTI_DIRECT_DATA_BUILD_V1 },
         );
         state.runId = opened.runId;
+        recoveryRunOwned = true;
         items = inventory.fingerprints;
         state.counts.total = items.length;
         meta = {
@@ -2878,12 +3109,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             sourceState: "AUTHORING_DRAFT",
             sourceStable: false,
             resumed: resuming,
+            ...(resuming && baseCapture.firstPartyRecovery ? {firstPartyRecovery:baseCapture.firstPartyRecovery} : {}),
+            ...(resuming && baseCapture.firstPartyRecoveryHistory ? {firstPartyRecoveryHistory:baseCapture.firstPartyRecoveryHistory} : {}),
             ...(nativeRecheckRequest ? { nativeRecheck: nativeRecheckRequest } : {}),
             recoveredFromBuild:
               resuming && candidate.buildId !== CTI_DIRECT_DATA_BUILD_V1
                 ? candidate.buildId
                 : "",
-            ...(enriching
+            ...((enriching || recovery && resuming)
               ? {
                   mediaEnrichment: {
                     scope: "REFERENCED_CML_MEDIA_AND_WIDGET_SOURCES",
@@ -2918,6 +3151,19 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             },
           },
         };
+        if (recovery && resuming) {
+          const history = [...(baseCapture.firstPartyRecoveryHistory || []),...(baseCapture.firstPartyRecovery ? [baseCapture.firstPartyRecovery] : [])];
+          if (history.length > 16) throw Error("PUBLISHER_FIRST_PARTY_HISTORY_LIMIT");
+          if (history.length) meta.directDataCapture.firstPartyRecoveryHistory = history;
+          meta.directDataCapture.firstPartyRecovery = {
+            scope:"PLANNED_PUBLISHER_IMAGES",courseId,origin:recovery.plan.origin,
+            planSha256:recovery.planSha256,sessionId:recovery.sessionId,
+            requestedAt:recovery.requestedAt,readyAt:recovery.readyAt,
+            pinnedRunId:recovery.pinnedRunId,pinnedMaterialHash:recovery.pinnedMaterialHash,
+            pinnedComparisonSha256:recovery.pinnedComparisonSha256,entries:recovery.plan.entries,
+            publisherPagesRefetched:false,wholeWidgetVerified:false,publishedContentVerified:false,
+          };
+        }
         meta.directDataCapture.limits = {
           ...budgetLimits,
           exportBytes: CTI_DIRECT_DATA_EXPORT_BYTES_V1,
@@ -2935,6 +3181,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           throw Error("DIRECT_CAPTURE_EXPORT_BYTE_LIMIT");
         if (resuming && !itemStates.size && !recheckNative) await hydrateSavedItems();
         checkpointReady = true;
+        if (recovery && !resuming) {
+          await saveRun("PAUSED",true);
+          throw Error("PUBLISHER_FIRST_PARTY_MATERIAL_GRAPH_CHANGED");
+        }
         if (recheckNative && resuming) {
           // Save the attempt boundary before invalidation. Hydration/export
           // also enforce it if a storage error interrupts these pending writes.
@@ -2942,6 +3192,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         await saveRun("RUNNING", true);
         for (let index = 0; index < items.length; index++) {
+          await partialExportBoundary();
           if (reader.snapshot().stopped) break;
           const fp = items[index];
           // A source/media continuation preserves assessment observations and
@@ -2984,6 +3235,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               captureContract: fp.captureContract,
             };
         }
+        await partialExportBoundary();
         if (reader.snapshot().stopped)
           throw Error(reader.snapshot().stopReason);
         state.phase = "Checking source stability";
@@ -3041,7 +3293,24 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         fatalReason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
           ? error.message
           : "DIRECT_CAPTURE_FAILED";
-        if (nativeRecheckRequest && meta && state.runId &&
+        if (recovery && !recoveryRunOwned && meta && state.runId) {
+          // Failed discovery has no right to mutate its pinned historical run.
+          // Charge the actual probes to an empty failed namespace instead.
+          const discovery = reader?.snapshot() || {requests:0,bytes:0,elapsedMs:0};
+          reader?.abort("PUBLISHER_FIRST_PARTY_DISCOVERY_FAILED"); reader = null; frozenStats = null;
+          budgetBase = {requests:discovery.requests,bytes:discovery.bytes,elapsedMs:discovery.elapsedMs};
+          mediaBase = {bytes:0,requests:0}; itemStates = new Map(); retainedSizes = new Map();
+          const opened = await store.openRun(undefined,{state:"PAUSED",materialHash,buildId:CTI_DIRECT_DATA_BUILD_V1}), old = meta.directDataCapture;
+          state.runId = opened.runId;
+          meta = {...meta,checkpoint:{available:true,runId:state.runId},directDataCapture:{
+            mode:old.mode,version:old.version,runId:state.runId,sourceState:old.sourceState,
+            materials:old.materials,materialsReceipt:old.materialsReceipt,initialMaterialHash:old.initialMaterialHash,
+            sourceStable:false,acquisitionComplete:false,wholeCourseVerified:false,
+            firstPartyRecoveryFailure:{reason:fatalReason,pinnedRunId:recovery.pinnedRunId,scope:"DISCOVERY_ONLY"},limits:old.limits}};
+          state.counts = {processed:0,complete:0,questions:0,total:items.length};
+          recoveryRunOwned = true;
+        }
+        if (nativeRecheckRequest && !recovery && meta && state.runId &&
             meta.directDataCapture.nativeRecheck?.requestedAt !== nativeRecheckRequest.requestedAt) {
           // A failed root probe cannot reuse earlier current-completion claims.
           // Keep the original models and charge the failed discovery attempt.
@@ -3068,6 +3337,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               : ". Saved reads remain local. Click Resume after fixing the connection or sign-in."),
         );
       } finally {
+        checkpointReady = false;
+        await partialExportBoundary();
         frozenStats = reader?.snapshot() || null;
         frozenMediaStats = mediaReader?.snapshot() || null;
         if (meta) {
@@ -3078,6 +3349,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         reader?.abort("RUN_FINISHED");
         providerTransport?.close();
         providerTransport = null;
+        activeRecovery?.transport.close();
+        activeRecovery = null;
         clearInterval(clock);
         try {
           await saveRun(state.state, true);
@@ -3088,6 +3361,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         state.running = false;
         render();
+        await exportFinished;
         if (meta && !operatorStopped) await download();
       }
     }
@@ -3098,16 +3372,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       mediaReader?.abort("OPERATOR_PAUSED");
       accessReader?.abort("OPERATOR_PAUSED");
       providerTransport?.close();
+      publisherFirstPartyTransport?.close();
+      activeRecovery?.transport.close();
     };
     state.resume = () => void run();
     state.export = () => void download();
     state.start = () => void run();
     state.recheckNative = () => void run(false, true);
     state.startFresh = () => void run(true);
+    state.preparePublisherRecovery = () => void preparePublisherRecovery();
+    state.openPublisherRecovery = () => void openPublisherRecovery();
+    state.publisherRecovery = () => void (preparedRecovery ? openPublisherRecovery() : preparePublisherRecovery());
     state.checkProviderAccess = () => void checkProviderAccess();
     state.checkPublisherAccess = () => void checkPublisherAccess();
     startButton.onclick = state.start;
     recheckButton.onclick = state.recheckNative;
+    recoveryButton.onclick = state.publisherRecovery;
     freshButton.onclick = state.startFresh;
     accessButton.onclick = state.checkProviderAccess;
     publisherAccessButton.onclick = state.checkPublisherAccess;
@@ -3122,6 +3402,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       mediaReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       accessReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       providerTransport?.close();
+      publisherFirstPartyTransport?.close();
+      activeRecovery?.transport.close();
     });
     render("Capture/resume continues saved progress. Recheck native course content rereads current item and question references; Start fresh opens a separate run. Prior observations keep their original dates.");
   })().catch(() => {

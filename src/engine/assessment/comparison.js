@@ -3,12 +3,28 @@ import { qaDirectionalSemanticSimilarity_, qaSemanticTokenList_ } from "../match
 import { qaCleanName_, qaCleanText_, qaJaccard_ } from "../matching/text.js";
 import { qaCompareAssessmentQuestion_ } from "./answers.js";
 import { qaObservedEmptyAssessmentReceipt_ } from "./assignment.js";
-import { qaAssessmentText_, qaCharNgramCosine_, qaNormalizeAssessment_, qaQuestionPromptSimilarity_ } from "./questions.js";
+import { qaAssessmentText_, qaCharNgramCosine_, qaNormalizeAssessment_, qaQuestionPromptSimilarity_, qaNativeReflectionEvidence_, qaNormalizeQuestion_ } from "./questions.js";
 
 export function qaStructuredAssessmentComparison_(source, coursera) {
     if (!source || source.isStructuredAssessment !== true) return null;
     var sAssessment = qaNormalizeAssessment_(source.structuredAssessment, 'source-qti');
     var cAssessment = qaNormalizeAssessment_(coursera && coursera.structuredAssessment, 'coursera-assignment');
+    function reflectionQuestions(item, assessment) {
+        var verified=item && qaNativeReflectionEvidence_(item.original || item,item.nativeGradingCourseId);
+        if(!verified || !assessment || verified.questions.length!==assessment.questions.length)return null;
+        var same=assessment.questions.every(function(q,index){
+            return JSON.stringify(q)===JSON.stringify(qaNormalizeQuestion_(verified.questions[index],index));
+        });
+        return same?verified:null;
+    }
+    var sourceReflectionProof=reflectionQuestions(source,sAssessment),courseraReflectionProof=reflectionQuestions(coursera,cAssessment);
+    var sourceReflections=new Set(sourceReflectionProof?sourceReflectionProof.questions.map(function(q){return q.courseraQuestionId;}):[]),
+        courseraReflections=new Set(courseraReflectionProof?courseraReflectionProof.questions.map(function(q){return q.courseraQuestionId;}):[]);
+    function noKeys(assessment,verified) {
+        return !!(assessment && assessment.questions.length && assessment.questions.every(function(q){
+            return q.type==='essay' || verified.has(q.courseraQuestionId);
+        }));
+    }
     var base = {
         mode: 'STRUCTURED_ASSESSMENT',
         status: 'UNVERIFIED',
@@ -40,7 +56,14 @@ export function qaStructuredAssessmentComparison_(source, coursera) {
         reason: ''
     };
 
-    base.answerEvidenceApplicable=!(sAssessment && cAssessment && sAssessment.questions.length && cAssessment.questions.length && sAssessment.questions.concat(cAssessment.questions).every(function(q){return q.type==='essay';}));
+    base.sourceNativeReflectionQuestionCount=sourceReflections.size;
+    base.courseraNativeReflectionQuestionCount=courseraReflections.size;
+    base.sourceNativeReflectionEvidence=sourceReflectionProof?sourceReflectionProof.proof:null;
+    base.courseraNativeReflectionEvidence=courseraReflectionProof?courseraReflectionProof.proof:null;
+    base.sourceAnswerEvidenceApplicable=!noKeys(sAssessment,sourceReflections);
+    base.courseraAnswerEvidenceApplicable=!noKeys(cAssessment,courseraReflections);
+    base.nativeReflectionKeyApplicability=sourceReflections.size+courseraReflections.size>0;
+    base.answerEvidenceApplicable=base.sourceAnswerEvidenceApplicable || base.courseraAnswerEvidenceApplicable;
     base.sourceMediaQuestionNumbers=sAssessment?sAssessment.questions.map(function(q,i){return q.mediaRefs&&q.mediaRefs.length?i+1:null;}).filter(Boolean):[];
     base.questionMediaStatus=base.sourceMediaQuestionNumbers.length?'UNVERIFIED':'NOT_RECORDED_OR_NOT_REQUIRED';
     base.sourcePackageMediaGaps=[];if(sAssessment)sAssessment.questions.forEach(function(q,i){(q.mediaPresence||[]).forEach(function(m){if(m.status==='NOT_IN_PACKAGE'||m.status==='PRESENT_DIFFERENT_PATH')base.sourcePackageMediaGaps.push({question:i+1,status:m.status,ref:m.ref,expectedPath:m.expectedPath,candidates:m.candidates||[]});});});
@@ -121,9 +144,15 @@ export function qaStructuredAssessmentComparison_(source, coursera) {
     base.answerMismatchCount = answerMismatches;
     base.hardMismatchCount = hardMismatches;
     base.captureIssueQuestionNumbers=aligned.filter(function(q){return q.details.optionCaptureIssue;}).map(function(q){return q.courseraIndex;});
-    var sourceAnswerCoverage = sAssessment.answerableQuestionCount ? (sAssessment.answerEvidenceQuestionCount / sAssessment.answerableQuestionCount) : 1;
-    var courseraAnswerCoverage = cAssessment.answerableQuestionCount ? (cAssessment.answerEvidenceQuestionCount / cAssessment.answerableQuestionCount) : 1;
-    base.answerEvidenceCoverage = Math.min(sourceAnswerCoverage, courseraAnswerCoverage);
+    var sourceAnswerCoverage = sAssessment.answerableQuestionCount ? (sAssessment.answerEvidenceQuestionCount / sAssessment.answerableQuestionCount) : null;
+    var courseraAnswerCoverage = cAssessment.answerableQuestionCount ? (cAssessment.answerEvidenceQuestionCount / cAssessment.answerableQuestionCount) : null;
+    // Zero applicable questions is N/A or unknown, never 100% observed keys.
+    base.answerEvidenceCoverage = sourceAnswerCoverage===null || courseraAnswerCoverage===null
+        ? null : Math.min(sourceAnswerCoverage, courseraAnswerCoverage);
+    // Preserve the established all-written-response numeric contract. Its N/A
+    // display still comes from answerEvidenceApplicable=false. Newly validated
+    // native reflections and mixed applicability never inherit this sentinel.
+    if(base.answerEvidenceApplicable===false && !base.nativeReflectionKeyApplicability)base.answerEvidenceCoverage=1;
     base.sourceAnswerRefreshRequired = /^ims-qti-dom(?:-v[12](?:-|$)|$)/.test(String(sAssessment.parser || '').toLowerCase()) &&
         sAssessment.questions.some(function(q) { return q.type === 'multiple-select' && q.answerTextReliable === false; });
 
@@ -148,7 +177,7 @@ export function qaStructuredAssessmentComparison_(source, coursera) {
 
     var bothParsersStrong = sAssessment.parserConfidence >= 0.80 && cAssessment.parserConfidence >= 0.80;
     var supportedTypes = { 'true-false':true, 'single-select':true, 'multiple-select':true, 'regex':true, 'text-entry':true, 'essay':true };
-    var unknownTypeCount = sAssessment.questions.filter(function(q) { return !supportedTypes[String(q.type || '')]; }).length + cAssessment.questions.filter(function(q) { return !supportedTypes[String(q.type || '')]; }).length;
+    var unknownTypeCount = sAssessment.questions.filter(function(q) { return !supportedTypes[String(q.type || '')] && !sourceReflections.has(q.courseraQuestionId); }).length + cAssessment.questions.filter(function(q) { return !supportedTypes[String(q.type || '')] && !courseraReflections.has(q.courseraQuestionId); }).length;
     base.unknownTypeCount = unknownTypeCount;
     // Unknown types leave answer-key applicability undetermined. Excluding
     // them from the denominator must not turn absent keys into 100% coverage.
@@ -177,9 +206,11 @@ export function qaStructuredAssessmentComparison_(source, coursera) {
     } else if (unknownTypeCount > 0) {
         base.status = 'UNVERIFIED';
         base.reason = 'At least one question type is not yet semantically supported by the structured verifier; a hard assessment verdict would be unsafe.';
-    } else if (base.questionCountMatch && unmatchedSource.length === 0 && unmatchedCoursera.length === 0 && base.answerEvidenceCoverage >= 0.99 && fidelity >= 0.90 && base.selectionPolicyStatus !== 'MUTATED' && !(sp.observed === true && base.selectionPolicyStatus === 'UNVERIFIED')) {
+    } else if (base.questionCountMatch && unmatchedSource.length === 0 && unmatchedCoursera.length === 0 && (base.answerEvidenceApplicable===false || base.answerEvidenceCoverage >= 0.99) && fidelity >= 0.90 && base.selectionPolicyStatus !== 'MUTATED' && !(sp.observed === true && base.selectionPolicyStatus === 'UNVERIFIED')) {
         base.status = 'VERIFIED';
-        base.reason = 'Source QTI questions align to the Coursera Assignment with matching question count, answer evidence for every answerable question, and no detected material mismatch.';
+        base.reason = base.answerEvidenceApplicable===false
+            ? 'Observed question fields align with matching counts. Answer keys are not applicable to the supported written-response or source-bound native reflection models; grading, publication and learner behavior remain separate checks.'
+            : 'Source QTI questions align to the Coursera Assignment with matching question count, answer evidence for every answerable question, and no detected material mismatch.';
     } else if (base.answerEvidenceCoverage < 0.99 && base.questionCountMatch && unmatchedSource.length === 0 && unmatchedCoursera.length === 0 && hardMismatches === 0 && fidelity >= 0.90) {
         base.status = 'UNVERIFIED';
         base.reason = 'All observed question fields align, but correct-answer evidence is incomplete. No assessment change is proven. Confirm whether answer keys apply to this activity and obtain any required missing answer evidence before verification.';

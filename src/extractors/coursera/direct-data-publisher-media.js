@@ -1,5 +1,5 @@
 import { directPublisherResourceObservationValidV1, directPublisherResourceV1,
-  directPublisherResourceEvidenceV1 } from "./direct-data-publisher.js";
+  directPublisherResourceEvidenceV1, directPublisherTargetV1 } from "./direct-data-publisher.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 
 export const CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 = 16777216;
@@ -7,6 +7,55 @@ export const CTI_DIRECT_PUBLISHER_IMAGE_URLS_V1 = 128;
 
 export function directPublisherImageDateV1(value) {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+
+/** First-party provenance is collector context, never an HTTP attestation.
+ * Native ownership must also be joined independently by archive/intake callers. */
+export function directPublisherFirstPartyImageBindingV1(receipt, imageUrl, sourceSha256, expected) {
+  const b = receipt?.firstPartyBinding;
+  if (receipt?.transport !== "FIRST_PARTY_BROWSER" || !b || typeof b !== "object" || Array.isArray(b) ||
+      Object.keys(b).length !== 8 || Object.keys(b).some(key => !["courseId","itemId","atomId","providerId","targetUrl","sourceSha256","planSha256","sessionId"].includes(key)) ||
+      !/^[A-Za-z0-9_-]{8,128}$/.test(b.courseId || "") || !/^[A-Za-z0-9_-]{1,128}$/.test(b.itemId || "") ||
+      !/^[A-Za-z0-9_-]{22}$/.test(b.atomId || "") || !/^[A-Za-z0-9_-]{22}@[1-9]\d{0,11}$/.test(b.providerId || "") ||
+      !directPublisherTargetV1(b.targetUrl) || !/^[a-f0-9]{64}$/.test(sourceSha256 || "") || b.sourceSha256 !== sourceSha256 ||
+      !/^[a-f0-9]{64}$/.test(b.planSha256 || "") || !/^[a-f0-9]{32}$/.test(b.sessionId || "") ||
+      directPublisherImageUrlV1(imageUrl,b.targetUrl) !== imageUrl || new URL(imageUrl).origin !== new URL(b.targetUrl).origin) return null;
+  if (expected && ["courseId","itemId","atomId","providerId","targetUrl","sourceSha256"].some(key => b[key] !== expected[key])) return null;
+  return b;
+}
+
+/** Preserve earlier failed attempts beside a later body without relabelling
+ * them as successful or replacing their original observed times. */
+export function directPublisherImagePriorFailuresV1(value, imageUrl, expected) {
+  return Array.isArray(value) && value.length > 0 && value.length <= 16 && value.every(record => record &&
+    typeof record === "object" && !Array.isArray(record) && Object.keys(record).every(key => ["reason","attempts","firstPartyAttempt"].includes(key)) &&
+    typeof record.reason === "string" && /^[A-Z0-9_]{1,96}$/.test(record.reason) &&
+    (record.firstPartyAttempt === undefined || record.firstPartyAttempt && directPublisherFirstPartyImageAttemptV1(record.firstPartyAttempt,imageUrl,expected &&
+      {...record.firstPartyAttempt.firstPartyBinding,...expected}) && record.firstPartyAttempt.reason === record.reason) &&
+    (record.attempts === undefined || directPublisherImageAttemptsV1(record.attempts,imageUrl) && record.attempts[1].reason === record.reason));
+}
+
+/** Failed provider-page reads retain observed HTTP separately from failures
+ * for which the browser exposed no response. No error body or cookie is kept. */
+export function directPublisherFirstPartyImageAttemptV1(attempt, imageUrl, expected) {
+  if (!attempt || typeof attempt !== "object" || Array.isArray(attempt) ||
+      Object.keys(attempt).some(key => !["transport","origin","requestedUrl","method","credentials","mode","collectorContext","firstPartyBinding",
+        "attemptedAt","requestAttempted","reason","observedBytes","status","responseType","observedAt","challenge"].includes(key)) ||
+      !directPublisherFirstPartyImageBindingV1(attempt,imageUrl,attempt.firstPartyBinding?.sourceSha256,expected) ||
+      attempt.origin !== new URL(imageUrl).origin || attempt.requestedUrl !== imageUrl || attempt.method !== "GET" ||
+      attempt.credentials !== "same-origin" || attempt.mode !== "same-origin" || attempt.collectorContext !== "PROVIDER_PAGE_BROWSER" ||
+      !directPublisherImageDateV1(attempt.attemptedAt) || typeof attempt.reason !== "string" || !/^[A-Z0-9_]{1,96}$/.test(attempt.reason) ||
+      typeof attempt.requestAttempted !== "boolean" ||
+      !Number.isSafeInteger(attempt.observedBytes) || attempt.observedBytes < 0 ||
+      !attempt.requestAttempted && (attempt.status !== 0 || attempt.observedBytes !== 0) ||
+      !Number.isSafeInteger(attempt.status)) return null;
+  const http = /^PUBLISHER_FIRST_PARTY_HTTP_(\d{3})$/.exec(attempt.reason);
+  if (attempt.status === 0) {
+    if (attempt.responseType !== "unreadable" || attempt.observedAt !== undefined || attempt.challenge !== undefined || http) return null;
+  } else if (attempt.status < 100 || attempt.status > 599 || attempt.responseType !== "basic" || !directPublisherImageDateV1(attempt.observedAt) ||
+      http && Number(http[1]) !== attempt.status || attempt.challenge !== undefined &&
+      (attempt.challenge !== "cloudflare" || attempt.status !== 403)) return null;
+  return attempt;
 }
 
 /** Failure context is never source/body verification or an HTTP attestation. */
@@ -166,16 +215,20 @@ export function directPublisherImageBodyStructureV1(body, url, sourceSha256) {
       body.canonicalUrl !== url || !Number.isSafeInteger(body.size) || body.size < 1 || body.size > CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 ||
       !["image/png","image/jpeg","image/jpg","image/gif","image/webp"].includes(body.mime)) return false;
   const r = body.receipt;
-  const service = r?.transport === "CTI_SERVICE_PUBLIC_IMAGE";
+  const service = r?.transport === "CTI_SERVICE_PUBLIC_IMAGE", firstParty = r?.transport === "FIRST_PARTY_BROWSER";
   return !!r && typeof r === "object" && !Array.isArray(r) &&
     Object.keys(r).every(key => ["resource","transport","sourceSha256","requestedUrl","finalUrl","method","credentials","responseType","status","bytes","mime","sha256","observedAt","originalContentType","bodyFormat",
-      ...(service ? ["observedAtBasis","serviceOrigin","serviceStatus","upstreamStatus","upstreamObservedAt","upstreamRequests","upstreamBytes","declaredBodyBytes","upstreamSha256","publisherSourceHash","browserAttempt"] : [])].includes(key)) &&
-    r.resource === "PublisherImage" && (service || r.transport === "BROWSER_PUBLISHER_IMAGE") && r.sourceSha256 === sourceSha256 &&
-    r.requestedUrl === url && r.finalUrl === url && r.method === "GET" && r.credentials === "omit" && r.responseType === (service ? "service" : "cors") &&
+      ...(service ? ["observedAtBasis","serviceOrigin","serviceStatus","upstreamStatus","upstreamObservedAt","upstreamRequests","upstreamBytes","declaredBodyBytes","upstreamSha256","publisherSourceHash","browserAttempt"] : []),
+      ...(firstParty ? ["origin","mode","collectorContext","responseObservedAt","firstPartyBinding"] : [])].includes(key)) &&
+    r.resource === "PublisherImage" && (service || firstParty || r.transport === "BROWSER_PUBLISHER_IMAGE") && r.sourceSha256 === sourceSha256 &&
+    r.requestedUrl === url && r.finalUrl === url && r.method === "GET" && r.credentials === (firstParty ? "same-origin" : "omit") && r.responseType === (firstParty ? "basic" : service ? "service" : "cors") &&
     r.status === 200 && r.bytes === body.size && r.mime === body.mime && r.sha256 === body.sha256 &&
     typeof r.originalContentType === "string" && r.originalContentType.length <= 256 && !/[\u0000-\u001f\u007f]/.test(r.originalContentType) &&
     r.originalContentType.split(";")[0].trim().toLowerCase() === body.mime &&
     directPublisherImageDateV1(r.observedAt) &&
+    (!firstParty || r.mode === "same-origin" && r.collectorContext === "PROVIDER_PAGE_BROWSER" &&
+      directPublisherImageDateV1(r.responseObservedAt) && Date.parse(r.responseObservedAt) <= Date.parse(r.observedAt) &&
+      !!directPublisherFirstPartyImageBindingV1(r,url,sourceSha256) && r.origin === new URL(url).origin) &&
     (!service || r.observedAtBasis === "BROWSER_RESPONSE" && r.serviceOrigin === "https://cti-hardening.pages.dev" && r.serviceStatus === 200 &&
       r.upstreamStatus === 200 && directPublisherImageDateV1(r.upstreamObservedAt) && r.upstreamRequests === 1 &&
       r.upstreamBytes === body.size && r.declaredBodyBytes === body.size && r.upstreamSha256 === body.sha256 && r.publisherSourceHash === sourceSha256 &&
@@ -186,15 +239,24 @@ export function directPublisherImageBodyStructureV1(body, url, sourceSha256) {
 }
 
 /** Descriptor validation does not assert that original bytes are embedded. */
-export function directPublisherMediaStructureV1(observation, targetUrl, media) {
+export function directPublisherMediaStructureV1(observation, targetUrl, media, nativeBinding) {
   try {
     const current = directPublisherMediaInventoryV1(observation, targetUrl), canonical = directCanonicalSourceTextV1;
     if (!current || !media || media.schemaVersion !== 1 || media.sourceSha256 !== current.sourceSha256 ||
         Object.keys(media).some(key => !["schemaVersion","sourceSha256","resources","failures","retained"].includes(key)) ||
         canonical(media.failures) !== canonical(current.failures) || !Array.isArray(media.resources) || media.resources.length !== current.resources.length) return null;
     const check = (resource, expected, sourceHash, historical) => resource &&
-      Object.keys(resource).every(key => ["url","references","body","reason","attempts"].includes(key)) && resource.url === expected.url &&
+      Object.keys(resource).every(key => ["url","references","body","reason","attempts","firstPartyAttempt","priorFailures"].includes(key)) && resource.url === expected.url &&
       canonical(resource.references) === canonical(expected.references) &&
+      (resource.priorFailures === undefined || directPublisherImagePriorFailuresV1(resource.priorFailures,resource.url,{...nativeBinding,targetUrl,sourceSha256:sourceHash})) &&
+      (resource.firstPartyAttempt === undefined || !resource.body &&
+        directPublisherFirstPartyImageAttemptV1(resource.firstPartyAttempt,resource.url,nativeBinding ? {...nativeBinding,targetUrl,sourceSha256:sourceHash} : undefined) &&
+        resource.firstPartyAttempt.firstPartyBinding.targetUrl === targetUrl && resource.firstPartyAttempt.firstPartyBinding.sourceSha256 === sourceHash &&
+        resource.firstPartyAttempt.reason === resource.reason) &&
+      (resource.body?.receipt?.transport !== "FIRST_PARTY_BROWSER" ||
+        resource.body.receipt.firstPartyBinding?.targetUrl === targetUrl &&
+        (!nativeBinding || directPublisherFirstPartyImageBindingV1(resource.body.receipt,resource.url,sourceHash,
+          {...nativeBinding,targetUrl,sourceSha256:sourceHash}))) &&
       (resource.body ? !resource.reason && resource.attempts === undefined && directPublisherImageBodyStructureV1(resource.body, resource.url, sourceHash) :
         !historical && typeof resource.reason === "string" && /^[A-Z0-9_]{1,96}$/.test(resource.reason) &&
         (resource.attempts === undefined || directPublisherImageAttemptsV1(resource.attempts,resource.url) && resource.attempts[1].reason === resource.reason));

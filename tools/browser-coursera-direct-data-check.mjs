@@ -56,6 +56,7 @@ const requests=[],mediaRequests=[],documents=[],errors=[],active=new Map(),maxim
 const panoptoDeliveries=new Map(),panoptoRequests=[];
 const publicPages=new Map(),publicPageRequests=[];
 const publisherRequests=[],publisherCases=new Map(),publisherOpaqueRequests=[],publisherImageRequests=[],publisherImages=new Map(),publisherServiceImages=new Map();
+const firstPartyPublisherRequests=[],firstPartyPublisherPages=new Map();
 const helperRequests=[],helperUpstreamRequests=[],helperErrors=[];
 const readerFixtureEntry=path.join(scratch,'direct-reader-entry.js');
 fs.writeFileSync(readerFixtureEntry,`
@@ -436,6 +437,25 @@ for(const [index,url]of publisherChallengeUrls.entries()){
   publisherImages.set(url,{name:url.split('/').at(-1),mode:'no-cors',body,requests:0});
   publisherServiceImages.set(url,publisherChallengeCourse);
 }
+function makeFirstPartyPublisherCourse(id,chapterId,suffix){
+  const publisherCase=makePublisherCase(chapterId,'omit-wildcard'),urls=['first','second'].map(name=>publisherImageBase+suffix+'-'+name+'.png');
+  publisherCase.chapter.content.raw='<p>Faithful originals require an explicit publisher-tab recovery.</p>'+urls.map(url=>'<img src="'+url+'">').join('');
+  publisherCase.chapter.content.rendered='<p>Distinct rendered original.</p>'+urls.map(url=>'<a href="'+url+'">Original raster</a>').join('');
+  publisherCase.rawJson='\ufeff'+JSON.stringify(publisherCase.chapter,null,2)+'\n';publisherCase.bytes=Buffer.from(publisherCase.rawJson);
+  const config=makeInlineWidgetCourse(id,'publisher-first-party',true);
+  config.publisherReaderCase=true;config.publisherServiceMode='upstream-challenge';config.publisherImageCase=publisherCase;
+  providers.get(config.inlineProviderId).value.draft.configuration.url=publisherCase.targetUrl;
+  providers.get(config.inlineProviderId).value.draft.pageSrc=publisherCase.targetUrl;
+  for(const [index,url]of urls.entries()){
+    const body=index===0?pngBytes:Buffer.concat([pngBytes.subarray(0,-12),fixturePngTextChunk(suffix+' second literal original.'),pngBytes.subarray(-12)]);
+    publisherImages.set(url,{name:url.split('/').at(-1),mode:'no-cors',body,requests:0,firstPartyCourse:config});publisherServiceImages.set(url,config);
+  }
+  firstPartyPublisherPages.set(String(chapterId),config);return{config,publisherCase,urls};
+}
+const firstPartyPublisher=makeFirstPartyPublisherCourse('Direct_first_party_recovery_123',1699,'first-party');
+const firstPartyPublisherCoop=makeFirstPartyPublisherCourse('Direct_first_party_coop_123',1799,'first-party-coop');
+firstPartyPublisherCoop.config.firstPartyCoop=true;
+const firstPartyPublisherChanged=makeFirstPartyPublisherCourse('Direct_first_party_changed_123',1899,'first-party-changed');
 const publisherBackMatterCase=makePublisherCase(1599,'back-matter-success');
 const publisherBackMatterImageUrl=publisherImageBase+'back-matter-original.png';
 publisherBackMatterCase.chapter.content.raw='<p>Original authored back matter café 日本語.</p><img src="'+publisherBackMatterImageUrl+'">';
@@ -493,6 +513,9 @@ const helperFailure=makePanoptoCourse('Direct_panopto_helper_failure_123','allow
 const helperForeign=makePanoptoCourse('Direct_panopto_helper_foreign_123','metadata-csp');
 const helperShort=makePanoptoCourse('Direct_panopto_helper_short_123','metadata-csp');
 helperShort.helperCleanShortEof=true;
+const runningPartial=makeMediaCourse('Direct_running_partial_123');
+const partialMaterials=runningPartial.material.material.elements[0].elements[0].elements;
+partialMaterials.unshift(partialMaterials.pop());
 function helperMode(request){return /(?:^|;\s*)ctiFixtureMode=([a-z-]+)/.exec(request.headers.get('cookie')||'')?.[1]||'ready';}
 async function waitForHelperFixture(config,signal){
   if(!config.helperHold||config.helperReleased)return;
@@ -633,6 +656,17 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     }catch(error){helperErrors.push(error.message);response.statusCode=404;response.end();}return;
   }
   if(host===new URL(publisherOrigin).hostname){
+    if(url.pathname==='/favicon.ico'){response.statusCode=204;response.end();return;}
+    if(url.pathname==='/'+publisherBook+'/'&&url.searchParams.has('p')){
+      const config=firstPartyPublisherPages.get(url.searchParams.get('p').replace(/\/$/,''));
+      assert(config,'Only an exact configured publisher page may be opened for recovery');assert.equal(request.method,'GET');
+      assert.equal(request.headers['sec-fetch-mode'],'navigate');assert.equal(request.headers.authorization,undefined);
+      assert(!String(request.headers.cookie||'').includes(secrets[0]),'A Coursera session never crosses into the publisher tab');
+      if(config.firstPartyCoop)response.setHeader('Cross-Origin-Opener-Policy','same-origin');
+      response.setHeader('Content-Type','text/html; charset=utf-8');response.setHeader('Cache-Control','no-store');
+      response.setHeader('Set-Cookie','syntheticFirstPartyPublisher=publisher-local-only; HttpOnly; Secure; SameSite=Lax; Path=/');
+      response.end('<!doctype html><title>Publisher recovery fixture</title><h1>Normal publisher page</h1><p>Run the same CTI course capture bookmark here.</p>');return;
+    }
     if(url.pathname==='/'+publisherBook+'/opaque-fixture.png'&&!url.search){
       assert.equal(request.method,'GET');assert.equal(request.headers['sec-fetch-mode'],'no-cors');
       assert.equal(request.headers.cookie,undefined);assert.equal(request.headers.authorization,undefined);
@@ -647,6 +681,16 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
     }
     if(publisherImages.has(publisherOrigin+url.pathname)){
       const image=publisherImages.get(publisherOrigin+url.pathname);assert.equal(url.search,'');
+      if(request.headers['sec-fetch-mode']==='same-origin'){
+        assert(image.firstPartyCourse,'Only the exact publisher recovery originals accept first-party reads');assert.equal(request.method,'GET');
+        assert.equal(request.headers.authorization,undefined);assert.equal(request.headers.origin,undefined);
+        assert(String(request.headers.cookie||'').includes('syntheticFirstPartyPublisher=publisher-local-only'));
+        assert(!String(request.headers.cookie||'').includes(secrets[0]),'Browser-owned publisher cookies stay separate from Coursera');
+        firstPartyPublisherRequests.push({courseId:image.firstPartyCourse.id,url:publisherOrigin+url.pathname,method:request.method,
+          fetchMode:request.headers['sec-fetch-mode'],publisherCookiePresent:true,courseraCookiePresent:false,authorizationPresent:false});
+        response.setHeader('Content-Type','image/png');response.setHeader('Content-Length',String(image.body.length));response.setHeader('Cache-Control','no-store');
+        response.end(image.body);return;
+      }
       assert.equal(request.method,'GET');assert.equal(request.headers['sec-fetch-mode'],'cors');assert.equal(request.headers.origin,origin);
       assert.equal(request.headers.cookie,undefined);assert.equal(request.headers.authorization,undefined);assert.equal(request.headers.referer,undefined);
       publisherImageRequests.push({url:publisherOrigin+url.pathname,mode:image.mode,method:request.method});image.requests++;
@@ -777,10 +821,15 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       (config?.panoptoMode&&config.panoptoMode!=='metadata-csp'?' '+panoptoOrigin+' '+panoptoMediaOrigin:'')+
       (config?.publisherReaderCase&&!config.publisherCspBlocked?' '+publisherOrigin:''));
     response.end(`<!doctype html><title>Direct capture fixture</title><main><a id="editor" href="/teach/${slug}/${courseId}/content/item/project/item_0000">Open quiz normally</a><button id="foreign">Open unrelated test window</button></main><script nonce="fixture">
-      window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixtureCsp=[];window.fixtureCspEvents=[];
+      window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixturePanelScrolls=0;window.fixtureCsp=[];window.fixtureCspEvents=[];
       document.getElementById('editor').onclick=()=>{window.fixtureEditorClicks++;};
       document.getElementById('foreign').onclick=()=>window.open('${helperOrigin}/foreign-window.html','fixture-attacker');
-      window.addEventListener('scroll',()=>window.fixtureScrolls++,true);
+      // Real operator clicks may scroll the fixed CTI controls. Course,
+      // document and window scrolling must still remain zero during capture.
+      window.addEventListener('scroll',event=>{
+        if(event.target instanceof Element&&event.target.closest('#cti-direct-data-capture-v1'))window.fixturePanelScrolls++;
+        else window.fixtureScrolls++;
+      },true);
       document.addEventListener('securitypolicyviolation',event=>{
         window.fixtureCsp.push(event.violatedDirective);
         window.fixtureCspEvents.push({blockedURI:event.blockedURI,effectiveDirective:event.effectiveDirective,disposition:event.disposition});
@@ -940,6 +989,19 @@ try{
     await page.getByRole('button',{name:'Capture/resume course',exact:true}).waitFor();
     if(startCapture)await page.getByRole('button',{name:'Capture/resume course',exact:true}).click();
   }
+  async function launchFirstPartyBookmark(page,context){
+    const session=await context.newCDPSession(page),reply=await session.send('Page.navigate',{url:bookmark,transitionType:'auto_bookmark'});
+    const observed=await poll(()=>page.evaluate(()=>Boolean(document.getElementById('cti-publisher-recovery-panel'))));
+    if(!observed){
+      assert(policyCanaryVerified&&reply.errorText==='net::ERR_ABORTED','The SAME generated universal bookmark must execute in the first-party publisher tab');
+      nativeExecuted=false;
+      const evaluation=await session.send('Runtime.evaluate',{expression:deliveredProgram,userGesture:true,returnByValue:true});
+      assert.equal(evaluation.exceptionDetails,undefined);await page.waitForSelector('#cti-publisher-recovery-panel');
+    }
+    await session.detach();
+    assert.equal(await page.evaluate(()=>Boolean(window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__)),false,
+      'The publisher branch never starts a Coursera capture or reads Coursera credentials');
+  }
   async function open(config){
     const context=await browser.newContext({ignoreHTTPSErrors:true,acceptDownloads:true}),contextDownloads=[],popups=[];
     await context.addInitScript(()=>{
@@ -1002,7 +1064,8 @@ try{
     await context.route(publisherOrigin+'/**',async route=>{
       const request=route.request(),url=new URL(request.url());
       assert.equal(request.method(),'GET');
-      if(url.href!==publisherOpaqueUrl&&!publisherImages.has(url.href)){
+      const firstPartyPage=url.pathname==='/'+publisherBook+'/'&&firstPartyPublisherPages.has((url.searchParams.get('p')||'').replace(/\/$/,''));
+      if(url.href!==publisherOpaqueUrl&&!publisherImages.has(url.href)&&!firstPartyPage&&url.pathname!=='/favicon.ico'){
         assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(?:chapters|parts|back-matter)/[1-9]\\d*$'));
         assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
       }
@@ -1090,7 +1153,7 @@ try{
       config?.panoptoMode&&[panoptoOrigin,panoptoMediaOrigin].includes(destination)||
       config?.publisherReaderCase&&destination===publisherOrigin),
       'Only the authenticated authoring API and exact metadata-returned CDN can be requested');
-    assert.equal(await page.evaluate(()=>window.fixtureEditorClicks),0);assert.equal(await page.evaluate(()=>window.fixtureScrolls),0);
+    assert.equal(await page.evaluate(()=>window.fixtureEditorClicks),0);assert.equal(await page.evaluate(()=>window.fixtureScrolls),0,'The course, document and window remain unscrolled; only the fixed CTI controls may scroll');
     assert(!documents.some(address=>address.includes('/content/item/')),'No authoring editor is opened');
     assert.equal(await page.evaluate(()=>document.cookie.includes('fixtureSession')),false);
     assert.equal(await page.evaluate(()=>localStorage.getItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_'+location.pathname.split('/')[3])),'legacy-fixture-sentinel');
@@ -1110,6 +1173,80 @@ try{
     for(const secret of secrets)assert(!JSON.stringify(capture).includes(secret),'Credential markers must not enter final JSON');
     return {...target,state,capture,start,downloads};
   }
+  {
+    const target=await open(runningPartial),readingAtom=partialMaterials[0].atomId,nextAtom=partialMaterials[1].atomId,
+      downloads=[],start=requests.length;
+    let releaseFirst,releaseNext,firstHeld=false,nextHeld=false;
+    const firstGate=new Promise(resolve=>{releaseFirst=resolve;}),nextGate=new Promise(resolve=>{releaseNext=resolve;});
+    target.page.on('download',download=>downloads.push(download));
+    await target.context.route(origin+'/api/authoringAtoms.v2/**',async route=>{
+      const reference=decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+      if(reference===readingAtom&&!firstHeld){firstHeld=true;await firstGate;}
+      else if(reference===nextAtom&&!nextHeld){nextHeld=true;await nextGate;}
+      await route.continue();
+    });
+    try{
+      const partialDownload=target.page.waitForEvent('download',{timeout:180000});void partialDownload.catch(()=>{});
+      await launch(target.page,target.context);
+      assert(await poll(()=>firstHeld,15000),'The partial-export fixture holds an actual current item request');
+      const partialButton=target.page.getByRole('button',{name:'Download partial capture',exact:true});
+      assert.equal(await partialButton.isEnabled(),true);await partialButton.click();
+      assert.equal(await partialButton.isDisabled(),true);
+      assert(await target.page.getByText('Waiting for the current item checkpoint. New item reads wait briefly while the partial snapshot is prepared.',{exact:true}).isVisible());
+      assert.equal(downloads.length,0,'The archive cannot read an uncommitted current item');
+      releaseFirst();
+      const partialFile=await partialDownload,partialCapture=await readFile(partialFile);
+      assert(await poll(()=>nextHeld,15000),'Native acquisition continues after the immutable snapshot is prepared');
+      assert.equal(await target.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.running),true);
+      assert(partialFile.suggestedFilename().includes('__PARTIAL__'));
+      const proof=partialCapture.meta.directDataCapture;
+      assert.equal(proof.acquisitionComplete,false);assert.equal(proof.wholeCourseVerified,false);assert.equal(proof.sourceStable,false);
+      assert.equal(proof.stopReason,'PROVISIONAL_RUNNING_SNAPSHOT');assert.equal(proof.partialExport.provisional,true);
+      assert.equal(proof.partialExport.scope,'COMMITTED_ITEM_BOUNDARY');assert.equal(proof.partialExport.stateAtSnapshot,'RUNNING');
+      assert.equal(proof.coverage.content.total,3);assert.equal(proof.coverage.content.verified,1);
+      assert.equal(proof.coverage.inventory.total,4);assert.equal(proof.coverage.inventory.read,1);
+      assert.deepEqual(partialCapture.fingerprints.map(fp=>fp.id),[...partialMaterials.map(leaf=>leaf.id),'empty_0']);
+      const partialReading=partialCapture.fingerprints[0],partialZip=await JSZip.loadAsync(fs.readFileSync(await partialFile.path()),{checkCRC32:true});
+      for(const assetId of runningPartial.mediaIds){
+        const source=assets.get(assetId),sha256=createHash('sha256').update(source.body).digest('hex');
+        assert.deepEqual(await partialZip.file('files/'+sha256).async('nodebuffer'),source.body);
+        assert(partialReading.payload.directAssetEvidence.assets.some(asset=>asset.assetId===assetId&&asset.body?.sha256===sha256));
+      }
+      assert(partialCapture.fingerprints.slice(1).every(fp=>fp.captureContract.complete===false));
+      assert.equal(evaluateCourseraCapture(partialCapture,runningPartial.id).complete,false);
+      const runId=await target.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.runId),saved=await savedNativeRun(target.page,runId);
+      assert.equal(saved.runs[0].state,'RUNNING');assert.equal(saved.runs[0].captureMeta.directDataCapture.partialExport,undefined);
+      assert.equal(await target.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.result),null);
+      const finalDownload=target.page.waitForEvent('download',{timeout:180000});void finalDownload.catch(()=>{});
+      releaseNext();
+      const finalState=await terminal(target.page),finalCapture=await readFile(await finalDownload);
+      await target.page.waitForFunction(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.exporting===false);
+      assert.equal(finalState.state,'COMPLETE');assert.equal(finalState.runId,runId);
+      assert.equal(finalCapture.meta.directDataCapture.partialExport,undefined);
+      assert.equal(evaluateCourseraCapture(finalCapture,runningPartial.id).complete,true);
+      assert.deepEqual(finalCapture.fingerprints.find(fp=>fp.id===partialReading.id),partialReading,
+        'The later final archive retains the exact earlier native originals and their original observation dates');
+      assert.equal(downloads.length,2,'One requested partial ZIP is followed by exactly one automatic final ZIP');
+      assert.equal(target.contextDownloads.length,2);
+      for(const leaf of partialMaterials){
+        assert.equal(requests.slice(start).filter(request=>request.courseId===runningPartial.id&&request.resource==='authoringAtoms.v2'&&request.reference===leaf.atomId).length,2,
+          'Snapshot export adds no native source reads');
+      }
+      assert.equal(requests.slice(start).filter(request=>request.courseId===runningPartial.id&&request.resource==='authoringCourseMaterials.v1').length,2);
+      assertTransport(runningPartial,start);await assertNoEditor(target.page,target.destinations);
+      for(const secret of secrets)assert(!JSON.stringify(partialCapture).includes(secret));
+    }finally{releaseFirst();releaseNext();await target.context.close();}
+  }
+  const scrollGuard=await open(baseline);
+  const scrollCalibration=await scrollGuard.page.evaluate(()=>{
+    const controls=document.createElement('section');controls.id='cti-direct-data-capture-v1';document.body.append(controls);
+    controls.dispatchEvent(new Event('scroll'));
+    document.querySelector('main').dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('scroll'));
+    return {controls:window.fixturePanelScrolls,course:window.fixtureScrolls};
+  });
+  assert.deepEqual(scrollCalibration,{controls:1,course:2},'Owned-panel scrolling cannot conceal course or window traversal');
+  await scrollGuard.context.close();
   const main=await runFileCase(baseline);
   assert.equal(main.capture.page.courseId,baseline.id);assert.equal(main.capture.fingerprints.length,185);
   assert.equal(main.state.state,'INCOMPLETE');
@@ -2370,6 +2507,120 @@ try{
   assert.equal(evaluateCourseraCapture(challengeResumeCapture,publisherChallengeCourse.id).complete,false);
   assert.equal(challengedImages.contextDownloads.length,2);await assertNoEditor(challengedImages.page,challengedImages.destinations);
   await challengedImages.context.close();
+
+  // The original one-click course capture still records blocked image bytes
+  // honestly. Recovery is an explicit extra publisher-tab action with the SAME
+  // generated bookmark, normal browser cookies kept local to that publisher.
+  const firstPartyTarget=await runFileCase(firstPartyPublisher.config),firstPartyBefore=firstPartyTarget.capture,
+    firstPartyAssessments=firstPartyBefore.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence),
+    firstPartyOriginalPages=firstPartyBefore.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence),
+    firstPartyNativeStart=requests.length,firstPartyBodyStart=firstPartyPublisherRequests.length,
+    firstPartyApiStart=publisherRequests.length,firstPartyServiceStart=helperRequests.length;
+  assert.equal(firstPartyTarget.state.state,'INCOMPLETE');
+  assert.equal(firstPartyOriginalPages.length,2);
+  for(const fp of firstPartyOriginalPages)assert(fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0].media.resources.every(resource=>!resource.body));
+  await firstPartyTarget.page.getByRole('button',{name:'Prepare publisher recovery',exact:true}).click();
+  await firstPartyTarget.page.getByRole('button',{name:'Open publisher recovery',exact:true}).waitFor();
+  assert.equal(firstPartyPublisherRequests.length,firstPartyBodyStart,'Preparation does not read publisher bytes or silently open another origin');
+  const firstPartyPopupEvent=firstPartyTarget.context.waitForEvent('page'),firstPartyDownload=firstPartyTarget.page.waitForEvent('download',{timeout:180000});
+  void firstPartyDownload.catch(()=>{});
+  await firstPartyTarget.page.getByRole('button',{name:'Open publisher recovery',exact:true}).click();
+  const firstPartyPopup=await firstPartyPopupEvent;
+  await firstPartyPopup.waitForURL(value=>value.origin===publisherOrigin&&value.hash.includes('cti-publisher-recovery=1'));
+  await firstPartyPopup.waitForLoadState('domcontentloaded');
+  assert.equal(new URL(firstPartyPopup.url()).origin,publisherOrigin);
+  assert(new URL(firstPartyPopup.url()).hash.includes('cti-publisher-recovery=1'));
+  assert.equal(await firstPartyPopup.evaluate(()=>window.opener!==null),true);
+  assert.equal(firstPartyPublisherRequests.length,firstPartyBodyStart,'Opening the normal publisher page does not start recovery before the operator invokes the bookmark');
+  await launchFirstPartyBookmark(firstPartyPopup,firstPartyTarget.context);
+  const firstPartyCapture=await readFile(await firstPartyDownload),firstPartyState=await terminal(firstPartyTarget.page),
+    firstPartyObserved=firstPartyPublisherRequests.slice(firstPartyBodyStart);
+  assert.equal(firstPartyState.runId,firstPartyTarget.state.runId);assert.equal(firstPartyState.state,'INCOMPLETE');
+  assert.equal(firstPartyObserved.length,4,'Two separate native placements have four exact source-bound first-party image reads');
+  assert(firstPartyObserved.every(value=>value.courseId===firstPartyPublisher.config.id&&value.fetchMode==='same-origin'&&value.publisherCookiePresent&&!value.courseraCookiePresent&&!value.authorizationPresent));
+  assert.equal(helperRequests.length,firstPartyServiceStart,'First-party recovery does not retry the challenged public CTI image service');
+  assert.equal(publisherRequests.length,firstPartyApiStart,'Retained exact publisher JSON keeps its original observation and is not relabelled as a new API read');
+  const firstPartyNativeReads=requests.slice(firstPartyNativeStart).filter(value=>value.courseId===firstPartyPublisher.config.id);
+  assert(!firstPartyNativeReads.some(value=>value.resource===definitionResource),'Publisher recovery retains exact-version definition observations without redownloading them');
+  assert(firstPartyNativeReads.some(value=>value.resource===groupResource),'Recovery also refreshes mutable native question groups rather than trusting a saved completion label');
+  for(const fp of firstPartyCapture.fingerprints.filter(value=>value.payload.directInlineWidgetProviderEvidence)){
+    const prior=firstPartyOriginalPages.find(value=>value.id===fp.id).payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0],
+      provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0];
+    assert.deepEqual(page.observation,prior.observation,'Original publisher JSON, hashes, receipts and observation dates remain unchanged');
+    assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    for(const resource of page.media.resources){
+      const old=prior.media.resources.find(value=>value.url===resource.url),body=resource.body,receipt=body?.receipt;
+      assert(body?.bytes instanceof Uint8Array);assert.deepEqual(Buffer.from(body.bytes),publisherImages.get(resource.url).body);
+      assert.equal(body.sha256,createHash('sha256').update(publisherImages.get(resource.url).body).digest('hex'));
+      assert.equal(receipt.transport,'FIRST_PARTY_BROWSER');assert.equal(receipt.collectorContext,'PROVIDER_PAGE_BROWSER');
+      assert.equal(receipt.responseType,'basic');assert.equal(receipt.credentials,'same-origin');assert.equal(receipt.mode,'same-origin');
+      assert.equal(receipt.firstPartyBinding.courseId,firstPartyPublisher.config.id);assert.equal(receipt.firstPartyBinding.itemId,fp.id);
+      assert.equal(receipt.firstPartyBinding.atomId,fp.atomId);assert.equal(receipt.firstPartyBinding.providerId,provider.providerId);
+      assert.equal(receipt.firstPartyBinding.targetUrl,page.targetUrl);assert.equal(receipt.firstPartyBinding.sourceSha256,page.observation.model.sha256);
+      assert.match(receipt.firstPartyBinding.planSha256,/^[a-f0-9]{64}$/);assert.match(receipt.firstPartyBinding.sessionId,/^[a-f0-9]{32}$/);
+      assert(resource.priorFailures.some(value=>value.reason===old.reason&&directCanonicalSourceTextV1(value.attempts)===directCanonicalSourceTextV1(old.attempts)),
+        'The actual earlier public-service 403 or deferred read stays separately retained beside the later original body');
+    }
+    const atomReads=firstPartyNativeReads.filter(value=>value.resource==='authoringAtoms.v2'&&value.reference===fp.atomId);
+    assert(atomReads.length>=2,'Fresh native atom reads bracket first-party byte acquisition before archive acceptance');
+    assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);assert.equal(fp.captureContract.complete,false);
+  }
+  for(const prior of firstPartyAssessments){
+    const current=firstPartyCapture.fingerprints.find(fp=>fp.id===prior.id),before=prior.payload.assessmentApiEvidence,after=current.payload.assessmentApiEvidence,
+      exactBefore=new Map(before.questionDefinitions.map(value=>[value.id,value])),exactAfter=new Map(after.questionDefinitions.map(value=>[value.id,value]));
+    assert.deepEqual(current.payload.structuredAssessment.questions,prior.payload.structuredAssessment.questions,
+      'Normalized questions retain their authored order, answers and original definition observation dates');
+    assert.equal(exactAfter.size,exactBefore.size);assert.equal(after.questionDefinitions.length,before.questionDefinitions.length);
+    for(const [id,definition]of exactAfter)assert.deepEqual(definition,exactBefore.get(id));
+    for(const receipt of before.receipts.filter(value=>value.resource===definitionResource))
+      assert.deepEqual(after.receipts.find(value=>value.resource===definitionResource&&value.id===receipt.id),receipt);
+  }
+  assert.equal(evaluateCourseraCapture(firstPartyCapture,firstPartyPublisher.config.id).complete,false);
+  assert.equal(firstPartyTarget.contextDownloads.length,2);assert(firstPartyTarget.contextDownloads.every(value=>value.page===firstPartyTarget.page));
+  assert(!JSON.stringify(firstPartyCapture).includes('publisher-local-only'),'Publisher cookies are not retained or forwarded in evidence');
+  const firstPartyZip=await JSZip.loadAsync(fs.readFileSync(await firstPartyTarget.contextDownloads[1].download.path()),{checkCRC32:true});
+  assert.equal(Object.keys(firstPartyZip.files).filter(name=>/^files\/[a-f0-9]{64}$/.test(name)).length,2,'Original ZIP bytes are deduplicated independently of native placements');
+  await assertNoEditor(firstPartyTarget.page,firstPartyTarget.destinations);await firstPartyTarget.context.close();
+
+  const coopRecovery=await runFileCase(firstPartyPublisherCoop.config),coopBodyStart=firstPartyPublisherRequests.length;
+  await coopRecovery.page.getByRole('button',{name:'Prepare publisher recovery',exact:true}).click();
+  await coopRecovery.page.getByRole('button',{name:'Open publisher recovery',exact:true}).waitFor();
+  const coopPopupEvent=coopRecovery.context.waitForEvent('page');
+  await coopRecovery.page.getByRole('button',{name:'Open publisher recovery',exact:true}).click();
+  const coopPublisher=await coopPopupEvent;
+  await coopPublisher.waitForURL(value=>value.origin===publisherOrigin&&value.hash.includes('cti-publisher-recovery=1'));
+  await coopPublisher.waitForLoadState('domcontentloaded');
+  assert.equal(await coopPublisher.evaluate(()=>window.opener),null,'The synthetic provider COOP response actually severs the browser opener');
+  await launchFirstPartyBookmark(coopPublisher,coopRecovery.context);
+  assert.match(await coopPublisher.locator('#cti-publisher-recovery-panel').innerText(),/could not connect.*No image content is established/s);
+  assert.equal(firstPartyPublisherRequests.length,coopBodyStart);assert.equal(coopRecovery.contextDownloads.length,1);
+  await coopRecovery.context.close();
+
+  const changedRecovery=await runFileCase(firstPartyPublisherChanged.config),
+    changedRecoveryOld=await savedNativeRun(changedRecovery.page,changedRecovery.state.runId),
+    changedRecoveryBodyStart=firstPartyPublisherRequests.length,changedRecoveryNativeStart=requests.length;
+  await changedRecovery.page.getByRole('button',{name:'Prepare publisher recovery',exact:true}).click();
+  await changedRecovery.page.getByRole('button',{name:'Open publisher recovery',exact:true}).waitFor();
+  firstPartyPublisherChanged.config.material.material.elements.push({id:'first_party_changed_outline',name:'Changed outline after frozen recovery plan',
+    elements:[],description:'',learningObjectives:[],timeCommitment:0});
+  const changedRecoveryPopupEvent=changedRecovery.context.waitForEvent('page'),changedRecoveryDownload=changedRecovery.page.waitForEvent('download',{timeout:30000});
+  void changedRecoveryDownload.catch(()=>{});
+  await changedRecovery.page.getByRole('button',{name:'Open publisher recovery',exact:true}).click();
+  const changedRecoveryPopup=await changedRecoveryPopupEvent;
+  await changedRecoveryPopup.waitForURL(value=>value.origin===publisherOrigin&&value.hash.includes('cti-publisher-recovery=1'));
+  await changedRecoveryPopup.waitForLoadState('domcontentloaded');
+  await launchFirstPartyBookmark(changedRecoveryPopup,changedRecovery.context);
+  const changedRecoveryCapture=await readFile(await changedRecoveryDownload),changedRecoveryState=await terminal(changedRecovery.page),
+    changedRecoveryReads=requests.slice(changedRecoveryNativeStart).filter(value=>value.courseId===firstPartyPublisherChanged.config.id);
+  assert.notEqual(changedRecoveryState.runId,changedRecovery.state.runId,'A frozen recovery plan cannot be rebound to a changed native course graph');
+  assert.equal(changedRecoveryState.state,'PAUSED');assert.equal(firstPartyPublisherRequests.length,changedRecoveryBodyStart);
+  assert.equal(changedRecoveryCapture.meta.directDataCapture.stopReason,'PUBLISHER_FIRST_PARTY_MATERIAL_GRAPH_CHANGED');
+  assert.deepEqual(await savedNativeRun(changedRecovery.page,changedRecovery.state.runId),changedRecoveryOld,
+    'A rejected recovery on a new graph preserves the complete prior run with its original source observations and spent budget');
+  assert.equal(changedRecoveryCapture.meta.directDataCapture.stats.requests,changedRecoveryReads.length,
+    'Current discovery requests remain charged to the separate failed run');
+  assert.equal(evaluateCourseraCapture(changedRecoveryCapture,firstPartyPublisherChanged.config.id).complete,false);
+  assert.equal(changedRecovery.contextDownloads.length,2);await changedRecovery.context.close();
   for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
     const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
     assert.equal(result.state.state,'INCOMPLETE');assert.equal(fp.captureContract.complete,false);assert(proof);
@@ -3190,9 +3441,15 @@ try{
     nativeRecheckFetchesNewExactVersionsAndRetainsPriorRawModelsAfterCurrentReadFailure:true,
     nativeRecheckPreservesPublishedAndExternalUncertaintyAndSeparateFreshRunBudgets:true,
     abortedNativeRecheckWithdrawsUnvisitedCompletionAcrossIndexedDbReloadAndOrdinaryResume:true,
+    runningPartialExportKeepsFullInventoryAndOriginalBytesWithoutCheckpointMutation:true,
+    partialSnapshotResumesNativeReadsAndPreservesExactlyOneAutomaticFinalArchive:true,
     publisherServiceImagesUseAuthenticatedHelperAndBoundedPublicBytesWithoutCorsForgery:true,
     publisherChallengeStopsSameOriginServiceReadsWithoutInventingSkippedHttpResults:true,
     publisherChallengeContextSurvivesZipAndReportWhileExplicitResumeRetriesOriginals:true,
+    sameUniversalBookmarkRecoversExactPublisherOriginalsThroughExplicitFirstPartyPopup:true,
+    firstPartyCookiesStayLocalWhileOriginalHashesNativeBindingsFailureHistoryAndQuestionDatesSurviveZip:true,
+    publisherCoopSeveredOpenerRemainsAnExplicitUncapturedRecoveryFailure:true,
+    changedNativeGraphRejectsFrozenPublisherRecoveryBeforeBytesAndPreservesOldRun:true,
     foreignSameOriginWindowCannotForgeProviderResult:true,cancelClosesHelperAndPreservesNativeAndHistoricalBytes:true,
     accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,

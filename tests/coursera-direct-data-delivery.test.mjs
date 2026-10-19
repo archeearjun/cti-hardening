@@ -42,11 +42,11 @@ test("the universal bookmark carries the parser-formatted current program while 
     "The bookmark is the parser-formatted copy of the same linked source.",
   );
   assert(courseraDirectDataBookmarkSource.length < courseraDirectDataSource.length);
-  assert(address.length < 425 * 1024, "Parser formatting retains at least 75 KiB headroom below the unchanged 500 KiB browser limit.");
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.8.9");
+  assert(address.length < 499 * 1024, "Native models and guided recovery retain at least 1 KiB headroom below the unchanged 500 KiB browser limit.");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.9.0");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.8.9-native-recheck-and-owner-handoff-20261019",
+    "v1.9.0-native-fidelity-and-publisher-recovery-20261019",
   );
   assert.deepEqual(CTI_RELEASE_REGISTRY_.directDataCourseraExtractor, {
     version: "v" + COURSERA_DIRECT_DATA_CAPTURE_VERSION,

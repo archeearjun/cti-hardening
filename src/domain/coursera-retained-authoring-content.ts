@@ -384,22 +384,25 @@ export function retainedCourseraAuthoringText(
     "ADDITIONAL RETAINED AUTHORING CONTENT",
     "These native definitions and instructions are separate from normalized question counts. Keys, complete assessment coverage and learner behavior are not established by this view.",
     `Course ${content.courseId} | item ${content.itemId} | authoring atom ${content.atomId} | draft SHA-256 ${content.draftHash}`,
-    ...content.blocks.flatMap((block) => [
+    ...content.blocks.flatMap((block) => {
+      const fields = retainedAuthoringFields(block);
+      return [
       `${block.kind === "TEXT_BLOCK" ? "Instruction block" : "Native definition"} at part ${block.ordinal} | ${block.nativeType} | ${block.nativeId}`,
       ...(block.title ? [block.title] : []),
       ...(block.prompt ? [block.prompt] : []),
-      ...(() => {
-        const fields = retainedAuthoringFields(block);
-        return fields ? [retainedAuthoringFieldsText(fields)] : [];
-      })(),
+      ...(fields ? [retainedAuthoringFieldsText(fields)] : []),
       ...block.options.map(
-        (option) =>
-          `Authored option ${option.id}: ${option.text || "[no supported display text]"}`,
+        (option, index) =>
+          `Authored option ${option.id}: ${fields?.sourceDefect
+            ? fields.options[index]?.display.status === "EXPLICIT_EMPTY_SOURCE"
+              ? "[Explicitly empty in captured source]"
+              : fields.options[index]?.display.value || "[no supported display text]"
+            : option.text || "[no supported display text]"}`,
       ),
       `CML format: ${block.formatStatus} | native ready-for-publish flag: ${block.nativeValidation}`,
       `Original native model SHA-256: ${block.originalModelSha256}`,
       "Literal original native model:",
       block.originalModelJson,
-    ]),
+    ]; }),
   ].join("\n");
 }

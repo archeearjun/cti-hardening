@@ -11,7 +11,8 @@ import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directInlineWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
 import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
   directInlineWidgetEvidenceV1, directReceiptSourceValidV1, directAssessmentQuestionProjectionV1,
-  directAssessmentContractV1 as nativeAssessmentContract, parseCourseraCheckboxDefinitionDirectV1,
+  directAssessmentContractV1 as nativeAssessmentContract, parseCourseraCheckboxDefinitionDirectV1, parseCourseraTextExactMatchDefinitionDirectV1,
+  parseCourseraReflectionDefinitionDirectV1, directInstructionAssessmentModelV1,
   directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
 import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource,
   directDraftAssessmentInventoryV1 as nativeAssessmentInventory } from "../src/extractors/coursera/direct-data-models.js";
@@ -34,6 +35,9 @@ import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
 import { directPanoptoRequestFormV1 } from "../src/extractors/coursera/direct-data-panopto-contracts.js";
 import { panoptoDeliveryFixture } from "./panopto-delivery-fixtures.mjs";
 import { widgetFixture } from "./coursera-direct-widget-fixtures.mjs";
+import { directPublisherFirstPartyPlanV1, directPublisherFirstPartyPlanHashV1,
+  directPublisherFirstPartyContextV1, createDirectPublisherFirstPartyV1 as nativeFirstPartyHelper,
+  runDirectPublisherFirstPartyV1 } from "../src/extractors/coursera/direct-data-publisher-first-party.js";
 import { directProviderAccessDiagnosticV1, directProviderAccessDiagnosticTextV1 } from "../src/extractors/coursera/direct-data-provider-diagnostic.js";
 import { CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1, directMaterialStabilityModelV1 } from "../src/extractors/coursera/direct-data-material-stability.js";
 import ts from "typescript";
@@ -489,6 +493,9 @@ function harness(options = {}) {
     clearTimeout() {},
     createDirectDataCheckpointStoreV1: async () => { metrics.storeOpens++; return store; },
     createDirectDataReaderV1: createReader,
+    directPublisherFirstPartyPlanV1, directPublisherFirstPartyPlanHashV1, directPublisherFirstPartyContextV1,
+    runDirectPublisherFirstPartyV1,
+    createDirectPublisherFirstPartyV1: settings => options.firstPartyFactory ? options.firstPartyFactory(settings) : nativeFirstPartyHelper(settings),
     createDirectProviderHelperV1: (settings) => {
       metrics.helperOpens.push({courseId: settings.courseId, storeOpens: metrics.storeOpens});
       return {ready: async () => {}, request: async () => {throw Error("UNEXPECTED_HELPER_REQUEST");},
@@ -570,6 +577,9 @@ function harness(options = {}) {
     },
     directAssessmentContractV1: (...args) => options.nativeAssessment ? nativeAssessmentContract(...args) : options.assessmentInventory && contract(args[0], "DIRECT_ASSESSMENT", true),
     parseCourseraCheckboxDefinitionDirectV1,
+    parseCourseraTextExactMatchDefinitionDirectV1,
+    parseCourseraReflectionDefinitionDirectV1,
+    directInstructionAssessmentModelV1,
     directCmlTextV1: options.nativeCml ? parseNativeCml : options.parseCml || (() => undefined),
     parseCourseraMcqDefinitionV61524,
     assessmentCaptureCoverageV613,
@@ -2452,6 +2462,141 @@ test("asynchronous export blocks Resume and captures one stable run snapshot", a
   );
 });
 
+test("a running partial export freezes committed items, resumes acquisition during packing, and preserves the automatic final export", async () => {
+  const firstRead = deferred(), secondRead = deferred(), packing = deferred();
+  let firstStarted = false, secondStarted = false, packingStarted = false, archives = 0;
+  const fixture = readingMediaOptions();
+  fixture.options.beforeRead = async ({ resource, id }) => {
+    if (resource !== "atom") return;
+    if (id === "Atom_ReadingA" && !firstStarted) { firstStarted = true; await firstRead.promise; }
+    if (id === "Atom_ReadingB" && !secondStarted) { secondStarted = true; await secondRead.promise; }
+  };
+  const app = harness(fixture.options);
+  app.context.createDirectDataArchiveV1 = async entries => {
+    if (++archives === 1) { packingStarted = true; await packing.promise; }
+    return createDirectDataArchiveV1(entries);
+  };
+  app.launch();
+  await until(() => firstStarted, "First native read did not begin");
+  assert.equal(app.button("Download partial capture").disabled, false);
+  const readsBefore = app.metrics.itemReads.length;
+  app.button("Download partial capture").click(); app.state().export();
+  await turn();
+  assert.equal(app.metrics.itemReads.length, readsBefore, "Export must wait for the current item commit");
+  assert(app.nodes.some(node => node.textContent.includes("Waiting for the current item checkpoint")));
+  assert.equal(app.button("Download partial capture").disabled, true);
+  firstRead.resolve();
+  await until(() => packingStarted && secondStarted, "Capture did not resume while partial archive packing waited");
+  const runId = app.state().runId, first = clone(app.items.get(runId + "/ReadingA").fingerprint);
+  assert.equal(app.items.has(runId + "/ReadingB"), false);
+  assert.equal(app.runs.get(runId).captureMeta.directDataCapture.partialExport, undefined);
+  assert.equal(app.state().result, null, "Partial download must not publish a live final result");
+  secondRead.resolve();
+  await until(() => !app.state().running, "Native capture did not finish while the partial archive packed");
+  assert.equal(app.state().exporting, true); assert.equal(archives, 1); assert.equal(app.downloads.length, 0);
+  assert(!app.metrics.saves.some(save => save.captureMeta?.directDataCapture?.partialExport));
+  packing.resolve(); await app.idle();
+  assert.equal(app.downloads.length, 2, "One explicit partial request must not suppress or duplicate the final automatic download");
+  const partial = await exportedCapture(app.downloads[0]), final = await exportedCapture(app.downloads[1]);
+  const proof = partial.capture.meta.directDataCapture;
+  assert(app.downloads[0].name.includes("__PARTIAL__"));
+  assert.equal(proof.acquisitionComplete, false); assert.equal(proof.wholeCourseVerified, false); assert.equal(proof.sourceStable, false);
+  assert.equal(proof.stopReason, "PROVISIONAL_RUNNING_SNAPSHOT");
+  assert.equal(proof.partialExport.scope, "COMMITTED_ITEM_BOUNDARY"); assert.equal(proof.partialExport.provisional, true);
+  assert.equal(proof.partialExport.stateAtSnapshot, "RUNNING");
+  assert.equal(proof.coverage.content.verified, 1); assert.equal(proof.coverage.inventory.read, 1);
+  assert.deepEqual(partial.capture.fingerprints.map(fp => fp.id), ["ReadingA", "ReadingB"]);
+  assert.deepEqual(partial.capture.fingerprints[0], first, "The snapshot preserves the full committed original and its observation dates");
+  assert.equal(partial.capture.fingerprints[1].captureContract.complete, false);
+  assert.equal(partial.capture.fingerprints[1].payload.reading, undefined);
+  const path = "files/" + mediaSha("old-body");
+  assert.deepEqual(await partial.zip.file(path).async("nodebuffer"), bytesForMediaLabel("old-body"));
+  assert.equal(final.capture.meta.directDataCapture.partialExport, undefined);
+  assert.equal(final.capture.meta.directDataCapture.wholeCourseVerified, true);
+  assert.equal(final.capture.meta.directDataCapture.coverage.content.verified, 2);
+  for (const id of ["Atom_ReadingA", "Atom_ReadingB"])
+    assert.equal(app.calls.filter(call => call.resource === "atom" && call.id === id).length, 2, "Export adds no source reads");
+  assert.equal(app.calls.filter(call => call.resource === "materials").length, 2);
+  assert(!app.metrics.saves.some(save => save.state === "PAUSED"));
+});
+
+test("a queued partial download is flushed after operator pause without changing the saved pause or triggering a final download", async () => {
+  const held = deferred(); let started = false;
+  const app = harness({ beforeRead: async ({ resource }) => {
+    if (resource === "atom" && !started) { started = true; await held.promise; }
+  } });
+  app.launch(); await until(() => started, "Native read did not begin");
+  app.state().export(); app.state().stop(); held.resolve(); await app.idle();
+  assert.equal(app.state().state, "PAUSED"); assert.equal(app.downloads.length, 1);
+  const capture = (await exportedCapture(app.downloads[0])).capture;
+  assert.equal(capture.meta.directDataCapture.partialExport.provisional, true);
+  assert.equal(capture.meta.directDataCapture.partialExport.stateAtSnapshot, "OPERATOR_PAUSED");
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified, false);
+  assert.equal(app.runs.get(app.state().runId).captureMeta.directDataCapture.partialExport, undefined);
+  assert(capture.fingerprints.every(fp => fp.captureContract.complete === false));
+});
+
+test("a partial native recheck retains unvisited historical originals with withdrawn current proof", async () => {
+  const app = harness(); app.launch(); await app.idle();
+  const runId = app.state().runId, old = clone(app.items.get(runId + "/ReadingB").fingerprint),
+    result = clone(app.state().result), heldFirst = deferred(), heldSecond = deferred();
+  let first = false, second = false;
+  app.control.beforeRead = async ({ resource, id }) => {
+    if (resource === "atom" && id === "Atom_ReadingA" && !first) { first = true; await heldFirst.promise; }
+    if (resource === "atom" && id === "Atom_ReadingB" && !second) { second = true; await heldSecond.promise; }
+  };
+  app.advance(1000); app.state().recheckNative(); await until(() => first, "Recheck did not begin");
+  app.state().export(); heldFirst.resolve();
+  await until(() => second && app.downloads.length === 2, "Partial recheck did not download while later reads waited");
+  const snapshot = (await exportedCapture(app.downloads[1])).capture,
+    unread = snapshot.fingerprints.find(fp => fp.id === "ReadingB");
+  assert.equal(snapshot.meta.directDataCapture.coverage.content.verified, 1);
+  assert.equal(snapshot.meta.directDataCapture.acquisitionComplete, false);
+  assert.equal(unread.captureContract.complete, false);
+  assert.equal(unread.payload.directResumeRevalidation.reason, "DIRECT_NATIVE_RECHECK_NOT_READ");
+  assert.deepEqual(unread.payload.directDataSources, old.payload.directDataSources);
+  assert.equal(unread.payload.reading, old.payload.reading);
+  assert.deepEqual(clone(app.state().result), result, "A partial export does not replace the earlier final-result object");
+  assert.equal(app.runs.get(runId).captureMeta.directDataCapture.partialExport, undefined);
+  heldSecond.resolve(); await app.idle();
+  assert.equal(app.downloads.length, 3);
+  assert.equal((await exportedCapture(app.downloads[2])).capture.meta.directDataCapture.wholeCourseVerified, true);
+});
+
+test("a pending partial export is flushed after a terminal native read failure and does not suppress the final failure archive", async () => {
+  const held = deferred(); let started = false;
+  const app = harness({ beforeRead: async ({ resource }, { abort }) => {
+    if (resource === "atom" && !started) {
+      started = true; await held.promise; abort("COURSE_API_REQUEST_LIMIT"); return "COURSE_API_REQUEST_LIMIT";
+    }
+  } });
+  app.launch(); await until(() => started, "Native read did not begin");
+  app.state().export(); held.resolve(); await app.idle();
+  assert.equal(app.state().state, "INCOMPLETE"); assert.equal(app.downloads.length, 2);
+  const provisional = (await exportedCapture(app.downloads[0])).capture,
+    final = (await exportedCapture(app.downloads[1])).capture;
+  assert.equal(provisional.meta.directDataCapture.stopReason, "PROVISIONAL_RUNNING_SNAPSHOT");
+  assert.equal(final.meta.directDataCapture.stopReason, "COURSE_API_REQUEST_LIMIT");
+  assert.equal(final.meta.directDataCapture.wholeCourseVerified, false);
+  assert.equal(final.meta.directDataCapture.partialExport, undefined);
+});
+
+test("a failed partial archive leaves capture running and does not prevent its final automatic export", async () => {
+  const held = deferred(); let started = false, archives = 0;
+  const app = harness({ beforeRead: async ({ resource }) => {
+    if (resource === "atom" && !started) { started = true; await held.promise; }
+  } });
+  app.context.createDirectDataArchiveV1 = async entries => {
+    if (++archives === 1) throw Error("DIRECT_ARCHIVE_SOURCE_READ_FAILED");
+    return createDirectDataArchiveV1(entries);
+  };
+  app.launch(); await until(() => started, "Native read did not begin");
+  app.state().export(); held.resolve(); await app.idle();
+  assert.equal(archives, 2); assert.equal(app.downloads.length, 1); assert.equal(app.state().state, "COMPLETE");
+  assert.equal((await exportedCapture(app.downloads[0])).capture.meta.directDataCapture.wholeCourseVerified, true);
+  assert(!app.metrics.saves.some(save => save.captureMeta?.directDataCapture?.partialExport));
+});
+
 test("a prior global from another course does not hijack this bookmark's capture", async () => {
   const app = harness();
   let resumed = 0,
@@ -3025,3 +3170,5 @@ test("a stopped provider-only diagnostic can be checked again without starting c
   assert.equal(app.metrics.writes.length + app.metrics.bodyWrites.length + app.metrics.saves.length, 0);
   assert.equal(app.downloads.length, 0);
 });
+
+export { harness, publisherEntryFixture, useNativeCml, exportedCapture, until };

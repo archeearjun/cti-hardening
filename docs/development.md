@@ -79,6 +79,9 @@ Bounded source-ordered publisher-image prefetch is covered by
 The complete proposed-only agent packet, purpose-specific readiness, manual
 title capture plan and explicit all-item native recheck are described in
 [the v1.8.9 audit](audits/owner-evidence-handoff-native-recheck-2026-10-19.md).
+Strict empty drafts, literal exact-text answers, unkeyed reflections,
+instruction-only items, running snapshots and guided publisher recovery are
+described in [the v1.9.0 audit](audits/native-models-and-first-party-publisher-recovery-2026-10-19.md).
 `server/publisher-image-provider.ts` owns the single bounded public GET; both
 helper ends, the original-media reader and archive intake retain independent
 protocol, byte and native-source checks. This route never receives publisher

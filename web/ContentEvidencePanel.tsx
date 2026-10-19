@@ -74,6 +74,25 @@ function PublisherOriginalReferences({ media }: { media: InlineWidgetPublisherMe
       <p className="hint">Browser attempt: response unreadable; HTTP status unavailable. {resource.acquisition.browserAttempt.reason}</p>
       <p className="hint">Transport records describe the collection route; authentication and independent attestation are unverified.</p>
     </>}
+    {resource.firstPartyAcquisition && <>
+      <p className="hint">Acquisition: publisher-page browser read · same-origin response</p>
+      <p className="hint">Provider response observed: {resource.firstPartyAcquisition.responseObservedAt}. Original bytes retained: {resource.observedAt}.</p>
+      <p className="captured-text">Frozen recovery plan SHA-256: {resource.firstPartyAcquisition.planSha256}</p>
+      <p className="hint">The same bookmark read this original in the publisher tab. Cookies stayed in that tab. This collection record does not establish login, playback or complete widget content.</p>
+    </>}
+    {resource.firstPartyAttempt && <>
+      <p className="hint">Publisher-page browser attempt: {resource.firstPartyAttempt.requestAttempted
+        ? resource.firstPartyAttempt.status ? `HTTP ${resource.firstPartyAttempt.status}` : "HTTP status unavailable"
+        : "request not attempted"}. {resource.firstPartyAttempt.reason}</p>
+      <p className="hint">Attempted: {resource.firstPartyAttempt.attemptedAt} · observed body bytes: {resource.firstPartyAttempt.observedBytes.toLocaleString()}</p>
+      {resource.firstPartyAttempt.challenge === "cloudflare" && <p className="hint">The publisher requested a normal site check. This session stopped without solving or retrying that challenge.</p>}
+    </>}
+    {!!resource.priorFailures?.length && <details>
+      <summary>{resource.priorFailures.length} earlier image read outcomes retained</summary>
+      {resource.priorFailures.map((earlier, priorIndex) => <p className="hint" key={priorIndex}>{earlier.reason}
+        {earlier.firstPartyAttempt?.status ? ` · observed HTTP ${earlier.firstPartyAttempt.status}` : ""}
+        {earlier.firstPartyAttempt?.observedAt ? ` · ${earlier.firstPartyAttempt.observedAt}` : ""}</p>)}
+    </details>}
     {resource.attempts && <>
       <p className="hint">Browser image attempt: response unreadable; HTTP status unavailable. {resource.attempts[0].reason}</p>
       {resource.attempts[1].notAttempted === "ORIGIN_CHALLENGE" ? <>
@@ -431,7 +450,7 @@ function Evidence({
                   {block.options.map((option, index) => <li key={index}><strong>{option.id}: </strong>{option.text || "No supported display text; inspect the literal native model below."}</li>)}
                   </ul>}
                 </>}
-                <p className="hint">{block.formatStatus === "KNOWN_CML" ? "Authored text projected from known CML." : "CML format is unsupported. Inspect the literal original; no text or choices have been invented."} Native ready-for-publish flag: {block.nativeValidation === "READY" ? "true" : block.nativeValidation === "NOT_READY" ? "false" : "unrecorded"}.</p>
+                <p className="hint">{fields?.sourceDefect ? "The captured source contains explicitly empty choices. Their original CML and source IDs are retained; usable answer text is unverified." : block.formatStatus === "KNOWN_CML" ? "Authored text projected from known CML." : "CML format is unsupported. Inspect the literal original; no text or choices have been invented."} Native ready-for-publish flag: {block.nativeValidation === "READY" ? "true" : block.nativeValidation === "NOT_READY" ? "false" : "unrecorded"}.</p>
                 <p className="hint">Native identity: {block.nativeId}<br />Original model SHA-256: {block.originalModelSha256}</p>
                 <details><summary>Literal retained native model</summary><pre className="captured-text">{block.originalModelJson}</pre></details>
               </details>

@@ -1981,3 +1981,288 @@ test("zero-count flags cannot conceal source parts, lost settings, failed reads 
     );
   }
 });
+
+function observedEmptyAssignmentCapture(
+  typeName = "ungradedAssignment",
+  optionalFields = [],
+) {
+  const capture = directEmptyAssessmentCapture(),
+    item = capture.fingerprints[0],
+    payload = item.payload,
+    draft = structuredClone(payload.directDataSources.atom.elements[0].draft),
+    definition = draft.content.definition;
+  item.typeName = typeName;
+  definition.configuration = {
+    isGraded: typeName !== "ungradedAssignment",
+    gradeSelectionStrategy: "KEEP_LATEST",
+    learnerSubmissionVisibility: "VISIBLE",
+    isTeamSubmissionEnabled: false,
+    attemptConfiguration: { submissionLimitForEachAttempt: 1 },
+    learnerFeedbackVisibility: "FULL",
+    showGradeOnGradeRelease: true,
+    integrityCheckConfigurationStatus: "DISABLED",
+    assignmentType: "STANDARD",
+  };
+  definition.passingFraction = 0;
+  for (const key of ["introduction", "reviewCriteria"])
+    if (!optionalFields.includes(key)) delete definition[key];
+  replaceDirectFixtureDraft(capture, draft);
+  for (const key of [
+    "configuration",
+    "introduction",
+    "reviewCriteria",
+    "passingFraction",
+    "assignmentLevelRubrics",
+  ])
+    for (const projection of [
+      payload.directAssessmentInventory,
+      payload.structuredAssessment,
+    ]) {
+      if (Object.hasOwn(definition, key))
+        projection[key] = structuredClone(definition[key]);
+      else delete projection[key];
+    }
+  return attachMaterials(capture, {
+    id: item.id,
+    originalName: "Explicitly empty native assignment",
+    atomId: item.atomId,
+    contentId: item.contentId,
+    content: { typeName, definition: { assignmentId: "z".repeat(22) + "@3" } },
+    elements: [],
+  });
+}
+
+test("the independent importer accepts exact empty assignment aliases with absent or present optional CML", () => {
+  for (const typeName of [
+    "staffGraded",
+    "gradedAssignment",
+    "ungradedAssignment",
+  ])
+    for (const optionalFields of [
+      [],
+      ["introduction"],
+      ["reviewCriteria"],
+      ["introduction", "reviewCriteria"],
+    ]) {
+      const capture = observedEmptyAssignmentCapture(typeName, optionalFields),
+        item = capture.fingerprints[0],
+        before = JSON.stringify(capture),
+        verdict = evaluateCourseraCapture(capture, directCourseId);
+      assert.equal(
+        verdict.complete,
+        true,
+        `${typeName}: ${optionalFields.join(",")}: ${verdict.reasons.join("\n")}`,
+      );
+      assert.equal(
+        item.payload.explicitEmptyAssessmentEvidence.answerKeyApplicable,
+        false,
+      );
+      assert.deepEqual(item.payload.structuredAssessment.questions, []);
+      for (const key of ["introduction", "reviewCriteria"])
+        assert.equal(
+          Object.hasOwn(item.payload.structuredAssessment, key),
+          optionalFields.includes(key),
+        );
+      assert.equal(
+        item.payload.directDataEvidence.sourceState,
+        "AUTHORING_DRAFT",
+      );
+      assert.equal(
+        JSON.stringify(capture),
+        before,
+        "Import validation must not normalize or fabricate source content",
+      );
+    }
+});
+
+test("empty assignment import independently rejects ignored content, invented optionals, metadata loss and invalid native scope", () => {
+  const cases = [
+    [
+      "missing parts",
+      (capture, d) => {
+        delete d.parts;
+      },
+    ],
+    [
+      "null parts",
+      (capture, d) => {
+        d.parts = null;
+      },
+    ],
+    [
+      "ignored definition questions",
+      (capture, d) => {
+        d.questions = [{ prompt: "Hidden native question" }];
+      },
+    ],
+    [
+      "unknown source body field",
+      (capture, d) => {
+        d.instructionsHtml = "Uncaptured instructions";
+      },
+    ],
+    [
+      "null introduction",
+      (capture, d, p) => {
+        d.introduction = null;
+        p.structuredAssessment.introduction = null;
+        p.directAssessmentInventory.introduction = null;
+      },
+    ],
+    [
+      "null review criteria",
+      (capture, d, p) => {
+        d.reviewCriteria = null;
+        p.structuredAssessment.reviewCriteria = null;
+        p.directAssessmentInventory.reviewCriteria = null;
+      },
+    ],
+    [
+      "invented absent introduction",
+      (capture, d, p) => {
+        p.structuredAssessment.introduction = {
+          typeName: "cml",
+          definition: {
+            dtdId: "assess/1",
+            value: "<co-content><text>Invented</text></co-content>",
+          },
+        };
+      },
+    ],
+    [
+      "invented absent inventory criteria",
+      (capture, d, p) => {
+        p.directAssessmentInventory.reviewCriteria = {
+          typeName: "cml",
+          definition: {
+            dtdId: "assess/1",
+            value: "<co-content><text>Invented</text></co-content>",
+          },
+        };
+      },
+    ],
+    [
+      "lost configuration",
+      (capture, d, p) => {
+        delete p.structuredAssessment.configuration;
+      },
+    ],
+    [
+      "lost nested setting",
+      (capture, d, p) => {
+        delete p.structuredAssessment.configuration.attemptConfiguration;
+      },
+    ],
+    [
+      "lost false-valued setting",
+      (capture, d, p) => {
+        delete p.directAssessmentInventory.configuration
+          .isTeamSubmissionEnabled;
+      },
+    ],
+    [
+      "lost zero passing fraction",
+      (capture, d, p) => {
+        delete p.structuredAssessment.passingFraction;
+      },
+    ],
+    [
+      "hidden rubric",
+      (capture, d, p) => {
+        d.assignmentLevelRubrics = [{ criteria: "Uncaptured" }];
+        p.structuredAssessment.assignmentLevelRubrics = structuredClone(
+          d.assignmentLevelRubrics,
+        );
+        p.directAssessmentInventory.assignmentLevelRubrics = structuredClone(
+          d.assignmentLevelRubrics,
+        );
+      },
+    ],
+    [
+      "introduction media",
+      (capture, d, p) => {
+        d.introduction = {
+          typeName: "cml",
+          definition: {
+            dtdId: "assess/1",
+            value:
+              '<co-content><img src="https://example.test/not-retained.png"/></co-content>',
+          },
+        };
+        p.structuredAssessment.introduction = structuredClone(d.introduction);
+        p.directAssessmentInventory.introduction = structuredClone(
+          d.introduction,
+        );
+      },
+    ],
+    [
+      "wrong explicit empty scope",
+      (capture, d, p) => {
+        p.explicitEmptyAssessmentEvidence.itemId = "foreign-item";
+      },
+    ],
+    [
+      "failed current recheck",
+      (capture, d, p) => {
+        p.directResumeRevalidation = { verified: false };
+      },
+    ],
+  ];
+  for (const [name, mutate] of cases) {
+    const capture = observedEmptyAssignmentCapture(),
+      payload = capture.fingerprints[0].payload,
+      draft = structuredClone(payload.directDataSources.atom.elements[0].draft);
+    mutate(capture, draft.content.definition, payload);
+    // Recompute exact hashes for coordinated sources: importer rejection must
+    // follow native model/projection checks rather than an accidental old hash.
+    replaceDirectFixtureDraft(capture, draft);
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(verdict.complete, false, name);
+    assert.match(
+      verdict.reasons.join("\n"),
+      /DIRECT_DRAFT_(?:EMPTY_ASSESSMENT_SOURCE|SOURCE_BINDING)_INVALID/,
+      name,
+    );
+  }
+  for (const mode of [
+    "publishedAtom",
+    "changedFinalSource",
+    "foreignRelation",
+    "wrongMaterialType",
+    "mismatchedKnownAlias",
+    "unknownFingerprintAlias",
+  ]) {
+    const capture = observedEmptyAssignmentCapture(),
+      item = capture.fingerprints[0],
+      payload = item.payload;
+    if (mode === "publishedAtom") {
+      payload.directDataSources.atom.elements[0].status.typeName =
+        "publishedAtomStatus";
+      payload.directDataSources.receipts.stability.atom.elements[0].status.typeName =
+        "publishedAtomStatus";
+    }
+    if (mode === "changedFinalSource")
+      payload.directDataSources.receipts.stability.atom.elements[0].draft.content.definition.configuration.isGraded = true;
+    if (mode === "foreignRelation")
+      payload.directDataSources.relation.elements[0].branchRelationMap[
+        directCourseId + "~" + item.id
+      ].itemId = "foreign";
+    if (mode === "unknownFingerprintAlias") item.typeName = "futureAssignment";
+    if (["wrongMaterialType", "mismatchedKnownAlias"].includes(mode)) {
+      const leaf = structuredClone(
+        capture.meta.directDataCapture.materials.elements[0].material
+          .elements[0].elements[0],
+      );
+      leaf.content.typeName =
+        mode === "wrongMaterialType" ? "supplement" : "gradedAssignment";
+      attachMaterials(capture, leaf);
+    }
+    const verdict = evaluateCourseraCapture(capture, directCourseId);
+    assert.equal(verdict.complete, false, mode);
+    assert.match(
+      verdict.reasons.join("\n"),
+      /DIRECT_DRAFT_(?:EMPTY_ASSESSMENT_SOURCE|SOURCE_BINDING)_INVALID/,
+      mode,
+    );
+  }
+});

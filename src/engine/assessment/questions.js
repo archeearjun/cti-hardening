@@ -2,6 +2,52 @@
 import { qaCanonicalMathTextV8_ } from "../hardening.js";
 import { qaCleanText_, qaJaccard_ } from "../matching/text.js";
 import { ctiGuardOptionEvidence_ } from "./answers.js";
+import { inspectDirectNativeGrading } from "./native-grading.js";
+import { directReflectionAssessmentContractV1 } from "../../extractors/coursera/direct-data-contracts.js";
+import { bindDirectAuthoringDraftV1 } from "../../extractors/coursera/direct-data-models.js";
+import { directCanonicalSourceTextV1 } from "../../extractors/coursera/direct-data-canonical.js";
+
+/** Rebind the complete native source before treating missing keys as authored
+ * reflection semantics. A question-level false flag is only a recorded claim.
+ * Replay on a bounded item clone; validation must not rewrite raw evidence. */
+export function qaNativeReflectionEvidence_(item, expectedCourseId) {
+    try {
+        var payload = item && item.payload, assessment = payload && payload.structuredAssessment;
+        var contract = item && (item.captureContract || payload && payload.captureContract);
+        if (!payload || !assessment || typeof expectedCourseId !== 'string' || !expectedCourseId ||
+            item.typeName !== 'ungradedAssignment' || !contract || contract.complete !== true ||
+            contract.status !== 'COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT' ||
+            !Array.isArray(assessment.questions) || !assessment.questions.length || assessment.questions.length > 5000 ||
+            item.captureContract && payload.captureContract &&
+                directCanonicalSourceTextV1(item.captureContract)!==directCanonicalSourceTextV1(payload.captureContract))
+            return null;
+        var grading = inspectDirectNativeGrading(item, expectedCourseId);
+        if (!grading || grading.projectionConflict || grading.observation.graded !== false) return null;
+        var claimed = payload.directReflectionAssessmentEvidence;
+        if (!claimed || claimed.method !== 'BOUND_NATIVE_UNGRADED_REFLECTION_DEFINITIONS' ||
+            claimed.courseId !== expectedCourseId || claimed.itemId !== item.id ||
+            claimed.atomId !== item.atomId || claimed.sourceDraftSha256 !== grading.observation.draftHash ||
+            claimed.answerKeyApplicable !== false || claimed.questionCount !== assessment.questions.length)
+            return null;
+        var copy = JSON.parse(JSON.stringify({id:item.id,type:item.type,typeName:item.typeName,
+            atomId:item.atomId,contentId:item.contentId,payload:{
+                directDataSources:payload.directDataSources,directDataEvidence:payload.directDataEvidence,
+                directAssessmentInventory:payload.directAssessmentInventory,assessmentApiEvidence:payload.assessmentApiEvidence,
+                structuredAssessment:assessment,directResumeRevalidation:payload.directResumeRevalidation
+            }}));
+        var sources=copy.payload.directDataSources,relation=sources.relation.elements[0];
+        var branch=relation.branchRelationMap[expectedCourseId+'~'+copy.id];
+        var bound=bindDirectAuthoringDraftV1(copy,expectedCourseId,branch && branch.courseSlug,sources.atom,sources.relation);
+        var verified=directReflectionAssessmentContractV1(copy,copy.payload.structuredAssessment,copy.payload.directAssessmentInventory,bound);
+        // Replaying may withdraw a claim; repaired clone metadata cannot grant
+        // N/A when the original capture proof was missing or contradictory.
+        if (!verified.complete || directCanonicalSourceTextV1(claimed)!==directCanonicalSourceTextV1(copy.payload.directReflectionAssessmentEvidence) ||
+            directCanonicalSourceTextV1(assessment.captureCompleteness)!==directCanonicalSourceTextV1(copy.payload.structuredAssessment.captureCompleteness) ||
+            directCanonicalSourceTextV1(payload.directDataEvidence)!==directCanonicalSourceTextV1(copy.payload.directDataEvidence))
+            return null;
+        return {proof:JSON.parse(JSON.stringify(claimed)),questions:copy.payload.structuredAssessment.questions};
+    } catch (_) { return null; }
+}
 
 export function qaCharNgramCosine_(left, right, n) {
     n = n || 3;
@@ -133,6 +179,13 @@ export function base_qaNormalizeQuestion_(q, index) {
 
 export function qaNormalizeQuestion_(q,index){
   var out=base_qaNormalizeQuestion_(q,index);
+  if(out){
+    q=q||{};
+    if(Object.prototype.hasOwnProperty.call(q,'sourceDefinitionId'))out.sourceDefinitionId=String(q.sourceDefinitionId||'');
+    if(Object.prototype.hasOwnProperty.call(q,'observationMethod'))out.observationMethod=String(q.observationMethod||'');
+    if(Object.prototype.hasOwnProperty.call(q,'answerKeyApplicable'))out.answerKeyApplicable=typeof q.answerKeyApplicable==='boolean'?q.answerKeyApplicable:null;
+    if(Object.prototype.hasOwnProperty.call(q,'answerKeyEvidence'))out.answerKeyEvidence=q.answerKeyEvidence&&typeof q.answerKeyEvidence==='object'?JSON.parse(JSON.stringify(q.answerKeyEvidence)):null;
+  }
   if(out && out.options && out.options.length>=2 && (out.type==='essay'||out.type==='unknown')){
     var correct=out.options.filter(function(o){return o.correct===true;}).length;
     if(correct>0)out.type=correct>1?'multiple-select':'single-select';
