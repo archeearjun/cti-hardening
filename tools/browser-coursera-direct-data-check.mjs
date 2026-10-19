@@ -19,12 +19,14 @@ import {validateProviderAccessDiagnostic,providerAccessDiagnosticText} from '../
 import {createCourseraDirectDataCaptureBookmark,createCourseraDirectDataCaptureScript} from '../src/domain/coursera-direct-data-capture.ts';
 import {encodeJavaScriptBookmarkPayload} from '../src/domain/bookmark-address.js';
 import {bindDirectAuthoringDraftV1} from '../src/extractors/coursera/direct-data-models.js';
+import {bindDirectPublishedDraftSnapshotV1,directPublishedDraftSnapshotInventoryV1,directPublishedDraftSnapshotSourceV1} from '../src/extractors/coursera/direct-data-authoring-snapshot.js';
 import {directInlineWidgetEvidenceV1} from '../src/extractors/coursera/direct-data-contracts.js';
 import {directCanonicalSourceTextV1} from '../src/extractors/coursera/direct-data-canonical.js';
 import {directPublicHtmlEvidenceV1} from '../src/extractors/coursera/direct-data-public-page.js';
 import {directPublisherEvidenceV1,directPublisherChapterV1,directPublisherResourceEvidenceV1,directPublisherResourceV1} from '../src/extractors/coursera/direct-data-publisher.js';
 import {directPublisherMediaInventoryV1,directPublisherMediaEvidenceV1} from '../src/extractors/coursera/direct-data-publisher-media.js';
 import {courseraInlineWidgetContent,courseraInlineWidgetContentText,courseraInlinePublisherResource} from '../src/domain/coursera-inline-widget-content.ts';
+import {courseraAuthoringDraftSnapshot,validateCourseraAuthoringDraftSnapshot,courseraAuthoringDraftSnapshotText} from '../src/domain/coursera-authoring-draft-snapshot.ts';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -121,6 +123,30 @@ function makeCourse(id,mode,large=false){
     elements:[],description:'',learningObjectives:[],timeCommitment:0}));
   config.material={id,courseId:id,conflictMetadata:{version:1,courseBranchVersion:1},
     material:{elements:[{id:'module_main',name:'Module',elements:[{id:'lesson_main',name:'Lesson',trackId:'fixture-track',elements:items}]},...empty]}};
+  return config;
+}
+function makePublishedDraftSnapshotCourse(id,snapshotMode='stable'){
+  const config=makeCourse(id,'complete'),row=[...atoms.values()].find(value=>value.courseId===id&&value.itemId==='item_0000'),
+    material=config.material.material.elements[0].elements[0].elements[0],publishedAssignmentId=material.content.definition.assignmentId.replace('@1','@2');
+  config.snapshotMode=snapshotMode;config.snapshotAtomId=row.atom.id;
+  config.snapshotFirstGroupId=row.atom.id+'~'+row.atom.draft.content.definition.parts[0].definition.id;
+  config.snapshotSecondGroupId=row.atom.id+'~'+row.atom.draft.content.definition.parts[1].definition.id;
+  material.published=true;material.content.definition.assignmentId=snapshotMode==='forged-pointer'?publishedAssignmentId.replace('@2','@3'):publishedAssignmentId;
+  row.atom.status={typeName:'publishedAtomStatus',definition:{}};row.atom.storedAtomVersion=2;
+  row.atom.published.content={typeName:'staffGraded',definition:{assignmentId:publishedAssignmentId,isGraded:false}};
+  row.atom.draft.content.definition.configuration.isGraded=false;
+  row.atom.draft.content.definition.unknownOriginalField={text:'Literal attached draft field 日本語',enabled:false};
+  // This original numeric model is retained without manufacturing an MCQ or
+  // promoting a draft answer to a current published assessment answer.
+  const lastGroup=groups.get(row.atom.id+'~'+row.atom.draft.content.definition.parts.at(-1).definition.id),
+    lastDefinition=definitions.get(lastGroup.value.questions[0]);
+  lastDefinition.value.definition={typeName:'numeric',definition:{prompt:cml('Original numeric draft prompt'),solution:{value:'1/3',tolerance:'0.001'}}};
+  if(snapshotMode.startsWith('shared-definition')){
+    config.snapshotSharedDefinition=true;
+    config.snapshotSharedDefinitionId=groups.get(config.snapshotFirstGroupId).value.questions[0];
+    groups.get(config.snapshotSecondGroupId).value.questions=[config.snapshotSharedDefinitionId];
+    if(snapshotMode==='shared-definition-error')config.snapshotDefinitionErrorId=config.snapshotSharedDefinitionId;
+  }
   return config;
 }
 function makeMediaCourse(id,mode='media-success'){
@@ -281,6 +307,12 @@ for(const row of definitions.values())if(row.courseId===complete.id){
   native.options[0].display.definition.value='<co-content><p>&lt;answer&gt;</p></co-content>';
   native.options[0].feedback.definition.value='<co-content><p>Feedback &lt;code&gt;</p><p>Second paragraph</p></co-content>';
 }
+const publishedDraftSnapshot=makePublishedDraftSnapshotCourse('Direct_published_draft_123');
+const publishedDraftSourceChanged=makePublishedDraftSnapshotCourse('Direct_published_source_changed_123','source-changed');
+const publishedDraftGroupChanged=makePublishedDraftSnapshotCourse('Direct_published_group_changed_123','group-changed');
+const publishedDraftForgedPointer=makePublishedDraftSnapshotCourse('Direct_published_wrong_pointer_123','forged-pointer');
+const publishedDraftSharedDefinition=makePublishedDraftSnapshotCourse('Direct_published_shared_definition_123','shared-definition');
+const publishedDraftSharedError=makePublishedDraftSnapshotCourse('Direct_published_shared_error_123','shared-definition-error');
 const interrupted=makeCourse('Direct_resume_fixture_123','resume');
 const oldCutoff=makeCourse('Direct_old_cutoff_fixture_123','resume');
 const budgetResume=makeCourse('Direct_budget_resume_123','budget-resume');
@@ -705,7 +737,7 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
         window.fixtureCspEvents.push({blockedURI:event.blockedURI,effectiveDirective:event.effectiveDirective,disposition:event.disposition});
       });
       localStorage.setItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_${courseId}','legacy-fixture-sentinel');
-      ${config?.mode==='limited'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:4};':config?.mode==='budget-resume'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:40};':''}
+      ${config?.snapshotSharedDefinition?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={concurrentRequests:1};':config?.mode==='limited'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:4};':config?.mode==='budget-resume'?'window.__CTI_COURSERA_DIRECT_DATA_LIMITS__={requests:40};':''}
     </script>${config?.directReaderCase?'<script src="/fixture-direct-provider-reader.js"></script>':''}`);return;
   }
   const [, ,resource,...tail]=url.pathname.split('/'),reference=resource===providerResource?url.searchParams.get('widgetSessionProviderId'):resource==='assets.v1'?url.searchParams.get('ids'):
@@ -761,14 +793,22 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       response.statusCode=503;response.end('{"error":"final atom consistency read interrupted"}');return;
     }
     if(config.mode==='changed'&&count>1){value.storedAtomVersion=2;value.metadata.updatedAt=2000;}
+    if(config.snapshotMode==='source-changed'&&reference===config.snapshotAtomId&&count>1){
+      value.published.content.definition.assignmentId=value.published.content.definition.assignmentId.replace('@2','@3');
+      value.storedAtomVersion=3;value.metadata.updatedAt=2000;
+    }
   }else if(resource==='authoringItemContentRelations.v1')value=structuredClone(binding.relation);
   else if(resource===groupResource){
     value=structuredClone(groups.get(reference)?.value);
     const count=(config.groupGets.get(reference)||0)+1;config.groupGets.set(reference,count);
     if(config.mode==='group-changed'&&count>1&&value)value.scoringWeight=2;
+    if(config.snapshotMode==='group-changed'&&reference===config.snapshotFirstGroupId&&count>1&&value)value.scoringWeight=2;
   }
   else if(resource===definitionResource){
     if(/%40/i.test(url.pathname)){response.statusCode=404;response.end('{"error":"literal version delimiter required"}');return;}
+    if(config.snapshotDefinitionErrorId===reference||config.snapshotAllDefinitionsFail&&binding.itemId==='item_0000'){
+      response.statusCode=404;response.end('{"error":"current attached draft definition not available"}');return;
+    }
     // Leave later reads in flight until the operator stops. Request arrival
     // alone does not establish that an earlier response reached IndexedDB.
     const pause=config.pauseFixture;
@@ -1046,6 +1086,211 @@ try{
     assert.equal(fp.payload.structuredAssessment.reviewCriteria.definition.value,'<co-content><p>Synthetic review criteria</p></co-content>');
   }
   await success.context.close();
+
+  const sourceDigest=value=>createHash('sha256').update(directCanonicalSourceTextV1(value)).digest('hex');
+  function fixtureNativeObservation(model){
+    const value=structuredClone(model);delete value.writeAccessToken;
+    if(value.nested)delete value.nested.accessToken;
+    return{elements:[value],paging:{},linked:{}};
+  }
+  function assertPublishedDraftSnapshot(config,capture,start){
+    const fp=capture.fingerprints.find(item=>item.id==='item_0000'),snapshot=fp.payload.directAuthoringDraftSnapshot,
+      original=atoms.get(config.snapshotAtomId),native=requests.slice(start).filter(request=>request.courseId===config.id),
+      own=request=>request.reference===fp.atomId||request.reference?.startsWith(fp.atomId+'~');
+    assert.equal(fp.captureContract.complete,false);assert.equal(evaluateCourseraCapture(capture,config.id).complete,false);
+    assert.equal(fp.payload.structuredAssessment,undefined,'An attached draft never becomes the current published assessment');
+    assert.equal(fp.payload.assessmentApiEvidence,undefined,'Supplemental draft definitions do not enter the primary assessment evidence');
+    assert.equal(capture.meta.directDataCapture.coverage.questions,1,'Only the separate current-draft quiz supplies primary question occurrences');
+    assert.equal(capture.meta.directDataCapture.coverage.assessments.verified,1);
+    assert.equal(fp.payload.directDataSources.atom.elements[0].status.typeName,'publishedAtomStatus');
+    if(config.snapshotMode==='forged-pointer'){
+      assert.equal(snapshot,undefined);assert.equal(courseraAuthoringDraftSnapshot(fp,config.id),null);
+      assert.equal(native.filter(request=>own(request)&&[groupResource,definitionResource].includes(request.resource)).length,0,
+        'A mismatched material published pointer cannot schedule even the first draft group or definition read');
+      return null;
+    }
+    assert(snapshot);assert.equal(snapshot.method,'BOUND_PUBLISHED_ATOM_DRAFT_SNAPSHOT');
+    assert.equal(snapshot.sourceState,'AUTHORING_DRAFT_SNAPSHOT_ON_PUBLISHED_ATOM');
+    assert.equal(snapshot.courseId,config.id);assert.equal(snapshot.itemId,fp.id);assert.equal(snapshot.atomId,fp.atomId);
+    assert.equal(snapshot.contentId,fp.contentId);assert.equal(snapshot.publishedAssignmentId,original.atom.published.content.definition.assignmentId);
+    assert.equal(snapshot.sourceStable,config.snapshotMode!=='source-changed');
+    for(const field of ['publishedContentVerified','contentCompletenessVerified','wholeItemVerified'])assert.equal(snapshot[field],false);
+    assert.deepEqual(snapshot.source.initialAtom.data,fixtureNativeObservation(original.atom),'Full original sanitized atom includes the draft, published pointer and unknown source fields');
+    assert.deepEqual(snapshot.source.relation.data,fixtureNativeObservation(original.relation));
+    assert.deepEqual(snapshot.source.initialAtom.receipt,fp.payload.directDataSources.receipts.atom);
+    assert.deepEqual(snapshot.source.relation.receipt,fp.payload.directDataSources.receipts.relation);
+    const bound=bindDirectPublishedDraftSnapshotV1(fp,config.id,slug,snapshot.source.material,snapshot.source.initialAtom.data,snapshot.source.relation.data);
+    assert.deepEqual(snapshot.inventory,directPublishedDraftSnapshotInventoryV1(bound));
+    assert.equal(snapshot.sourceSha256,sourceDigest(directPublishedDraftSnapshotSourceV1(bound)));
+    assert.deepEqual(snapshot.inventory.rawParts,original.atom.draft.content.definition.parts);assert.equal(snapshot.inventory.declared,9);
+    const uniqueDefinitionIds=new Set(snapshot.inventory.candidates.map(candidate=>groups.get(candidate.id).value.questions[0])),
+      expectedRetainedDefinitions=uniqueDefinitionIds.size-(config.snapshotDefinitionErrorId?1:0);
+    assert.equal(snapshot.groups.length,9);assert.equal(snapshot.definitions.length,expectedRetainedDefinitions);assert.equal(snapshot.inventory.unsupportedParts.length,0);
+    assert.equal(native.filter(request=>request.resource==='authoringAtoms.v2'&&own(request)).length,2);
+    assert.equal(native.filter(request=>request.resource==='authoringItemContentRelations.v1'&&own(request)).length,1);
+    assert.equal(native.filter(request=>request.resource===groupResource&&own(request)).length,18,'Each literal draft group gets one initial and one fresh final read');
+    assert.equal(native.filter(request=>request.resource===definitionResource&&own(request)).length,uniqueDefinitionIds.size,'Each distinct exact versioned draft definition gets one fresh read');
+    const first=Math.max(Date.parse(snapshot.source.initialAtom.receipt.observedAt),Date.parse(snapshot.source.relation.receipt.observedAt)),
+      last=Date.parse(snapshot.source.finalAtom.receipt.observedAt);
+    assert(Number.isFinite(first)&&Number.isFinite(last)&&last>=first);
+    for(const observation of [snapshot.source.initialAtom,snapshot.source.relation,snapshot.source.finalAtom,
+      ...snapshot.groups.flatMap(group=>[group.initial,group.final]),...snapshot.definitions]){
+      assert.equal(observation.sourceSha256,sourceDigest(observation.data));
+      assert.equal(observation.receipt.status,200);assert.equal(observation.receipt.bodyFormat,'PARSED_SANITIZED_JSON_MODEL');
+      assert.equal(observation.receipt.sha256,observation.receipt.originalResponseSha256);
+    }
+    for(const candidate of snapshot.inventory.candidates){
+      const pair=snapshot.groups.find(group=>group.id===candidate.id),sourceGroup=groups.get(candidate.id).value,
+        definitionId=sourceGroup.questions[0],definition=snapshot.definitions.find(value=>value.id===definitionId),
+        sourceDefinition=definitions.get(definitionId).value;
+      assert(pair);assert.deepEqual(pair.initial.data,fixtureNativeObservation(sourceGroup));
+      assert.equal(pair.initial.receipt.id,candidate.id);assert.equal(pair.final.receipt.id,candidate.id);
+      assert.equal(native.filter(request=>request.resource===groupResource&&request.reference===candidate.id).length,2);
+      assert.equal(native.filter(request=>request.resource===definitionResource&&request.reference===definitionId).length,1);
+      const initialTime=Date.parse(pair.initial.receipt.observedAt),finalTime=Date.parse(pair.final.receipt.observedAt);
+      assert(initialTime>=first&&finalTime>=initialTime&&last>=finalTime);
+      if(config.snapshotDefinitionErrorId===definitionId){
+        assert.equal(definition,undefined);
+        assert.equal(snapshot.failures.filter(failure=>failure.scope==='DEFINITION'&&failure.id===definitionId).length,1,
+          'A failed shared exact-version definition produces one owned failure without duplicate triples');
+      }else{
+        assert(definition);assert.deepEqual(definition.data,fixtureNativeObservation(sourceDefinition),'Every original native definition field survives credential stripping');
+        const originalDefinitionJson=JSON.stringify({elements:[sourceDefinition],paging:{},linked:{}});
+        assert.equal(definition.receipt.originalResponseSha256,createHash('sha256').update(originalDefinitionJson).digest('hex'));
+        assert.equal(definition.receipt.bytes,Buffer.byteLength(originalDefinitionJson));assert.equal(definition.receipt.id,definitionId);
+        assert.equal(definition.receipt.requestPath,'/api/'+definitionResource+'/'+definitionId);
+        const definitionTime=Date.parse(definition.receipt.observedAt),owningGroups=snapshot.groups.filter(group=>group.initial.data.elements[0].questions.includes(definitionId));
+        assert(definitionTime>=first&&definitionTime<=last&&owningGroups.some(group=>definitionTime>=Date.parse(group.initial.receipt.observedAt)&&definitionTime<=Date.parse(group.final.receipt.observedAt)),
+          'Each exact-version definition has a real read witness in at least one owning group interval and the enclosing atom interval');
+      }
+      const changed=config.snapshotMode==='group-changed'&&candidate.id===config.snapshotFirstGroupId;
+      assert.equal(pair.initial.sourceSha256===pair.final.sourceSha256,!changed);
+      if(changed){assert.equal(pair.initial.data.elements[0].scoringWeight,1);assert.equal(pair.final.data.elements[0].scoringWeight,2);}
+      else assert.deepEqual(pair.final.data,pair.initial.data);
+    }
+    if(config.snapshotMode==='source-changed'){
+      assert.notEqual(snapshot.source.finalAtom.sourceSha256,snapshot.source.initialAtom.sourceSha256);
+      assert.equal(snapshot.source.finalAtom.data.elements[0].published.content.definition.assignmentId,snapshot.publishedAssignmentId.replace('@2','@3'));
+      assert(snapshot.failures.some(failure=>failure.scope==='SOURCE'&&failure.id===fp.atomId));
+    }else if(config.snapshotMode==='group-changed')assert(snapshot.failures.some(failure=>failure.scope==='GROUP'&&failure.id===config.snapshotFirstGroupId));
+    else if(config.snapshotDefinitionErrorId)assert.equal(snapshot.failures.filter(failure=>failure.scope==='DEFINITION'&&failure.id===config.snapshotDefinitionErrorId).length,1);
+    else assert.deepEqual(snapshot.failures,[]);
+    assert.equal(new Set(snapshot.failures.map(failure=>JSON.stringify(failure))).size,snapshot.failures.length,'Snapshot failure triples remain distinct');
+    if(config.snapshotSharedDefinition){
+      const earlier=snapshot.groups.find(group=>group.id===config.snapshotFirstGroupId),later=snapshot.groups.find(group=>group.id===config.snapshotSecondGroupId);
+      assert(Date.parse(later.initial.receipt.observedAt)>Date.parse(earlier.final.receipt.observedAt),
+        'The real bounded one-read pool schedules the second owning group after the first closes, proving shared reads across non-overlapping ownership intervals');
+      assert.equal(native.filter(request=>request.resource===definitionResource&&request.reference===config.snapshotSharedDefinitionId).length,1);
+    }
+    const report=courseraAuthoringDraftSnapshot(fp,config.id);assert(report,'The independent domain verifier accepts only owned and hash-bound source observations');
+    assert.equal(report.sourceStability,config.snapshotMode==='source-changed'?'CHANGED':'STABLE');
+    assert.equal(report.draftConfiguration.isGraded,false);assert.equal(report.draftConfiguration.isGradedStatus,'RECORDED');
+    assert.equal(report.parts.length,9);assert.equal(report.parts.filter(part=>part.definition).length,config.snapshotDefinitionErrorId?7:9);
+    assert.equal(report.parts[0].group.status,config.snapshotMode==='group-changed'?'CHANGED':'STABLE');
+    assert.equal(report.parts.at(-1).definition.nativeType,'numeric');assert.equal(report.parts.at(-1).definition.readableChoices,null);
+    assert.deepEqual(JSON.parse(report.parts.at(-1).definition.originalModelJson),fixtureNativeObservation(definitions.get(snapshot.definitions.at(-1).id).value).elements[0]);
+    if(config.snapshotSharedDefinition&&!config.snapshotDefinitionErrorId){
+      assert.equal(report.parts[0].definition.id,report.parts[1].definition.id);
+      assert.equal(report.parts[0].definition.originalModelSha256,report.parts[1].definition.originalModelSha256);
+    }
+    for(const field of ['publishedContentVerified','contentCompletenessVerified','wholeItemVerified'])assert.equal(report[field],false);
+    const savedPath=path.join(scratch,config.id+'-draft-snapshot-report.json');fs.writeFileSync(savedPath,JSON.stringify(report));
+    const reloaded=JSON.parse(fs.readFileSync(savedPath,'utf8'));validateCourseraAuthoringDraftSnapshot(reloaded,fp.id,config.id);assert.deepEqual(reloaded,report);
+    const output=courseraAuthoringDraftSnapshotText(reloaded);
+    assert.match(output,/DRAFT SNAPSHOT ON PUBLISHED ITEM; CURRENT PUBLISHED BODY UNVERIFIED/);
+    assert(output.includes(snapshot.publishedAssignmentId)&&output.includes(snapshot.sourceSha256)&&output.includes('Original numeric draft prompt'));
+    assert(output.includes('Literal attached draft field 日本語'));
+    const forged=structuredClone(fp);forged.payload.directAuthoringDraftSnapshot.source.material.content.definition.assignmentId=snapshot.publishedAssignmentId.replace('@2','@9');
+    assert.equal(courseraAuthoringDraftSnapshot(forged,config.id),null,'A serialized pointer rewrite cannot turn a foreign source into supplemental evidence');
+    return report;
+  }
+  async function assertFailedDraftSnapshotResume(result,config){
+    const previousFp=result.capture.fingerprints.find(fp=>fp.id==='item_0000'),prior=structuredClone(previousFp.payload.directAuthoringDraftSnapshot),
+      priorView=courseraAuthoringDraftSnapshot(previousFp,config.id),primary=result.capture.fingerprints.find(fp=>fp.id==='item_0001'),
+      before=await checkpointSnapshot(result.page);
+    assert(priorView);assert.equal(prior.sourceStable,true);assert.equal(prior.definitions.length,9);
+    assert(prior.failures.some(failure=>failure.scope==='GROUP'&&failure.id===config.snapshotFirstGroupId),
+      'A naturally changed final group leaves an independently valid partial snapshot that needs an explicit fresh continuation');
+    config.snapshotAllDefinitionsFail=true;
+    const start=requests.length,downloading=result.page.waitForEvent('download',{timeout:180000});void downloading.catch(()=>{});
+    await result.page.reload();await launch(result.page,result.context);const state=await terminal(result.page),capture=await readFile(await downloading),
+      fp=capture.fingerprints.find(value=>value.id==='item_0000'),current=fp.payload.directAuthoringDraftSnapshot,
+      history=fp.payload.directAuthoringDraftSnapshotHistory;
+    assert.equal(state.runId,result.state.runId);assert.equal(state.state,'INCOMPLETE');assert.equal(state.counts.questions,1);
+    assert(current);assert.equal(current.definitions.length,0,'A failed current read never borrows earlier native definitions into its current snapshot');
+    assert.equal(current.groups.length,9);assert.equal(current.sourceStable,true);assert.equal(fp.captureContract.complete,false);
+    assert.equal(current.failures.filter(failure=>failure.scope==='DEFINITION').length,9);
+    assert.equal(new Set(current.failures.map(failure=>JSON.stringify(failure))).size,current.failures.length);
+    assert.deepEqual(history,[prior],'A failed explicit continuation retains the complete earlier raw draft snapshot and every original observation date');
+    assert(history.every(value=>!Object.hasOwn(value,'history')&&!Object.hasOwn(value,'earlierDraftObservations')&&!Object.hasOwn(value,'directAuthoringDraftSnapshotHistory')),
+      'Raw earlier observations remain a flat array of original source records');
+    assert.notEqual(current.source.initialAtom.receipt.observedAt,prior.source.initialAtom.receipt.observedAt);
+    const report=courseraAuthoringDraftSnapshot(fp,config.id);assert(report);assert.equal(report.parts.filter(part=>part.definition).length,0);
+    assert.equal(report.earlierDraftObservations.length,1);const earlier=report.earlierDraftObservations[0];
+    assert.equal(earlier.parts.filter(part=>part.definition).length,9);assert.deepEqual(earlier.parts,priorView.parts);
+    assert.equal(earlier.sourceSha256,priorView.sourceSha256);assert.equal(earlier.initialAtom.observedAt,priorView.initialAtom.observedAt);
+    assert.equal(earlier.earlierDraftObservations,undefined);
+    for(const view of [report,earlier])for(const field of ['publishedContentVerified','contentCompletenessVerified','wholeItemVerified'])assert.equal(view[field],false);
+    const saved=path.join(scratch,config.id+'-failed-resume-report.json');fs.writeFileSync(saved,JSON.stringify(report));
+    const reloaded=JSON.parse(fs.readFileSync(saved,'utf8'));validateCourseraAuthoringDraftSnapshot(reloaded,fp.id,config.id);assert.deepEqual(reloaded,report);
+    const output=courseraAuthoringDraftSnapshotText(reloaded);assert.match(output,/Earlier draft observation/i);assert(output.includes('Original numeric draft prompt'));
+    const native=requests.slice(start).filter(request=>request.courseId===config.id);
+    assert.equal(native.filter(request=>request.resource===groupResource&&request.reference.startsWith(config.snapshotAtomId+'~')).length,18);
+    assert.equal(native.filter(request=>request.resource===definitionResource&&request.reference.startsWith(config.snapshotAtomId+'~')).length,9);
+    assert(!native.some(request=>[groupResource,definitionResource].includes(request.resource)&&!request.reference.startsWith(config.snapshotAtomId+'~')));
+    const after=await checkpointSnapshot(result.page);
+    assert.deepEqual(after.items.find(row=>row.itemId==='item_0001'),before.items.find(row=>row.itemId==='item_0001'));
+    assert.deepEqual(capture.fingerprints.find(value=>value.id==='item_0001'),primary,'Failed supplemental refresh preserves primary native answers and original observation timestamps');
+    assert.deepEqual(after.groups,before.groups);assert.deepEqual(after.definitions,before.definitions);assert.deepEqual(after.bodies,before.bodies);
+    assert.deepEqual(after.items.find(row=>row.itemId==='item_0000').fingerprint.payload.directAuthoringDraftSnapshotHistory,[prior]);
+    assert.equal(evaluateCourseraCapture(capture,config.id).complete,false);assert.equal(result.downloads.length,2);
+    await assertNoEditor(result.page,result.destinations);
+  }
+  for(const config of [publishedDraftSnapshot,publishedDraftSourceChanged,publishedDraftGroupChanged,publishedDraftForgedPointer,
+    publishedDraftSharedDefinition,publishedDraftSharedError]){
+    const result=await runFileCase(config);assert.equal(result.state.state,'INCOMPLETE');assert.equal(result.state.counts.questions,1);
+    assertPublishedDraftSnapshot(config,result.capture,result.start);
+    if(config!==publishedDraftSnapshot){
+      if(config===publishedDraftGroupChanged)await assertFailedDraftSnapshotResume(result,config);
+      await result.context.close();continue;
+    }
+    const originalPrimary=result.capture.fingerprints.find(fp=>fp.id==='item_0001'),before=await checkpointSnapshot(result.page),
+      historical={version:'1.8.6',buildId:'v1.8.6-publisher-back-matter-20261019'};
+    assert(Number.isFinite(originalPrimary.payload.structuredAssessment.questions[0].observedAtMs),'The primary native question has its original observation date');
+    await result.page.evaluate(async historical=>{
+      const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+      await new Promise((resolve,reject)=>{const transaction=database.transaction(['runs','items'],'readwrite'),runs=transaction.objectStore('runs'),items=transaction.objectStore('items');
+        const rr=runs.getAll();rr.onsuccess=()=>{for(const run of rr.result){
+          if(run.state!=='INCOMPLETE'||run.counts.processed!==run.counts.total||run.captureMeta.directDataCapture.acquisitionComplete!==true)throw Error('Expected a completed native run before historical snapshot upgrade');
+          run.buildId=historical.buildId;run.captureMeta.buildId=historical.buildId;run.captureMeta.extractor='CTI Direct Course Capture v'+historical.version;
+          if(run.captureMeta.directDataCapture.coverage)delete run.captureMeta.directDataCapture.coverage.retainedDraftSnapshots;
+          runs.put(run);
+        }};
+        const ir=items.getAll();ir.onsuccess=()=>{for(const row of ir.result)if(row.itemId==='item_0000'){
+          delete row.fingerprint.payload.directAuthoringDraftSnapshot;delete row.state.retainedDraftSnapshot;delete row.state.retainedDraftDefinitionCount;items.put(row);
+        }};
+        transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);transaction.onabort=()=>reject(transaction.error||Error('Historical checkpoint seed aborted'));
+      });database.close();
+    },historical);
+    const historicalBefore=await checkpointSnapshot(result.page),historicalPrimary=historicalBefore.items.find(row=>row.itemId==='item_0001');
+    assert.equal(historicalBefore.runs[0].buildId,historical.buildId);
+    assert.equal(historicalBefore.items.find(row=>row.itemId==='item_0000').fingerprint.payload.directAuthoringDraftSnapshot,undefined);
+    assert.deepEqual(historicalPrimary,before.items.find(row=>row.itemId==='item_0001'));
+    assert(historicalBefore.groups.length>0&&historicalBefore.definitions.length>0,'The historical checkpoint retains independently acquired primary question sources');
+    const resumeStart=requests.length,downloading=result.page.waitForEvent('download',{timeout:180000});void downloading.catch(()=>{});
+    await result.page.reload();await launch(result.page,result.context);const resumedState=await terminal(result.page),resumed=await readFile(await downloading);
+    assert.equal(resumedState.runId,result.state.runId);assert.equal(resumedState.state,'INCOMPLETE');
+    assert.equal(resumed.meta.directDataCapture.resumed,true);assert.equal(resumed.meta.directDataCapture.recoveredFromBuild,historical.buildId);
+    assert.equal(resumed.meta.directDataCapture.mediaEnrichment.retainedAssessmentObservations,true);
+    assertPublishedDraftSnapshot(config,resumed,resumeStart);
+    const after=await checkpointSnapshot(result.page);
+    assert.deepEqual(after.items.find(row=>row.itemId==='item_0001'),historicalPrimary,'Snapshot enrichment preserves the primary fingerprint, original question receipts and observation dates');
+    assert.deepEqual(resumed.fingerprints.find(fp=>fp.id==='item_0001'),originalPrimary);
+    assert.deepEqual(after.groups,historicalBefore.groups);assert.deepEqual(after.definitions,historicalBefore.definitions);assert.deepEqual(after.bodies,historicalBefore.bodies);
+    assert(!requests.slice(resumeStart).some(request=>request.courseId===config.id&&[groupResource,definitionResource].includes(request.resource)&&!request.reference.startsWith(config.snapshotAtomId+'~')),
+      'A completed v1.8.6 checkpoint rereads only the previously skipped published item draft sources, preserving current primary assessment observations');
+    assert.equal(result.downloads.length,2);await assertNoEditor(result.page,result.destinations);await result.context.close();
+  }
 
   const scaled=await runFileCase(largeExport),scaledSize=fileSizes.get(scaled.capture);
   assert.equal(scaled.state.state,'COMPLETE');assert.equal(scaledSize.archive,true,'Chrome should download one ZIP with a gzip manifest');
@@ -1328,6 +1573,7 @@ try{
     {version:'1.8.3',buildId:'v1.8.3-publisher-sections-original-images-20261018'},
     {version:'1.8.4',buildId:'v1.8.4-public-publisher-images-20261019'},
     {version:'1.8.5',buildId:'v1.8.5-publisher-challenge-aware-20261019'},
+    {version:'1.8.6',buildId:'v1.8.6-publisher-back-matter-20261019'},
     // Leave v1.8.2 seeded for the separate flag-order continuation below.
     {version:'1.8.2',buildId:'v1.8.2-historical-publisher-checkpoint-20261018'},
   ]){
@@ -2606,7 +2852,14 @@ try{
     directReaderPreservesGenuineCspAndCorsFailures:true,popupBlockedAndCoopAndAccessDeniedRemainExplicitGaps:true,
     publisherBrowserCorsAndCredentialModesEnforced:true,publisherApiRetainsExactUtf8JsonAndDistinctRawRenderedFields:true,
     publisherApiWrongIdentityProtectedDraftMimeUtf8AndBodyLimitRemainGaps:true,publisherBrowserBlockedResponseNeverInventsHttpStatus:true,
-    completedV180V181V182AndV183CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
+    completedV180ThroughV186CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
+    publishedAtomDraftSnapshotsRetainExactGroupsDefinitionsHashesAndChronology:true,
+    draftSnapshotsHaveIndependentSavedReportProjectionAndNeverSupplyCurrentPublishedCompletion:true,
+    forgedPublishedPointerAndChangedFinalAtomOrGroupRemainGaps:true,
+    completedV186ResumeAcquiresPreviouslySkippedDraftSnapshotsAndPreservesPrimaryQuestionDates:true,
+    failedDraftSnapshotResumeRetainsFlatEarlierRawModelsAndOriginalObservationDates:true,
+    sharedExactVersionDraftDefinitionReadOnceAcrossNonOverlappingOwnedGroupIntervals:true,
+    failedSharedDefinitionHasOneFailureWithoutDuplicateTriples:true,
     v182FlagOrderOnlyResumePreservesNativeOriginalsAssessmentsAndCumulativeBudgets:true,
     syntheticTypedPartResolutionPreservesChapter404HistoryAndTwoGetBound:true,
     syntheticBackMatterResolutionPreservesTwoFlat404ReceiptsAndThreeGetBound:true,

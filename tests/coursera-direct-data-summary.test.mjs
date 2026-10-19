@@ -138,3 +138,18 @@ test("the first attempt has zero inherited work and never displays non-finite me
   });
   assert.deepEqual(metrics.byResource, { material: 3 });
 });
+
+test("additional published-item draft definitions stay separate from primary question and verification counts", () => {
+  const summary = directDataCoverageSummaryV1([
+    { type: "Assignment", processed: true, questions: 3, contract: { complete: true } },
+    { type: "Assignment", processed: true, questions: 0, contract: { complete: false },
+      retainedDraftSnapshot: true, retainedDraftDefinitionCount: 11, retainedDraftHistoricalObservations: 1 },
+    { type: "Assignment", processed: true, questions: 0, contract: { complete: false },
+      retainedDraftSnapshot: true, retainedDraftDefinitionCount: 9 },
+  ]);
+  assert.deepEqual(summary.retainedDraftSnapshots, { items: 2, definitions: 20, historicalObservations: 1 });
+  assert.equal(summary.questions, 3);
+  assert.equal(summary.assessments.verified, 1);
+  assert.equal(summary.content.verified, 1);
+  assert.equal(summary.content.total, 3);
+});

@@ -38,6 +38,14 @@ export function directDataCoverageSummaryV1(items) {
     }
     count(summary.content, item);
     summary.questions += integer(item.questions);
+    if (item.retainedDraftSnapshot === true) {
+      if (!summary.retainedDraftSnapshots) summary.retainedDraftSnapshots = {items: 0, definitions: 0};
+      summary.retainedDraftSnapshots.items++;
+      summary.retainedDraftSnapshots.definitions += integer(item.retainedDraftDefinitionCount);
+      if (integer(item.retainedDraftHistoricalObservations))
+        summary.retainedDraftSnapshots.historicalObservations =
+          (summary.retainedDraftSnapshots.historicalObservations || 0) + integer(item.retainedDraftHistoricalObservations);
+    }
     const type = String(item.type || "").toLowerCase();
     if (/^(?:assignment|assessment|quiz)$/.test(type))
       count(summary.assessments, item);

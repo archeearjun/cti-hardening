@@ -7,6 +7,10 @@ import {
   directSourceBindingEvidenceV1,
 } from "../extractors/coursera/direct-data-contracts.js";
 import { directCmlMediaInventoryV1 } from "../extractors/coursera/direct-data-media-contracts.js";
+import {
+  retainedAuthoringFields,
+  retainedAuthoringFieldsText,
+} from "./coursera-retained-authoring-fields.ts";
 
 type Obj = Record<string, any>;
 const object = (v: unknown): Obj =>
@@ -384,6 +388,10 @@ export function retainedCourseraAuthoringText(
       `${block.kind === "TEXT_BLOCK" ? "Instruction block" : "Native definition"} at part ${block.ordinal} | ${block.nativeType} | ${block.nativeId}`,
       ...(block.title ? [block.title] : []),
       ...(block.prompt ? [block.prompt] : []),
+      ...(() => {
+        const fields = retainedAuthoringFields(block);
+        return fields ? [retainedAuthoringFieldsText(fields)] : [];
+      })(),
       ...block.options.map(
         (option) =>
           `Authored option ${option.id}: ${option.text || "[no supported display text]"}`,
