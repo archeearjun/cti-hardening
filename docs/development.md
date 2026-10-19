@@ -72,6 +72,8 @@ Explicit publisher challenges and deferred same-origin image reads are described
 in [the v1.8.5 audit](audits/coursera-publisher-challenge-2026-10-19.md).
 Exact-ID publisher back-matter resources and their two prior 404 receipts are
 covered by [the v1.8.6 audit](audits/coursera-publisher-back-matter-2026-10-19.md).
+Separate draft snapshots on published items and typed retained authoring fields
+are covered by [the v1.8.7 audit](audits/coursera-published-draft-snapshots-2026-10-19.md).
 `server/publisher-image-provider.ts` owns the single bounded public GET; both
 helper ends, the original-media reader and archive intake retain independent
 protocol, byte and native-source checks. This route never receives publisher

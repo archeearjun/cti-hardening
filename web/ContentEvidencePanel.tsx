@@ -10,6 +10,9 @@ import PublicContentFetch from "./PublicContentFetch";
 import CtiAnswerPanel from "./CtiAnswerPanel";
 import BrightspaceHtmlStructureEvidence from "./BrightspaceHtmlStructure";
 import { choiceLabel, ctiAnswerCheck } from "../src/domain/cti-answer-check";
+import { retainedAuthoringFields } from "../src/domain/coursera-retained-authoring-fields";
+import { RetainedAuthoringFields } from "./RetainedAuthoringFields";
+import { CourseraAuthoringDraftSnapshotView } from "./CourseraAuthoringDraftSnapshot";
 import {
   courseraInlineWidgetPage,
   courseraInlinePublisherResource,
@@ -417,20 +420,26 @@ function Evidence({
           </p>
           {content.retainedAuthoringContent.blocks
             .filter(block => !query.trim() || [block.title, block.prompt, block.originalModelJson].join("\n").toLowerCase().includes(query.toLowerCase()))
-            .map(block => (
+            .map(block => {
+              const fields = retainedAuthoringFields(block);
+              return (
               <details key={`${block.ordinal}:${block.nativeId}`}>
                 <summary>{block.kind === "TEXT_BLOCK" ? "Instruction block" : "Native definition"} · part {block.ordinal} · {block.nativeType}{block.title ? ` · ${block.title}` : ""}</summary>
-                {block.prompt && <p className="captured-text">{block.prompt}</p>}
-                {!!block.options.length && <ul aria-label={`Authored options for retained part ${block.ordinal}`}>
+                {fields ? <RetainedAuthoringFields view={fields} /> : <>
+                  {block.prompt && <p className="captured-text">{block.prompt}</p>}
+                  {!!block.options.length && <ul aria-label={`Authored options for retained part ${block.ordinal}`}>
                   {block.options.map((option, index) => <li key={index}><strong>{option.id}: </strong>{option.text || "No supported display text; inspect the literal native model below."}</li>)}
-                </ul>}
+                  </ul>}
+                </>}
                 <p className="hint">{block.formatStatus === "KNOWN_CML" ? "Authored text projected from known CML." : "CML format is unsupported. Inspect the literal original; no text or choices have been invented."} Native ready-for-publish flag: {block.nativeValidation === "READY" ? "true" : block.nativeValidation === "NOT_READY" ? "false" : "unrecorded"}.</p>
                 <p className="hint">Native identity: {block.nativeId}<br />Original model SHA-256: {block.originalModelSha256}</p>
                 <details><summary>Literal retained native model</summary><pre className="captured-text">{block.originalModelJson}</pre></details>
               </details>
-            ))}
+              );
+            })}
         </section>
       )}
+      {content.authoringDraftSnapshot && <CourseraAuthoringDraftSnapshotView snapshot={content.authoringDraftSnapshot} />}
       {showQuestions && (
         <>
           <p>

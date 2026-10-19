@@ -13,6 +13,7 @@ import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
   directInlineWidgetEvidenceV1, directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
 import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource } from "../src/extractors/coursera/direct-data-models.js";
 import { directCanonicalSourceTextV1 as canonicalSource } from "../src/extractors/coursera/direct-data-canonical.js";
+import * as publishedDraftSnapshot from "../src/extractors/coursera/direct-data-authoring-snapshot.js";
 import { createInlinePublicContentFixture, createInlinePublisherContentFixture, createInlinePublisherMediaContentFixture } from "./coursera-inline-content-fixtures.mjs";
 import { WIDGET_COURSE, WIDGET_SLUG } from "./coursera-direct-widget-fixtures.mjs";
 import { directPublicPageTargetV1, directPublicPageObservationValidV1,
@@ -445,6 +446,7 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_MAX_PARTS_V1,
     directDataCoverageSummaryV1,
     directDataAttemptMetricsV1,
+    ...publishedDraftSnapshot,
     location,
     document,
     crypto: { subtle: webcrypto.subtle, randomUUID: webcrypto.randomUUID },
@@ -494,7 +496,7 @@ function harness(options = {}) {
     directMaterialStabilityModelV1,
     directCourseInventoryV1: async () => ({
       fingerprints: ids.map(fingerprint),
-      leaves: new Map(ids.map((id) => [id, { node: { id }, ancestorIds: [] }])),
+      leaves: new Map(ids.map((id) => [id, { node: clone(options.materialNodes?.[id] || { id }), ancestorIds: [] }])),
       materialVersion: 1,
       courseBranchVersion: 1,
     }),
@@ -643,6 +645,140 @@ test("the actual entry captures drafts without navigation and exports its saved 
   assert(app.nodes.some(node => node.textContent.includes("0/0 empty structures verified")));
   assert(app.nodes.some(node => node.textContent.includes("0 question occurrences")));
   assert.deepEqual(app.alerts, []);
+});
+
+function publishedDraftEntryFixture({ sharedDefinition = false } = {}) {
+  const itemId = "PublishedAssessment", atomId = "A".repeat(22),
+    localIds = ["b".repeat(22), "c".repeat(22)], pointer = "p".repeat(22) + "@2",
+    groupIds = localIds.map(id => atomId + "~" + id),
+    definitionIds = ["q".repeat(22), (sharedDefinition ? "q" : "r").repeat(22)].map(id => atomId + "~" + id + "@3");
+  const fp = { id: itemId, type: "assignment", typeName: "ungradedAssignment", name: "Published assignment",
+    atomId, contentId: "atom~" + atomId, payload: {}, sourceIdentity: {} },
+    material = { id: itemId, name: fp.name, atomId, contentId: fp.contentId, published: true,
+      content: { typeName: fp.typeName, definition: { assignmentId: pointer } } },
+    atom = { id: atomId, contentId: fp.contentId, status: { typeName: "publishedAtomStatus", definition: {} },
+      storedAtomVersion: 2, metadata: { updatedAt: 1791189683630 },
+      draft: { name: "Attached authored draft", content: { typeName: "staffGradedDraft", definition: {
+        parts: localIds.map(id => ({ typeName: "storedQuestionGroupPart", definition: { id } })),
+        configuration: { isGraded: false, gradeSelectionStrategy: "KEEP_LATEST" },
+      } } },
+      published: { name: "Current published assignment pointer", content: { typeName: "staffGraded",
+        definition: { assignmentId: pointer, isGraded: true } } } },
+    relation = { id: atomId, atomId, branchRelationMap: {
+      [COURSE + "~" + itemId]: { courseId: COURSE, itemId, courseSlug: SLUG },
+    } },
+    cml = value => ({ typeName: "cml", definition: { dtdId: "assess/1", value: "<co-content><text>" + value + "</text></co-content>" } }),
+    groups = new Map(groupIds.map((id, index) => [id, { id, questions: [definitionIds[index]],
+      questionReferences: [{ authoringId: definitionIds[index] }] }])),
+    definitions = new Map([...new Set(definitionIds)].map((id, index) => [id, { id,
+      definition: { typeName: "mcq", definition: { prompt: cml("Original draft question " + index),
+        options: [{ id: "yes", display: cml("Original choice yes"), feedback: cml("") },
+          { id: "no", display: cml("Original choice no"), feedback: cml("Original feedback") }],
+        correctOption: "no", shuffleOptions: false } },
+      validation: { definition: { isReadyForPublish: true } } }]));
+  let failure = "";
+  const options = { ids: [itemId], fingerprints: { [itemId]: fp }, materialNodes: { [itemId]: material }, nativeCml: true,
+    readResult(call) {
+      const nativeResources = { atom: "authoringAtoms.v2", relation: "authoringItemContentRelations.v1",
+        group: "authoringAssignmentQuestionGroups.v1", definition: "authoringAssignmentMachineEvaluableQuestions.v1" };
+      const failed = failure === "atom-503" && call.resource === "atom" ||
+        failure === "definition-b-503" && call.resource === "definition" && call.id === definitionIds[1] ||
+        failure === "group-a-503" && call.resource === "group" && call.id === groupIds[0];
+      if (failed) return { ok: false, reason: "COURSE_API_HTTP_503", receipt: {
+        resource: nativeResources[call.resource], id: call.id, status: 503, observedAt: new Date(call.at).toISOString(),
+      } };
+      const value = call.resource === "atom" ? atom : call.resource === "relation" ? relation :
+        call.resource === "group" ? groups.get(call.id) : call.resource === "definition" ? definitions.get(call.id) : null;
+      if (!value) return undefined;
+      return { ok: true, data: { elements: [clone(value)], paging: {}, linked: {} }, receipt: {
+        resource: nativeResources[call.resource], id: call.id, status: 200,
+        requestPath: "/api/" + nativeResources[call.resource] + "/" + call.id,
+        bodyFormat: "PARSED_SANITIZED_JSON_MODEL", originalResponseSha256: "a".repeat(64),
+        observedAt: new Date(call.at).toISOString(), bytes: 64,
+      } };
+    } };
+  return { options, fp, atom, relation, material, groupIds, definitionIds, definitions,
+    fail: value => { failure = value; } };
+}
+
+function assertSupplementalPublishedDraft(capture, itemId, count) {
+  const fp = capture.fingerprints.find(item => item.id === itemId), snapshot = fp.payload.directAuthoringDraftSnapshot;
+  assert(snapshot); assert.equal(snapshot.method, "BOUND_PUBLISHED_ATOM_DRAFT_SNAPSHOT");
+  assert.equal(snapshot.sourceState, "AUTHORING_DRAFT_SNAPSHOT_ON_PUBLISHED_ATOM");
+  assert.equal(snapshot.definitions.length, count); assert.equal(fp.captureContract.complete, false);
+  assert.equal(snapshot.publishedContentVerified, false); assert.equal(snapshot.contentCompletenessVerified, false);
+  assert.equal(snapshot.wholeItemVerified, false);
+  assert.equal(fp.payload.structuredAssessment, undefined); assert.equal(fp.payload.assessmentApiEvidence, undefined);
+  assert.equal(capture.meta.directDataCapture.coverage.questions, 0);
+  assert.equal(capture.meta.directDataCapture.coverage.assessments.verified, 0);
+  assert.equal(capture.meta.directDataCapture.coverage.retainedDraftSnapshots.definitions, count);
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified, false);
+  return snapshot;
+}
+
+test("the actual entry retains a published atom's separate draft observations and deduplicates one exact definition shared by concurrent groups", async () => {
+  const fixture = publishedDraftEntryFixture({ sharedDefinition: true }), app = harness(fixture.options);
+  app.launch(); await app.idle();
+  const capture = (await exportedCapture(app.downloads[0])).capture, snapshot = assertSupplementalPublishedDraft(capture, fixture.fp.id, 1);
+  assert.equal(app.state().state, "INCOMPLETE"); assert.equal(snapshot.sourceStable, true); assert.deepEqual(snapshot.failures, []);
+  assert.deepEqual(snapshot.inventory.rawParts, fixture.atom.draft.content.definition.parts);
+  assert.equal(snapshot.groups.length, 2);
+  for (const group of snapshot.groups) {
+    assert.deepEqual(group.initial.data, group.final.data);
+    assert.equal(group.initial.data.elements[0].questions[0], fixture.definitionIds[0]);
+    assert.equal(group.initial.sourceSha256, createHash("sha256").update(canonicalSource(group.initial.data)).digest("hex"));
+  }
+  assert.deepEqual(snapshot.definitions[0].data.elements[0], fixture.definitions.get(fixture.definitionIds[0]));
+  assert.equal(app.calls.filter(call => call.resource === "definition" && call.id === fixture.definitionIds[0]).length, 1,
+    "Both actual concurrent group workers share one exact definition GET and retain both source placements");
+  assert.equal(app.calls.filter(call => call.resource === "group").length, 4);
+  assert.equal(app.calls.filter(call => call.resource === "atom").length, 2);
+  assert.deepEqual(snapshot.source.initialAtom.data, snapshot.source.finalAtom.data);
+  assert.equal(capture.fingerprints[0].payload.directDataSources.atom.elements[0].status.typeName, "publishedAtomStatus");
+  assert.equal(capture.fingerprints[0].payload.directAuthoringDraftSnapshotHistory, undefined);
+  assert(app.nodes.some(node => node.textContent.includes("Additional draft definitions 1 retained across 1 published items")));
+  assert.deepEqual(app.alerts, []);
+});
+
+test("actual partial draft-snapshot resume preserves earlier raw records after HTTP failures and never combines history into current coverage", async () => {
+  const fixture = publishedDraftEntryFixture(), app = harness(fixture.options);
+  fixture.fail("definition-b-503"); app.launch(); await app.idle();
+  const firstCapture = (await exportedCapture(app.downloads[0])).capture,
+    first = clone(assertSupplementalPublishedDraft(firstCapture, fixture.fp.id, 1)), runId = app.state().runId;
+  assert.equal(first.sourceStable, true);
+  assert(first.failures.some(value => value.scope === "DEFINITION" && value.id === fixture.definitionIds[1] && value.reason === "COURSE_API_HTTP_503"));
+  assert.equal(first.definitions[0].id, fixture.definitionIds[0]);
+
+  fixture.fail("atom-503"); app.advance(1000); app.button("Capture/resume course").click(); await app.idle();
+  const failedSourceCapture = (await exportedCapture(app.downloads.at(-1))).capture,
+    preserved = assertSupplementalPublishedDraft(failedSourceCapture, fixture.fp.id, 1),
+    preservedItem = failedSourceCapture.fingerprints[0];
+  assert.equal(app.state().runId, runId); assert.deepEqual(preserved, first,
+    "An unsuccessful fresh atom read retains every old draft model and its observation timestamps");
+  assert.equal(preservedItem.payload.directResumeRevalidation.verified, false);
+  assert.equal(preservedItem.payload.directResumeRevalidation.reason, "COURSE_API_HTTP_503");
+  assert.equal(preservedItem.payload.directAuthoringDraftSnapshotHistory, undefined,
+    "A source read that never acquired a new snapshot does not invent a historical observation");
+
+  fixture.fail("group-a-503"); app.advance(1000); app.button("Capture/resume course").click(); await app.idle();
+  const secondCapture = (await exportedCapture(app.downloads.at(-1))).capture,
+    second = clone(assertSupplementalPublishedDraft(secondCapture, fixture.fp.id, 1));
+  assert.equal(second.definitions[0].id, fixture.definitionIds[1]);
+  assert(second.failures.some(value => value.scope === "GROUP" && value.id === fixture.groupIds[0] && value.reason === "COURSE_API_HTTP_503"));
+  assert.deepEqual(secondCapture.fingerprints[0].payload.directAuthoringDraftSnapshotHistory, [first],
+    "Old successful raw definition A remains historical while only current definition B is counted");
+  assert.notEqual(second.source.initialAtom.receipt.observedAt, first.source.initialAtom.receipt.observedAt);
+
+  fixture.fail(""); app.advance(1000); const before = app.calls.length;
+  app.button("Capture/resume course").click(); await app.idle();
+  const finalCapture = (await exportedCapture(app.downloads.at(-1))).capture,
+    final = assertSupplementalPublishedDraft(finalCapture, fixture.fp.id, 2);
+  assert.equal(app.state().runId, runId); assert.equal(final.sourceStable, true); assert.deepEqual(final.failures, []);
+  assert.deepEqual(finalCapture.fingerprints[0].payload.directAuthoringDraftSnapshotHistory, [first, second]);
+  assert.equal(app.calls.slice(before).filter(call => call.resource === "definition").length, 2,
+    "Only fresh accepted definition reads supply the recovered current snapshot; old bodies do not fill current gaps");
+  assert.deepEqual(firstCapture.fingerprints[0].payload.directAuthoringDraftSnapshot, first);
+  assert.equal(app.downloads.length, 4); assert.deepEqual(app.alerts, []);
 });
 
 test("inline page refresh replaces its own near-limit allocation and preserves the last verified original after a failed refresh", async (t) => {
@@ -2320,6 +2456,7 @@ for (const [version, originalBuild] of [
   ["v1.8.3", "v1.8.3-publisher-sections-original-images-20261018"],
   ["v1.8.4", "v1.8.4-public-publisher-images-20261019"],
   ["v1.8.5", "v1.8.5-publisher-challenge-aware-20261019"],
+  ["v1.8.6", "v1.8.6-publisher-back-matter-20261019"],
 ]) test("exact " + version + " continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(), source = f.fixtures[0],

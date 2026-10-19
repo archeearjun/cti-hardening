@@ -37,6 +37,14 @@ import { directPublisherTargetV1, directPublisherObservationValidV1,
   directPublisherResourceObservationValidV1, directPublisherResourceV1,
   directPublisherPartResolutionValidV1, directPublisherBackMatterResolutionValidV1 } from "./direct-data-publisher.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
+import {
+  bindDirectPublishedDraftSnapshotV1,
+  directPublishedDraftSnapshotInventoryV1,
+  directPublishedDraftSnapshotSourceV1,
+  directPublishedDraftSnapshotStableV1,
+  directPublishedDraftSnapshotQuestionIdsV1,
+  CTI_DIRECT_AUTHORING_SNAPSHOT_FAILURES_V1,
+} from "./direct-data-authoring-snapshot.js";
 import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1,
   directPublisherImageBodyStructureV1 } from "./direct-data-publisher-media.js";
 import {
@@ -251,7 +259,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       hint.textContent = state.diagnosing || state.state === "READY"
         ? "After edits, start a fresh course capture to reread questions. Capture/resume continues saved progress; finished runs may only add media. Panopto access is diagnostic only."
         : mediaOnly
-        ? "This attempt reads referenced files and supported external providers. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
+        ? "This attempt reads referenced files, supported external providers and separately labelled draft snapshots on published items. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
       const summary = coverageSummary();
       state.coverage = summary;
@@ -296,6 +304,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           (summary.widgets.configurations || 0) +
           "/" + summary.widgets.total +
           " captured · external widget bodies unverified";
+      if (summary.retainedDraftSnapshots)
+        count.textContent += " · Additional draft definitions " + summary.retainedDraftSnapshots.definitions +
+          " retained across " + summary.retainedDraftSnapshots.items + " published items; current published bodies unverified";
+      if (summary.retainedDraftSnapshots?.historicalObservations)
+        count.textContent += " · " + summary.retainedDraftSnapshots.historicalObservations + " earlier draft observations retained";
       const inline = stats.inlineExternalContent;
       state.inlineExternalContent = inline;
       if (inline.settings.total) {
@@ -474,6 +487,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         type: fp.type,
         structural: inventory?.leaves.get(fp.id)?.structural === true,
         questions: fp.payload.structuredAssessment?.questions?.length || 0,
+        ...(fp.payload.directAuthoringDraftSnapshot ? {
+          retainedDraftSnapshot: true,
+          retainedDraftDefinitionCount: fp.payload.directAuthoringDraftSnapshot.definitions?.length || 0,
+          retainedDraftHistoricalObservations: fp.payload.directAuthoringDraftSnapshotHistory?.length || 0,
+        } : {}),
         assetReferenceCount:
           fp.payload.directDataEvidence?.assetReferenceCount || 0,
         assetReferenceIds: [
@@ -1178,6 +1196,119 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         bound,
       );
     }
+    async function capturePublishedDraftSnapshot(fp, binding, atomRead, relationRead, previous) {
+      const parts = directPublishedDraftSnapshotInventoryV1(binding);
+      const observe = async (read, id) => read.ok ? {
+        data: read.data,
+        receipt: receipt(read, id),
+        sourceSha256: await hash(read.data),
+      } : null;
+      const snapshot = {
+        schemaVersion: 1,
+        method: "BOUND_PUBLISHED_ATOM_DRAFT_SNAPSHOT",
+        sourceState: "AUTHORING_DRAFT_SNAPSHOT_ON_PUBLISHED_ATOM",
+        courseId,
+        itemId: fp.id,
+        courseSlug: slug,
+        atomId: fp.atomId,
+        contentId: fp.contentId,
+        publishedAssignmentId: binding.publishedAssignmentId,
+        sourceSha256: await hash(directPublishedDraftSnapshotSourceV1(binding)),
+        sourceStable: false,
+        source: {
+          material: inventory.leaves.get(fp.id).node,
+          initialAtom: await observe(atomRead, fp.atomId),
+          relation: await observe(relationRead, fp.atomId),
+          finalAtom: null,
+        },
+        inventory: parts,
+        groups: [],
+        definitions: [],
+        failures: [],
+        publishedContentVerified: false,
+        contentCompletenessVerified: false,
+        wholeItemVerified: false,
+      };
+      fp.payload.directAuthoringDraftSnapshot = snapshot;
+      const oldHistory = previous?.payload?.directAuthoringDraftSnapshotHistory;
+      if (oldHistory !== undefined && !Array.isArray(oldHistory))
+        throw Error("DIRECT_AUTHORING_SNAPSHOT_HISTORY_INVALID");
+      const history = [...(oldHistory || [])];
+      if (previous?.payload?.directAuthoringDraftSnapshot)
+        history.push(previous.payload.directAuthoringDraftSnapshot);
+      if (history.length) fp.payload.directAuthoringDraftSnapshotHistory = history;
+      const failureKeys = new Set();
+      const failure = (scope, id, reason) => {
+        const code = /^[A-Z0-9_]{1,96}$/.test(reason || "")
+          ? reason : "DIRECT_AUTHORING_SNAPSHOT_READ_FAILED",
+          key = scope + "~" + id + "~" + code;
+        if (!failureKeys.has(key) && snapshot.failures.length < CTI_DIRECT_AUTHORING_SNAPSHOT_FAILURES_V1) {
+          failureKeys.add(key);
+          snapshot.failures.push({scope, id, reason: code});
+        }
+      };
+      const groups = new Map(), definitions = new Map(), definitionReads = new Map();
+      async function captureGroup(candidate) {
+        const initialRead = await reader.readGroup(candidate.id);
+        if (!initialRead.ok) {
+          failure("GROUP", candidate.id, initialRead.reason);
+          return;
+        }
+        const group = {id: candidate.id, initial: await observe(initialRead, candidate.id), final: null};
+        groups.set(candidate.id, group);
+        const ids = directPublishedDraftSnapshotQuestionIdsV1(initialRead.data, candidate.id, fp.atomId);
+        if (!ids) failure("GROUP", candidate.id, "DIRECT_GROUP_VARIANTS_OR_REFERENCE_UNSUPPORTED");
+        else if (!reader.snapshot().stopped) {
+          const id = ids[0];
+          if (!definitionReads.has(id)) definitionReads.set(id, reader.readDefinition(id).then(async read => ({
+            read, observation: await observe(read, id),
+          })));
+          const {read, observation} = await definitionReads.get(id);
+          if (read.ok) definitions.set(id, {id, ...observation});
+          else failure("DEFINITION", id, read.reason);
+        }
+        if (!reader.snapshot().stopped) {
+          const finalRead = await reader.readGroup(candidate.id);
+          if (finalRead.ok) {
+            group.final = await observe(finalRead, candidate.id);
+            if (group.final.sourceSha256 !== group.initial.sourceSha256)
+              failure("GROUP", candidate.id, "DIRECT_GROUP_CHANGED_DURING_CAPTURE");
+          } else failure("GROUP", candidate.id, finalRead.reason);
+        } else failure("GROUP", candidate.id, "DIRECT_AUTHORING_SNAPSHOT_RECHECK_NOT_ATTEMPTED");
+        state.phase = "Retaining draft questions on published items";
+        render(fp.name + " · " + definitions.size + "/" + parts.candidates.length + " draft definitions retained; published body unverified");
+      }
+      let next = 0;
+      const work = await Promise.allSettled(Array.from({length: Math.min(4, reader.snapshot().limits.concurrentRequests)}, async () => {
+        while (next < parts.candidates.length && !reader.snapshot().stopped)
+          await captureGroup(parts.candidates[next++]);
+      }));
+      for (const result of work) if (result.status === "rejected")
+        failure("SOURCE", fp.atomId, result.reason?.message);
+      snapshot.groups = parts.candidates.map(candidate => groups.get(candidate.id)).filter(Boolean);
+      snapshot.definitions = [...definitions.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      for (const candidate of parts.candidates) {
+        const group = groups.get(candidate.id);
+        if ((!group || !group.final) && !snapshot.failures.some(value => value.scope === "GROUP" && value.id === candidate.id))
+          failure("GROUP", candidate.id, "DIRECT_AUTHORING_SNAPSHOT_RECHECK_NOT_ATTEMPTED");
+        const ids = group && directPublishedDraftSnapshotQuestionIdsV1(group.initial.data, candidate.id, fp.atomId);
+        for (const id of ids || [])
+          if (!definitions.has(id) && !snapshot.failures.some(value => value.scope === "DEFINITION" && value.id === id))
+            failure("DEFINITION", id, "DIRECT_AUTHORING_SNAPSHOT_READ_NOT_ATTEMPTED");
+      }
+      if (!reader.snapshot().stopped) {
+        const finalRead = await reader.readAtom(fp.atomId);
+        if (finalRead.ok) {
+          snapshot.source.finalAtom = await observe(finalRead, fp.atomId);
+          try {
+            const finalBinding = bindDirectPublishedDraftSnapshotV1(fp, courseId, slug,
+              snapshot.source.material, finalRead.data, relationRead.data);
+            snapshot.sourceStable = directPublishedDraftSnapshotStableV1(binding, finalBinding);
+            if (!snapshot.sourceStable) failure("SOURCE", fp.atomId, "DIRECT_AUTHORING_SNAPSHOT_SOURCE_CHANGED");
+          } catch (_) { failure("SOURCE", fp.atomId, "DIRECT_AUTHORING_SNAPSHOT_SOURCE_CHANGED"); }
+        } else failure("SOURCE", fp.atomId, finalRead.reason);
+      } else failure("SOURCE", fp.atomId, "DIRECT_AUTHORING_SNAPSHOT_RECHECK_NOT_ATTEMPTED");
+    }
     function boundCmlSource(bound) {
       return bound.draft.content.typeName === "supplementDraft"
         ? directDraftReadingSourceV1(bound)
@@ -1739,125 +1870,134 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       try {
         requireRead(atomRead);
         requireRead(relationRead);
-        bound = bindDirectAuthoringDraftV1(
-          fp,
-          courseId,
-          slug,
-          atomRead.data,
-          relationRead.data,
-        );
-        const draftHash = await hash(bound.draft);
-        fp.payload.directDataSources.receipts.stability = {
-          stable: false,
-          draftHash,
-          storedAtomVersion: bound.storedAtomVersion,
-          updatedAt: bound.updatedAt,
-        };
-        fp.sourceIdentity.draftName = bound.draft.name || "";
-        fp.sourceIdentity.materialName = fp.name;
-        if (typeof bound.draft.name === "string" && bound.draft.name.trim())
-          fp.name = bound.draft.name;
-        fp.sourceIdentity.publishedName = bound.published?.name || "";
-        fp.payload.timeEstimateMinutes = Number.isFinite(
-          bound.draftTimeCommitment,
-        )
-          ? bound.draftTimeCommitment / 60000
-          : null;
-        fp.payload.timeEstimateSource = "bound-authoring-draft-timeCommitment";
-        fp.payload.directPublishedTimeCommitment =
-          bound.publishedTimeCommitment ?? null;
-        if (
-          ["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName) &&
-          previous?.payload?.directDataSources?.receipts?.stability?.stable ===
-            true &&
-          previous.payload.directDataSources.receipts.stability.draftHash ===
-            draftHash &&
-          previous.payload.directDataSources.receipts.stability
-            .storedAtomVersion === bound.storedAtomVersion &&
-          previous.payload.directDataSources.receipts.stability.updatedAt ===
-            bound.updatedAt
-        ) {
-          // Reuse a CML body only after a fresh, bound draft hash matches.
-          // Source receipts and the final atom stability read remain current.
-          const freshSources = fp.payload.directDataSources;
-          fp.payload = {
-            ...previous.payload,
-            ...fp.payload,
-            directDataSources: freshSources,
+        const nativeAtom = atomRead.data.elements?.[0];
+        if (nativeAtom?.status?.typeName === "publishedAtomStatus" &&
+            nativeAtom?.draft?.content?.typeName === "staffGradedDraft") {
+          const snapshotBinding = bindDirectPublishedDraftSnapshotV1(fp, courseId, slug,
+            source.node, atomRead.data, relationRead.data);
+          await capturePublishedDraftSnapshot(fp, snapshotBinding, atomRead, relationRead, previous);
+          directUnsupportedContractV1(fp, "DIRECT_AUTHORING_ATOM_STATE_UNSUPPORTED");
+        } else {
+          bound = bindDirectAuthoringDraftV1(
+            fp,
+            courseId,
+            slug,
+            atomRead.data,
+            relationRead.data,
+          );
+          const draftHash = await hash(bound.draft);
+          fp.payload.directDataSources.receipts.stability = {
+            stable: false,
+            draftHash,
+            storedAtomVersion: bound.storedAtomVersion,
+            updatedAt: bound.updatedAt,
           };
-          delete fp.payload.directResumeRevalidation;
+          fp.sourceIdentity.draftName = bound.draft.name || "";
+          fp.sourceIdentity.materialName = fp.name;
+          if (typeof bound.draft.name === "string" && bound.draft.name.trim())
+            fp.name = bound.draft.name;
+          fp.sourceIdentity.publishedName = bound.published?.name || "";
+          fp.payload.timeEstimateMinutes = Number.isFinite(
+            bound.draftTimeCommitment,
+          )
+            ? bound.draftTimeCommitment / 60000
+            : null;
+          fp.payload.timeEstimateSource = "bound-authoring-draft-timeCommitment";
+          fp.payload.directPublishedTimeCommitment =
+            bound.publishedTimeCommitment ?? null;
+          if (
+            ["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName) &&
+            previous?.payload?.directDataSources?.receipts?.stability?.stable ===
+              true &&
+            previous.payload.directDataSources.receipts.stability.draftHash ===
+              draftHash &&
+            previous.payload.directDataSources.receipts.stability
+              .storedAtomVersion === bound.storedAtomVersion &&
+            previous.payload.directDataSources.receipts.stability.updatedAt ===
+              bound.updatedAt
+          ) {
+            // Reuse a CML body only after a fresh, bound draft hash matches.
+            // Source receipts and the final atom stability read remain current.
+            const freshSources = fp.payload.directDataSources;
+            fp.payload = {
+              ...previous.payload,
+              ...fp.payload,
+              directDataSources: freshSources,
+            };
+            delete fp.payload.directResumeRevalidation;
+          }
+          if (bound.draft.content.typeName === "staffGradedDraft")
+            await captureAssessment(fp, bound);
+          else if (["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName)) {
+            const cmlSource = boundCmlSource(bound);
+            fp.payload.directDraftCml = cmlSource.rawCML;
+            await captureCmlMedia(fp, cmlSource, previous);
+            if (directCmlTextV1(cmlSource.cml)?.references?.some(reference => reference.tag === "widget"))
+              await captureInlineWidgetProviders(fp, bound, previous);
+            else delete fp.payload.directInlineWidgetProviderEvidence;
+          } else if (bound.draft.content.typeName === "widgetDraft")
+            await captureWidgetProvider(fp, bound, previous);
+          else
+            directUnsupportedContractV1(
+              fp,
+              "DIRECT_DRAFT_TYPE_UNSUPPORTED",
+              bound,
+            );
+          const stabilityRead = await reader.readAtom(fp.atomId);
+          const refreshed = bindDirectAuthoringDraftV1(
+            fp,
+            courseId,
+            slug,
+            requireRead(stabilityRead),
+            relationRead.data,
+          );
+          const stable =
+            (await hash(refreshed.draft)) === draftHash &&
+            refreshed.storedAtomVersion === bound.storedAtomVersion &&
+            refreshed.updatedAt === bound.updatedAt;
+          fp.payload.directDataSources.receipts.stability = {
+            stable,
+            draftHash,
+            storedAtomVersion: bound.storedAtomVersion,
+            updatedAt: bound.updatedAt,
+            receipt: receipt(stabilityRead, fp.atomId),
+            atom: stabilityRead.data,
+          };
+          if (!stable) {
+            if (priorPublisherOriginals) throw Error("DIRECT_DRAFT_CHANGED_DURING_CAPTURE");
+            directUnsupportedContractV1(
+              fp,
+              "DIRECT_DRAFT_CHANGED_DURING_CAPTURE",
+              bound,
+            );
+          } else if (bound.draft.content.typeName === "supplementDraft")
+            await directReadingPayloadV1(
+              fp,
+              bound,
+              directDraftReadingSourceV1(bound),
+            );
+          else if (bound.draft.content.typeName === "discussionPromptDraft")
+            await directDiscussionPayloadV1(
+              fp,
+              bound,
+              directDraftDiscussionSourceV1(bound),
+            );
+          else if (bound.draft.content.typeName === "staffGradedDraft")
+            directAssessmentContractV1(
+              fp,
+              fp.payload.structuredAssessment,
+              fp.payload.directAssessmentInventory,
+              bound,
+            );
+          else if (bound.draft.content.typeName === "widgetDraft")
+            directWidgetContractV1(fp, bound);
+          else
+            directUnsupportedContractV1(
+              fp,
+              "DIRECT_DRAFT_TYPE_UNSUPPORTED",
+              bound,
+            );
         }
-        if (bound.draft.content.typeName === "staffGradedDraft")
-          await captureAssessment(fp, bound);
-        else if (["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName)) {
-          const cmlSource = boundCmlSource(bound);
-          fp.payload.directDraftCml = cmlSource.rawCML;
-          await captureCmlMedia(fp, cmlSource, previous);
-          if (directCmlTextV1(cmlSource.cml)?.references?.some(reference => reference.tag === "widget"))
-            await captureInlineWidgetProviders(fp, bound, previous);
-          else delete fp.payload.directInlineWidgetProviderEvidence;
-        } else if (bound.draft.content.typeName === "widgetDraft")
-          await captureWidgetProvider(fp, bound, previous);
-        else
-          directUnsupportedContractV1(
-            fp,
-            "DIRECT_DRAFT_TYPE_UNSUPPORTED",
-            bound,
-          );
-        const stabilityRead = await reader.readAtom(fp.atomId);
-        const refreshed = bindDirectAuthoringDraftV1(
-          fp,
-          courseId,
-          slug,
-          requireRead(stabilityRead),
-          relationRead.data,
-        );
-        const stable =
-          (await hash(refreshed.draft)) === draftHash &&
-          refreshed.storedAtomVersion === bound.storedAtomVersion &&
-          refreshed.updatedAt === bound.updatedAt;
-        fp.payload.directDataSources.receipts.stability = {
-          stable,
-          draftHash,
-          storedAtomVersion: bound.storedAtomVersion,
-          updatedAt: bound.updatedAt,
-          receipt: receipt(stabilityRead, fp.atomId),
-          atom: stabilityRead.data,
-        };
-        if (!stable) {
-          if (priorPublisherOriginals) throw Error("DIRECT_DRAFT_CHANGED_DURING_CAPTURE");
-          directUnsupportedContractV1(
-            fp,
-            "DIRECT_DRAFT_CHANGED_DURING_CAPTURE",
-            bound,
-          );
-        } else if (bound.draft.content.typeName === "supplementDraft")
-          await directReadingPayloadV1(
-            fp,
-            bound,
-            directDraftReadingSourceV1(bound),
-          );
-        else if (bound.draft.content.typeName === "discussionPromptDraft")
-          await directDiscussionPayloadV1(
-            fp,
-            bound,
-            directDraftDiscussionSourceV1(bound),
-          );
-        else if (bound.draft.content.typeName === "staffGradedDraft")
-          directAssessmentContractV1(
-            fp,
-            fp.payload.structuredAssessment,
-            fp.payload.directAssessmentInventory,
-            bound,
-          );
-        else if (bound.draft.content.typeName === "widgetDraft")
-          directWidgetContractV1(fp, bound);
-        else
-          directUnsupportedContractV1(
-            fp,
-            "DIRECT_DRAFT_TYPE_UNSUPPORTED",
-            bound,
-          );
       } catch (error) {
         const reason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
           ? error.message
@@ -2665,8 +2805,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const previous = enriching
             ? await store.getItem(state.runId, fp.id)
             : null;
+          const oldAtom = previous?.fingerprint?.payload?.directDataSources?.atom?.elements?.[0],
+            oldSnapshot = previous?.fingerprint?.payload?.directAuthoringDraftSnapshot,
+            needsDraftSnapshot = oldAtom?.status?.typeName === "publishedAtomStatus" &&
+              oldAtom?.draft?.content?.typeName === "staffGradedDraft" &&
+              (!oldSnapshot || oldSnapshot.sourceStable !== true || oldSnapshot.failures?.length !== 0);
           const keep =
             enriching &&
+            !needsDraftSnapshot &&
             !inventory.leaves.get(fp.id).structural &&
             previous?.state?.processed === true &&
             previous?.fingerprint?.id === fp.id &&
