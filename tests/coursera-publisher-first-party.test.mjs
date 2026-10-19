@@ -77,7 +77,7 @@ test("recovery opens synchronously, uses an opaque fragment and fails explicitly
   assert.equal(url.origin,"https://opentextbc.ca");assert.equal(url.search,"?p=179/");
   assert.equal(context.courseId,courseId);assert.match(context.nonce,/^[a-f0-9]{64}$/);
   assert(!f.opens[0].url.includes(entry.sourceSha256));
-  assert(!f.opens[0].features.includes("noopener"));
+  assert.equal(f.opens[0].features,undefined,"preserve opener without requesting popup chrome");
   await assert.rejects(f.transport.ready(),{code:"PUBLISHER_FIRST_PARTY_POPUP_BLOCKED"});
   assert.equal(f.parentListeners.size,0);
 });

@@ -10,7 +10,7 @@ import {
   directCmlMediaInventoryV1,
   directMediaEvidenceStructureV1,
 } from "./direct-data-media-contracts.js";
-import { directAssetMetadataBindingV1 } from "./direct-data-media.js";
+import { directAssetMetadataBindingV1, directRetainedAssetBodyV1 } from "./direct-data-media.js";
 import {
   CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
   CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1,
@@ -277,7 +277,15 @@ export async function directCmlMediaPayloadV1(
       }
     }
   }
-  const unresolved = mediaVerified ? [] : parsed.references;
+  const verifiedReferences = new Set();
+  if (!mediaVerified && payload.directAssetEvidence?.method === "BOUND_CML_ASSET_METADATA_AND_BODY") {
+    for (const reference of parsed.references) {
+      if (!/^(asset|img|image|a)$/.test(reference.tag) || !/^[\w-]{22}$/.test(reference.id) || verifiedReferences.has(reference)) continue;
+      const assets = payload.directAssetEvidence.assets?.filter(asset => asset.assetId === reference.id) || [];
+      if (assets.length === 1 && await directRetainedAssetBodyV1(assets[0], reference.id)) verifiedReferences.add(reference);
+    }
+  }
+  const unresolved = mediaVerified ? [] : parsed.references.filter(reference => !verifiedReferences.has(reference));
   const textHash = await sha256(parsed.text),
     rawHash = await sha256(source.cml);
   payload.textSample = parsed.text;
@@ -297,20 +305,21 @@ export async function directCmlMediaPayloadV1(
     );
     const binding =
       asset && directAssetMetadataBindingV1(asset.metadata, reference.id);
+    const bodyVerified = mediaVerified || verifiedReferences.has(reference);
     return {
       url: binding?.canonicalUrl || reference.url,
       assetId: reference.id,
       name: binding?.name || reference.name || "",
       referenceName: reference.name || "",
       tag: reference.tag,
-      evidenceSource: mediaVerified
+      evidenceSource: bodyVerified
         ? "bound-native-cml-asset-body"
         : "bound-authoring-draft-cml",
-      hashStatus: mediaVerified
+      hashStatus: bodyVerified
         ? "HASHED_ORIGINAL_BINARY_BYTES"
         : "NOT_FETCHED_DIRECT_DATA",
-      bodyVerified: mediaVerified,
-      ...(mediaVerified && asset
+      bodyVerified,
+      ...(bodyVerified && asset
         ? {
             sha256: asset.body.sha256,
             size: asset.body.size,

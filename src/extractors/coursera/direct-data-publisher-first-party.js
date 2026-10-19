@@ -69,7 +69,7 @@ export function createDirectPublisherFirstPartyV1(options = {}) {
     nonce = hex(32), sessionId = hex(16), protocol = CTI_PUBLISHER_FIRST_PARTY_PROTOCOL_V1,
     origin = plan.origin, courseId = plan.courseId, initialParentLocation=host.location.href || "", jobs = new Map(), queue = [],
     totalLimit=Number.isSafeInteger(options.limits?.totalBytes) && options.limits.totalBytes > 0 ? Math.min(536870912,options.limits.totalBytes) : 536870912;
-  let popup = null, stopped = "", connected = false, planSha256 = "", active = 0,
+  let popup = null, stopped = "", connected = false, helloSeen = false, planSent = false, planSha256 = "", active = 0,
     serial = 0, requests = 0, receivedBytes = 0, observedBytes = 0, lastMessageAt=Date.now(), resolveReady, rejectReady, handshakeTimer, watchTimer;
   const ready = new Promise((resolve,reject) => {resolveReady=resolve;rejectReady=reject;});
   ready.catch(() => {});
@@ -134,8 +134,8 @@ export function createDirectPublisherFirstPartyV1(options = {}) {
     try {if (JSON.stringify({...m,bytes:undefined}).length > 2048) return;} catch (_) {return;}
     lastMessageAt=Date.now();
     if (m.type === "pong") return;
-    if (m.type === "hello") {if (planSha256) send("plan",{planSha256,entries:plan.entries});return;}
-    if (m.type === "ready" && m.planSha256 === planSha256 && planSha256) {
+    if (m.type === "hello") {helloSeen=true;if (planSha256) {planSent=true;send("plan",{planSha256,entries:plan.entries});}return;}
+    if (m.type === "ready" && planSent && m.planSha256 === planSha256 && planSha256) {
       if (!connected) {connected=true;clearTimeout(handshakeTimer);resolveReady(Object.freeze({planSha256,sessionId}));pump();status("Publisher recovery connected. Cookies stay in the publisher tab.");}
       return;
     }
@@ -208,10 +208,10 @@ export function createDirectPublisherFirstPartyV1(options = {}) {
   const target=new URL(plan.entries[0].targetUrl);
   target.hash=CTI_PUBLISHER_FIRST_PARTY_FRAGMENT_V1+"=1&nonce="+nonce+"&session="+sessionId+"&courseId="+courseId;
   host.addEventListener("message",receive);
-  try {popup=host.open(target.href,"CTIPublisher_"+sessionId,"popup,width=960,height=720");} catch (_) {}
+  try {popup=host.open(target.href,"CTIPublisher_"+sessionId);} catch (_) {}
   if (!popup) close(code("POPUP_BLOCKED"));
   else {
-    handshakeTimer=setTimeout(() => close(code("NOT_CONNECTED")),300000);
+    handshakeTimer=setTimeout(() => close(code(helloSeen ? "PLAN_NOT_ACKNOWLEDGED" : "HANDLER_NOT_OBSERVED")),300000);
     watchTimer=setInterval(() => {
       if (host.location.origin !== "https://www.coursera.org" || initialParentLocation && host.location.href !== initialParentLocation)
         close(code("CONTEXT_CHANGED"));

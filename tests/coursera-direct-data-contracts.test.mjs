@@ -1659,3 +1659,26 @@ test("empty alias support rejects hidden content, null optionals, fabricated pro
     "A fresh source change cannot be concealed by explicit zero counts",
   );
 });
+
+test("mixed reading retains independently proven native bytes without certifying the external attachment", async () => {
+  for (const failure of ["none", "hash", "duplicate", "stale"]) {
+    const id = "m".repeat(22);
+    const f = fixture("supplement", cml('<img assetId="' + id + '"/><a href="https://example.org/source.pdf">Original PDF</a>'));
+    const asset = capturedNativePng(id);
+    asset.metadataReceipt.observedAt = asset.stability.receipt.observedAt = "2026-10-19T12:00:00Z";
+    if (failure === "hash") asset.body.sha256 = asset.body.receipt.sha256 = "0".repeat(64);
+    if (failure === "stale") asset.stability.metadata.elements[0].contentVersion++;
+    f.fp.payload.directAssetEvidence = {
+      method: "BOUND_CML_ASSET_METADATA_AND_BODY",
+      assets: failure === "duplicate" ? [asset, structuredClone(asset)] : [asset],
+      missingPointers: [], failures: [],
+    };
+    const result = await directReadingPayloadV1(f.fp, f.bound, f.source);
+    assert.equal(result.complete, false, failure);
+    assert.equal(f.fp.payload.directDataEvidence.assetsBodyVerified, false);
+    assert.equal(f.fp.payload.assetDetails[0].bodyVerified, failure === "none", failure);
+    assert.equal(f.fp.payload.assetDetails[1].bodyVerified, false);
+    assert.equal(f.fp.payload.directDataEvidence.unresolvedAssetReferences.length, failure === "none" ? 1 : 2);
+    assert.equal(f.fp.payload.directDraftCml.definition.value, f.source.cml);
+  }
+});

@@ -2593,6 +2593,12 @@ try{
   assert.equal(await coopPublisher.evaluate(()=>window.opener),null,'The synthetic provider COOP response actually severs the browser opener');
   await launchFirstPartyBookmark(coopPublisher,coopRecovery.context);
   assert.match(await coopPublisher.locator('#cti-publisher-recovery-panel').innerText(),/could not connect.*No image content is established/s);
+  assert.match(await coopPublisher.locator('#cti-publisher-recovery-panel').innerText(),/OPENER_UNAVAILABLE/);
+  await coopPublisher.evaluate(()=>{location.hash='';});
+  await launchFirstPartyBookmark(coopPublisher,coopRecovery.context);
+  await coopPublisher.waitForFunction(()=>document.querySelector('#cti-publisher-recovery-panel')?.textContent.includes('INVALID_RECOVERY_URL'));
+  assert.match(await coopPublisher.locator('#cti-publisher-recovery-panel').innerText(),/INVALID_RECOVERY_URL/);
+
   assert.equal(firstPartyPublisherRequests.length,coopBodyStart);assert.equal(coopRecovery.contextDownloads.length,1);
   await coopRecovery.context.close();
 
