@@ -201,6 +201,31 @@ test("responsive image alternatives remain raw evidence and are described separa
   validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
 });
 
+test("publisher challenge and skipped service reads stay distinct through validated report reload and export", () => {
+  const f=createInlinePublisherMediaContentFixture({outcomes:["PUBLISHER_IMAGE_UPSTREAM_CHALLENGE","PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED"]}),
+    [trigger,skipped]=f.publisherMedia.resources,
+    browser={transport:"BROWSER_PUBLISHER_IMAGE",observedAt:"2027-01-15T08:00:00.007Z",status:0,responseType:"unreadable",reason:"PUBLISHER_IMAGE_BLOCKED_OR_FAILED"};
+  trigger.attempts=[{...browser},{transport:"CTI_SERVICE_PUBLIC_IMAGE",observedAt:"2027-01-15T08:00:00.008Z",
+    serviceOrigin:"https://cti-hardening.pages.dev",serviceStatus:502,upstreamStatus:403,
+    upstreamObservedAt:"2040-01-01T00:00:00.000Z",upstreamRequests:1,upstreamBytes:0,
+    upstreamChallenge:"cloudflare",reason:trigger.reason}];
+  skipped.attempts=[{...browser},{transport:"CTI_SERVICE_PUBLIC_IMAGE",observedAt:"2027-01-15T08:00:00.009Z",
+    serviceOrigin:"https://cti-hardening.pages.dev",serviceStatus:0,upstreamStatus:0,
+    upstreamObservedAt:"",upstreamRequests:0,upstreamBytes:0,reason:skipped.reason,
+    notAttempted:"ORIGIN_CHALLENGE",blockedBy:{url:trigger.url,observedAt:trigger.attempts[1].observedAt}}];
+  const before=JSON.stringify(f.raw), inline=courseraInlineWidgetContent(f.fp,f.courseId),
+    projected=inline.providers[0].publisherPages[0].media.resources;
+  assert.deepEqual(projected[0].attempts,trigger.attempts);assert.deepEqual(projected[1].attempts,skipped.attempts);
+  validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)),f.fp.id,f.courseId);
+  const exported=courseraInlineWidgetContentText(inline);
+  assert(exported.includes("Publisher returned a Cloudflare challenge"));
+  assert(exported.includes("CTI image service not attempted"));
+  assert(exported.includes("No publisher HTTP result was observed for this skipped read"));
+  assert.equal(exported.match(/Collector-declared upstream result: HTTP 403/g)?.length,1);
+  assert(!exported.includes("HTTP 0"));assert(projected.every(r=>!r.originalRef));
+  assert.equal(f.fp.captureContract.complete,false);assert.equal(JSON.stringify(f.raw),before);
+});
+
 test("failed browser and public-service image attempts retain separate declared outcomes without original-file claims", () => {
   const f = createInlinePublisherMediaContentFixture({ outcomes: ["PUBLISHER_IMAGE_SERVICE_REQUEST_FAILED"] }),
     resource = f.publisherMedia.resources[0];

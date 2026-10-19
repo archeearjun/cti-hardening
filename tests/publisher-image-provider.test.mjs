@@ -53,6 +53,10 @@ async function error(response, code, status = 502) {
     "CTI_SERVICE_PUBLIC_IMAGE",
   );
   assert.equal(response.headers.get("X-CTI-Upstream-Sha256"), null);
+  assert.equal(
+    response.headers.get("X-CTI-Upstream-Challenge"),
+    code === "PUBLISHER_IMAGE_PROVIDER_CHALLENGE" ? "cloudflare" : null,
+  );
   const text = await response.text();
   assert(!text.includes(secret));
   assert(text.length < 160);
@@ -93,6 +97,7 @@ test("a literal cross-book raster GET retains exact bytes and actual SHA with de
     ),
   );
   assert.equal(response.headers.get("X-CTI-Validation-Source-Hash"), null);
+  assert.equal(response.headers.get("X-CTI-Upstream-Challenge"), null);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, imageUrl);
   assert.equal(calls[0].options.method, "GET");
@@ -180,6 +185,10 @@ test("no redirects, challenges, authentication failures, partial ranges or unval
       response.headers.get("X-CTI-Upstream-Status"),
       String(options.status || 200),
     );
+    assert.equal(
+      response.headers.get("X-CTI-Upstream-Challenge"),
+      code === "CHALLENGE" ? "cloudflare" : null,
+    );
     await error(response, "PUBLISHER_IMAGE_PROVIDER_" + code);
     assert.equal(calls.length, 1);
   }
@@ -190,7 +199,46 @@ test("no redirects, challenges, authentication failures, partial ranges or unval
   });
   assert.equal(response.headers.get("X-CTI-Upstream-Status"), "0");
   assert.equal(response.headers.get("X-CTI-Upstream-Observed-At"), "");
+  assert.equal(response.headers.get("X-CTI-Upstream-Challenge"), null);
   await error(response, "PUBLISHER_IMAGE_PROVIDER_REQUEST_FAILED");
+});
+
+test("only an explicit upstream 403 challenge gets the closed receipt declaration without reading or retrying its body", async () => {
+  for (const marker of ["challenge", " CHALLENGE "]) {
+    let pulls = 0, cancelled = false;
+    const body = new ReadableStream({
+      pull() { pulls++; throw Error(secret); },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const { calls, fetcher } = fixture(() => upstream(body, {
+      status: 403,
+      headers: { "Content-Type": "text/html", "cf-mitigated": marker },
+    }));
+    const response = await readPublisherImageProvider(input, { fetcher });
+    assert.equal(response.headers.get("X-CTI-Upstream-Challenge"), "cloudflare");
+    assert.equal(response.headers.get("X-CTI-Upstream-Status"), "403");
+    assert.equal(response.headers.get("X-CTI-Upstream-Requests"), "1");
+    assert.equal(response.headers.get("X-CTI-Upstream-Bytes"), "0");
+    assert(Number.isFinite(Date.parse(response.headers.get("X-CTI-Upstream-Observed-At"))));
+    assert.equal(calls.length, 1); assert.equal(pulls, 0); assert(cancelled);
+    await error(response, "PUBLISHER_IMAGE_PROVIDER_CHALLENGE");
+  }
+  for (const [status, marker] of [[403, undefined], [403, "other"], [403, "challenge, other"], [401, "challenge"], [200, "challenge"]]) {
+    const { calls, fetcher } = fixture(() => upstream(png, {
+      status,
+      headers: marker === undefined ? {} : { "cf-mitigated": marker },
+    }));
+    const response = await readPublisherImageProvider(input, { fetcher });
+    assert.equal(response.headers.get("X-CTI-Upstream-Challenge"), null);
+    assert.equal(calls.length, 1);
+    if (status === 200) {
+      assert.equal(response.status, 200);
+      assert.deepEqual(new Uint8Array(await response.arrayBuffer()), png);
+    } else {
+      assert.equal(response.headers.get("X-CTI-Upstream-Status"), String(status));
+      await error(response, "PUBLISHER_IMAGE_PROVIDER_HTTP_" + status);
+    }
+  }
 });
 
 test("complete bounded EOF is required and observed failure bytes remain charged", async () => {
@@ -271,6 +319,7 @@ test("one deadline covers hung fetch/body and cancellation, including ignored ab
     limits: { requestMs: 5 },
   });
   assert.equal(timed.headers.get("X-CTI-Upstream-Status"), "0");
+  assert.equal(timed.headers.get("X-CTI-Upstream-Challenge"), null);
   await error(timed, "PUBLISHER_IMAGE_PROVIDER_TIMEOUT", 504);
   let cancelled = false;
   const body = new ReadableStream({

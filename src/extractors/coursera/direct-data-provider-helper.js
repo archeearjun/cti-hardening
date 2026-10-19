@@ -1,12 +1,12 @@
 import { directPanoptoAutomaticTargetV1 } from './direct-data-panopto.js';
 import { directPublicPageTargetV1, CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1 } from './direct-data-public-page.js';
 import { directPublisherTargetV1 } from './direct-data-publisher.js';
-import { directPublisherImageUrlV1, CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 } from './direct-data-publisher-media.js';
+import { directPublisherImageUrlV1, directPublisherImageDateV1, CTI_DIRECT_PUBLISHER_IMAGE_BYTES_V1 } from './direct-data-publisher-media.js';
 
 export const CTI_PROVIDER_HELPER_PROTOCOL_V1 = 'CTI_PROVIDER_HELPER_V1';
 export const CTI_PROVIDER_HELPER_ORIGIN_V1 = 'https://cti-hardening.pages.dev';
 export const CTI_PROVIDER_HELPER_OPERATIONS_V1 = 'metadata,podcast,publicHtml,publisherImage';
-export const CTI_PROVIDER_HELPER_HEADERS_V1 = 'content-type,content-length,content-range,content-encoding,x-cti-provider-transport,x-cti-provider-origin,x-cti-upstream-status,x-cti-upstream-observed-at,x-cti-upstream-bytes,x-cti-upstream-content-length,x-cti-upstream-requests,x-cti-validation-bytes,x-cti-validation-source-hash,x-cti-validation-observed-at,x-cti-response-envelope-bytes,x-cti-upstream-sha256,x-cti-publisher-source-hash';
+export const CTI_PROVIDER_HELPER_HEADERS_V1 = 'content-type,content-length,content-range,content-encoding,x-cti-provider-transport,x-cti-provider-origin,x-cti-upstream-status,x-cti-upstream-observed-at,x-cti-upstream-bytes,x-cti-upstream-content-length,x-cti-upstream-requests,x-cti-validation-bytes,x-cti-validation-source-hash,x-cti-validation-observed-at,x-cti-response-envelope-bytes,x-cti-upstream-sha256,x-cti-publisher-source-hash,x-cti-upstream-challenge';
 
 /** The source hash is declared binding context, never proof the service read
  * the parent publisher document. Source ownership is checked by the consumer. */
@@ -116,6 +116,11 @@ export function createDirectProviderHelperV1(options = {}) {
               !headerNames.includes(pair[0]) || headers.has(pair[0])) throw Error();
           headers.set(pair[0],pair[1]);
         }
+        if (headers.has('x-cti-upstream-challenge') && (job.kind!=='publisherImage' || m.status!==502 ||
+            headers.get('x-cti-upstream-challenge')!=='cloudflare' || headers.get('x-cti-provider-transport')!=='CTI_SERVICE_PUBLIC_IMAGE' ||
+            headers.get('x-cti-provider-origin')!==origin || headers.get('x-cti-upstream-status')!=='403' ||
+            headers.get('x-cti-upstream-requests')!=='1' || headers.get('x-cti-upstream-bytes')!=='0' ||
+            !directPublisherImageDateV1(headers.get('x-cti-upstream-observed-at')))) throw Error();
         if (!['publicHtml','publisherImage'].includes(job.kind) && Number(headers.get('content-length') || 0)>job.limit) throw Error();
         if (job.kind==='publicHtml' && m.status===200) {
           const declared=headers.get('x-cti-response-envelope-bytes');

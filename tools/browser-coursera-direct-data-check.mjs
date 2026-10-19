@@ -24,6 +24,7 @@ import {directCanonicalSourceTextV1} from '../src/extractors/coursera/direct-dat
 import {directPublicHtmlEvidenceV1} from '../src/extractors/coursera/direct-data-public-page.js';
 import {directPublisherEvidenceV1,directPublisherChapterV1,directPublisherResourceEvidenceV1,directPublisherResourceV1} from '../src/extractors/coursera/direct-data-publisher.js';
 import {directPublisherMediaInventoryV1,directPublisherMediaEvidenceV1} from '../src/extractors/coursera/direct-data-publisher-media.js';
+import {courseraInlineWidgetContent,courseraInlineWidgetContentText} from '../src/domain/coursera-inline-widget-content.ts';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -352,6 +353,24 @@ providers.get(publisherServiceCourse.inlineProviderId).value.draft.configuration
 providers.get(publisherServiceCourse.inlineProviderId).value.draft.pageSrc=publisherServiceCase.targetUrl;
 publisherImages.set(publisherServiceImageUrl,{name:'service-original.png',mode:'no-cors',body:publisherServiceBytes,requests:0});
 publisherServiceImages.set(publisherServiceImageUrl,publisherServiceCourse);
+const publisherChallengeCase=makePublisherCase(1499,'omit-wildcard');
+const publisherChallengeUrls=['challenge-first.png','challenge-second.png'].map(name=>publisherImageBase+name);
+publisherChallengeCase.chapter.content.raw='<p>Both literal originals remain unresolved after an observed publisher challenge.</p>'+
+  publisherChallengeUrls.map(url=>'<img src="'+url+'">').join('');
+publisherChallengeCase.chapter.content.rendered='<p>Distinct rendered field.</p>'+
+  publisherChallengeUrls.map(url=>'<img src="'+url+'">').join('');
+publisherChallengeCase.rawJson='\ufeff'+JSON.stringify(publisherChallengeCase.chapter,null,2)+'\n';
+publisherChallengeCase.bytes=Buffer.from(publisherChallengeCase.rawJson);
+const publisherChallengeCourse=makeInlineWidgetCourse('Direct_inline_image_challenge_123','publisher-image-challenge',true);
+publisherChallengeCourse.publisherReaderCase=true;publisherChallengeCourse.publisherServiceMode='upstream-challenge';
+publisherChallengeCourse.publisherImageCase=publisherChallengeCase;
+providers.get(publisherChallengeCourse.inlineProviderId).value.draft.configuration.url=publisherChallengeCase.targetUrl;
+providers.get(publisherChallengeCourse.inlineProviderId).value.draft.pageSrc=publisherChallengeCase.targetUrl;
+for(const [index,url]of publisherChallengeUrls.entries()){
+  const body=index===0?pngBytes:Buffer.concat([pngBytes.subarray(0,-12),fixturePngTextChunk('Second literal original.'),pngBytes.subarray(-12)]);
+  publisherImages.set(url,{name:url.split('/').at(-1),mode:'no-cors',body,requests:0});
+  publisherServiceImages.set(url,publisherChallengeCourse);
+}
 const publisherFlagLeaf=publisherInlineCourse.material.material.elements[0].elements[0].elements[0];
 publisherFlagLeaf.content.typeName='ungradedAssignment';
 publisherFlagLeaf.content.definition.assignmentFeatures=['LIMITED_SUBMISSIONS','TAKE_LATEST_GRADE','SHOW_GRADE_ON_RELEASE'];
@@ -421,6 +440,8 @@ async function fixtureProviderFetch(address,init){
       assert.equal(headers.get('origin'),null);assert.equal(headers.get('referer'),null);
       helperUpstreamRequests.push({courseId:config.id,role:'PUBLISHER_IMAGE',url:url.href});
       if(config.publisherServiceMode==='upstream-denied')return new Response('synthetic public failure',{status:403,headers:{'Content-Type':'text/plain'}});
+      if(config.publisherServiceMode==='upstream-challenge')return new Response('Synthetic challenge, not an image.',
+        {status:403,headers:{'Content-Type':'text/html','cf-mitigated':'challenge'}});
       const pieces=[image.body.subarray(0,70001),image.body.subarray(70001)];
       return new Response(new ReadableStream({pull(controller){if(pieces.length)controller.enqueue(pieces.shift());else controller.close();}}),
         {headers:{'Content-Type':config.publisherServiceMode==='wrong-upstream-mime'?'text/html':'image/png','Content-Length':String(image.body.length)}});
@@ -489,8 +510,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
         let result=await helperApi(input,helperEnvironment);
         if(providerConfig&&url.pathname==='/api/provider/publisher-image'){
           const payload=JSON.parse(body);assert.deepEqual(Object.keys(payload).sort(),['imageUrl','sourceSha256','targetUrl']);
-          assert.equal(payload.targetUrl,publisherServiceCase.targetUrl);assert.equal(payload.imageUrl,publisherServiceImageUrl);
-          assert.equal(payload.sourceSha256,createHash('sha256').update(publisherServiceCase.bytes).digest('hex'));
+          const sourceCase=providerConfig.publisherImageCase||publisherServiceCase;
+          assert.equal(payload.targetUrl,sourceCase.targetUrl);assert.equal(publisherServiceImages.get(payload.imageUrl),providerConfig);
+          assert.equal(payload.sourceSha256,createHash('sha256').update(sourceCase.bytes).digest('hex'));
           assert(request.headers.cookie?.includes('ctiFixtureSession='+secrets[4]),'The helper API request is authenticated on its own origin');
           assert.equal(request.headers.origin,helperOrigin);assert.equal(request.headers['sec-fetch-site'],'same-origin');
           assert.equal(request.headers['content-type'],'application/json');
@@ -1277,6 +1299,7 @@ try{
     {version:'1.8.0',buildId:'v1.8.0-inline-widget-public-html-20261018'},
     {version:'1.8.1',buildId:'v1.8.1-browser-publisher-api-20261018'},
     {version:'1.8.3',buildId:'v1.8.3-publisher-sections-original-images-20261018'},
+    {version:'1.8.4',buildId:'v1.8.4-public-publisher-images-20261019'},
     // Leave v1.8.2 seeded for the separate flag-order continuation below.
     {version:'1.8.2',buildId:'v1.8.2-historical-publisher-checkpoint-20261018'},
   ]){
@@ -1628,6 +1651,80 @@ try{
   assert(!serviceOwnership.some(body=>body.sha256===unownedServiceHash),'Public-service staging cannot assign ownership after a failed native consistency read');
   actualServiceImage.body=priorServiceBytes;publisherServiceCourse.mode='complete';
   await assertNoEditor(serviceImage.page,serviceImage.destinations);await serviceImage.context.close();
+  const challengeBrowserStart=publisherImageRequests.length,challengeServiceStart=helperRequests.length,challengeUpstreamStart=helperUpstreamRequests.length;
+  const challengedImages=await runFileCase(publisherChallengeCourse);
+  assert.equal(challengedImages.state.state,'INCOMPLETE');
+  assert.equal(publisherImageRequests.length-challengeBrowserStart,2,
+    'The browser still attempts each literal image with its own real CORS result');
+  const challengeServiceCalls=helperRequests.slice(challengeServiceStart).filter(request=>request.courseId===publisherChallengeCourse.id);
+  const challengeUpstreamCalls=helperUpstreamRequests.slice(challengeUpstreamStart).filter(request=>request.courseId===publisherChallengeCourse.id);
+  assert.equal(challengeServiceCalls.length,1);assert.equal(challengeServiceCalls[0].kind,'publisher-image');
+  assert.equal(challengeUpstreamCalls.length,1);assert.equal(challengeUpstreamCalls[0].role,'PUBLISHER_IMAGE');
+  assert.equal(challengeUpstreamCalls[0].url,publisherChallengeUrls[0],
+    'One observed publisher challenge stops subsequent same-origin service GETs, including duplicate native placements');
+  const challengeAssessments=challengedImages.capture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence);
+  for(const fp of challengedImages.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
+    const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0];
+    assert.equal(page.observation.model.rawJson,publisherChallengeCase.rawJson);assert.deepEqual(page.failures,[]);
+    assert(directPublisherMediaEvidenceV1(page.observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    const [trigger,skipped]=publisherChallengeUrls.map(url=>page.media.resources.find(resource=>resource.url===url));
+    assert(trigger&&skipped);assert.equal(trigger.body,undefined);assert.equal(skipped.body,undefined);
+    assert.equal(trigger.reason,'PUBLISHER_IMAGE_UPSTREAM_CHALLENGE');assert.equal(trigger.attempts.length,2);
+    assert.equal(trigger.attempts[0].reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(trigger.attempts[0].status,0);
+    assert.equal(trigger.attempts[1].upstreamChallenge,'cloudflare');assert.equal(trigger.attempts[1].serviceStatus,502);
+    assert.equal(trigger.attempts[1].upstreamStatus,403);assert.equal(trigger.attempts[1].upstreamRequests,1);assert.equal(trigger.attempts[1].upstreamBytes,0);
+    assert.equal(trigger.attempts[1].notAttempted,undefined);assert(Number.isFinite(Date.parse(trigger.attempts[1].upstreamObservedAt)));
+    assert.equal(skipped.reason,'PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED');assert.equal(skipped.attempts.length,2);
+    assert.equal(skipped.attempts[0].reason,'PUBLISHER_IMAGE_BLOCKED_OR_FAILED');assert.equal(skipped.attempts[0].status,0);
+    assert.equal(skipped.attempts[1].notAttempted,'ORIGIN_CHALLENGE');assert.equal(skipped.attempts[1].upstreamChallenge,undefined);
+    assert.equal(skipped.attempts[1].serviceStatus,0);assert.equal(skipped.attempts[1].upstreamStatus,0);
+    assert.equal(skipped.attempts[1].upstreamObservedAt,'');assert.equal(skipped.attempts[1].upstreamRequests,0);assert.equal(skipped.attempts[1].upstreamBytes,0);
+    assert.deepEqual(skipped.attempts[1].blockedBy,{url:trigger.url,observedAt:trigger.attempts[1].observedAt});
+    assert.equal(fp.captureContract.complete,false);assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);
+    const report=courseraInlineWidgetContent(fp,publisherChallengeCourse.id);assert(report);
+    const reportMedia=report.providers[0].publisherPages[0].media;assert.equal(reportMedia.resources.length,2);
+    for(const resource of reportMedia.resources){
+      assert.equal(resource.status,'UNRESOLVED');assert.equal(resource.originalRef,'');assert.equal(resource.bytes,null);
+      assert.deepEqual(resource.attempts,page.media.resources.find(value=>value.url===resource.url).attempts,
+        'Archive acceptance and report projection preserve the complete actual-attempt or not-attempted context');
+    }
+    const text=courseraInlineWidgetContentText(report);
+    assert(text.includes(trigger.url)&&text.includes(skipped.url));assert.match(text,/Publisher returned a Cloudflare challenge/);
+    assert.match(text,/CTI image service not attempted/);assert.match(text,/No publisher HTTP result was observed for this skipped read/);
+  }
+  assert.equal(challengedImages.capture.meta.directDataCapture.coverage.questions,10);
+  assert.equal(evaluateCourseraCapture(challengedImages.capture,publisherChallengeCourse.id).complete,false);
+  const challengeCheckpoint=await checkpointSnapshot(challengedImages.page);assert.equal(challengeCheckpoint.bodies.length,0);
+  const challengeZip=await JSZip.loadAsync(fs.readFileSync(await challengedImages.contextDownloads[0].download.path()),{checkCRC32:true});
+  assert.equal(Object.keys(challengeZip.files).filter(name=>/^files\/[a-f0-9]{64}$/.test(name)).length,0,
+    'Challenge pages and skipped sources never become retained image originals');
+  publisherChallengeCourse.publisherServiceMode='ready';
+  const challengeResumeBrowserStart=publisherImageRequests.length,challengeResumeServiceStart=helperRequests.length,
+    challengeResumeUpstreamStart=helperUpstreamRequests.length,challengeResumeNativeStart=requests.length;
+  const challengeResumeDownload=challengedImages.page.waitForEvent('download',{timeout:180000});
+  await challengedImages.page.reload();await launch(challengedImages.page,challengedImages.context);
+  const challengeResumeState=await terminal(challengedImages.page),challengeResumeCapture=await readFile(await challengeResumeDownload);
+  assert.equal(challengeResumeState.runId,challengedImages.state.runId);assert.equal(challengeResumeState.state,'INCOMPLETE');
+  assert.equal(publisherImageRequests.length-challengeResumeBrowserStart,2);
+  assert.equal(helperRequests.slice(challengeResumeServiceStart).filter(request=>request.courseId===publisherChallengeCourse.id).length,2);
+  assert.equal(helperUpstreamRequests.slice(challengeResumeUpstreamStart).filter(request=>request.courseId===publisherChallengeCourse.id).length,2,
+    'An explicit Capture/resume creates a fresh reader and retries both unresolved images; challenge suppression is never permanent');
+  for(const fp of challengeResumeCapture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence)){
+    const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0];
+    assert.equal(page.observation.model.rawJson,publisherChallengeCase.rawJson);
+    for(const resource of page.media.resources){
+      assert(publisherChallengeUrls.includes(resource.url));assert(resource.body?.bytes instanceof Uint8Array);
+      assert.deepEqual(Buffer.from(resource.body.bytes),publisherImages.get(resource.url).body);
+      assert.equal(resource.body.receipt.transport,'CTI_SERVICE_PUBLIC_IMAGE');assert.equal(resource.body.receipt.upstreamStatus,200);
+      assert.equal(resource.reason,undefined);assert.equal(resource.attempts,undefined);
+    }
+    assert.equal(fp.captureContract.complete,false);assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);
+  }
+  assert.deepEqual(challengeResumeCapture.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence),challengeAssessments);
+  assert(!requests.slice(challengeResumeNativeStart).some(request=>[groupResource,definitionResource].includes(request.resource)));
+  assert.equal(evaluateCourseraCapture(challengeResumeCapture,publisherChallengeCourse.id).complete,false);
+  assert.equal(challengedImages.contextDownloads.length,2);await assertNoEditor(challengedImages.page,challengedImages.destinations);
+  await challengedImages.context.close();
   for(const config of [inlineWidgetWrongOwner,inlineWidgetChanged,inlineWidgetPartial]){
     const result=await runFileCase(config),fp=result.capture.fingerprints.find(item=>item.id==='item_0002'),proof=fp.payload.directInlineWidgetProviderEvidence;
     assert.equal(result.state.state,'INCOMPLETE');assert.equal(fp.captureContract.complete,false);assert(proof);
@@ -2393,6 +2490,8 @@ try{
     syntheticTypedPartResolutionPreservesChapter404HistoryAndTwoGetBound:true,
     publisherImagesUseActualCorsAndExactSourceBoundOriginalArchiveBytes:true,
     publisherServiceImagesUseAuthenticatedHelperAndBoundedPublicBytesWithoutCorsForgery:true,
+    publisherChallengeStopsSameOriginServiceReadsWithoutInventingSkippedHttpResults:true,
+    publisherChallengeContextSurvivesZipAndReportWhileExplicitResumeRetriesOriginals:true,
     foreignSameOriginWindowCannotForgeProviderResult:true,cancelClosesHelperAndPreservesNativeAndHistoricalBytes:true,
     accessDiagnosticNeverRecapturesCourseOrWritesCheckpoints:true,accessReportSeparateSmallJsonOnlyOnRequest:true,
     missingAssetIdsAndMetadataAndCorsAndRedirectAndMimeAndBodyLimitAndSourceChangesRemainGaps:true,

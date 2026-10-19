@@ -321,6 +321,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (inline.publisherImages?.unique || inline.publisherImages?.sourceGaps || inline.publisherImages?.responsiveImageSets) {
           const images = inline.publisherImages, failures = [];
           count.textContent += images.unique ? " · Publisher image sources " + images.saved + "/" + images.unique + " saved" : " · Publisher images";
+          for (const [key, label] of [["publisherHttp", "publisher HTTP"], ["serviceHttp", "CTI service HTTP"]])
+            for (const [status, n] of Object.entries(images[key] || {})) failures.push(n + " " + label + " " + status);
+          if (images.mixedHttp) failures.push(images.mixedHttp + " mixed HTTP outcomes");
+          if (images.challengeDeferred) failures.push(images.challengeDeferred + " deferred after publisher challenge");
           if (images.browserUnavailable) failures.push(images.browserUnavailable + " browser-blocked or unreadable");
           if (images.failed) failures.push(images.failed + " other read failures");
           if (images.unverified) failures.push(images.unverified + " unverified");
@@ -328,6 +332,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (failures.length) count.textContent += " (" + failures.join("; ") + ")";
           if (images.historical) count.textContent += " · " + images.historical + " historical image originals retained";
           if (images.responsiveImageSets) count.textContent += " · Responsive alternatives listed for " + images.responsiveImageSets + " images";
+          if (images.publisherChallenges) count.textContent += " · Publisher requested a Cloudflare check; image bytes remain uncaptured. Further service reads to that origin are deferred for this attempt.";
+          else if (images.challengeDeferred) count.textContent += " · CTI public-image reads paused for that publisher this attempt; browser and API reads continue";
         }
         if (inline.limited) count.textContent += " · External-page summary limited; retained source records remain in the capture";
       }
@@ -556,9 +562,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 ...(media.retained || []).slice(0, 128).map(value => ({ resources: value.resources, historical: true }))]) {
                 for (const resource of group.resources) {
                   if (result.images.length >= 256) { result.limited = true; break; }
+                  // The media structure checked the complete attempt record above.
+                  // A reason string cannot establish a service or publisher status.
+                  const service = resource.reason && resource.attempts?.[1],
+                    outcome = service?.notAttempted === "ORIGIN_CHALLENGE" ? "DEFERRED_ORIGIN_CHALLENGE" :
+                      service?.upstreamStatus >= 400 ? "PUBLISHER_HTTP_" + service.upstreamStatus :
+                      service?.serviceStatus >= 400 ? "SERVICE_HTTP_" + service.serviceStatus :
+                      resource.reason ? publicPageFailureOutcome({ reason: resource.reason }) : resource.body ? "" : "UNCLASSIFIED";
                   result.images.push({ url: resource.url, saved: !group.historical && !!resource.body,
                     historical: group.historical && !!resource.body,
-                    outcome: resource.reason ? publicPageFailureOutcome({ reason: resource.reason }) : resource.body ? "" : "UNCLASSIFIED" });
+                    outcome, ...(service?.upstreamChallenge === "cloudflare" ? {challenged:true} : {}) });
                 }
               }
             } else addImageGap((selected?.model?.sha256 || page.targetUrl) + "~PUBLISHER_IMAGE_MEDIA_EVIDENCE_INVALID");
@@ -614,10 +627,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         for (const image of value.images || []) {
           if (!imageSources.has(image.url)) {
             if (imageSources.size >= 512) { result.limited = true; continue; }
-            imageSources.set(image.url, { saved: false, historical: false, outcomes: new Set() });
+            imageSources.set(image.url, { saved: false, historical: false, challenged: false, outcomes: new Set() });
           }
           const source = imageSources.get(image.url);
           source.saved ||= image.saved; source.historical ||= image.historical;
+          source.challenged ||= image.challenged === true;
           if (image.outcome) source.outcomes.add(image.outcome);
         }
         for (const key of value.imageGaps || []) {
@@ -658,6 +672,23 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (image.saved) result.publisherImages.saved++;
           if (image.historical) result.publisherImages.historical++;
           if (image.saved) continue;
+          if (image.challenged) result.publisherImages.publisherChallenges = (result.publisherImages.publisherChallenges || 0) + 1;
+          const publisher = [...image.outcomes].filter(value => value.startsWith("PUBLISHER_HTTP_")),
+            service = [...image.outcomes].filter(value => value.startsWith("SERVICE_HTTP_")),
+            observed = publisher.length ? publisher : service;
+          if (observed.length) {
+            if (observed.length > 1) result.publisherImages.mixedHttp = (result.publisherImages.mixedHttp || 0) + 1;
+            else {
+              const key = publisher.length ? "publisherHttp" : "serviceHttp", status = observed[0].split("_").pop();
+              result.publisherImages[key] ||= {};
+              result.publisherImages[key][status] = (result.publisherImages[key][status] || 0) + 1;
+            }
+            continue;
+          }
+          if (image.outcomes.has("DEFERRED_ORIGIN_CHALLENGE")) {
+            result.publisherImages.challengeDeferred = (result.publisherImages.challengeDeferred || 0) + 1;
+            continue;
+          }
           if (image.outcomes.has("BROWSER_UNAVAILABLE")) result.publisherImages.browserUnavailable++;
           else if ([...image.outcomes].some(value => value && value !== "UNCLASSIFIED")) result.publisherImages.failed++;
           else if (!image.historical) result.publisherImages.unverified++;

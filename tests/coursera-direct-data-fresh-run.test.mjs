@@ -432,7 +432,7 @@ function reorderFourNativeFlagSets(material) {
 }
 
 test("four observed assignment flag reorders resume the eligible historical run with 80 originals and prior assessment receipts", async () => {
-  for (const buildId of ["v1.8.0-inline-widget-public-html-20261018", "v1.8.1-browser-publisher-api-20261018", "v1.8.2-historical-publisher-checkpoint-20261018", "v1.8.3-publisher-sections-original-images-20261018", CTI_DIRECT_DATA_BUILD_V1]) {
+  for (const buildId of ["v1.8.0-inline-widget-public-html-20261018", "v1.8.1-browser-publisher-api-20261018", "v1.8.2-historical-publisher-checkpoint-20261018", "v1.8.3-publisher-sections-original-images-20261018", "v1.8.4-public-publisher-images-20261019", CTI_DIRECT_DATA_BUILD_V1]) {
     const f = fixture({ assignmentFlags: true, originalCount: 80 });
     await f.ctx.run();
     const runId = f.state.runId, prior = f.runs.get(runId), priorMeta = prior.captureMeta,
