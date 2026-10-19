@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   assignmentDeliverableCsv,
   assignmentDeliverableMarkdown,
@@ -21,6 +21,7 @@ import {
   type DeliverableMember,
 } from "../src/domain/assignment-deliverables";
 import { loadAssignmentEvidence } from "../src/domain/assignment-plan";
+import { prepareAssignmentAgentHandoff } from "../src/domain/assignment-agent-handoff";
 import type { WorkspaceRecord } from "../src/domain/workspace-types";
 import type { WorkspaceStore } from "../src/domain/workspace-store";
 import { download } from "./workspace-ui";
@@ -145,6 +146,15 @@ export function AssignmentDeliverables({
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
   const [selectedHistory, setSelectedHistory] = useState("");
+  const agentPreparation = useRef<AbortController | null>(null);
+  const agentSelection = useRef<{
+    course: WorkspaceRecord | null;
+    audit: WorkspaceRecord | null;
+    artifact: AssignmentDeliverableArtifact | null;
+    store: WorkspaceStore | null;
+    kind: DeliverableKind;
+    selectedHistory: string;
+  } | null>(null);
 
   useEffect(() => {
     setDraft(null);
@@ -237,6 +247,28 @@ export function AssignmentDeliverables({
     !selectedHistory;
   const readonly =
     disabled || !store || store.role === "viewer" || busy || loaded.loading;
+  const currentAgentSelection = useMemo(
+    () => ({
+      course,
+      audit: loaded.audit,
+      artifact,
+      store,
+      kind,
+      selectedHistory,
+    }),
+    [course, loaded.audit, artifact, store, kind, selectedHistory],
+  );
+  // A render changes this reference before passive cleanup runs, closing the
+  // selection-switch race even if a pending store read resolves immediately.
+  agentSelection.current = currentAgentSelection;
+  useEffect(() => {
+    if (agentPreparation.current) {
+      agentPreparation.current.abort();
+      agentPreparation.current = null;
+      setBusy(false);
+    }
+    return () => agentPreparation.current?.abort();
+  }, [currentAgentSelection]);
 
   function chooseKind(value: DeliverableKind) {
     setKind(value);
@@ -379,6 +411,54 @@ export function AssignmentDeliverables({
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(false);
+    }
+  }
+  async function downloadAgentPacket() {
+    if (
+      !course ||
+      !loaded.audit ||
+      !artifact ||
+      !store ||
+      !artifactCurrent ||
+      selectedHistory ||
+      busy ||
+      agentPreparation.current
+    )
+      return;
+    const controller = new AbortController(),
+      selection = agentSelection.current;
+    agentPreparation.current = controller;
+    const current = () =>
+      !controller.signal.aborted &&
+      agentPreparation.current === controller &&
+      agentSelection.current === selection;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const prepared = await prepareAssignmentAgentHandoff(
+        course,
+        loaded.audit,
+        artifact,
+        store,
+        controller.signal,
+      );
+      if (!current()) return;
+      download(
+        `CTI-${kind}-agent-evidence.json`,
+        prepared.json,
+        "application/json",
+      );
+      setMessage(
+        "Agent evidence packet prepared with the structural artifact, full owner/content evidence, scope provenance and explicit gaps. Attach this file to the agent; ask it to return only structuralArtifact with proposed fields changed. Original binary archives remain separate when byte review is needed.",
+      );
+    } catch (reason) {
+      if (current())
+        setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (current()) setBusy(false);
+      if (agentPreparation.current === controller)
+        agentPreparation.current = null;
     }
   }
 
@@ -582,6 +662,19 @@ export function AssignmentDeliverables({
           <div className="actions">
             <button
               type="button"
+              disabled={
+                busy ||
+                loaded.loading ||
+                !store ||
+                !artifactCurrent ||
+                !!selectedHistory
+              }
+              onClick={() => void downloadAgentPacket()}
+            >
+              Download agent evidence packet
+            </button>
+            <button
+              type="button"
               onClick={() =>
                 download(
                   `CTI-${kind}.json`,
@@ -622,6 +715,14 @@ export function AssignmentDeliverables({
               Download mapping CSV
             </button>
           </div>
+          <p className="hint">
+            The agent packet includes this protected structural JSON and the
+            full retained owner/content evidence, including separate draft and
+            provider observations. Automatic archive/instructor defaults are
+            labelled separately from owner scope decisions. Binary originals are
+            not embedded. The agent returns only the inner structuralArtifact
+            through the existing proposed-only revision import.
+          </p>
           <div style={{ overflowX: "auto" }}>
             <table>
               <caption>

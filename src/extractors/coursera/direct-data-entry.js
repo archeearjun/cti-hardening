@@ -143,6 +143,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     resumeButton.textContent = "Resume";
     resumeButton.hidden = true;
     const startButton = document.createElement("button"),
+      recheckButton = document.createElement("button"),
       freshButton = document.createElement("button"),
       accessButton = document.createElement("button"),
       publisherAccessButton = document.createElement("button"),
@@ -151,6 +152,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       accessText = document.createElement("pre"),
       accessFallback = document.createElement("textarea");
     startButton.textContent = "Capture/resume course";
+    recheckButton.textContent = "Recheck native course content";
     freshButton.textContent = "Start a fresh course capture";
     accessButton.textContent = "Check Panopto access";
     publisherAccessButton.textContent = "Check embedded page access";
@@ -162,7 +164,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     accessFallback.readOnly = true;
     accessFallback.hidden = true;
     accessFallback.style.cssText = "width:95%;height:100px";
-    for (const button of [freshButton, startButton, accessButton, publisherAccessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
+    for (const button of [freshButton, startButton, recheckButton, accessButton, publisherAccessButton, stopButton, downloadButton, resumeButton, copyAccessButton, downloadAccessButton])
       button.style.cssText =
         "margin:4px;padding:8px;background:#fff;border:1px solid #adc2de;border-radius:6px;color:#172b4d;cursor:pointer";
     freshButton.style.background = "#0052cc";
@@ -175,6 +177,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       hint,
       freshButton,
       startButton,
+      recheckButton,
       accessButton,
       publisherAccessButton,
       stopButton,
@@ -257,7 +260,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
       hint.textContent = state.diagnosing || state.state === "READY"
-        ? "After edits, start a fresh course capture to reread questions. Capture/resume continues saved progress; finished runs may only add media. Panopto access is diagnostic only."
+        ? "Capture/resume continues saved progress and media. Recheck native course content checks every current item and question reference, keeping exact-version originals and their dates. Start fresh uses a separate run. External runtime content and all media bytes are not certified by a native recheck."
+        : meta?.directDataCapture?.nativeRecheck?.scope === "ALL_NATIVE_ITEMS"
+        ? "This check reads native items, mutable groups and source bindings. Reused exact-version definitions and files keep original dates. External runtime content and all media bytes are not certified by this check. Keep the Content page open."
         : mediaOnly
         ? "This attempt reads referenced files, supported external providers and separately labelled draft snapshots on published items. Saved questions retain their original capture timestamps. Keep the Content page open; DevTools can stay closed."
         : "Reads authoring drafts in this tab. Progress is saved locally. Keep the Content page open; DevTools can stay closed.";
@@ -353,6 +358,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       count.hidden = !meta || state.diagnosing;
       const busy = state.running || state.diagnosing || exporting;
       startButton.disabled = busy || state.terminal;
+      recheckButton.disabled = busy || state.terminal;
       freshButton.disabled = busy;
       accessButton.disabled = busy;
       publisherAccessButton.disabled = busy;
@@ -377,6 +383,22 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             },
         ),
       );
+    }
+    function withdrawPendingNativeRecheck(fp) {
+      const requestedAt = meta?.directDataCapture?.nativeRecheck?.requestedAt;
+      if (!requestedAt || fp.payload?.directNativeRecheckRequestedAt === requestedAt) return false;
+      fp.payload = fp.payload || {};
+      fp.payload.directResumeRevalidation = { verified: false, reason: "DIRECT_NATIVE_RECHECK_NOT_READ" };
+      directUnsupportedContractV1(fp, "DIRECT_NATIVE_RECHECK_NOT_READ");
+      return true;
+    }
+    async function beginNativeRecheck() {
+      itemStates.clear();
+      state.counts = { processed: 0, complete: 0, questions: 0, total: items.length };
+      await saveRun("RUNNING", true);
+      // Restore bounded original-file/public-page accounting before new reads,
+      // while the same hydration pass durably withdraws unvisited proof.
+      await hydrateSavedItems();
     }
     function requireRead(read) {
       if (!read.ok) throw Error(read.reason || "DIRECT_API_READ_FAILED");
@@ -818,6 +840,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           directUnsupportedContractV1(retained, !bodiesAvailable
             ? "DIRECT_ARCHIVE_BODY_UNAVAILABLE"
             : "DIRECT_RESUME_REVALIDATION_FAILED");
+        const pendingRecheck = withdrawPendingNativeRecheck(retained),
+          retainedState = pendingRecheck ? { ...row.state, processed: false } : row.state;
         await archiveItemBodies(retained);
         const retainedJson = JSON.stringify(retained);
         let retainedComparison;
@@ -828,9 +852,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         // use exact JSON; they do not add a new checkpoint acceptance limit.
         // Unchanged loading must not relabel a saved row with a new write time.
         if (retainedComparison !== originalComparison)
-          await store.putItem(state.runId, fp.id, retained, row.state);
+          await store.putItem(state.runId, fp.id, retained, retainedState);
         const size = encoder.encode(retainedJson).byteLength;
-        summarizeItem(retained, row.state?.processed === true, size);
+        summarizeItem(retained, retainedState?.processed === true, size);
       }
       render(
         "Saved progress loaded. Current drafts and question references are checked before reuse.",
@@ -962,7 +986,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       await saveRun("RUNNING");
       render();
     }
-    async function captureAssessment(fp, bound) {
+    async function captureAssessment(fp, bound, previous) {
       const parts = directDraftAssessmentInventoryV1(bound),
         groups = [],
         definitions = new Map(),
@@ -1045,6 +1069,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           cached?.value?.modelHash &&
           cached.value.data?.elements?.length === 1 &&
           cached.value.data.elements[0]?.id === definitionId &&
+          directReceiptSourceValidV1(cached.value.receipt,
+            "authoringAssignmentMachineEvaluableQuestions.v1", definitionId) &&
           (await hash(cached.value.data)) === cached.value.modelHash
         )
           definitionRead = { ...cached.value, ok: true };
@@ -1127,6 +1153,20 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         else if (groupStable) {
           parsed.observationMethod =
             "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION";
+          // Re-parsing an exact saved definition is not a new observation.
+          // Preserve the earlier question timestamp when its original model
+          // still matches; otherwise use the actual definition receipt time.
+          const oldDefinitions = (previous?.payload?.assessmentApiEvidence?.questionDefinitions || [])
+              .filter(value => value.id === raw.id),
+            oldQuestions = (previous?.payload?.structuredAssessment?.questions || [])
+              .filter(value => value.sourceDefinitionId === raw.id),
+            oldQuestion = oldDefinitions.length === 1 && oldQuestions.length === 1 &&
+              directCanonicalSourceTextV1(oldDefinitions[0]) === directCanonicalSourceTextV1(raw)
+              ? oldQuestions[0] : null,
+            observedAt = Date.parse(definitionRead.receipt?.observedAt);
+          if (oldQuestion && Number.isFinite(oldQuestion.observedAtMs))
+            parsed.observedAtMs = oldQuestion.observedAtMs;
+          else if (Number.isFinite(observedAt)) parsed.observedAtMs = observedAt;
           questions.push(parsed);
         }
         state.phase = "Reading assessment data";
@@ -1889,6 +1929,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         applyDirectContractV1(fp, "UNRESOLVED_DIRECT_STRUCTURE", false, [
           "MATERIAL_STABILITY_NOT_CHECKED",
         ]);
+        if (meta.directDataCapture.nativeRecheck)
+          fp.payload.directNativeRecheckRequestedAt = meta.directDataCapture.nativeRecheck.requestedAt;
         await persist(fp, true);
         return;
       }
@@ -1983,7 +2025,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             delete fp.payload.directResumeRevalidation;
           }
           if (bound.draft.content.typeName === "staffGradedDraft")
-            await captureAssessment(fp, bound);
+            await captureAssessment(fp, bound, previous);
           else if (["supplementDraft", "discussionPromptDraft"].includes(bound.draft.content.typeName)) {
             const cmlSource = boundCmlSource(bound);
             fp.payload.directDraftCml = cmlSource.rawCML;
@@ -2054,6 +2096,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               bound,
             );
         }
+        if (meta.directDataCapture.nativeRecheck && previous?.payload?.assessmentApiEvidence &&
+            bound?.draft?.content?.typeName === "staffGradedDraft" && fp.captureContract?.complete !== true)
+          throw Error("DIRECT_NATIVE_RECHECK_INCOMPLETE");
       } catch (error) {
         const reason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
           ? error.message
@@ -2062,6 +2107,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           fp.payload.structuredAssessment?.questions?.length || 0;
         const previousQuestions =
           previous?.payload?.structuredAssessment?.questions?.length || 0;
+        const nativeRecheckAttempt = meta.directDataCapture.nativeRecheck ? {
+          method: "BOUND_NATIVE_COURSE_RECHECK", courseId, itemId: fp.id, atomId: fp.atomId,
+          observedAt: new Date().toISOString(), reason, currentNativeVerified: false,
+          sources: fp.payload.directDataSources,
+          ...(fp.payload.assessmentApiEvidence ? { assessmentApiEvidence: fp.payload.assessmentApiEvidence } : {}),
+          ...(fp.payload.structuredAssessment ? { structuredAssessment: fp.payload.structuredAssessment } : {}),
+          ...(fp.payload.directAssessmentInventory ? { inventory: fp.payload.directAssessmentInventory } : {}),
+        } : null;
         const cmlMediaAttempt =
           ["supplementDraft", "discussionPromptDraft"].includes(bound?.draft?.content?.typeName) &&
           fp.payload.directAssetEvidence &&
@@ -2072,7 +2125,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 directAssetEvidence: fp.payload.directAssetEvidence,
               }
             : null;
-        if (previous?.payload && previousQuestions >= currentQuestions && !fp.payload.directPanoptoEvidence) {
+        if (previous?.payload && (nativeRecheckAttempt || previousQuestions >= currentQuestions) && !fp.payload.directPanoptoEvidence) {
           // A failed resumed read must not replace saved observations with an
           // empty body. Retain them, with an explicit failed current check and
           // an incomplete contract; they are not certified as current content.
@@ -2103,9 +2156,28 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             atomReceipt: receipt(atomRead, fp.atomId),
             relationReceipt: receipt(relationRead, fp.atomId),
           };
+        if (nativeRecheckAttempt) {
+          // Current partial reads never replace older originals or satisfy
+          // current coverage. Keep each earlier failed attempt flat, under
+          // the unchanged item/run/export bounds, without nesting histories.
+          const history = [...(previous?.payload?.directNativeRecheckAttemptHistory || [])];
+          if (previous?.payload?.directNativeRecheckAttempt) history.push(previous.payload.directNativeRecheckAttempt);
+          if (history.length) fp.payload.directNativeRecheckAttemptHistory = history;
+          fp.payload.directNativeRecheckAttempt = nativeRecheckAttempt;
+        }
         directUnsupportedContractV1(fp, reason, bound);
         processed = !reader.snapshot().stopped;
       }
+      // Successful current checks retain failed earlier observations only as
+      // their labelled historical records; they never supply current coverage.
+      if (!fp.payload.directResumeRevalidation) {
+        const history = [...(previous?.payload?.directNativeRecheckAttemptHistory || [])];
+        if (previous?.payload?.directNativeRecheckAttempt) history.push(previous.payload.directNativeRecheckAttempt);
+        if (history.length) fp.payload.directNativeRecheckAttemptHistory = history;
+        delete fp.payload.directNativeRecheckAttempt;
+      }
+      if (meta.directDataCapture.nativeRecheck)
+        fp.payload.directNativeRecheckRequestedAt = meta.directDataCapture.nativeRecheck.requestedAt;
       await retainOnlyOwnedPublisherBodies(fp);
       let retainedPublicBytes = retainedPublicPageBytes(fp);
       if (publicBytesBefore - previousPublicBytes + retainedPublicBytes > CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 &&
@@ -2157,11 +2229,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             payload: {},
             captureContract: undefined,
           };
+        const pendingRecheck = withdrawPendingNativeRecheck(fp);
+        if (pendingRecheck) summarizeItem(fp, false, encoder.encode(JSON.stringify(fp)).byteLength);
         // A quota/write failure must not prevent exporting older embedded
         // originals that are still readable. Migrate those only in this
         // download snapshot, without requiring another storage transaction.
         await archiveItemBodies(fp, temporaryBodies);
-        if (!row?.state?.processed) {
+        if (pendingRecheck || !row?.state?.processed) {
           unvisited.push(fp.id);
           if (!fp.captureContract)
             applyDirectContractV1(fp, "UNVISITED_DIRECT_ITEM", false, [
@@ -2193,6 +2267,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         unvisitedTargetIds: unvisited,
       });
       captureMeta.noSilentMisses = captureMeta.captureAccounting.noSilentMisses;
+      captureMeta.directDataCapture.coverage = coverageSummary();
       captureMeta.directDataCapture.acquisitionComplete =
         unvisited.length === 0 &&
         state.counts.processed === captureItems.length &&
@@ -2551,7 +2626,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
-    async function run(fresh = false) {
+    async function run(fresh = false, recheckNative = false) {
       if (
         state.running ||
         state.diagnosing ||
@@ -2594,6 +2669,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       mediaBase = { bytes: 0, requests: 0 };
       frozenMediaStats = null;
       state.counts = { processed: 0, complete: 0, questions: 0, total: 0 };
+      const nativeRecheckRequest = recheckNative ? {
+        scope: "ALL_NATIVE_ITEMS", requestedAt: new Date().toISOString(),
+        retainedDefinitionObservations: true, externalRuntimeVerified: false, allMediaRefetched: false,
+      } : null;
       render();
       const clock = setInterval(() => {
         render();
@@ -2614,6 +2693,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const active = fresh ? null : await store.getActiveRun({
             recoverExportLimit: true,
             recoverMediaGaps: true,
+            recheckCompleted: recheckNative,
           }),
           candidate = (directRecoverablePublisherBuildV1(active?.buildId) || [
             CTI_DIRECT_DATA_BUILD_V1,
@@ -2692,8 +2772,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               encoder.encode(JSON.stringify(meta.directDataCapture.materials))
                 .byteLength +
               256 * 1024;
-            await hydrateSavedItems();
-            checkpointReady = true;
+            if (!recheckNative) await hydrateSavedItems();
+            // Discovery reads have no confirmed graph owner yet. Only the
+            // eventual selected/new run may receive their charged budget.
           }
         }
         const createReader = () =>
@@ -2743,6 +2824,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           } catch (_) { /* Invalid historical proof cannot authorize reuse. */ }
         }
         const enriching =
+          !recheckNative &&
           resuming &&
           ((baseCapture?.acquisitionComplete === true &&
             baseCapture?.sourceStable === true &&
@@ -2768,6 +2850,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           mediaBase = { bytes: 0, requests: 0 };
           frozenMediaStats = null;
           state.runId = "";
+          meta = null;
           itemStates = new Map();
           retainedSizes = new Map();
           publicPageRetainedByItem = new Map();
@@ -2795,6 +2878,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             sourceState: "AUTHORING_DRAFT",
             sourceStable: false,
             resumed: resuming,
+            ...(nativeRecheckRequest ? { nativeRecheck: nativeRecheckRequest } : {}),
             recoveredFromBuild:
               resuming && candidate.buildId !== CTI_DIRECT_DATA_BUILD_V1
                 ? candidate.buildId
@@ -2849,8 +2933,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         meta.directDataCapture.metadataReserveBytes = metadataReserveBytes;
         if (metadataReserveBytes >= CTI_DIRECT_DATA_EXPORT_BYTES_V1)
           throw Error("DIRECT_CAPTURE_EXPORT_BYTE_LIMIT");
-        if (resuming && !itemStates.size) await hydrateSavedItems();
+        if (resuming && !itemStates.size && !recheckNative) await hydrateSavedItems();
         checkpointReady = true;
+        if (recheckNative && resuming) {
+          // Save the attempt boundary before invalidation. Hydration/export
+          // also enforce it if a storage error interrupts these pending writes.
+          await beginNativeRecheck();
+        }
         await saveRun("RUNNING", true);
         for (let index = 0; index < items.length; index++) {
           if (reader.snapshot().stopped) break;
@@ -2952,6 +3041,15 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         fatalReason = /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
           ? error.message
           : "DIRECT_CAPTURE_FAILED";
+        if (nativeRecheckRequest && meta && state.runId &&
+            meta.directDataCapture.nativeRecheck?.requestedAt !== nativeRecheckRequest.requestedAt) {
+          // A failed root probe cannot reuse earlier current-completion claims.
+          // Keep the original models and charge the failed discovery attempt.
+          meta.directDataCapture = { ...meta.directDataCapture, nativeRecheck: nativeRecheckRequest,
+            sourceStable: false, acquisitionComplete: false, wholeCourseVerified: false };
+          try { await beginNativeRecheck(); }
+          catch (_) { fatalReason = "DIRECT_CHECKPOINT_STORAGE_FAILED"; }
+        }
         if (meta) meta.directDataCapture.stopReason = fatalReason;
         state.terminal = terminalBudgetReason(fatalReason);
         state.state = state.terminal ? "INCOMPLETE" : "PAUSED";
@@ -3004,10 +3102,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     state.resume = () => void run();
     state.export = () => void download();
     state.start = () => void run();
+    state.recheckNative = () => void run(false, true);
     state.startFresh = () => void run(true);
     state.checkProviderAccess = () => void checkProviderAccess();
     state.checkPublisherAccess = () => void checkPublisherAccess();
     startButton.onclick = state.start;
+    recheckButton.onclick = state.recheckNative;
     freshButton.onclick = state.startFresh;
     accessButton.onclick = state.checkProviderAccess;
     publisherAccessButton.onclick = state.checkPublisherAccess;
@@ -3023,7 +3123,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       accessReader?.abort("PAGE_CLOSED_OR_NAVIGATED");
       providerTransport?.close();
     });
-    render("After editing Coursera, start a fresh course capture. Capture/resume continues saved progress; prior runs stay saved locally.");
+    render("Capture/resume continues saved progress. Recheck native course content rereads current item and question references; Start fresh opens a separate run. Prior observations keep their original dates.");
   })().catch(() => {
     alert(
       "CTI capture could not start. Open the course Content page and try the bookmark again.",

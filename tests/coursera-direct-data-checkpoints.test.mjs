@@ -1002,6 +1002,60 @@ function interruptedExportRun(run, captureChanges = {}, runChanges = {}) {
   };
 }
 
+function verifiedCompletedRun(run) {
+  const base=interruptedExportRun(run),sourceHash="a".repeat(64),stableHash="b".repeat(64);
+  return {...base,state:"COMPLETE",buildId:CTI_DIRECT_DATA_BUILD_V1,materialHash:sourceHash,
+    counts:{processed:2,complete:2,total:2,questions:2},
+    budget:{requests:20,bytes:1000,elapsedMs:100,limits:{requests:20000,totalBytes:64*1024*1024,durationMs:3600000}},
+    captureMeta:{buildId:CTI_DIRECT_DATA_BUILD_V1,noSilentMisses:true,captureAccounting:{complete:true,noSilentMisses:true},
+      directDataCapture:{...base.captureMeta.directDataCapture,sourceState:"AUTHORING_DRAFT",sourceStable:true,
+        acquisitionComplete:true,wholeCourseVerified:true,stopReason:"COMPLETE_BOUND_AUTHORING_DRAFT",
+        initialMaterialHash:sourceHash,finalMaterialHash:sourceHash,
+        finalMaterials:{elements:[{id:run.courseId}]},
+        materialStability:{policy:"NATIVE_ASSIGNMENT_FEATURE_FLAGS_V1",initialSha256:stableHash,finalSha256:stableHash}}}};
+}
+
+test("completed native recheck selection is explicit, read-only, course-bound and preserves strong prior proof and unspent budgets",async()=>{
+  await withDatabase(async fake=>{
+    const store=await storeFor(),opened=await store.openRun(),saved=verifiedCompletedRun(opened);
+    await store.saveRun(saved);await store.putDefinition(opened.runId,"observed@3",{raw:"original",receipt:{observedAt:"2026-10-19T00:00:00.000Z"}});
+    const before=structuredClone(Object.fromEntries(["runs","items","groups","definitions","bodies"].map(name=>[name,fake.rows(name)]))),writes=fake.metrics.writes.length;
+    assert.equal(await store.getActiveRun(),null);
+    assert.equal(await store.getActiveRun({recoverMediaGaps:true,recoverExportLimit:true}),null);
+    const selected=await store.getActiveRun({recheckCompleted:true});
+    assert.deepEqual(selected, fake.rows("runs")[0]);assert.deepEqual(selected.budget,saved.budget);
+    assert.equal(fake.metrics.writes.length,writes,"Selecting the explicit recheck baseline cannot rewrite source observations");
+    for(const [name,rows]of Object.entries(before))assert.deepEqual(fake.rows(name),rows);
+    const other=await storeFor(OTHER);assert.equal(await other.getActiveRun({recheckCompleted:true}),null);other.close();
+    for(const [captureChanges,runChanges,metaChanges]of [
+      [{mode:"GUESS"},{},{}],[{version:2},{},{}],[{sourceState:"PUBLISHED"},{},{}],
+      [{sourceStable:false},{},{}],[{acquisitionComplete:false},{},{}],[{wholeCourseVerified:false},{},{}],
+      [{stopReason:"ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS"},{},{}],
+      [{runId:"99999999-9999-4999-8999-999999999999"},{},{}],
+      [{materials:{elements:[{id:OTHER}]}},{},{}],[{finalMaterials:{elements:[{id:OTHER}]}},{},{}],
+      [{initialMaterialHash:"c".repeat(64)},{},{}],
+      [{materialStability:{initialSha256:"a".repeat(64),finalSha256:"b".repeat(64)}},{},{}],
+      [{materialStability:{policy:"UNPROVED",initialSha256:"b".repeat(64),finalSha256:"b".repeat(64)}},{},{}],
+      [{},{counts:{processed:2,complete:1,total:2}},{}],[{},{counts:{processed:1,complete:2,total:2}},{}],
+      [{},{buildId:"unproved-build"},{}],[{},{},{buildId:"unproved-build"}],
+      [{},{},{noSilentMisses:false}],[{},{},{captureAccounting:{complete:false,noSilentMisses:true}}],
+    ]){
+      await store.saveRun({...saved,...runChanges,captureMeta:{...saved.captureMeta,...metaChanges,
+        directDataCapture:{...saved.captureMeta.directDataCapture,...captureChanges}}});
+      assert.equal(await store.getActiveRun({recheckCompleted:true}),null,JSON.stringify([captureChanges,runChanges,metaChanges]));
+    }
+    for(const [used,limit]of [["requests","requests"],["bytes","totalBytes"],["elapsedMs","durationMs"]]){
+      for(const value of [0,-1,saved.budget.limits[limit]]){
+        await store.saveRun({...saved,budget:{...saved.budget,[used]:value}});
+        assert.equal(await store.getActiveRun({recheckCompleted:true}),null,"Cannot reset invalid or exhausted "+used);
+      }
+    }
+    await store.saveRun(saved);ageRow(fake.rows("runs")[0],WEEK+1000);
+    assert.equal(await store.getActiveRun({recheckCompleted:true}),null);
+    assert.equal(fake.rows("definitions")[0].value.receipt.observedAt,"2026-10-19T00:00:00.000Z");store.close();
+  });
+});
+
 test("export recovery is opt-in, course-bound, and preserves the original saved evidence and budget", async () => {
   await withDatabase(async (fake) => {
     const store = await storeFor(),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import EvidenceInbox from "./EvidenceInbox";
 import { AssignmentDeliverables } from "./AssignmentDeliverables";
 import AssignmentAdvisory from "./AssignmentAdvisory";
+import AssignmentReadiness from "./AssignmentReadiness";
 import SourceExplorer from "./SourceExplorer";
 import EvidenceDetails from "./EvidenceDetails";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../src/domain/assignment-plan";
 import { type PendingAssignmentEvidence } from "../src/domain/assignment-evidence";
 import { assignmentOwnerJourney } from "../src/domain/assignment-owner-journey";
+import { assignmentReadiness } from "../src/domain/assignment-readiness";
 import {
   appendLifecycleEvent,
   buildAssignmentItems,
@@ -86,6 +88,7 @@ export default function AssignmentWorkspace({
     [saving, setSaving] = useState(false);
   const [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const [evidenceLoadError, setEvidenceLoadError] = useState("");
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("exceptions");
   const [selected, setSelected] = useState("");
@@ -118,6 +121,7 @@ export default function AssignmentWorkspace({
     setAudit(null);
     setLedger(null);
     setError("");
+    setEvidenceLoadError("");
     setLoading(!!course && !!store);
     if (course && store)
       void Promise.all([
@@ -135,7 +139,9 @@ export default function AssignmentWorkspace({
         })
         .catch((e) => {
           if (active) {
-            setError(e instanceof Error ? e.message : String(e));
+            const detail = e instanceof Error ? e.message : String(e);
+            setError(detail);
+            setEvidenceLoadError(detail);
             setLoading(false);
           }
         });
@@ -168,6 +174,25 @@ export default function AssignmentWorkspace({
     [course, audit, evaluation, pending],
   );
   const next = journey?.nextAction || null;
+  const readiness = useMemo(
+    () =>
+      course && evaluation
+        ? assignmentReadiness(course, audit, evaluation, records, {
+            loading,
+            loadError: evidenceLoadError,
+            pendingChanged: pending.changed,
+          })
+        : null,
+    [
+      course,
+      audit,
+      evaluation,
+      records,
+      loading,
+      evidenceLoadError,
+      pending.changed,
+    ],
+  );
   const states = useMemo(
     () =>
       new Map(
@@ -433,6 +458,7 @@ export default function AssignmentWorkspace({
           )}
         </section>
       )}
+      {readiness && <AssignmentReadiness value={readiness} />}
       {course && (
         <div className="assignment-metrics" aria-label="Assignment status">
           <div>

@@ -2,6 +2,7 @@ import SearchableSelect, { matchesSearch } from "./SearchableSelect";
 import OwnerEvidence from "./OwnerEvidence";
 import AssignmentPlanView from "./AssignmentPlan";
 import AssignmentWorkspace from "./AssignmentWorkspace";
+import CaptureWorkPlan from "./CaptureWorkPlan";
 import type { EvidenceStage } from "../src/domain/evidence-intake";
 import { inspectEvidenceInput } from "../src/domain/evidence-intake";
 import { sourceDocumentScan } from "../src/domain/source-documents";
@@ -477,6 +478,7 @@ export default function FullWorkspace({
   }
   function resetCourseInputs() {
     courseSelectionEpoch.current++;
+    setExtractionPrefill("");
     preparedSourceCourse.current = null;
     setComparedFiles([]);
     setExcel(null);
@@ -2007,27 +2009,35 @@ export default function FullWorkspace({
           </Suspense>
         )}
         {tab === "Extract" && (
-          <Suspense
-            fallback={
-              <section className="card" role="status" aria-live="polite">
-                Loading extraction workspace…
-              </section>
-            }
-          >
-            <CourseraExtractionWorkspace
-              enabled={store?.mode === "team"}
-              editable={editable}
-              disabled={!!busy}
-              initialUrl={extractionPrefill}
-              onUseCapture={(file) => {
-                setCapture(file);
-                setTab("Compare");
-                setNotice(
-                  "Coursera capture loaded into Compare. A validated direct capture can supply its native inventory; add a matching XLSX for an independent structural export.",
-                );
-              }}
+          <>
+            <CaptureWorkPlan
+              records={records}
+              disabled={!!busy || !!pendingAudit}
+              onOpen={(id, destination) => void openCourse(id, destination)}
             />
-          </Suspense>
+            <Suspense
+              fallback={
+                <section className="card" role="status" aria-live="polite">
+                  Loading extraction workspace…
+                </section>
+              }
+            >
+              <CourseraExtractionWorkspace
+                key={`${courseId}:${courseSelectionEpoch.current}`}
+                enabled={store?.mode === "team"}
+                editable={editable}
+                disabled={!!busy}
+                initialUrl={extractionPrefill}
+                onUseCapture={(file) => {
+                  setCapture(file);
+                  setTab("Compare");
+                  setNotice(
+                    "Coursera capture loaded into Compare. A validated direct capture can supply its native inventory; add a matching XLSX for an independent structural export.",
+                  );
+                }}
+              />
+            </Suspense>
+          </>
         )}
         {tab === "Compare" && (
           <section className="card">

@@ -307,6 +307,14 @@ for(const row of definitions.values())if(row.courseId===complete.id){
   native.options[0].display.definition.value='<co-content><p>&lt;answer&gt;</p></co-content>';
   native.options[0].feedback.definition.value='<co-content><p>Feedback &lt;code&gt;</p><p>Second paragraph</p></co-content>';
 }
+const nativeUnvisitedRecheck=makeCourse('Direct_native_unvisited_recheck_123','complete');
+const unvisitedMaterials=nativeUnvisitedRecheck.material.material.elements[0].elements[0].elements;
+const unvisitedReading=[...atoms.values()].find(row=>row.courseId===nativeUnvisitedRecheck.id&&row.itemId==='item_0002');
+const unvisitedConvertedReading=[...atoms.values()].find(row=>row.courseId===nativeUnvisitedRecheck.id&&row.itemId==='item_0001');
+unvisitedConvertedReading.atom.draft.content=structuredClone(unvisitedReading.atom.draft.content);
+unvisitedConvertedReading.atom.draft.content.definition.name='Draft item_0001';
+unvisitedMaterials[1].content=structuredClone(unvisitedMaterials[2].content);
+unvisitedMaterials.shift();nativeUnvisitedRecheck.contentCount=2;
 const publishedDraftSnapshot=makePublishedDraftSnapshotCourse('Direct_published_draft_123');
 const publishedDraftSourceChanged=makePublishedDraftSnapshotCourse('Direct_published_source_changed_123','source-changed');
 const publishedDraftGroupChanged=makePublishedDraftSnapshotCourse('Direct_published_group_changed_123','group-changed');
@@ -823,6 +831,9 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
   }else if(resource==='authoringCourses.v2')value={id:courseId,name:'Synthetic course'};
   else if(resource==='authoringAtoms.v2'){
     const count=(config.atomGets.get(reference)||0)+1;config.atomGets.set(reference,count);value=structuredClone(binding.atom);
+    if(config.nativeRecheckAtomErrorId===reference){
+      response.statusCode=503;response.end('{"error":"synthetic native recheck atom read failed"}');return;
+    }
     if(config.mode==='media-first-atom-failed'&&binding.itemId==='item_0002'){
       response.statusCode=503;response.end('{"error":"current atom read failed before media acquisition"}');return;
     }
@@ -1138,7 +1149,195 @@ try{
     assert(question.correctAnswers.includes('<answer>'));
     assert.equal(fp.payload.structuredAssessment.reviewCriteria.definition.value,'<co-content><p>Synthetic review criteria</p></co-content>');
   }
+  async function recheckNativeCourse(target){
+    await target.page.reload();await launch(target.page,target.context,false);
+    const start=requests.length,downloading=target.page.waitForEvent('download',{timeout:180000});void downloading.catch(()=>{});
+    await target.page.getByRole('button',{name:'Recheck native course content',exact:true}).click();
+    const state=await terminal(target.page),capture=await readFile(await downloading);
+    const mode=capture.meta.directDataCapture.nativeRecheck;
+    assert.deepEqual(Object.keys(mode).sort(),['allMediaRefetched','externalRuntimeVerified','requestedAt','retainedDefinitionObservations','scope']);
+    assert.equal(mode.scope,'ALL_NATIVE_ITEMS');assert(Number.isFinite(Date.parse(mode.requestedAt)));
+    assert.equal(mode.retainedDefinitionObservations,true);assert.equal(mode.externalRuntimeVerified,false);assert.equal(mode.allMediaRefetched,false);
+    assert.equal(capture.meta.directDataCapture.mediaEnrichment,undefined,'An explicit native recheck does not relabel itself as media-only enrichment');
+    assertTransport(configs.get(capture.page.courseId),start);await assertNoEditor(target.page,target.destinations);
+    return{state,capture,start};
+  }
+  const priorComplete=success.capture,priorDefinitionRows=(await savedNativeRun(success.page,success.state.runId)).definitions,
+    initialAssessments=priorComplete.fingerprints.filter(fp=>fp.payload.assessmentApiEvidence),
+    unchangedRecheck=await recheckNativeCourse(success),unchangedReads=requests.slice(unchangedRecheck.start).filter(request=>request.courseId===complete.id);
+  assert.equal(unchangedRecheck.state.runId,success.state.runId,'An explicit native recheck can select the saved COMPLETE run for the unchanged course graph');
+  assert.equal(unchangedRecheck.state.state,'COMPLETE');assert.equal(evaluateCourseraCapture(unchangedRecheck.capture,complete.id).complete,true);
+  assert.equal(unchangedReads.filter(request=>request.resource===definitionResource).length,0,
+    'Exact versioned definitions reuse their independently checked original checkpoint instead of being downloaded again');
+  for(const prior of priorComplete.fingerprints.filter(fp=>fp.atomId)){
+    assert.equal(unchangedReads.filter(request=>request.resource==='authoringAtoms.v2'&&request.reference===prior.atomId).length,2,
+      'Every saved native item receives initial and final atom reads');
+    assert.equal(unchangedReads.filter(request=>request.resource==='authoringItemContentRelations.v1'&&request.reference===prior.atomId).length,1);
+    const current=unchangedRecheck.capture.fingerprints.find(fp=>fp.id===prior.id);
+    assert(Date.parse(current.payload.directDataSources.receipts.atom.observedAt)>Date.parse(prior.payload.directDataSources.receipts.atom.observedAt));
+    assert.deepEqual(current.payload.directDataSources.atom.elements[0].published,prior.payload.directDataSources.atom.elements[0].published,
+      'A separate published snapshot stays original evidence rather than becoming current published-body verification');
+  }
+  for(const prior of initialAssessments){
+    const current=unchangedRecheck.capture.fingerprints.find(fp=>fp.id===prior.id),before=prior.payload.assessmentApiEvidence,after=current.payload.assessmentApiEvidence;
+    assert.deepEqual(after.questionDefinitions,before.questionDefinitions);
+    assert.deepEqual(current.payload.structuredAssessment.questions,prior.payload.structuredAssessment.questions,
+      'Reused exact definitions preserve normalized question content and original observation dates');
+    for(const original of before.receipts.filter(value=>value.resource===definitionResource))
+      assert.deepEqual(after.receipts.find(value=>value.resource===definitionResource&&value.id===original.id),original);
+    for(const group of before.groups){
+      assert.equal(unchangedReads.filter(request=>request.resource===groupResource&&request.reference===group.id).length,1,
+        'Even an unchanged completed assessment gets one actual current mutable-group read');
+      const old=before.groupStability.find(value=>value.id===group.id),fresh=after.groupStability.find(value=>value.id===group.id);
+      assert.equal(fresh.stable,true);assert(Date.parse(fresh.receipt.observedAt)>Date.parse(old.receipt.observedAt));
+    }
+  }
+  assert.deepEqual((await savedNativeRun(success.page,success.state.runId)).definitions,priorDefinitionRows,
+    'The exact cached definition models, hashes and receipt dates are not rewritten by native recheck');
+  assert.equal(unchangedReads.filter(request=>request.resource==='authoringCourseMaterials.v1').length,2);
+  assert(unchangedRecheck.capture.meta.directDataCapture.stats.requests>priorComplete.meta.directDataCapture.stats.requests);
+  assert.equal(unchangedRecheck.capture.meta.directDataCapture.stats.limits.concurrentRequests,4);
+
+  const editedNativeGroup=[...groups.values()].find(row=>row.courseId===complete.id),
+    oldNativeDefinitionId=editedNativeGroup.value.questions[0],oldNativeDefinition=definitions.get(oldNativeDefinitionId),
+    newNativeDefinitionId=oldNativeDefinitionId.replace(/@\d+$/,value=>'@'+(Number(value.slice(1))+1));
+  definitions.set(newNativeDefinitionId,{...oldNativeDefinition,value:{...oldNativeDefinition.value,id:newNativeDefinitionId,
+    definition:{...oldNativeDefinition.value.definition,definition:{...oldNativeDefinition.value.definition.definition,
+      prompt:cml('New exact version observed by native recheck 日本語')}}}});
+  editedNativeGroup.value.questions[0]=newNativeDefinitionId;
+  const editedNativeReading=[...atoms.values()].find(row=>row.courseId===complete.id&&row.itemId==='item_0002');
+  editedNativeReading.atom.draft.content.definition.content=cml('Native reading changed after the saved complete capture 日本語','supplement/1');
+  editedNativeReading.atom.storedAtomVersion++;editedNativeReading.atom.metadata.updatedAt++;
+  const changedNativeRecheck=await recheckNativeCourse(success),changedNativeReads=requests.slice(changedNativeRecheck.start).filter(request=>request.courseId===complete.id),
+    newNativeAssessment=changedNativeRecheck.capture.fingerprints.find(fp=>fp.id===editedNativeGroup.itemId);
+  assert.equal(changedNativeRecheck.state.runId,success.state.runId);assert.equal(changedNativeRecheck.state.state,'COMPLETE');
+  assert.equal(evaluateCourseraCapture(changedNativeRecheck.capture,complete.id).complete,true);
+  assert.deepEqual(changedNativeReads.filter(request=>request.resource===definitionResource).map(request=>request.reference),[newNativeDefinitionId],
+    'Only the newly referenced exact definition version receives a fresh GET');
+  assert.equal(changedNativeReads.filter(request=>request.resource===groupResource&&request.reference===editedNativeGroup.value.id).length,2,
+    'A changed mutable group receives the two current consistency reads before its new definition is accepted');
+  assert(newNativeAssessment.payload.assessmentApiEvidence.questionDefinitions.some(value=>value.id===newNativeDefinitionId));
+  assert(!newNativeAssessment.payload.assessmentApiEvidence.questionDefinitions.some(value=>value.id===oldNativeDefinitionId));
+  const newNativeQuestion=newNativeAssessment.payload.structuredAssessment.questions.find(question=>question.prompt==='New exact version observed by native recheck 日本語');
+  assert(newNativeQuestion);assert(newNativeQuestion.observedAtMs>Math.max(...initialAssessments.flatMap(fp=>fp.payload.structuredAssessment.questions.map(question=>question.observedAtMs))));
+  assert.equal(changedNativeRecheck.capture.fingerprints.find(fp=>fp.id==='item_0002').payload.directDraftCml.definition.value,
+    editedNativeReading.atom.draft.content.definition.content.definition.value,'Native recheck reads the changed source body rather than retaining the old reading');
+
+  complete.nativeRecheckAtomErrorId=newNativeAssessment.atomId;
+  const failedNativeRecheck=await recheckNativeCourse(success),failedNativeAssessment=failedNativeRecheck.capture.fingerprints.find(fp=>fp.id===newNativeAssessment.id);
+  assert.equal(failedNativeRecheck.state.runId,success.state.runId);assert.equal(failedNativeRecheck.state.state,'INCOMPLETE');
+  assert.equal(failedNativeAssessment.captureContract.complete,false);assert.equal(failedNativeAssessment.payload.directResumeRevalidation.verified,false);
+  assert.deepEqual(failedNativeAssessment.payload.assessmentApiEvidence,newNativeAssessment.payload.assessmentApiEvidence,
+    'A failed current atom request preserves the exact prior raw assessment models and source receipts as history');
+  assert.deepEqual(failedNativeAssessment.payload.structuredAssessment,newNativeAssessment.payload.structuredAssessment);
+  assert.equal(failedNativeRecheck.capture.meta.directDataCapture.coverage.assessments.verified,1);
+  assert.equal(evaluateCourseraCapture(failedNativeRecheck.capture,complete.id).complete,false);
+  assert.equal(requests.slice(failedNativeRecheck.start).filter(request=>request.courseId===complete.id&&request.resource===definitionResource).length,0);
+  delete complete.nativeRecheckAtomErrorId;
+  const oldNativeRun=await savedNativeRun(success.page,success.state.runId),freshNativeStart=requests.length,
+    freshNativeDownload=success.page.waitForEvent('download',{timeout:180000});void freshNativeDownload.catch(()=>{});
+  await success.page.getByRole('button',{name:'Start a fresh course capture',exact:true}).click();
+  const freshNativeState=await terminal(success.page),freshNativeCapture=await readFile(await freshNativeDownload);
+  assert.notEqual(freshNativeState.runId,success.state.runId);assert.equal(freshNativeState.state,'COMPLETE');
+  assert.equal(freshNativeCapture.meta.directDataCapture.nativeRecheck,undefined);
+  assert.equal(freshNativeCapture.meta.directDataCapture.resumed,false);assert.equal(freshNativeCapture.meta.directDataCapture.stats.inheritedBudget.requests,0);
+  assert.equal(requests.slice(freshNativeStart).filter(request=>request.courseId===complete.id&&request.resource===definitionResource).length,10,
+    'The separate fresh action still acquires every current definition under an independent budget');
+  assert.deepEqual(await savedNativeRun(success.page,success.state.runId),oldNativeRun,'Fresh capture does not mutate the earlier rechecked run or its retained raw history');
+  assertTransport(complete,freshNativeStart);await assertNoEditor(success.page,success.destinations);
+  const priorFreshNativeRun=await savedNativeRun(success.page,freshNativeState.runId);
+  complete.material.material.elements.push({id:'empty_native_recheck',name:'New explicit empty source module',elements:[],description:'',learningObjectives:[],timeCommitment:0});
+  const changedGraphRecheck=await recheckNativeCourse(success);
+  assert.notEqual(changedGraphRecheck.state.runId,freshNativeState.runId);assert.notEqual(changedGraphRecheck.state.runId,success.state.runId);
+  assert.equal(changedGraphRecheck.state.state,'COMPLETE');assert.equal(changedGraphRecheck.capture.meta.directDataCapture.resumed,false);
+  const changedGraphReads=requests.slice(changedGraphRecheck.start).filter(request=>request.courseId===complete.id),
+    changedGraphProof=changedGraphRecheck.capture.meta.directDataCapture,changedGraphStats=changedGraphProof.stats;
+  assert.deepEqual(changedGraphReads.slice(0,2).map(request=>request.resource).sort(),['authoringCourseMaterials.v1','authoringCourses.v2'].sort());
+  assert.equal(changedGraphStats.inheritedBudget.requests,2,
+    'A changed graph starts a separate run while charging its two current discovery reads, rather than inheriting the earlier run\'s spend');
+  assert.equal(changedGraphStats.inheritedBudget.bytes,changedGraphProof.materialsReceipt.bytes+changedGraphProof.courseReceipt.bytes);
+  assert.equal(changedGraphStats.currentAttempt.requests,changedGraphReads.length-2);
+  assert.equal(changedGraphStats.requests,changedGraphReads.length,'The new run charges each observed discovery and capture GET exactly once');
+  assert.equal(changedGraphRecheck.capture.fingerprints.length,5);assert(changedGraphRecheck.capture.fingerprints.some(fp=>fp.id==='empty_native_recheck'&&fp.captureContract.complete));
+  assert.equal(requests.slice(changedGraphRecheck.start).filter(request=>request.courseId===complete.id&&request.resource===definitionResource).length,10,
+    'A changed native course graph keeps the existing independent-run behavior and acquires its own exact definitions');
+  assert.deepEqual(await savedNativeRun(success.page,freshNativeState.runId),priorFreshNativeRun);
+  assert.deepEqual(await savedNativeRun(success.page,success.state.runId),oldNativeRun,'Graph changes preserve both earlier runs with their original source observations');
+  assert.equal(success.downloads.length,6,'Initial capture, four explicit native rechecks and one fresh capture each export exactly one ZIP');
   await success.context.close();
+
+  const unvisitedTarget=await runFileCase(nativeUnvisitedRecheck);
+  assert.equal(unvisitedTarget.state.state,'COMPLETE');assert.equal(unvisitedTarget.capture.meta.directDataCapture.coverage.readings.verified,2);
+  const unvisitedOriginals=unvisitedTarget.capture.fingerprints.filter(fp=>fp.atomId);
+  assert.equal(unvisitedOriginals.length,2);
+  const narrowSavedBudget=await unvisitedTarget.page.evaluate(async runId=>{
+    const database=await new Promise((resolve,reject)=>{const request=indexedDB.open('cti-coursera-direct-data-v1');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const saved=await new Promise((resolve,reject)=>{const transaction=database.transaction('runs','readwrite'),store=transaction.objectStore('runs'),request=store.getAll();let result;
+      request.onsuccess=()=>{const row=request.result.find(value=>value.runId===runId);
+        if(row?.state!=='COMPLETE'||!row.captureMeta.directDataCapture.wholeCourseVerified)throw Error('Expected a verified completed reading fixture');
+        row.budget.requests=row.budget.limits.requests-2;store.put(row);
+        result={runId:row.runId,requests:row.budget.requests,limit:row.budget.limits.requests};};
+      transaction.oncomplete=()=>resolve(result);transaction.onerror=()=>reject(transaction.error);transaction.onabort=()=>reject(transaction.error||Error('Narrow saved-budget seed aborted'));
+    });database.close();return saved;
+  },unvisitedTarget.state.runId);
+  assert(narrowSavedBudget.requests>0&&narrowSavedBudget.requests<narrowSavedBudget.limit,
+    'Only prior spent accounting is seeded; the saved run retains unspent eligibility and its original global request ceiling');
+  const unvisitedAttempt=await recheckNativeCourse(unvisitedTarget),unvisitedReads=requests.slice(unvisitedAttempt.start).filter(request=>request.courseId===nativeUnvisitedRecheck.id);
+  assert.equal(unvisitedAttempt.state.runId,narrowSavedBudget.runId);assert.equal(unvisitedAttempt.state.state,'INCOMPLETE');
+  assert.equal(unvisitedAttempt.capture.meta.directDataCapture.stopReason,'COURSE_API_REQUEST_LIMIT');
+  assert.equal(unvisitedAttempt.capture.meta.directDataCapture.stats.requests,narrowSavedBudget.limit);
+  assert.equal(unvisitedReads.length,2);assert(unvisitedReads.every(request=>['authoringCourseMaterials.v1','authoringCourses.v2'].includes(request.resource)),
+    'The two remaining native requests read inventory roots; neither retained reading receives a current atom response');
+  function assertUnvisitedReadings(capture){
+    assert.equal(capture.meta.directDataCapture.coverage.readings.verified,0);
+    assert.equal(capture.meta.directDataCapture.wholeCourseVerified,false);assert.equal(evaluateCourseraCapture(capture,nativeUnvisitedRecheck.id).complete,false);
+    for(const original of unvisitedOriginals){
+      const current=capture.fingerprints.find(fp=>fp.id===original.id);assert(current);
+      assert.equal(current.captureContract.complete,false);assert.equal(current.payload.directResumeRevalidation.verified,false);
+      assert.deepEqual(current.payload.directDataSources,original.payload.directDataSources,
+        'A pending or failed current attempt retains the exact older native model and original receipt dates without certifying them as current');
+      assert.deepEqual(current.payload.directDraftCml,original.payload.directDraftCml);
+      assert.equal(current.payload.textSample,original.payload.textSample);
+    }
+  }
+  assertUnvisitedReadings(unvisitedAttempt.capture);
+  const unvisitedSecond=unvisitedAttempt.capture.fingerprints.find(fp=>fp.id===unvisitedOriginals[1].id);
+  assert.equal(unvisitedSecond.payload.directResumeRevalidation.reason,'DIRECT_NATIVE_RECHECK_NOT_READ');
+  assert.notEqual(unvisitedSecond.payload.directNativeRecheckRequestedAt,unvisitedAttempt.capture.meta.directDataCapture.nativeRecheck.requestedAt,
+    'An unvisited reading has no current attempt stamp merely because its old proof was hydrated');
+  const unvisitedSaved=await savedNativeRun(unvisitedTarget.page,narrowSavedBudget.runId);
+  for(const original of unvisitedOriginals){
+    const row=unvisitedSaved.items.find(value=>value.itemId===original.id);assert.equal(row.fingerprint.captureContract.complete,false);
+  }
+  await unvisitedTarget.page.reload();await launch(unvisitedTarget.page,unvisitedTarget.context,false);
+  const unvisitedResumeStart=requests.length,unvisitedResumeDownload=unvisitedTarget.page.waitForEvent('download',{timeout:180000});void unvisitedResumeDownload.catch(()=>{});
+  await unvisitedTarget.page.getByRole('button',{name:'Capture/resume course',exact:true}).click();
+  const unvisitedResumeState=await terminal(unvisitedTarget.page),unvisitedResumed=await readFile(await unvisitedResumeDownload);
+  if(unvisitedResumeState.runId===narrowSavedBudget.runId){
+    assertUnvisitedReadings(unvisitedResumed);assert.notEqual(unvisitedResumeState.state,'COMPLETE');
+  }else{
+    assert.equal(unvisitedResumed.meta.directDataCapture.resumed,false);assert.equal(unvisitedResumed.meta.directDataCapture.stats.inheritedBudget.requests,0);
+    for(const original of unvisitedOriginals){
+      const native=requests.slice(unvisitedResumeStart).filter(request=>request.courseId===nativeUnvisitedRecheck.id&&request.reference===original.atomId);
+      assert.equal(native.filter(request=>request.resource==='authoringAtoms.v2').length,2);
+      assert.equal(native.filter(request=>request.resource==='authoringItemContentRelations.v1').length,1);
+      const current=unvisitedResumed.fingerprints.find(fp=>fp.id===original.id);
+      assert(Date.parse(current.payload.directDataSources.receipts.atom.observedAt)>Date.parse(original.payload.directDataSources.receipts.atom.observedAt),
+        'A separate post-limit run can verify a reading only after actual fresh native observations');
+    }
+  }
+  const reopenedUnvisited=await savedNativeRun(unvisitedTarget.page,narrowSavedBudget.runId);
+  for(const original of unvisitedOriginals){
+    const row=reopenedUnvisited.items.find(value=>value.itemId===original.id);assert.equal(row.fingerprint.captureContract.complete,false);
+    assert.deepEqual(row.fingerprint.payload.directDataSources,original.payload.directDataSources);
+    assert.deepEqual(row.fingerprint.payload.directDraftCml,original.payload.directDraftCml);
+  }
+  assert.equal(reopenedUnvisited.runs[0].captureMeta.directDataCapture.coverage.readings.verified,0,
+    'Reopening and ordinary Resume cannot resurrect the exhausted run\'s withdrawn completion flags');
+  if(unvisitedResumeState.runId!==narrowSavedBudget.runId)assert.deepEqual(reopenedUnvisited,unvisitedSaved);
+  assert.equal(unvisitedTarget.downloads.length,3);
+  if(requests.slice(unvisitedResumeStart).some(request=>request.courseId===nativeUnvisitedRecheck.id))assertTransport(nativeUnvisitedRecheck,unvisitedResumeStart);
+  await assertNoEditor(unvisitedTarget.page,unvisitedTarget.destinations);await unvisitedTarget.context.close();
 
   const sourceDigest=value=>createHash('sha256').update(directCanonicalSourceTextV1(value)).digest('hex');
   function fixtureNativeObservation(model){
@@ -1342,7 +1541,13 @@ try{
     assert.deepEqual(after.groups,historicalBefore.groups);assert.deepEqual(after.definitions,historicalBefore.definitions);assert.deepEqual(after.bodies,historicalBefore.bodies);
     assert(!requests.slice(resumeStart).some(request=>request.courseId===config.id&&[groupResource,definitionResource].includes(request.resource)&&!request.reference.startsWith(config.snapshotAtomId+'~')),
       'A completed v1.8.6 checkpoint rereads only the previously skipped published item draft sources, preserving current primary assessment observations');
-    assert.equal(result.downloads.length,2);await assertNoEditor(result.page,result.destinations);await result.context.close();
+    assert.equal(result.downloads.length,2);
+    const publishedNativeRecheck=await recheckNativeCourse(result);
+    assert.equal(publishedNativeRecheck.state.runId,result.state.runId);assert.equal(publishedNativeRecheck.state.state,'INCOMPLETE');
+    assertPublishedDraftSnapshot(config,publishedNativeRecheck.capture,publishedNativeRecheck.start);
+    assert.deepEqual(publishedNativeRecheck.capture.fingerprints.find(fp=>fp.id==='item_0001').payload.structuredAssessment.questions,
+      originalPrimary.payload.structuredAssessment.questions,'Explicit native recheck still preserves reused exact primary definition observation dates');
+    assert.equal(result.downloads.length,3);await assertNoEditor(result.page,result.destinations);await result.context.close();
   }
 
   const scaled=await runFileCase(largeExport),scaledSize=fileSizes.get(scaled.capture);
@@ -2973,6 +3178,10 @@ try{
     backMatterOriginalJsonImageOwnershipZipAndReportProjection:true,
     publisherImagesUseActualCorsAndExactSourceBoundOriginalArchiveBytes:true,
     publisherImagesOverlapAtMostTwoReadsAndCommitOriginalBlobsResourcesAndZipInSourceOrder:true,
+    explicitAllNativeRecheckReadsCompletedAtomsAndMutableGroupsWithoutRelabelingCachedDefinitions:true,
+    nativeRecheckFetchesNewExactVersionsAndRetainsPriorRawModelsAfterCurrentReadFailure:true,
+    nativeRecheckPreservesPublishedAndExternalUncertaintyAndSeparateFreshRunBudgets:true,
+    abortedNativeRecheckWithdrawsUnvisitedCompletionAcrossIndexedDbReloadAndOrdinaryResume:true,
     publisherServiceImagesUseAuthenticatedHelperAndBoundedPublicBytesWithoutCorsForgery:true,
     publisherChallengeStopsSameOriginServiceReadsWithoutInventingSkippedHttpResults:true,
     publisherChallengeContextSurvivesZipAndReportWhileExplicitResumeRetriesOriginals:true,
