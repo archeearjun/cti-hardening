@@ -381,7 +381,7 @@ export function createDirectDataReaderV1(options = {}) {
     job.receipt=receiptFor(d);
     let resourceType='chapter';
     try {
-      for (let requestIndex=0;requestIndex<2;requestIndex++) {
+      for (let requestIndex=0;requestIndex<3;requestIndex++) {
         const credentials=requestIndex && resourceType==='chapter'?'include':'omit';
         if (!current() || controller.signal.aborted) return failure(job,stopReason || job.cancelReason || 'PUBLISHER_BROWSER_ABORTED');
         if (Date.now()>=job.deadline) {controller.abort();return failure(job,'PUBLISHER_BROWSER_TIMEOUT');}
@@ -410,10 +410,20 @@ export function createDirectDataReaderV1(options = {}) {
         if (response.redirected || response.url!==d.url.href) {await discard(response);attempted.reason='PUBLISHER_BROWSER_RESPONSE_URL';return failure(job,attempted.reason);}
         if (response.status!==200 || !response.ok) {
           await discard(response);attempted.reason='PUBLISHER_BROWSER_HTTP_'+attempted.status;
-          if (!requestIndex && resourceType==='chapter' && credentials==='omit' && response.status===404) {
+          if (!requestIndex && resourceType==='chapter' && credentials==='omit' && response.status===404 &&
+              response.headers.get('cf-mitigated')?.trim().toLowerCase()!=='challenge') {
             const chapterReceipt={...job.receipt,attempts:job.receipt.attempts.map(value=>({...value}))};
             resourceType='part';d.resource='PublisherPart';d.url=new URL(directPublisherResourceTargetV1(d.targetUrl,'part').endpointUrl);
             job.receipt=receiptFor(d);job.receipt.resolution={method:'CHAPTER_404_TO_PART',chapterReceipt};
+            continue;
+          }
+          if (requestIndex===1 && resourceType==='part' && credentials==='omit' && response.status===404 &&
+              response.headers.get('cf-mitigated')?.trim().toLowerCase()!=='challenge') {
+            const chapterReceipt=job.receipt.resolution.chapterReceipt,
+              partReceipt={...job.receipt,attempts:job.receipt.attempts.map(value=>({...value}))};
+            delete partReceipt.resolution;
+            resourceType='back-matter';d.resource='PublisherBackMatter';d.url=new URL(directPublisherResourceTargetV1(d.targetUrl,resourceType).endpointUrl);
+            job.receipt=receiptFor(d);job.receipt.resolution={method:'CHAPTER_404_PART_404_TO_BACK_MATTER',chapterReceipt,partReceipt};
             continue;
           }
           if (!requestIndex && resourceType==='chapter' && credentials==='omit' && response.status===403) continue;
@@ -430,7 +440,8 @@ export function createDirectDataReaderV1(options = {}) {
         try {rawJson=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(body.bytes);}
         catch {attempted.reason='PUBLISHER_BROWSER_UTF8';return failure(job,attempted.reason);}
         const hash=await crypto.subtle.digest('SHA-256',body.bytes),sha256=[...new Uint8Array(hash)].map(value=>value.toString(16).padStart(2,'0')).join('');
-        const model={kind:resourceType==='part'?'CTI_BROWSER_PUBLISHER_PART':'CTI_BROWSER_PUBLISHER_CHAPTER',schemaVersion:1,statusCoverage:'PARTIAL_PUBLISHER_API_ONLY',
+        const model={kind:resourceType==='back-matter'?'CTI_BROWSER_PUBLISHER_BACK_MATTER':resourceType==='part'?'CTI_BROWSER_PUBLISHER_PART':'CTI_BROWSER_PUBLISHER_CHAPTER',
+          ...(resourceType==='back-matter'?{resourceType}:{}),schemaVersion:1,statusCoverage:'PARTIAL_PUBLISHER_API_ONLY',
           requestedUrl:d.targetUrl,endpointUrl:d.url.href,observedAt:attempted.observedAt,status:200,mime:'application/json',
           contentType,encoding:'UTF8',bytes:body.bytes.length,sha256,rawJson};
         if (!directPublisherResourceSourceValidV1(model,d.targetUrl)) {attempted.reason='PUBLISHER_BROWSER_SOURCE_INVALID';return failure(job,attempted.reason);}

@@ -111,17 +111,17 @@ function InlinePublisherPageEvidence({ content, providerId, page }: {
 }) {
   const [open, setOpen] = useState(false),
     original = open && page.status !== "UNRESOLVED" ? courseraInlinePublisherResource(content, providerId, page.targetUrl) : null,
-    isPart = "resourceType" in page,
-    historical = page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" || page.status === "HISTORICAL_RETAINED_PUBLISHER_API_PART";
+    typed = "resourceType" in page, resourceLabel = typed ? page.resourceType === "back-matter" ? "back matter" : "book section" : "chapter",
+    historical = page.status === "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" || page.status === "HISTORICAL_RETAINED_PUBLISHER_API_PART" || page.status === "HISTORICAL_RETAINED_PUBLISHER_API_BACK_MATTER";
   return <details onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>{page.status === "UNRESOLVED" ? "Publisher API read unresolved" : historical
-      ? `Earlier publisher API response retained · no current ${isPart ? "book section" : "chapter"} response`
-      : `Publisher API ${isPart ? "book section" : "chapter"} · partial content`}</summary>
+      ? `Earlier publisher API response retained · no current ${resourceLabel} response`
+      : `Publisher API ${resourceLabel} · partial content`}</summary>
     <p className="captured-text">Configured target: {page.targetUrl}</p>
     {page.status !== "UNRESOLVED" && <>
-      {historical && <p className="hint">This is an earlier response for this exact configured target and publisher API endpoint. No current {isPart ? "book section" : "chapter"} response is established; its original timestamp remains below.</p>}
+      {historical && <p className="hint">This is an earlier response for this exact configured target and publisher API endpoint. No current {resourceLabel} response is established; its original timestamp remains below.</p>}
       <p className="captured-text">Publisher API endpoint: {page.endpointUrl}</p>
-      <p className="captured-text">{isPart ? `Published book section ${page.resourceId}: ${page.resourceLink}` : `Published chapter ${page.chapterId}: ${page.chapterLink}`}</p>
+      <p className="captured-text">{typed ? `Published ${resourceLabel} ${page.resourceId}: ${page.resourceLink}` : `Published chapter ${page.chapterId}: ${page.chapterLink}`}</p>
       <p className="hint">Observed: {page.observedAt} · {page.bytes.toLocaleString()} original JSON UTF-8 bytes</p>
       <p className="captured-text">SHA-256: {page.sha256}</p>
       <p className="hint">The browser exposed this JSON response through CORS; credentials mode: {page.credentials}. This is a publisher API response, separate from an original webpage HTML response.</p>
@@ -151,7 +151,7 @@ function InlineWidgetContentEvidence({ content }: { content: CourseraInlineWidge
     <h6>Captured embedded pages</h6>
     <p className="hint">These are this item's native widget configurations and separately retained publisher sources. They remain separate from the reading's native text and completion status. Complete widget content and learner interactions remain unverified.</p>
     {content.providers.map(provider => <details key={provider.providerId}>
-      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current HTML observations{provider.publisherPages ? ` · ${provider.publisherPages.filter(page => page.status === "CAPTURED_PUBLISHER_API_CHAPTER" || page.status === "CAPTURED_PUBLISHER_API_PART").length} publisher API ${provider.publisherPages.some(page => "resourceType" in page) ? "responses" : "chapter responses"}` : ""}{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
+      <summary>Widget {provider.providerId} · {provider.publicPages.filter(page => page.status === "CAPTURED_PARTIAL_PUBLIC_HTML").length} current HTML observations{provider.publisherPages ? ` · ${provider.publisherPages.filter(page => page.status === "CAPTURED_PUBLISHER_API_CHAPTER" || page.status === "CAPTURED_PUBLISHER_API_PART" || page.status === "CAPTURED_PUBLISHER_API_BACK_MATTER").length} publisher API ${provider.publisherPages.some(page => "resourceType" in page) ? "responses" : "chapter responses"}` : ""}{provider.publicPages.some(page => page.status === "HISTORICAL_RETAINED_PUBLIC_HTML") ? " · earlier HTML retained separately" : ""}</summary>
       <p className="hint">Native response base ID: {provider.providerBaseId}. Requested version {provider.requestedVersion} comes from the exact CML selector; the response does not echo that version.</p>
       <p className="hint">Configuration observed: {provider.configurationObservedAt} · {provider.occurrences} placement{provider.occurrences === 1 ? "" : "s"} in this item</p>
       {provider.configuredTargets.map((target, index) => <p className="captured-text" key={index}>

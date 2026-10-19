@@ -24,7 +24,7 @@ import {directCanonicalSourceTextV1} from '../src/extractors/coursera/direct-dat
 import {directPublicHtmlEvidenceV1} from '../src/extractors/coursera/direct-data-public-page.js';
 import {directPublisherEvidenceV1,directPublisherChapterV1,directPublisherResourceEvidenceV1,directPublisherResourceV1} from '../src/extractors/coursera/direct-data-publisher.js';
 import {directPublisherMediaInventoryV1,directPublisherMediaEvidenceV1} from '../src/extractors/coursera/direct-data-publisher-media.js';
-import {courseraInlineWidgetContent,courseraInlineWidgetContentText} from '../src/domain/coursera-inline-widget-content.ts';
+import {courseraInlineWidgetContent,courseraInlineWidgetContentText,courseraInlinePublisherResource} from '../src/domain/coursera-inline-widget-content.ts';
 
 // Execute the actual generated direct-data delivery program. The default CI
 // path requires browser-initiated javascript: navigation. The explicit local
@@ -254,6 +254,12 @@ function makePublisherCase(chapterId,mode){
     chapter.type=mode==='part-wrong-type'?'chapter':'part';chapter.link=publisherOrigin+'/'+publisherBook+'/part/unit-'+chapterId+'/';
     chapter._links={self:[{href:publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/parts/'+chapterId}]};
   }
+  if(mode.startsWith('back-matter-')){
+    chapter.type=mode==='back-matter-wrong-type'?'part':'back-matter';
+    chapter.link=publisherOrigin+'/'+publisherBook+'/back-matter/original-'+chapterId+'/';
+    chapter._links={self:[{href:publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/back-matter/'+chapterId}]};
+    if(mode==='back-matter-protected')chapter.content.protected=true;
+  }
   config.rawJson='\ufeff'+JSON.stringify(chapter,null,2)+'\n';
   if(mode==='escaped-credential')config.rawJson=config.rawJson.replace('access_token','access_\\u0074oken');
   config.bytes=mode==='invalid-utf8'?Buffer.from([0xc3,0x28]):Buffer.from(config.rawJson);
@@ -265,6 +271,8 @@ const publisherFixtures=[
   'body-limit','escaped-credential',
 ].map((mode,index)=>makePublisherCase(179+index,mode));
 const publisherPartFixtures=['part-success','part-wrong-type','part-missing','include-404','http-401'].map((mode,index)=>makePublisherCase(1100+index,mode));
+const publisherBackMatterFixtures=['back-matter-success','back-matter-wrong-type','back-matter-protected',
+  'back-matter-part-401','back-matter-part-403'].map((mode,index)=>makePublisherCase(1600+index,mode));
 const baseline=makeCourse('Direct_baseline_fixture_123','baseline',true);
 const complete=makeCourse('Direct_complete_fixture_123','complete');
 for(const row of definitions.values())if(row.courseId===complete.id){
@@ -371,6 +379,17 @@ for(const [index,url]of publisherChallengeUrls.entries()){
   publisherImages.set(url,{name:url.split('/').at(-1),mode:'no-cors',body,requests:0});
   publisherServiceImages.set(url,publisherChallengeCourse);
 }
+const publisherBackMatterCase=makePublisherCase(1599,'back-matter-success');
+const publisherBackMatterImageUrl=publisherImageBase+'back-matter-original.png';
+publisherBackMatterCase.chapter.content.raw='<p>Original authored back matter café 日本語.</p><img src="'+publisherBackMatterImageUrl+'">';
+publisherBackMatterCase.chapter.content.rendered='<p>Distinct rendered back matter.</p><a href="'+publisherBackMatterImageUrl+'">Original image</a>';
+publisherBackMatterCase.rawJson='\ufeff'+JSON.stringify(publisherBackMatterCase.chapter,null,2)+'\n';
+publisherBackMatterCase.bytes=Buffer.from(publisherBackMatterCase.rawJson);
+publisherImages.set(publisherBackMatterImageUrl,{name:'back-matter-original.png',mode:'allowed',body:pngBytes,requests:0});
+const publisherBackMatterCourse=makeInlineWidgetCourse('Direct_inline_back_matter_123','publisher-back-matter',true);
+publisherBackMatterCourse.publisherReaderCase=true;
+providers.get(publisherBackMatterCourse.inlineProviderId).value.draft.configuration.url=publisherBackMatterCase.targetUrl;
+providers.get(publisherBackMatterCourse.inlineProviderId).value.draft.pageSrc=publisherBackMatterCase.targetUrl;
 const publisherFlagLeaf=publisherInlineCourse.material.material.elements[0].elements[0].elements[0];
 publisherFlagLeaf.content.typeName='ungradedAssignment';
 publisherFlagLeaf.content.definition.assignmentFeatures=['LIMITED_SUBMISSIONS','TAKE_LATEST_GRADE','SHOW_GRADE_ON_RELEASE'];
@@ -580,10 +599,12 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       if(image.mode==='redirect'){response.statusCode=302;response.setHeader('Location',publisherImageBase+'never-follow.png');response.end();return;}
       response.setHeader('Content-Length',String(image.body.length));response.end(image.body);return;
     }
-    const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(chapters|parts)/([1-9]\\d*)$').exec(url.pathname);
+    const match=new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(chapters|parts|back-matter)/([1-9]\\d*)$').exec(url.pathname);
     assert(match,'Only the configured public chapter endpoint is requested; redirects are not followed');
     const endpointType=match[1],config=publisherCases.get(Number(match[2]));assert(config,'Only a synthetic native publisher ID is requested');
-    if(endpointType==='parts')assert(config.mode.startsWith('part-'),'Only an exposed chapter-404 transition may request a part endpoint');
+    if(endpointType==='parts')assert(config.mode.startsWith('part-')||config.mode.startsWith('back-matter-'),'Only an exposed chapter-404 transition may request a part endpoint');
+    if(endpointType==='back-matter')assert(config.mode.startsWith('back-matter-')||config.mode==='part-missing',
+      'Only exposed chapter and part 404 responses permit a back-matter request');
     assert.equal(url.search,'');assert.equal(request.method,'GET');
     assert.equal(request.headers.origin,origin);
     assert.equal(request.headers['sec-fetch-mode'],'cors');assert.equal(request.headers.authorization,undefined);
@@ -605,7 +626,13 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       response.statusCode=302;response.setHeader('Location',publisherOrigin+'/'+publisherBook+'/chapter/never-follow/');response.end();return;
     }
     if(config.mode==='http-401'){response.statusCode=401;response.end('{\"error\":\"synthetic public access required\"}');return;}
-    if((config.mode.startsWith('part-')&&endpointType==='chapters')||config.mode==='part-missing'||config.mode==='include-404'&&attempt>1){response.statusCode=404;response.end('{\"error\":\"synthetic missing chapter or part\"}');return;}
+    if(config.mode.startsWith('back-matter-')&&endpointType==='parts'&&/part-(401|403)$/.test(config.mode)){
+      response.statusCode=Number(config.mode.slice(-3));response.end('{"error":"synthetic part access denied"}');return;
+    }
+    if(((config.mode.startsWith('part-')||config.mode.startsWith('back-matter-'))&&endpointType==='chapters')||
+      config.mode.startsWith('back-matter-')&&endpointType==='parts'||config.mode==='part-missing'||config.mode==='include-404'&&attempt>1){
+      response.statusCode=404;response.end('{"error":"synthetic missing typed publisher resource"}');return;
+    }
     if(initialDenied||config.mode==='http-403'){response.statusCode=403;response.end('{"error":"synthetic public denial"}');return;}
     if(config.mode==='http-429'){response.statusCode=429;response.end('{"error":"synthetic public rate limit"}');return;}
     response.setHeader('Content-Length',String(config.bytes.length));response.end(config.bytes);return;
@@ -872,7 +899,7 @@ try{
       const request=route.request(),url=new URL(request.url());
       assert.equal(request.method(),'GET');
       if(url.href!==publisherOpaqueUrl&&!publisherImages.has(url.href)){
-        assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(?:chapters|parts)/[1-9]\\d*$'));
+        assert.match(url.pathname,new RegExp('^/'+publisherBook+'/wp-json/pressbooks/v2/(?:chapters|parts|back-matter)/[1-9]\\d*$'));
         assert(publisherCases.has(Number(url.pathname.split('/').at(-1))));
       }
       if(config===publisherImageCourse&&!publisherImageStageChecked&&url.href===publisherImageBase+'no-cors.png'){
@@ -1300,6 +1327,7 @@ try{
     {version:'1.8.1',buildId:'v1.8.1-browser-publisher-api-20261018'},
     {version:'1.8.3',buildId:'v1.8.3-publisher-sections-original-images-20261018'},
     {version:'1.8.4',buildId:'v1.8.4-public-publisher-images-20261019'},
+    {version:'1.8.5',buildId:'v1.8.5-publisher-challenge-aware-20261019'},
     // Leave v1.8.2 seeded for the separate flag-order continuation below.
     {version:'1.8.2',buildId:'v1.8.2-historical-publisher-checkpoint-20261018'},
   ]){
@@ -1413,6 +1441,57 @@ try{
   assert.equal(partIntegrated.capture.meta.directDataCapture.stats.byResource.PublisherPart,1);
   assert.equal(partIntegrated.capture.meta.directDataCapture.coverage.questions,10);
   await partIntegrated.context.close();
+
+  const backMatterApiStart=publisherRequests.length,backMatterImageStart=publisherImageRequests.length,backMatterHelperStart=helperRequests.length;
+  const backMatterIntegrated=await runFileCase(publisherBackMatterCourse);
+  const backMatterPlacements=backMatterIntegrated.capture.fingerprints.filter(fp=>fp.payload.directInlineWidgetProviderEvidence);
+  assert.equal(backMatterIntegrated.state.state,'INCOMPLETE');assert.equal(backMatterPlacements.length,2);
+  assert.equal(evaluateCourseraCapture(backMatterIntegrated.capture,publisherBackMatterCourse.id).complete,false);
+  for(const fp of backMatterPlacements){
+    const provider=fp.payload.directInlineWidgetProviderEvidence.providers[0],page=provider.publisherPages[0],observation=page.observation;
+    assert.equal(observation.model.kind,'CTI_BROWSER_PUBLISHER_BACK_MATTER');assert.equal(observation.model.resourceType,'back-matter');
+    assert.equal(observation.model.rawJson,publisherBackMatterCase.rawJson);assert.equal(observation.model.bytes,publisherBackMatterCase.bytes.length);
+    assert.equal(observation.model.sha256,createHash('sha256').update(publisherBackMatterCase.bytes).digest('hex'));
+    assert.equal(observation.receipt.resource,'PublisherBackMatter');assert.equal(observation.receipt.credentials,'omit');
+    assert.equal(observation.receipt.resolution.method,'CHAPTER_404_PART_404_TO_BACK_MATTER');
+    const {chapterReceipt,partReceipt}=observation.receipt.resolution;
+    for(const [receipt,resource,endpoint]of [[chapterReceipt,'PublisherChapter','chapters'],[partReceipt,'PublisherPart','parts']]){
+      assert.equal(receipt.resource,resource);assert.equal(receipt.status,404);assert.equal(receipt.responseType,'cors');
+      assert.equal(receipt.credentials,'omit');assert.equal(receipt.attempts.length,1);assert.equal(receipt.attempts[0].credentials,'omit');
+      assert.equal(receipt.resolution,undefined,'Prior typed 404 receipts are flat independent observations');
+      assert.equal(receipt.endpointUrl,publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/'+endpoint+'/'+publisherBackMatterCase.chapterId);
+    }
+    assert(directPublisherResourceEvidenceV1(observation,page.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    assert.equal(directPublisherEvidenceV1(observation,page.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')),null);
+    assert.equal(directPublisherResourceV1(observation.model.rawJson,page.targetUrl,'part'),null,
+      'New back matter is never relabeled as an existing chapter or part');
+    assert.equal(directPublisherResourceV1(observation.model.rawJson,page.targetUrl,'back-matter').type,'back-matter');
+    assert(directPublisherMediaEvidenceV1(observation,page.targetUrl,page.media,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    const image=page.media.resources[0];assert.equal(page.media.resources.length,1);assert.equal(image.url,publisherBackMatterImageUrl);
+    assert.equal(image.references.length,2);assert.deepEqual(Buffer.from(image.body.bytes),pngBytes);
+    assert.equal(image.body.receipt.sourceSha256,observation.model.sha256);assert.equal(image.body.receipt.responseType,'cors');
+    assert.equal(image.body.archivePath,'files/'+createHash('sha256').update(pngBytes).digest('hex'));
+    assert.equal(provider.bodyVerified,false);assert.equal(provider.wholeWidgetVerified,false);assert.equal(fp.captureContract.complete,false);
+    const report=courseraInlineWidgetContent(fp,publisherBackMatterCourse.id);assert(report);
+    const reportPage=report.providers[0].publisherPages[0];assert.equal(reportPage.status,'CAPTURED_PUBLISHER_API_BACK_MATTER');
+    assert.equal(reportPage.resourceType,'back-matter');assert.equal(reportPage.resourceId,publisherBackMatterCase.chapterId);
+    assert.equal(reportPage.resourceLink,publisherBackMatterCase.chapter.link);assert.equal(reportPage.media.resources[0].originalRef,image.body.archivePath);
+    const original=courseraInlinePublisherResource(report,provider.providerId,page.targetUrl);assert(original);
+    assert.equal(original.rawJson,publisherBackMatterCase.rawJson);assert.equal(original.resource.type,'back-matter');assert.equal(original.historical,false);
+    const output=courseraInlineWidgetContentText(report);assert.match(output,/Publisher API back matter content/);
+    assert(output.includes(publisherBackMatterImageUrl)&&output.includes(observation.model.sha256));
+  }
+  assert.deepEqual(publisherRequests.slice(backMatterApiStart).map(request=>request.endpointType),['chapters','parts','back-matter'],
+    'Two native placements share one bounded three-GET typed acquisition');
+  assert.equal(publisherImageRequests.length-backMatterImageStart,1);assert.equal(helperRequests.length,backMatterHelperStart);
+  for(const resource of ['PublisherChapter','PublisherPart','PublisherBackMatter'])
+    assert.equal(backMatterIntegrated.capture.meta.directDataCapture.stats.byResource[resource],1);
+  assert.equal(backMatterIntegrated.capture.meta.directDataCapture.coverage.questions,10);
+  const backMatterZip=await JSZip.loadAsync(fs.readFileSync(await backMatterIntegrated.contextDownloads[0].download.path()),{checkCRC32:true});
+  assert.deepEqual(await backMatterZip.file('files/'+createHash('sha256').update(pngBytes).digest('hex')).async('nodebuffer'),pngBytes,
+    'The same capture ZIP retains the back-matter original image under its exact native publisher source');
+  assert.equal(await backMatterIntegrated.page.evaluate(()=>window.__CTI_PUBLISHER_EXECUTED),undefined);
+  await backMatterIntegrated.context.close();
 
   const imageIntegratedStart=publisherImageRequests.length,imageApiStart=publisherRequests.length,imageHelperStart=helperRequests.length;
   const imageIntegrated=await runFileCase(publisherImageCourse);
@@ -2284,11 +2363,12 @@ try{
   for(const config of publisherPartFixtures){
     const start=publisherRequests.length;
     const result=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),config.targetUrl),actual=publisherRequests.slice(start);
-    const resolvesPart=config.mode.startsWith('part-');
-    assert.equal(actual.length,config.mode==='http-401'?1:2,'Typed resolution and credential retry share a hard two-GET budget');
-    assert.deepEqual(actual.map(request=>request.endpointType),resolvesPart?['chapters','parts']:config.mode==='http-401'?['chapters']:['chapters','chapters']);
+    const resolvesPart=config.mode.startsWith('part-'),resolvesBackMatter=config.mode==='part-missing';
+    assert.equal(actual.length,resolvesBackMatter?3:config.mode==='http-401'?1:2,'Typed resolution is bounded separately from the original credential retry');
+    assert.deepEqual(actual.map(request=>request.endpointType),resolvesBackMatter?['chapters','parts','back-matter']:
+      resolvesPart?['chapters','parts']:config.mode==='http-401'?['chapters']:['chapters','chapters']);
     assert.equal(actual[0].cookiePresent,false);assert(actual.every(request=>!request.authorizationPresent));
-    if(resolvesPart){
+    if(resolvesPart&&!resolvesBackMatter){
       assert.equal(result.stats.byResource.PublisherChapter,1);assert.equal(result.stats.byResource.PublisherPart,1);
       assert.equal(result.receipt.resource,'PublisherPart');assert.equal(result.receipt.credentials,'omit');assert.equal(result.receipt.attempts.length,1);
       const prior=result.receipt.resolution.chapterReceipt;
@@ -2297,6 +2377,15 @@ try{
       assert.equal(prior.endpointUrl,publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/chapters/'+config.chapterId);
       assert.equal(result.receipt.endpointUrl,publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/parts/'+config.chapterId);
       assert.equal(actual[1].cookiePresent,false,'Part resolution never adds a third or credentialed GET');
+    }
+    if(resolvesBackMatter){
+      assert.equal(result.receipt.resource,'PublisherBackMatter');assert.equal(result.receipt.status,404);
+      assert.equal(result.receipt.credentials,'omit');assert.equal(result.receipt.attempts.length,1);
+      assert.equal(result.receipt.resolution.method,'CHAPTER_404_PART_404_TO_BACK_MATTER');
+      assert.equal(result.receipt.resolution.chapterReceipt.status,404);assert.equal(result.receipt.resolution.partReceipt.status,404);
+      assert.equal(result.receipt.resolution.chapterReceipt.resolution,undefined);assert.equal(result.receipt.resolution.partReceipt.resolution,undefined);
+      assert.equal(result.stats.byResource.PublisherChapter,1);assert.equal(result.stats.byResource.PublisherPart,1);
+      assert.equal(result.stats.byResource.PublisherBackMatter,1);assert(actual.every(request=>!request.cookiePresent));
     }
     if(config.mode==='part-success'){
       assert.equal(result.ok,true);assert.equal(result.data.kind,'CTI_BROWSER_PUBLISHER_PART');assert.equal(result.data.rawJson,config.rawJson);
@@ -2307,6 +2396,38 @@ try{
       assert.equal(result.reason,config.mode==='part-wrong-type'?'PUBLISHER_BROWSER_SOURCE_INVALID':config.mode==='http-401'?'PUBLISHER_BROWSER_HTTP_401':config.mode==='include-404'?'PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT':'PUBLISHER_BROWSER_HTTP_404');
       if(config.mode==='http-401'){assert.equal(result.receipt.status,401);assert.equal(result.receipt.attempts.length,1);assert.equal(result.receipt.resolution,undefined);}
       if(config.mode==='include-404'){assert.equal(result.receipt.resource,'PublisherChapter');assert.equal(result.receipt.attempts.length,2);assert.equal(result.receipt.resolution,undefined);}
+    }
+  }
+  for(const config of publisherBackMatterFixtures){
+    const start=publisherRequests.length;
+    const result=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),config.targetUrl),actual=publisherRequests.slice(start);
+    const denied=/part-(401|403)$/.test(config.mode),expectedEndpoints=denied?['chapters','parts']:['chapters','parts','back-matter'];
+    assert.deepEqual(actual.map(request=>request.endpointType),expectedEndpoints,
+      'Only two exposed omit-mode 404 responses authorize the third typed publisher GET');
+    assert.equal(result.stats.requests,expectedEndpoints.length);assert(actual.every(request=>!request.cookiePresent&&!request.authorizationPresent));
+    assert.equal(result.stats.byResource.PublisherChapter,1);assert.equal(result.stats.byResource.PublisherPart,1);
+    if(denied){
+      const status=Number(config.mode.slice(-3));assert.equal(result.ok,false);assert.equal(result.data,null);
+      assert.equal(result.reason,'PUBLISHER_BROWSER_HTTP_'+status);assert.equal(result.receipt.resource,'PublisherPart');
+      assert.equal(result.receipt.status,status);assert.equal(result.receipt.resolution.method,'CHAPTER_404_TO_PART');
+      assert.equal(result.stats.byResource.PublisherBackMatter,undefined,
+        'A part authorization failure never becomes a guessed back-matter source');
+      continue;
+    }
+    assert.equal(result.stats.byResource.PublisherBackMatter,1);assert.equal(result.receipt.resource,'PublisherBackMatter');
+    assert.equal(result.receipt.endpointUrl,publisherOrigin+'/'+publisherBook+'/wp-json/pressbooks/v2/back-matter/'+config.chapterId);
+    assert.equal(result.receipt.resolution.method,'CHAPTER_404_PART_404_TO_BACK_MATTER');
+    const {chapterReceipt,partReceipt}=result.receipt.resolution;
+    assert.equal(chapterReceipt.status,404);assert.equal(partReceipt.status,404);
+    assert.equal(chapterReceipt.resolution,undefined);assert.equal(partReceipt.resolution,undefined);
+    if(config.mode==='back-matter-success'){
+      assert.equal(result.ok,true);assert.equal(result.data.kind,'CTI_BROWSER_PUBLISHER_BACK_MATTER');
+      assert.equal(result.data.resourceType,'back-matter');assert.equal(result.data.rawJson,config.rawJson);
+      assert.equal(result.data.sha256,createHash('sha256').update(config.bytes).digest('hex'));
+      assert(directPublisherResourceEvidenceV1({model:result.data,receipt:result.receipt},config.targetUrl,bytes=>createHash('sha256').update(bytes).digest('hex')));
+    }else{
+      assert.equal(result.ok,false);assert.equal(result.data,null);assert.equal(result.reason,'PUBLISHER_BROWSER_SOURCE_INVALID');
+      assert.equal(result.receipt.status,200,'Wrong native type and protected content remain evidence gaps despite an exposed HTTP 200');
     }
   }
   const imageSourceResult=await publisherPolicy.page.evaluate(targetUrl=>window.fixtureReadPublisher(targetUrl),publisherImageCase.targetUrl);
@@ -2488,6 +2609,8 @@ try{
     completedV180V181V182AndV183CheckpointAccessUsesRealIndexedDbWithoutRecaptureOrWrites:true,
     v182FlagOrderOnlyResumePreservesNativeOriginalsAssessmentsAndCumulativeBudgets:true,
     syntheticTypedPartResolutionPreservesChapter404HistoryAndTwoGetBound:true,
+    syntheticBackMatterResolutionPreservesTwoFlat404ReceiptsAndThreeGetBound:true,
+    backMatterOriginalJsonImageOwnershipZipAndReportProjection:true,
     publisherImagesUseActualCorsAndExactSourceBoundOriginalArchiveBytes:true,
     publisherServiceImagesUseAuthenticatedHelperAndBoundedPublicBytesWithoutCorsForgery:true,
     publisherChallengeStopsSameOriginServiceReadsWithoutInventingSkippedHttpResults:true,

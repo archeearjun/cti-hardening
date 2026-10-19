@@ -42,17 +42,17 @@ export function directPublisherTargetV1(value) {
   }
 }
 
-/** Only these observed Pressbooks resource routes are supported. A part is
- * tried for the identical native post ID after an exposed chapter 404. */
+/** These are closed Pressbooks routes for the identical native post ID.
+ * A part follows a chapter 404; back matter requires both exposed 404s. */
 export function directPublisherResourceTargetV1(value, resourceType) {
   const target = directPublisherTargetV1(value);
-  if (!target || !["chapter", "part"].includes(resourceType)) return null;
+  if (!target || !["chapter", "part", "back-matter"].includes(resourceType)) return null;
   return {
     ...target,
     resourceType,
     endpointUrl:
-      resourceType === "part"
-        ? target.bookUrl + "wp-json/pressbooks/v2/parts/" + target.chapterId
+      resourceType !== "chapter"
+        ? target.bookUrl + "wp-json/pressbooks/v2/" + (resourceType === "part" ? "parts" : "back-matter") + "/" + target.chapterId
         : target.endpointUrl,
   };
 }
@@ -106,7 +106,7 @@ export function directPublisherResourceV1(rawJson, targetUrl, resourceType) {
   const target = directPublisherTargetV1(targetUrl);
   if (
     !target ||
-    !["chapter", "part"].includes(resourceType) ||
+    !["chapter", "part", "back-matter"].includes(resourceType) ||
     !directPublisherJsonBytesV1(rawJson)
   )
     return null;
@@ -125,11 +125,11 @@ export function directPublisherResourceV1(rawJson, targetUrl, resourceType) {
       chapter.link.length > 4000
     )
       return null;
-    if (resourceType === "part" && chapter._links?.self !== undefined) {
+    if (["part", "back-matter"].includes(resourceType) && chapter._links?.self !== undefined) {
       const self = chapter._links.self,
         endpoint = directPublisherResourceTargetV1(
           targetUrl,
-          "part",
+          resourceType,
         ).endpointUrl;
       if (
         !Array.isArray(self) ||
@@ -160,6 +160,8 @@ export function directPublisherResourceV1(rawJson, targetUrl, resourceType) {
         ))
     )
       return null;
+    if (resourceType === "back-matter" && !(link.search ||
+        /^back-matter\/[a-z0-9][a-z0-9_-]*\/?$/i.test(link.pathname.slice(book.pathname.length)))) return null;
     const pending = [{ value: chapter, depth: 0 }];
     let nodes = 0,
       scheduled = 1;
@@ -232,13 +234,15 @@ export function directPublisherSourceForTypeV1(value, targetUrl, resourceType) {
           "bytes",
           "sha256",
           "rawJson",
+          ...(resourceType === "back-matter" ? ["resourceType"] : []),
         ].includes(key),
     ) ||
     value.kind !==
-      (resourceType === "part"
+      (resourceType === "back-matter" ? "CTI_BROWSER_PUBLISHER_BACK_MATTER" : resourceType === "part"
         ? "CTI_BROWSER_PUBLISHER_PART"
         : "CTI_BROWSER_PUBLISHER_CHAPTER") ||
     value.schemaVersion !== 1 ||
+    (resourceType === "back-matter" && value.resourceType !== "back-matter") ||
     value.statusCoverage !== "PARTIAL_PUBLISHER_API_ONLY" ||
     value.requestedUrl !== targetUrl ||
     value.endpointUrl !== target.endpointUrl ||
@@ -272,28 +276,22 @@ export function directPublisherResourceSourceValidV1(value, targetUrl) {
   return directPublisherSourceForTypeV1(
     value,
     targetUrl,
-    value?.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+    value?.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : value?.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
   );
 }
 
 /** Resolution history has no response body: the original exposed 404 is
  * preserved as browser context, not as a successful chapter observation. */
-export function directPublisherPartResolutionValidV1(
-  value,
+export function directPublisher404ReceiptValidV1(
+  r,
   targetUrl,
+  resourceType,
   observedAt,
 ) {
-  const target = directPublisherTargetV1(targetUrl),
-    r = value?.chapterReceipt;
+  const target = directPublisherResourceTargetV1(targetUrl,resourceType);
   if (
     !target ||
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.keys(value).some(
-      (key) => !["method", "chapterReceipt"].includes(key),
-    ) ||
-    value.method !== "CHAPTER_404_TO_PART" ||
+    !["chapter","part"].includes(resourceType) ||
     !r ||
     typeof r !== "object" ||
     Array.isArray(r) ||
@@ -327,7 +325,7 @@ export function directPublisherPartResolutionValidV1(
     a = r.attempts?.[0];
   return (
     r.transport === "BROWSER_PUBLISHER_API" &&
-    r.resource === "PublisherChapter" &&
+    r.resource === (resourceType === "part" ? "PublisherPart" : "PublisherChapter") &&
     r.id === targetUrl &&
     r.requestedUrl === targetUrl &&
     r.endpointUrl === target.endpointUrl &&
@@ -370,6 +368,21 @@ export function directPublisherPartResolutionValidV1(
     a.bytes === 0 &&
     a.reason === "PUBLISHER_BROWSER_HTTP_404"
   );
+}
+
+export function directPublisherPartResolutionValidV1(value,targetUrl,observedAt) {
+  return !!value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).every(key => ["method","chapterReceipt"].includes(key)) &&
+    value.method === "CHAPTER_404_TO_PART" &&
+    directPublisher404ReceiptValidV1(value.chapterReceipt,targetUrl,"chapter",observedAt);
+}
+
+export function directPublisherBackMatterResolutionValidV1(value,targetUrl,observedAt) {
+  return !!value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).every(key => ["method","chapterReceipt","partReceipt"].includes(key)) &&
+    value.method === "CHAPTER_404_PART_404_TO_BACK_MATTER" &&
+    directPublisher404ReceiptValidV1(value.partReceipt,targetUrl,"part",observedAt) &&
+    directPublisher404ReceiptValidV1(value.chapterReceipt,targetUrl,"chapter",value.partReceipt.observedAt);
 }
 
 /** Browser CORS success is observed in the browser, not attested by a CTI
@@ -417,12 +430,12 @@ export function directPublisherObservationForTypeV1(
           "bytes",
           "originalResponseSha256",
           "attempts",
-          ...(resourceType === "part" ? ["resolution"] : []),
+          ...(["part","back-matter"].includes(resourceType) ? ["resolution"] : []),
         ].includes(key),
     ) ||
     t.transport !== "BROWSER_PUBLISHER_API" ||
     t.resource !==
-      (resourceType === "part" ? "PublisherPart" : "PublisherChapter") ||
+      (resourceType === "back-matter" ? "PublisherBackMatter" : resourceType === "part" ? "PublisherPart" : "PublisherChapter") ||
     t.id !== targetUrl ||
     t.requestedUrl !== targetUrl ||
     t.endpointUrl !== target.endpointUrl ||
@@ -448,10 +461,10 @@ export function directPublisherObservationForTypeV1(
   )
     return false;
   if (
-    resourceType === "part" &&
+    ["part","back-matter"].includes(resourceType) &&
     (t.attempts.length !== 1 ||
       t.credentials !== "omit" ||
-      !directPublisherPartResolutionValidV1(
+      !(resourceType === "part" ? directPublisherPartResolutionValidV1 : directPublisherBackMatterResolutionValidV1)(
         t.resolution,
         targetUrl,
         m.observedAt,
@@ -523,7 +536,7 @@ export function directPublisherResourceObservationValidV1(value, targetUrl) {
   return directPublisherObservationForTypeV1(
     value,
     targetUrl,
-    value?.model?.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+    value?.model?.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : value?.model?.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
   );
 }
 

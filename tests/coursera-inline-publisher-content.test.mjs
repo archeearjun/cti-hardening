@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createInlinePublisherContentFixture, createInlinePublisherPartContentFixture, createInlinePublisherMediaContentFixture,
+import { createInlinePublisherContentFixture, createInlinePublisherPartContentFixture, createInlinePublisherBackMatterContentFixture, createInlinePublisherMediaContentFixture,
   createInlinePublicContentFixture } from "./coursera-inline-content-fixtures.mjs";
 import { courseraInlineWidgetContent, courseraInlinePublisherPage, courseraInlinePublisherResource, courseraInlineWidgetContentText,
   validateCourseraInlineWidgetContent } from "../src/domain/coursera-inline-widget-content.ts";
@@ -77,6 +77,10 @@ test("publisher parts stay typed as book sections while original chapter contrac
     snapshot = buildContentSnapshot(undefined, undefined, f.raw), content = snapshot.coursera[0].content,
     inline = content.inlineWidgetContent, page = inline.providers[0].publisherPages[0];
   assert.equal(page.status, "CAPTURED_PUBLISHER_API_PART");
+  assert.equal(sha(JSON.stringify(inline)), "604260782877d7d515b7ddc8792e161216ffa416d27e6177d4ed5b5a133c5276",
+    "Released part projection remains byte-identical");
+  assert.equal(sha(courseraInlineWidgetContentText(inline)), "2f68383ea92a371c5b88475305981c7081009468d8584ce9ec6e12b84e04f008",
+    "Released part text export remains unchanged");
   assert.equal(page.resourceType, "part"); assert.equal(page.resourceId, 179);
   assert.equal(page.resourceLink, f.publisherPart.link);
   assert.equal(Object.hasOwn(page, "chapterId"), false); assert.equal(Object.hasOwn(page, "chapterLink"), false);
@@ -101,6 +105,10 @@ test("part history retains its original source and cannot be forged into a chapt
   const inline = courseraInlineWidgetContent(f.fp, f.courseId), page = inline.providers[0].publisherPages[0],
     original = courseraInlinePublisherResource(inline, f.providerId, f.targetUrl);
   assert.equal(page.status, "HISTORICAL_RETAINED_PUBLISHER_API_PART");
+  assert.equal(sha(JSON.stringify(inline)), "fd73733d0304ed8604cc0ed2b3ddf238a247a58baed1d1688334b2f20438c1d2",
+    "Historical part projection remains byte-identical to the frozen v1.8.5 projection");
+  assert.equal(sha(courseraInlineWidgetContentText(inline)), "246912b5e619db6af85c55eb58dd5505c1bec6f9f84f88d00fa6d9a2321b08e9",
+    "Historical part text export remains unchanged");
   assert.equal(page.observedAt, f.publisherPartObservation.model.observedAt);
   assert.equal(original.historical, true); assert.equal(original.rawJson, f.publisherRawJson);
   assert(courseraInlineWidgetContentText(inline).includes("no current book section response is established"));
@@ -115,6 +123,85 @@ test("part history retains its original source and cannot be forged into a chapt
     const saved = JSON.parse(JSON.stringify(inline)); mutate(saved);
     assert.throws(() => validateCourseraInlineWidgetContent(saved, f.fp.id, f.courseId));
   }
+});
+
+test("publisher back matter retains its original typed JSON without changing native content or counts", () => {
+  const f = createInlinePublisherBackMatterContentFixture(), before = JSON.stringify(f.raw),
+    snapshot = buildContentSnapshot(undefined, undefined, f.raw), content = snapshot.coursera[0].content,
+    inline = content.inlineWidgetContent, page = inline.providers[0].publisherPages[0],
+    original = courseraInlinePublisherResource(inline, f.providerId, f.targetUrl);
+  assert.equal(page.status, "CAPTURED_PUBLISHER_API_BACK_MATTER");
+  assert.equal(page.resourceType, "back-matter"); assert.equal(page.resourceId, 179);
+  assert.equal(page.resourceLink, f.publisherBackMatter.link);
+  assert.equal(Object.hasOwn(page, "chapterId"), false); assert.equal(Object.hasOwn(page, "chapterLink"), false);
+  assert.equal(courseraInlinePublisherPage(inline, f.providerId, f.targetUrl), null, "The historical accessor stays chapter-only");
+  assert.equal(original.resourceType, "back-matter"); assert.equal(original.resource.type, "back-matter");
+  assert.equal(original.rawJson, f.publisherRawJson); assert.equal(original.historical, false);
+  assert.equal(original.resource.title.raw, f.publisherBackMatter.title.raw);
+  assert.equal(original.resource.content.raw, f.publisherBackMatter.content.raw);
+  assert.equal(JSON.stringify(f.raw), before); assert.equal(f.fp.captureContract.complete, false);
+  assert.equal(content.text, ""); assert.equal(content.textCoverage, "UNVERIFIED"); assert.equal(content.questions.length, 0);
+  const exported = contentEvidenceText(content);
+  assert(exported.includes("Publisher API back matter content")); assert(exported.includes("Publisher back matter ID: 179"));
+  assert(!exported.includes("Publisher chapter ID:")); assert(!exported.includes("Publisher book section ID:"));
+  assert(exported.includes(f.publisherBackMatter.content.raw)); assert(!exported.includes("window.__CTI_PUBLISHER_HTML_EXECUTED__"));
+  validateContentSnapshot(snapshot); validateContentSnapshot(JSON.parse(JSON.stringify(snapshot)));
+});
+
+test("back-matter historical source keeps its own timestamps and rejects rewritten display or resolution evidence", () => {
+  const f = createInlinePublisherBackMatterContentFixture(), entry = f.fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+  entry.retainedObservation = entry.observation; entry.observation = null;
+  entry.failures = [{ reason: "PUBLISHER_BROWSER_HTTP_401" }];
+  const inline = courseraInlineWidgetContent(f.fp, f.courseId), page = inline.providers[0].publisherPages[0],
+    original = courseraInlinePublisherResource(inline, f.providerId, f.targetUrl);
+  assert.equal(page.status, "HISTORICAL_RETAINED_PUBLISHER_API_BACK_MATTER");
+  assert.equal(page.observedAt, f.publisherBackMatterObservation.model.observedAt);
+  assert.equal(original.historical, true); assert.equal(original.rawJson, f.publisherRawJson);
+  assert(courseraInlineWidgetContentText(inline).includes("no current back matter response is established"));
+  validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
+  for (const mutate of [
+    value => { value.providers[0].publisherPages[0].resourceId = 180; },
+    value => { value.providers[0].publisherPages[0].resourceType = "part"; },
+    value => { value.providers[0].publisherPages[0].status = "HISTORICAL_RETAINED_PUBLISHER_API_PART"; },
+    value => { value.proof.inlineProviderEvidence.providers[0].publisherPages[0].targetUrl += "other"; },
+    value => { value.proof.inlineProviderEvidence.providers[0].publisherPages[0].retainedObservation.receipt.resolution.chapterReceipt.status = 401; },
+    value => { value.proof.inlineProviderEvidence.providers[0].publisherPages[0].retainedObservation.receipt.resolution.partReceipt.status = 401; },
+    value => { value.proof.inlineProviderEvidence.providers[0].publisherPages[0].retainedObservation.receipt.resolution.partReceipt.resolution = {}; },
+    value => { value.proof.inlineProviderEvidence.providers[0].publisherPages[0].retainedObservation.receipt.resolution.partReceipt.observedAt = "2027-01-15T08:00:00.008Z"; },
+  ]) {
+    const saved = JSON.parse(JSON.stringify(inline)); mutate(saved);
+    assert.throws(() => validateCourseraInlineWidgetContent(saved, f.fp.id, f.courseId));
+  }
+});
+
+test("back-matter projection requires the exact independently hashed publisher type, numeric ID and same-book canonical link", () => {
+  for (const mutate of [
+    value => { value.id = 180; }, value => { value.type = "part"; }, value => { value.type = "front-matter"; },
+    value => { value.status = "draft"; }, value => { value.content.protected = true; },
+    value => { value.link = "https://opentextbc.ca/other-book/back-matter/area/"; },
+    value => { value.link = "https://opentextbc.ca/synthetic-book/chapter/area/"; },
+    value => { value._links.self[0].href = value._links.self[0].href.replace("/back-matter/", "/parts/"); },
+  ]) {
+    const f = createInlinePublisherBackMatterContentFixture(), observation = f.publisherObservation,
+      resource = JSON.parse(observation.model.rawJson); mutate(resource);
+    const rawJson = JSON.stringify(resource, null, 2) + "\n", bytes = new TextEncoder().encode(rawJson), hash = sha(rawJson);
+    Object.assign(observation.model, { rawJson, bytes: bytes.length, sha256: hash });
+    Object.assign(observation.receipt, { bytes: bytes.length, originalResponseSha256: hash });
+    observation.receipt.attempts[0].bytes = bytes.length;
+    assert.equal(courseraInlineWidgetContent(f.fp, f.courseId), null);
+  }
+});
+
+test("back-matter image descriptors retain original source ownership and do not certify embedded bytes", () => {
+  const f = createInlinePublisherMediaContentFixture({ backMatter: true }), before = JSON.stringify(f.raw),
+    inline = courseraInlineWidgetContent(f.fp, f.courseId), page = inline.providers[0].publisherPages[0];
+  assert.equal(page.resourceType, "back-matter"); assert.equal(page.media.resources.length, 2);
+  assert.equal(page.media.resources[0].status, "CAPTURED_ORIGINAL_FILE_REFERENCE");
+  assert.equal(page.media.resources[1].status, "UNRESOLVED");
+  assert(directPublisherMediaEvidenceV1(f.publisherObservation, f.targetUrl, f.publisherMedia, bytes => createHash("sha256").update(bytes).digest("hex")));
+  validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
+  assert.equal(JSON.stringify(f.raw), before); assert.equal(f.fp.captureContract.complete, false);
+  assert(!JSON.stringify(inline).includes('"base64":')); assert(!JSON.stringify(inline).includes('"bytes":{'));
 });
 
 test("publisher image references stay owned, distinct from embedded bytes and stable across report reload", () => {

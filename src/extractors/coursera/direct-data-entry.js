@@ -35,7 +35,7 @@ import { directPublicPageTargetV1, directPublicPageObservationValidV1,
   CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "./direct-data-public-page.js";
 import { directPublisherTargetV1, directPublisherObservationValidV1,
   directPublisherResourceObservationValidV1, directPublisherResourceV1,
-  directPublisherPartResolutionValidV1 } from "./direct-data-publisher.js";
+  directPublisherPartResolutionValidV1, directPublisherBackMatterResolutionValidV1 } from "./direct-data-publisher.js";
 import { directCourseInventoryV1 } from "./direct-data-inventory.js";
 import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1,
   directPublisherImageBodyStructureV1 } from "./direct-data-publisher-media.js";
@@ -503,7 +503,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         receipt = failure?.receipt,
         observedStatus = (receipt?.observedAtBasis === "UPSTREAM" && receipt.upstreamRequests > 0 ||
           receipt?.observedAtBasis === "BROWSER_RESPONSE" && receipt.transport === "BROWSER_PUBLISHER_API" &&
-          ["PublisherChapter", "PublisherPart"].includes(receipt.resource) && receipt.responseType === "cors") && Number.isInteger(receipt.status) &&
+          ["PublisherChapter", "PublisherPart", "PublisherBackMatter"].includes(receipt.resource) && receipt.responseType === "cors") && Number.isInteger(receipt.status) &&
           receipt.status >= 400 && receipt.status <= 599 ? receipt.status : 0,
         reasonStatus = /^(?:PUBLIC_HTML_PROVIDER_HTTP|PUBLISHER_IMAGE_HTTP)_([45]\d\d)$/.exec(code);
       if (code === "PUBLISHER_BROWSER_RESOURCE_RESOLUTION_LIMIT") return "LIMIT";
@@ -711,9 +711,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         result.requestQuery = input.requestQuery.map(pair => [...pair]);
       return encoder.encode(JSON.stringify(result)).byteLength <= 16 * 1024 ? result : null;
     }
-    function retainPublisherFailureReceipt(read, targetUrl) {
+    function retainPublisherFailureReceipt(read, targetUrl, resolutionRecord = false) {
       const input = read?.receipt, result = {};
-      if (!input || !["PublisherChapter", "PublisherPart"].includes(input.resource) || input.id !== targetUrl || !directPublisherTargetV1(targetUrl)) return null;
+      if (!input || !["PublisherChapter", "PublisherPart", "PublisherBackMatter"].includes(input.resource) || input.id !== targetUrl || !directPublisherTargetV1(targetUrl)) return null;
       for (const key of ["resource", "id", "requestedUrl", "endpointUrl", "origin", "requestPath", "method", "bodyFormat",
         "originalResponseSha256", "transport", "receivedAt", "observedAt", "observedAtBasis", "responseType", "credentials"])
         if (typeof input[key] === "string" && input[key].length <= 4000 && !/[\r\n\0]/.test(input[key])) result[key] = input[key];
@@ -728,11 +728,17 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         bytes: Number.isSafeInteger(attempt.bytes) && attempt.bytes >= 0 ? attempt.bytes : 0,
         reason: /^[A-Z0-9_]{0,96}$/.test(attempt.reason || "") ? attempt.reason || "" : "PUBLISHER_BROWSER_BLOCKED_OR_FAILED",
       }));
-      if (input.resource === "PublisherPart") {
+      if (input.resource === "PublisherPart" && !resolutionRecord) {
         if (!directPublisherPartResolutionValidV1(input.resolution, targetUrl, input.observedAt)) return null;
         const chapterReceipt = retainPublisherFailureReceipt({ receipt: input.resolution.chapterReceipt }, targetUrl);
         if (!chapterReceipt) return null;
         result.resolution = { method: "CHAPTER_404_TO_PART", chapterReceipt };
+      } else if (input.resource === "PublisherBackMatter") {
+        if (!directPublisherBackMatterResolutionValidV1(input.resolution, targetUrl, input.observedAt)) return null;
+        const chapterReceipt = retainPublisherFailureReceipt({ receipt: input.resolution.chapterReceipt }, targetUrl, true),
+          partReceipt = retainPublisherFailureReceipt({ receipt: input.resolution.partReceipt }, targetUrl, true);
+        if (!chapterReceipt || !partReceipt) return null;
+        result.resolution = { method: "CHAPTER_404_PART_404_TO_BACK_MATTER", chapterReceipt, partReceipt };
       }
       return encoder.encode(JSON.stringify(result)).byteLength <= 16 * 1024 ? result : null;
     }
@@ -2286,7 +2292,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         if (!report.source) throw Error("PUBLISHER_CHECK_NO_RECORDED_SOURCE");
         accessReader = createDirectDataReaderV1({ sanitize: sanitizeCourseraCourseDataModel, assertCurrent: assertContext,
-          limits: { concurrentRequests: 1, requests: 2, totalBytes: 2 * 1024 * 1024, bodyBytes: 1024 * 1024,
+          limits: { concurrentRequests: 1, requests: 3, totalBytes: 2 * 1024 * 1024, bodyBytes: 1024 * 1024,
             requestMs: 10000, durationMs: 25000 } });
         const target = report.source, read = await accessReader.readPublisherPage(target.targetUrl, { itemId: target.itemId, providerId: target.providerId });
         report.requests = accessReader.snapshot().requests;
@@ -2296,11 +2302,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(read.data.rawJson))),
             byte => byte.toString(16).padStart(2, "0")).join("");
           if (operatorStopped || !assertContext()) throw Error("PUBLISHER_CHECK_STOPPED_OR_CONTEXT_CHANGED");
-          const resourceType = read.data.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+          const resourceType = read.data.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : read.data.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
             resource = actual === read.data.sha256 && directPublisherResourceV1(read.data.rawJson, target.targetUrl, resourceType);
           if (resource) {
             report.accepted = true;
-            report[resourceType === "part" ? "resource" : "chapter"] = { id: resource.id, type: resource.type, status: resource.status, link: resource.link,
+            report[resourceType === "chapter" ? "chapter" : "resource"] = { id: resource.id, type: resource.type, status: resource.status, link: resource.link,
               titleCharacters: (resource.title?.rendered || resource.title?.raw || "").length,
               contentCharacters: (resource.content?.rendered || resource.content?.raw || "").length };
             report.resourceType = resourceType;

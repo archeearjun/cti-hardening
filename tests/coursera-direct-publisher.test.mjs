@@ -15,6 +15,7 @@ import {
   directPublisherResourceSourceValidV1,
   directPublisherResourceObservationValidV1,
   directPublisherResourceEvidenceV1,
+  directPublisherBackMatterResolutionValidV1,
 } from "../src/extractors/coursera/direct-data-publisher.js";
 import { directPublisherMediaInventoryV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 
@@ -23,6 +24,8 @@ const endpoint =
   "https://opentextbc.ca/syntheticbook/wp-json/pressbooks/v2/chapters/225";
 const partEndpoint =
   "https://opentextbc.ca/syntheticbook/wp-json/pressbooks/v2/parts/225";
+const backMatterEndpoint =
+  "https://opentextbc.ca/syntheticbook/wp-json/pressbooks/v2/back-matter/225";
 const binding = { itemId: "nativeItem", providerId: "p".repeat(22) + "@3" };
 const secret = "SYNTHETIC_PRIVATE_PUBLISHER_DETAIL";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,6 +60,10 @@ function part(extra = {}) {
     _links: { self: [{ href: partEndpoint }] },
     ...extra,
   });
+}
+function backMatter(extra = {}) {
+  return chapter({type:"back-matter",link:"https://opentextbc.ca/syntheticbook/back-matter/original-back-matter/",
+    _links:{self:[{href:backMatterEndpoint}]},...extra});
 }
 
 test("the user-observed part 125 schema retains its four outcomes and one literal image without choosing srcset renditions", async () => {
@@ -148,6 +155,7 @@ test("the user-observed part 125 schema retains its four outcomes and one litera
 });
 const rawJson = "\ufeff \n" + JSON.stringify(chapter(), null, 2) + "\n";
 const partJson = "\ufeff \n" + JSON.stringify(part(), null, 2) + "\n";
+const backMatterJson = "\ufeff \n" + JSON.stringify(backMatter(), null, 2) + "\n";
 function corsResponse(url, body = rawJson, options = {}) {
   return Object.defineProperties(
     new Response(body, {
@@ -1207,23 +1215,26 @@ test("an exposed first chapter 404 resolves a synthetic same-ID part with exact 
   assert.equal(f.reader.snapshot().completed, 1);
 });
 
-test("two exposed 404s remain a typed acquisition gap with the first chapter history retained", async () => {
+test("three exposed type-route 404s remain a typed acquisition gap with both earlier response histories retained", async () => {
   const f = fixture((url) => corsResponse(url, secret, { status: 404 }));
   const result = await f.reader.readPublisherPage(target, binding);
   failed(result, "PUBLISHER_BROWSER_HTTP_404");
   assert.deepEqual(
     f.calls.map(({ url }) => url),
-    [endpoint, partEndpoint],
+    [endpoint, partEndpoint, backMatterEndpoint],
   );
   assert(f.calls.every(({ init }) => init.credentials === "omit"));
-  assert.equal(result.receipt.resource, "PublisherPart");
+  assert.equal(result.receipt.resource, "PublisherBackMatter");
   assert.equal(result.receipt.status, 404);
   assert.equal(result.receipt.bytes, 0);
   assert.equal(result.receipt.originalResponseSha256, "");
   assert.equal(result.receipt.resolution.chapterReceipt.status, 404);
   assert.equal(result.receipt.resolution.chapterReceipt.endpointUrl, endpoint);
+  assert.equal(result.receipt.resolution.partReceipt.status,404);
+  assert.equal(result.receipt.resolution.partReceipt.endpointUrl,partEndpoint);
+  assert.equal(result.receipt.resolution.partReceipt.resolution,undefined);
   assert.equal(result.receipt.attempts.length, 1);
-  assert.equal(f.reader.snapshot().requests, 2);
+  assert.equal(f.reader.snapshot().requests, 3);
   assert.equal(f.reader.snapshot().bytes, 0);
   assert.equal(f.reader.snapshot().stopped, false);
 });
@@ -1455,4 +1466,131 @@ test("synthetic part proof rejects altered types, hashes, endpoint identity and 
     original,
   );
   assert.deepEqual(original, before);
+});
+
+test("back matter derives only the official same-ID route and validates its own published type, canonical link and optional self links", () => {
+  assert.deepEqual(directPublisherResourceTargetV1(target,"back-matter"),{
+    ...directPublisherTargetV1(target),resourceType:"back-matter",endpointUrl:backMatterEndpoint,
+  });
+  assert.deepEqual(directPublisherResourceV1(backMatterJson,target,"back-matter"),backMatter());
+  assert.equal(directPublisherChapterV1(backMatterJson,target),null);
+  assert.equal(directPublisherResourceV1(backMatterJson,target,"part"),null);
+  assert.equal(directPublisherResourceV1(partJson,target,"back-matter"),null);
+  for (const extra of [
+    {id:226},{id:"225"},{status:"private"},{type:"chapter"},{type:"part"},{type:"front-matter"},
+    {link:"https://opentextbc.ca/anotherbook/back-matter/original-back-matter/"},
+    {link:"https://opentextbc.ca/syntheticbook/chapter/original-back-matter/"},
+    {link:"https://opentextbc.ca/syntheticbook/"},
+    {link:"https://opentextbc.ca/syntheticbook/?p=226"},
+    {link:"https://opentextbc.ca/syntheticbook/?p=225&context=edit"},
+    {link:"https://opentextbc.ca/syntheticbook/back-matter/parent/child/"},
+    {content:{rendered:"private",protected:true}}, {metadata:{access_token:secret}},
+    {_links:{self:[]}},{_links:{self:[{href:partEndpoint}]}},{_links:{self:[{href:endpoint}]}},
+    {_links:{self:[{href:backMatterEndpoint+"?context=edit"}]}},
+    {_links:{self:[{href:backMatterEndpoint.replace("/225","/226")}]}}])
+    assert.equal(directPublisherResourceV1(JSON.stringify(backMatter(extra)),target,"back-matter"),null);
+  for (const extra of [{_links:{}},{link:"https://opentextbc.ca/syntheticbook/?p=225"}])
+    assert.deepEqual(directPublisherResourceV1(JSON.stringify(backMatter(extra)),target,"back-matter"),backMatter(extra));
+});
+
+test("two exposed omit 404s resolve one exact back-matter original with raw bytes and both closed histories", async () => {
+  let errorBodiesRead = 0, errorBodiesCancelled = 0;
+  const f = fixture((url,_init,count) => count < 3 ? corsResponse(url,new ReadableStream({
+    pull(){errorBodiesRead++;},cancel(){errorBodiesCancelled++;},
+  },{highWaterMark:0}),{status:404}) : corsResponse(url,backMatterJson)),
+    observation = wrapper(await f.reader.readPublisherPage(target,binding)), before = structuredClone(observation);
+  assert.deepEqual(f.calls.map(({url,init}) => ({url,credentials:init.credentials})),
+    [endpoint,partEndpoint,backMatterEndpoint].map(url => ({url,credentials:"omit"})));
+  assert.equal(errorBodiesRead,0);assert.equal(errorBodiesCancelled,2);
+  assert.equal(observation.model.kind,"CTI_BROWSER_PUBLISHER_BACK_MATTER");
+  assert.equal(observation.model.resourceType,"back-matter");
+  assert.equal(observation.model.rawJson,backMatterJson);assert.equal(observation.model.bytes,bytesOf(backMatterJson).length);
+  assert.equal(observation.model.sha256,hashBytes(bytesOf(backMatterJson)));
+  assert.equal(observation.receipt.resource,"PublisherBackMatter");
+  assert.equal(observation.receipt.endpointUrl,backMatterEndpoint);
+  assert.equal(observation.receipt.attempts.length,1);assert.equal(observation.receipt.attempts[0].credentials,"omit");
+  const resolution = observation.receipt.resolution;
+  assert.equal(resolution.method,"CHAPTER_404_PART_404_TO_BACK_MATTER");
+  for (const [receipt,resource,url] of [[resolution.chapterReceipt,"PublisherChapter",endpoint],
+    [resolution.partReceipt,"PublisherPart",partEndpoint]]) {
+    assert.equal(receipt.resource,resource);assert.equal(receipt.endpointUrl,url);
+    assert.equal(receipt.status,404);assert.equal(receipt.bytes,0);assert.equal(receipt.originalResponseSha256,"");
+    assert.equal(receipt.receivedAt,"");assert.equal(receipt.resolution,undefined);
+    assert.equal(receipt.attempts.length,1);assert.equal(receipt.attempts[0].reason,"PUBLISHER_BROWSER_HTTP_404");
+  }
+  assert(directPublisherBackMatterResolutionValidV1(resolution,target,observation.model.observedAt));
+  assert(directPublisherResourceSourceValidV1(observation.model,target));
+  assert(directPublisherResourceObservationValidV1(observation,target));
+  assert.equal(directPublisherResourceEvidenceV1(observation,target,hashBytes),observation);
+  assert.equal(directPublisherObservationValidV1(observation,target),false);
+  assert.equal(directPublisherEvidenceV1(observation,target,hashBytes),null);
+  assert.equal(f.reader.snapshot().requests,3);assert.equal(f.reader.snapshot().bytes,bytesOf(backMatterJson).length);
+  assert.equal(f.reader.snapshot().byResource.PublisherChapter,1);
+  assert.equal(f.reader.snapshot().byResource.PublisherPart,1);
+  assert.equal(f.reader.snapshot().byResource.PublisherBackMatter,1);
+  assert.deepEqual(observation,before,"Reading and verification cannot fill or rewrite original publisher fields");
+  for (const mutate of [
+    value => delete value.model.resourceType,
+    value => value.model.resourceType = "chapter",
+    value => value.model.kind = "CTI_BROWSER_PUBLISHER_PART",
+    value => value.model.endpointUrl = partEndpoint,
+    value => value.receipt.resource = "PublisherPart",
+    value => delete value.receipt.resolution.partReceipt,
+    value => value.receipt.resolution.method = "ASSUMED_BACK_MATTER",
+    value => value.receipt.resolution.partReceipt.resolution = {method:"CHAPTER_404_TO_PART",chapterReceipt:resolution.chapterReceipt},
+    value => value.receipt.resolution.chapterReceipt.status = 403,
+    value => value.receipt.resolution.partReceipt.responseType = "unreadable",
+    value => value.receipt.resolution.partReceipt.endpointUrl = backMatterEndpoint,
+    value => value.receipt.resolution.partReceipt.requestPath = "/anotherbook/wp-json/pressbooks/v2/parts/225",
+    value => value.receipt.resolution.partReceipt.bytes = 1,
+    value => value.receipt.resolution.partReceipt.originalResponseSha256 = "a".repeat(64),
+    value => value.receipt.resolution.partReceipt.body = "invented 404 body",
+    value => value.receipt.resolution.partReceipt.credentials = "include",
+    value => value.receipt.resolution.partReceipt.attempts.push({...value.receipt.resolution.partReceipt.attempts[0]}),
+    value => {const date=new Date(Date.parse(value.model.observedAt)+1).toISOString();
+      value.receipt.resolution.partReceipt.observedAt=value.receipt.resolution.partReceipt.attempts[0].observedAt=date;},
+  ]) {
+    const forged=structuredClone(observation);mutate(forged);
+    assert.equal(directPublisherResourceEvidenceV1(forged,target,hashBytes),null);
+  }
+});
+
+test("back-matter resolution stops at auth, challenge, unreadable or malformed responses and never issues a fourth request", async () => {
+  for (const scenario of [
+    {statuses:[404,401],reason:"PUBLISHER_BROWSER_HTTP_401"},
+    {statuses:[404,403],reason:"PUBLISHER_BROWSER_HTTP_403"},
+    {statuses:[404,404],challengeAt:2,reason:"PUBLISHER_BROWSER_HTTP_404"},
+    {statuses:[404],challengeAt:1,reason:"PUBLISHER_BROWSER_HTTP_404"},
+    {statuses:[404,"blocked"],reason:"PUBLISHER_BROWSER_BLOCKED_OR_FAILED"},
+    {statuses:[404,404,401],reason:"PUBLISHER_BROWSER_HTTP_401"},
+    {statuses:[404,404,403],reason:"PUBLISHER_BROWSER_HTTP_403"},
+    {statuses:[404,404,"blocked"],reason:"PUBLISHER_BROWSER_BLOCKED_OR_FAILED"},
+    {statuses:[404,404,200],body:partJson,reason:"PUBLISHER_BROWSER_SOURCE_INVALID"},
+  ]) {
+    const f=fixture((url,_init,count) => {
+      const status=scenario.statuses[count-1];assert.notEqual(status,undefined,"No fourth request or unsupported route is permitted");
+      if(status === "blocked")throw Error(secret);
+      return corsResponse(url,status === 200 ? scenario.body : secret,{status,
+        ...(scenario.challengeAt === count ? {headers:{"cf-mitigated":"challenge"}} : {})});
+    }), result=await f.reader.readPublisherPage(target,binding);
+    failed(result,scenario.reason);assert.equal(f.calls.length,scenario.statuses.length);
+    assert(f.calls.every(({init}) => init.credentials === "omit"));
+    assert(f.reader.snapshot().requests <= 3);
+  }
+});
+
+test("back-matter lookup shares the existing job request, byte and deadline budgets", async () => {
+  const bounded=fixture(url => corsResponse(url,secret,{status:404}),{limits:{requests:2}});
+  failed(await bounded.reader.readPublisherPage(target,binding),"COURSE_API_REQUEST_LIMIT");
+  assert.deepEqual(bounded.calls.map(({url}) => url),[endpoint,partEndpoint]);
+  assert.equal(bounded.reader.snapshot().requests,2);assert.equal(bounded.reader.snapshot().bytes,0);
+  const timed=fixture(async(url,_init,count) => {
+    await pause(count < 3 ? 5 : 50);
+    return corsResponse(url,count < 3 ? secret : backMatterJson,{status:count < 3 ? 404 : 200});
+  },{limits:{requestMs:40,concurrentRequests:1}}), result=await timed.reader.readPublisherPage(target,binding);
+  failed(result,"PUBLISHER_BROWSER_TIMEOUT");
+  assert.deepEqual(timed.calls.map(({url}) => url),[endpoint,partEndpoint,backMatterEndpoint]);
+  assert.equal(timed.calls[2].init.signal.aborted,true);assert.equal(timed.reader.snapshot().bytes,0);
+  assert.equal(result.receipt.resolution.chapterReceipt.status,404);
+  assert.equal(result.receipt.resolution.partReceipt.status,404);
 });

@@ -99,7 +99,13 @@ export interface InlineWidgetPublisherPartPage extends InlineWidgetPublisherPage
   resourceId: number;
   resourceLink: string;
 }
-export type InlineWidgetPublisherPage = InlineWidgetPublisherChapterPage | InlineWidgetPublisherPartPage;
+export interface InlineWidgetPublisherBackMatterPage extends InlineWidgetPublisherPageBase {
+  status: "CAPTURED_PUBLISHER_API_BACK_MATTER" | "HISTORICAL_RETAINED_PUBLISHER_API_BACK_MATTER";
+  resourceType: "back-matter";
+  resourceId: number;
+  resourceLink: string;
+}
+export type InlineWidgetPublisherPage = InlineWidgetPublisherChapterPage | InlineWidgetPublisherPartPage | InlineWidgetPublisherBackMatterPage;
 export interface CourseraInlineWidgetContent {
   schemaVersion: 1;
   scope: "INLINE_CONFIGURATION_AND_PARTIAL_PUBLIC_HTML" | "INLINE_CONFIGURATION_AND_PARTIAL_PUBLISHER_CONTENT";
@@ -254,7 +260,7 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
           if (entry.observation !== null && !observation || observation && entry.failures.length ||
               hasRetained && (!retained || observation || !entry.failures.length)) return null;
           const selected = observation || retained, model = object(selected?.model),
-            resourceType = model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
+            resourceType = model.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
             resource = selected ? directPublisherResourceV1(model.rawJson, targetUrl, resourceType) : null;
           if (selected && (!resource || (retainedPublicBytes += model.bytes) > 8 * 1024 * 1024)) return null;
           if (selected) {
@@ -272,11 +278,14 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
             else { media = projected.content; retainedPublicBytes += projected.historicalJsonBytes; }
           }
           publisherPages.push({ targetUrl, sourceFields: fields,
-            status: resourceType === "part" && selected
+            status: resourceType === "back-matter" && selected
+              ? observation ? "CAPTURED_PUBLISHER_API_BACK_MATTER" : "HISTORICAL_RETAINED_PUBLISHER_API_BACK_MATTER"
+              : resourceType === "part" && selected
               ? observation ? "CAPTURED_PUBLISHER_API_PART" : "HISTORICAL_RETAINED_PUBLISHER_API_PART"
               : observation ? "CAPTURED_PUBLISHER_API_CHAPTER" : retained ? "HISTORICAL_RETAINED_PUBLISHER_API_CHAPTER" : "UNRESOLVED",
             endpointUrl: selected ? model.endpointUrl : "",
-            ...(resourceType === "part" && resource ? { resourceType: "part" as const, resourceId: resource.id, resourceLink: resource.link }
+            ...(resourceType === "back-matter" && resource ? { resourceType: "back-matter" as const, resourceId: resource.id, resourceLink: resource.link }
+              : resourceType === "part" && resource ? { resourceType: "part" as const, resourceId: resource.id, resourceLink: resource.link }
               : { chapterId: resource?.id ?? null, chapterLink: resource?.link ?? "" }),
             observedAt: selected ? model.observedAt : "",
             bytes: selected ? model.bytes : 0, sha256: selected ? model.sha256 : "",
@@ -358,10 +367,10 @@ export function courseraInlinePublisherPage(content: CourseraInlineWidgetContent
   return { rawJson: checked.model.rawJson, chapter, historical };
 }
 
-/** Parts are distinct publisher resources. The legacy chapter accessor above
+/** Book sections and back matter are distinct publisher resources. The legacy chapter accessor above
  * remains chapter-only and retains its original return shape. */
 export function courseraInlinePublisherResource(content: CourseraInlineWidgetContent, providerId: string, targetUrl: string): {
-  rawJson: string; resource: Obj; resourceType: "chapter" | "part"; historical: boolean;
+  rawJson: string; resource: Obj; resourceType: "chapter" | "part" | "back-matter"; historical: boolean;
 } | null {
   const provider = content.providers.find(value => value.providerId === providerId),
     page = provider?.publisherPages?.find(value => value.targetUrl === targetUrl && value.status !== "UNRESOLVED");
@@ -372,13 +381,13 @@ export function courseraInlinePublisherResource(content: CourseraInlineWidgetCon
   }
   const raw = list(content.proof.inlineProviderEvidence.providers).find(value => value?.providerId === providerId),
     entry = list(raw?.publisherPages).find(value => value?.targetUrl === targetUrl),
-    historical = page.status === "HISTORICAL_RETAINED_PUBLISHER_API_PART",
+    historical = page.status === "HISTORICAL_RETAINED_PUBLISHER_API_PART" || page.status === "HISTORICAL_RETAINED_PUBLISHER_API_BACK_MATTER",
     checked = directPublisherResourceEvidenceV1(historical ? entry?.retainedObservation : entry?.observation, targetUrl, hashBytes),
-    resource = checked && directPublisherResourceV1(checked.model.rawJson, targetUrl, "part");
-  if (!checked || checked.model.kind !== "CTI_BROWSER_PUBLISHER_PART" || !resource ||
+    resource = checked && directPublisherResourceV1(checked.model.rawJson, targetUrl, page.resourceType);
+  if (!checked || checked.model.kind !== (page.resourceType === "back-matter" ? "CTI_BROWSER_PUBLISHER_BACK_MATTER" : "CTI_BROWSER_PUBLISHER_PART") || !resource ||
       checked.model.sha256 !== page.sha256 || checked.model.bytes !== page.bytes || checked.model.endpointUrl !== page.endpointUrl ||
       resource.id !== page.resourceId || resource.link !== page.resourceLink) return null;
-  return { rawJson: checked.model.rawJson, resource, resourceType: "part", historical };
+  return { rawJson: checked.model.rawJson, resource, resourceType: page.resourceType, historical };
 }
 
 export function courseraInlineWidgetContentText(content: CourseraInlineWidgetContent): string {
@@ -400,18 +409,18 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
       out.push(...page.failures.map(reason => `Current read outcome: ${reason}`));
     }
     for (const page of provider.publisherPages || []) {
-      const isPart = "resourceType" in page;
-      out.push(`Publisher API ${isPart ? "book section" : "chapter"} content: ${page.targetUrl} | ${page.status}`);
+      const typed = "resourceType" in page, resourceLabel = typed ? page.resourceType === "back-matter" ? "back matter" : "book section" : "chapter";
+      out.push(`Publisher API ${resourceLabel} content: ${page.targetUrl} | ${page.status}`);
       if (page.status !== "UNRESOLVED") {
-        out.push(`API endpoint: ${page.endpointUrl}`, isPart
-          ? `Publisher book section ID: ${page.resourceId} | published book section link: ${page.resourceLink}`
+        out.push(`API endpoint: ${page.endpointUrl}`, typed
+          ? `Publisher ${resourceLabel} ID: ${page.resourceId} | published ${resourceLabel} link: ${page.resourceLink}`
           : `Publisher chapter ID: ${page.chapterId} | published chapter link: ${page.chapterLink}`,
           `Observed: ${page.observedAt} | ${page.bytes} original JSON UTF-8 bytes | SHA-256 ${page.sha256}`,
           `Browser response: ${page.responseType}; credentials mode: ${page.credentials}.`);
         const original = courseraInlinePublisherResource(content, provider.providerId, page.targetUrl);
         if (original) {
-          out.push(original.historical ? `Earlier publisher API observation retained; no current ${isPart ? "book section" : "chapter"} response is established.`
-            : `Publisher-provided ${isPart ? "book section" : "chapter"} fields; partial content only.`);
+          out.push(original.historical ? `Earlier publisher API observation retained; no current ${resourceLabel} response is established.`
+            : `Publisher-provided ${resourceLabel} fields; partial content only.`);
           for (const field of ["title", "content", "excerpt"]) {
             for (const format of ["raw", "rendered"]) {
               const value = original.resource[field]?.[format];

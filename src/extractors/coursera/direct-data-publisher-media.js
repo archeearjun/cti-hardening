@@ -94,7 +94,7 @@ export function directPublisherMediaAttributeV1(value) {
 /** A bounded tokenizer reads attributes only, never executes or renders HTML. */
 export function directPublisherMediaInventoryV1(observation, targetUrl) {
   if (!directPublisherResourceObservationValidV1(observation, targetUrl)) return null;
-  const chapter = directPublisherResourceV1(observation.model.rawJson, targetUrl, observation.model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter");
+  const chapter = directPublisherResourceV1(observation.model.rawJson, targetUrl, observation.model.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : observation.model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter");
   if (!chapter) return null;
   const resources = [], failures = [], byUrl = new Map();
   let references = 0;
