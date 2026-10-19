@@ -68,6 +68,8 @@ identity, stage, freshness and owner decisions remain separate.
 
 The native Coursera bookmark's public publisher-image fallback is documented in
 [the v1.8.4 audit](audits/coursera-public-publisher-images-2026-10-19.md).
+Explicit publisher challenges and deferred same-origin image reads are described
+in [the v1.8.5 audit](audits/coursera-publisher-challenge-2026-10-19.md).
 `server/publisher-image-provider.ts` owns the single bounded public GET; both
 helper ends, the original-media reader and archive intake retain independent
 protocol, byte and native-source checks. This route never receives publisher

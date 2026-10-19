@@ -64,7 +64,10 @@ export interface InlineWidgetPublisherFileReference {
   attempts?: [
     { transport: "BROWSER_PUBLISHER_IMAGE"; observedAt: string; status: 0; responseType: "unreadable"; reason: string },
     { transport: "CTI_SERVICE_PUBLIC_IMAGE"; observedAt: string; serviceOrigin: string; serviceStatus: number;
-      upstreamStatus: number; upstreamObservedAt: string; upstreamRequests: number; upstreamBytes: number; reason: string },
+      upstreamStatus: number; upstreamObservedAt: string; upstreamRequests: number; upstreamBytes: number; reason: string;
+      upstreamChallenge?: "cloudflare";
+      notAttempted?: "ORIGIN_CHALLENGE";
+      blockedBy?: { url: string; observedAt: string } },
   ];
   acquisition?: {
     transport: "CTI_SERVICE_PUBLIC_IMAGE";
@@ -434,9 +437,15 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
               "Transport records describe the collection route; authentication and independent attestation are unverified.");
             if (resource.attempts) {
               const [browser, service] = resource.attempts;
-              out.push(`Browser image attempt: ${browser.observedAt} | response unreadable; HTTP status unavailable | ${browser.reason}`,
+              out.push(`Browser image attempt: ${browser.observedAt} | response unreadable; HTTP status unavailable | ${browser.reason}`);
+              if (service.notAttempted === "ORIGIN_CHALLENGE") out.push(
+                "CTI image service not attempted: a publisher challenge stopped further service reads to this origin during this capture. No publisher HTTP result was observed for this skipped read.",
+                `Earlier challenge: ${service.blockedBy?.url} | browser receipt ${service.blockedBy?.observedAt}`);
+              else out.push(
                 `CTI public image attempt: ${service.observedAt} | service ${service.serviceOrigin} | ${service.serviceStatus ? "HTTP " + service.serviceStatus : "HTTP status unavailable"} | ${service.reason}`,
                 `Collector-declared upstream result: ${service.upstreamStatus ? "HTTP " + service.upstreamStatus : "HTTP status unavailable"}${service.upstreamObservedAt ? " | service clock " + service.upstreamObservedAt : ""}`);
+              if (service.upstreamChallenge === "cloudflare") out.push(
+                "Publisher returned a Cloudflare challenge. Image bytes were not captured; the challenge was not retried or solved.");
             }
             for (const reference of resource.references) out.push(`Authored ${reference.tag}.${reference.attribute} in ${reference.field}, reference ${reference.ordinal}: ${reference.attributeValue}`);
             if (resource.reason) out.push(`Publisher image read outcome: ${resource.reason}`);

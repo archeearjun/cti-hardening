@@ -399,6 +399,36 @@ test("publisher image heads require decoded framing, service identity and source
   }
 });
 
+test("publisher challenge heads preserve only the closed observed 403 context and cannot mark successful or unrelated responses", async () => {
+  const headers = {"content-type":"application/json","x-cti-upstream-challenge":"cloudflare",
+    "x-cti-provider-transport":"CTI_SERVICE_PUBLIC_IMAGE","x-cti-provider-origin":CTI_PROVIDER_HELPER_ORIGIN_V1,
+    "x-cti-upstream-status":"403","x-cti-upstream-requests":"1","x-cti-upstream-bytes":"0",
+    "x-cti-upstream-observed-at":"2026-10-19T00:00:00.000Z"};
+  const f = fixture({operations});
+  try {
+    await f.helper.ready();
+    const pending = f.helper.request("publisherImage",imagePayload), request = f.messages.find(message => message.type === "request");
+    f.emit({type:"head",...binding(request),status:502,headers:Object.entries(headers)});
+    const response = await pending;
+    assert.equal(response.headers.get("x-cti-upstream-challenge"),"cloudflare");
+    assert.equal(response.headers.get("x-cti-upstream-status"),"403");
+    await response.body.cancel();
+  } finally {f.helper.close();}
+  for (const change of [{status:200},{kind:"metadata"},{headers:{"x-cti-upstream-challenge":"other"}},
+    {headers:{"x-cti-upstream-status":"404"}},{headers:{"x-cti-upstream-requests":"0"}},
+    {headers:{"x-cti-upstream-bytes":"1"}},{headers:{"x-cti-upstream-observed-at":"invalid"}},
+    {headers:{"x-cti-provider-origin":"https://foreign.example"}}]) {
+    const invalid = fixture({operations});
+    try {
+      await invalid.helper.ready();
+      const kind = change.kind || "publisherImage", pending = invalid.helper.request(kind,kind === "metadata" ? {targetUrl} : imagePayload),
+        request = invalid.messages.find(message => message.type === "request");
+      invalid.emit({type:"head",...binding(request),status:change.status || 502,headers:Object.entries({...headers,...change.headers})});
+      await assert.rejects(pending,{code:"PROVIDER_HELPER_INVALID_RESPONSE"});
+    } finally {invalid.helper.close();}
+  }
+});
+
 test("publisher image relay preserves binary bytes and safe hash headers using authoritative decoded length", async () => {
   for (const framing of [
     {},

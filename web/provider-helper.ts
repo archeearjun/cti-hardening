@@ -179,7 +179,7 @@ export function startProviderHelperV1(host: Window = window, fetchImpl: typeof f
         if (!Number.isSafeInteger(declared) || declared > job.limit) {
           void response.body.cancel().catch(() => {}); fail(job, "PROVIDER_HELPER_PUBLISHER_IMAGE_LENGTH_UNAVAILABLE"); return;
         }
-        if (response.headers.has("Content-Range") || response.headers.get("X-CTI-Provider-Transport") !== "CTI_SERVICE_PUBLIC_IMAGE" || response.headers.get("X-CTI-Provider-Origin") !== origin ||
+        if (response.headers.has("Content-Range") || response.headers.has("X-CTI-Upstream-Challenge") || response.headers.get("X-CTI-Provider-Transport") !== "CTI_SERVICE_PUBLIC_IMAGE" || response.headers.get("X-CTI-Provider-Origin") !== origin ||
             !/^[a-f0-9]{64}$/.test(response.headers.get("X-CTI-Upstream-Sha256") || "") ||
             response.headers.get("X-CTI-Publisher-Source-Hash") !== payload.sourceSha256) {
           void response.body.cancel().catch(() => {}); fail(job, "PROVIDER_HELPER_INVALID_RESPONSE"); return;

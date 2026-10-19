@@ -54,7 +54,9 @@ function InlineWidgetPageEvidence({ content, providerId, page }: {
 }
 function PublisherOriginalReferences({ media }: { media: InlineWidgetPublisherMedia }) {
   const sourceFiles = (resources: InlineWidgetPublisherFileReference[]) => <ul>{resources.map((resource, index) => <li key={index}>
-    <p>{resource.status === "CAPTURED_ORIGINAL_FILE_REFERENCE" ? "Captured original file reference" : "Image read unresolved"}</p>
+    <p>{resource.status === "CAPTURED_ORIGINAL_FILE_REFERENCE" ? "Captured original file reference"
+      : resource.attempts?.[1].upstreamChallenge === "cloudflare" ? "Publisher challenge blocked image capture"
+        : resource.attempts?.[1].notAttempted === "ORIGIN_CHALLENGE" ? "Image service read deferred after publisher challenge" : "Image read unresolved"}</p>
     <p className="captured-text">Source: {safeWebUrl(resource.url)
       ? <a href={safeWebUrl(resource.url)} target="_blank" rel="noopener noreferrer">{resource.url}</a> : resource.url}</p>
     {resource.originalRef && <>
@@ -71,9 +73,15 @@ function PublisherOriginalReferences({ media }: { media: InlineWidgetPublisherMe
     </>}
     {resource.attempts && <>
       <p className="hint">Browser image attempt: response unreadable; HTTP status unavailable. {resource.attempts[0].reason}</p>
-      <p className="hint">CTI public service attempt: {resource.attempts[1].serviceStatus ? `HTTP ${resource.attempts[1].serviceStatus}` : "HTTP status unavailable"}. {resource.attempts[1].reason}</p>
-      <p className="hint">Collector-declared upstream result: {resource.attempts[1].upstreamStatus ? `HTTP ${resource.attempts[1].upstreamStatus}` : "HTTP status unavailable"}
-        {resource.attempts[1].upstreamObservedAt && ` · service clock ${resource.attempts[1].upstreamObservedAt}`}</p>
+      {resource.attempts[1].notAttempted === "ORIGIN_CHALLENGE" ? <>
+        <p className="hint">CTI image service not attempted: a publisher challenge stopped further service reads to this origin during this capture. No publisher HTTP result was observed for this skipped read.</p>
+        <p className="captured-text">Earlier challenge: {resource.attempts[1].blockedBy?.url} · browser receipt {resource.attempts[1].blockedBy?.observedAt}</p>
+      </> : <>
+        <p className="hint">CTI public service attempt: {resource.attempts[1].serviceStatus ? `HTTP ${resource.attempts[1].serviceStatus}` : "HTTP status unavailable"}. {resource.attempts[1].reason}</p>
+        <p className="hint">Collector-declared upstream result: {resource.attempts[1].upstreamStatus ? `HTTP ${resource.attempts[1].upstreamStatus}` : "HTTP status unavailable"}
+          {resource.attempts[1].upstreamObservedAt && ` · service clock ${resource.attempts[1].upstreamObservedAt}`}</p>
+      </>}
+      {resource.attempts[1].upstreamChallenge === "cloudflare" && <p className="hint">Publisher returned a Cloudflare challenge. Image bytes were not captured; the challenge was not retried or solved. Open the source link to inspect it in your browser. A successful page view does not add the image to this capture.</p>}
     </>}
     {resource.references.map((reference, referenceIndex) => <p className="captured-text" key={referenceIndex}>
       Authored {reference.tag}.{reference.attribute} in {reference.field}, reference {reference.ordinal}: {reference.attributeValue}

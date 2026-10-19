@@ -1150,6 +1150,92 @@ test("publisher image progress deduplicates owned originals and distinguishes bl
   assert(!responsiveRenderContext.count.textContent.includes("image source gaps"));
 });
 
+test("publisher image progress distinguishes observed publisher failures from CTI wrapper failures without trusting reason codes", () => {
+  const declarations = ["publicPageFailureOutcome", "summarizeInlineItem", "inlineExternalContentSummary"].map(name => {
+    let declaration;
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === name) declaration = node;
+      else ts.forEachChild(node, visit);
+    }
+    visit(parsedEntry); assert(declaration); return declaration.getText(parsedEntry);
+  }).join("\n"), context = vm.createContext({ itemStates: new Map(), courseId: WIDGET_COURSE, directPublisherMediaStructureV1 }),
+    outcomes = ["PUBLISHER_IMAGE_UPSTREAM_HTTP_403", "PUBLISHER_IMAGE_SERVICE_HTTP_502", "PUBLISHER_IMAGE_UPSTREAM_HTTP_403"],
+    fixtures = [createInlinePublisherMediaContentFixture({ itemId: "ImageReadingA", atomId: "A".repeat(22), outcomes }),
+      createInlinePublisherMediaContentFixture({ itemId: "ImageReadingB", atomId: "B".repeat(22), outcomes })];
+  new vm.Script(declarations).runInContext(context);
+  const attempts = (reason, upstreamStatus, serviceStatus) => [{
+    transport: "BROWSER_PUBLISHER_IMAGE", observedAt: "2026-10-18T20:50:08.994Z", status: 0,
+    responseType: "unreadable", reason: "PUBLISHER_IMAGE_BLOCKED_OR_FAILED",
+  }, {
+    transport: "CTI_SERVICE_PUBLIC_IMAGE", observedAt: "2026-10-18T20:50:10.250Z",
+    serviceOrigin: "https://cti-hardening.pages.dev", serviceStatus, upstreamStatus,
+    // These clocks belong to different machines; their order is not evidence
+    // that a browser received the response before its upstream observation.
+    upstreamObservedAt: upstreamStatus ? "2026-10-18T20:50:10.267Z" : "",
+    upstreamRequests: 1, upstreamBytes: 0, reason,
+  }];
+  for (const f of fixtures) {
+    const resources = f.publisherMedia.resources;
+    resources[0].attempts = attempts(resources[0].reason, 403, 502);
+    resources[1].attempts = attempts(resources[1].reason, 0, 502);
+    resources[2].attempts = attempts(resources[2].reason, 0, 0);
+  }
+  const before = fixtures.map(f => JSON.stringify(f.raw)), summarize = () => {
+    context.itemStates.clear();
+    for (const f of fixtures) context.itemStates.set(f.fp.id, { inlineExternalContent: context.summarizeInlineItem(f.fp) });
+    return clone(context.inlineExternalContentSummary());
+  }, summary = summarize();
+  assert.deepEqual(summary.publisherImages, { unique: 3, saved: 0, historical: 0, browserUnavailable: 0,
+    failed: 1, unverified: 0, publisherHttp: { "403": 1 }, serviceHttp: { "502": 1 } });
+  assert.equal(summary.wholeWidgetVerified, false);
+  assert(fixtures.every(f => f.fp.captureContract.complete === false));
+  assert.deepEqual(fixtures.map(f => JSON.stringify(f.raw)), before, "Reporting cannot rewrite original observations or native completeness");
+  const start = source.indexOf("      const inline = stats.inlineExternalContent;"), end = source.indexOf("      count.hidden =", start),
+    renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
+  new vm.Script(source.slice(start, end)).runInContext(renderContext);
+  assert(renderContext.count.textContent.includes("Publisher image sources 0/3 saved (1 publisher HTTP 403; 1 CTI service HTTP 502; 1 other read failures)"));
+  assert(!renderContext.count.textContent.includes("2 CTI service HTTP 502"), "A service 502 wrapping the observed publisher 403 is the same failed image read");
+  assert(!renderContext.count.textContent.includes("Cloudflare check"),"A generic 403 reason or status is not an observed Cloudflare challenge");
+  assert.equal(summary.publisherImages.publisherHttp["403"], 1,
+    "An unreadable status-zero record with a 403 reason string cannot establish another observed publisher 403");
+
+  const first = fixtures[0].publisherMedia.resources[0];
+  first.reason = "PUBLISHER_IMAGE_SERVICE_HTTP_502";
+  first.attempts = attempts(first.reason, 0, 502);
+  const repeated = summarize();
+  assert.deepEqual(repeated.publisherImages.publisherHttp, { "403": 1 },
+    "An observed publisher failure takes precedence across duplicate placements of the same image URL");
+  assert.deepEqual(repeated.publisherImages.serviceHttp, { "502": 1 });
+
+  const trigger = fixtures[1].publisherMedia.resources[0].attempts[1];
+  trigger.reason = fixtures[1].publisherMedia.resources[0].reason = "PUBLISHER_IMAGE_UPSTREAM_CHALLENGE";
+  trigger.upstreamChallenge = "cloudflare";
+  for (const f of fixtures) {
+    const deferred = f.publisherMedia.resources[1], service = deferred.attempts[1];
+    deferred.reason = service.reason = "PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED";
+    Object.assign(service,{serviceStatus:0,upstreamStatus:0,upstreamObservedAt:"",upstreamRequests:0,upstreamBytes:0,
+      notAttempted:"ORIGIN_CHALLENGE",blockedBy:{url:f.publisherMedia.resources[0].url,observedAt:trigger.observedAt}});
+  }
+  const challenge = summarize();
+  assert.deepEqual(challenge.publisherImages.publisherHttp,{"403":1});
+  assert.equal(challenge.publisherImages.serviceHttp,undefined,"Deferred images have no observed service HTTP status");
+  assert.equal(challenge.publisherImages.challengeDeferred,1);
+  assert.equal(challenge.publisherImages.publisherChallenges,1);
+  const deferredRender = vm.createContext({stats:{inlineExternalContent:challenge},state:{},count:{textContent:""}});
+  new vm.Script(source.slice(start,end)).runInContext(deferredRender);
+  assert(deferredRender.count.textContent.includes("1 deferred after publisher challenge"));
+  assert(deferredRender.count.textContent.includes("Publisher requested a Cloudflare check; image bytes remain uncaptured. Further service reads to that origin are deferred for this attempt."));
+
+  for (const f of fixtures) Object.assign(f.publisherMedia.resources[0].attempts[1], {
+    upstreamStatus: 403, upstreamObservedAt: "2026-10-18T20:50:10.267Z", upstreamRequests: 0,
+  });
+  const invalid = summarize();
+  assert.equal(invalid.publisherImages.unique, 0, "Invalid attempt metadata cannot establish any image outcome");
+  assert.equal(invalid.publisherImages.publisherHttp, undefined);
+  assert.equal(invalid.publisherImages.serviceHttp, undefined);
+  assert.equal(invalid.publisherImages.sourceGaps, 1);
+});
+
 test("the actual entry records separate native and flag-set comparison hashes without calling a flag reorder a course edit", async () => {
   let materialReads = 0;
   const app = harness({ readResult(call) {

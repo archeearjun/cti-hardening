@@ -46,6 +46,7 @@ export default {
       const name = url.pathname.slice(publisherImagePath.length).replace(/\.png$/, ""), headers = { "Content-Type":"image/png" };
       if (name === "redirect") return new Response(null,{status:307,headers:{Location:"https://never-follow.invalid/image.png"}});
       if (name === "denied") return new Response("Synthetic private denial",{status:401});
+      if (name === "forbidden") return new Response("Synthetic ordinary refusal",{status:403});
       if (name === "challenge") return new Response("Synthetic challenge",{status:403,headers:{"cf-mitigated":"challenge"}});
       if (name === "html") return new Response("Synthetic source page",{headers:{"Content-Type":"text/html"}});
       if (name === "signature") return new Response("Not raster bytes",{headers});

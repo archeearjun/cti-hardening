@@ -212,6 +212,7 @@ test("service source, transport, framing, body hash and MIME defects remain expl
     {headers:{"x-cti-provider-origin":"https://foreign.example"}},
     {headers:{"x-cti-publisher-source-hash":"a".repeat(64)}},
     {headers:{"x-cti-upstream-requests":"2"}},
+    {headers:{"x-cti-upstream-challenge":"cloudflare"}},
     {headers:{"x-cti-upstream-sha256":"a".repeat(64)}},
     {headers:{"x-cti-upstream-content-length":String(png.length+1),"x-cti-upstream-bytes":String(png.length+1)}},
     {headers:{"content-type":"text/html"}},
@@ -240,6 +241,101 @@ test("service failures preserve browser and upstream outcomes and stale helper m
   assert.equal(reads,0);assert.equal(stale.media.resources[0].reason,"PUBLISHER_IMAGE_HELPER_OPERATION_UNSUPPORTED");
   assert.equal(stale.media.resources[0].attempts[1].serviceStatus,0);assert.equal(stale.media.resources[0].attempts[1].upstreamStatus,0);
   assert(directPublisherMediaStructureV1(observation,target,stale.media));
+});
+
+test("one validated challenge defers only later same-origin service image reads while browser and other-origin reads continue", async () => {
+  const deferredImage = image.replace("original","deferred"), browserImage = image.replace("original","browser-readable"),
+    otherImage = image.replace("opentextbc.ca","pressbooks.bccampus.ca"),
+    observation = await source([image,deferredImage,browserImage,otherImage].map(url => '<img src="' + url + '">').join("")),
+    inventory = directPublisherMediaInventoryV1(observation,target), calls = [], browserCalls = [],
+    helper = {ready:async()=>{},supports:()=>true,request:async(kind,payload) => {
+      calls.push(payload.imageUrl);
+      if (payload.imageUrl === image) {
+        await new Promise(resolve => setTimeout(resolve,10));
+        return serviceResponse(observation.model.sha256,{status:502,bytes:new TextEncoder().encode('{"error":"PUBLISHER_IMAGE_PROVIDER_CHALLENGE"}'),
+          headers:{"content-type":"application/json","x-cti-upstream-status":"403","x-cti-upstream-bytes":"0","x-cti-upstream-challenge":"cloudflare"}});
+      }
+      return serviceResponse(observation.model.sha256);
+    }}, reader = createDirectDataMediaReaderV1({archiveMode:true,providerTransport:helper,fetchImpl:async url => {
+      browserCalls.push(url);
+      if (url === browserImage) return response(url,png);
+      throw Error("Browser response unreadable");
+    }}), reads = await Promise.all(inventory.resources.map(resource => reader.readPublisherImage(observation,target,resource))),
+    resources = inventory.resources.map((resource,index) => ({...resource,...(reads[index].body ? {body:reads[index].body} :
+      {reason:reads[index].reason,attempts:reads[index].attempts})})), media = {...inventory,resources};
+  assert.deepEqual(calls,[image,otherImage],"The queued same-origin fallback never reaches the service after the first challenge");
+  assert.deepEqual(browserCalls,[image,deferredImage,browserImage,otherImage]);
+  assert.equal(reader.snapshot().requests,6,"Only four browser reads and two actual helper requests are charged");
+  assert.equal(resources[0].reason,"PUBLISHER_IMAGE_UPSTREAM_CHALLENGE");
+  assert.equal(resources[0].attempts[1].upstreamChallenge,"cloudflare");
+  const skipped = resources[1].attempts[1];
+  assert.equal(resources[1].reason,"PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED");
+  assert.equal(skipped.notAttempted,"ORIGIN_CHALLENGE");
+  assert.deepEqual(skipped.blockedBy,{url:image,observedAt:resources[0].attempts[1].observedAt});
+  assert.equal(skipped.serviceStatus,0);assert.equal(skipped.upstreamStatus,0);assert.equal(skipped.upstreamRequests,0);
+  assert.equal(skipped.upstreamBytes,0);assert.equal(skipped.upstreamObservedAt,"");
+  assert(resources[2].body);assert.equal(resources[2].body.receipt.transport,"BROWSER_PUBLISHER_IMAGE");
+  assert(resources[3].body);assert.equal(resources[3].body.receipt.transport,"CTI_SERVICE_PUBLIC_IMAGE");
+  assert(directPublisherMediaEvidenceV1(observation,target,media,hash));
+  const retry = service(observation.model.sha256), fresh = await captured(observation,async()=>{throw Error("Browser response unreadable");},{providerTransport:retry.helper});
+  assert.equal(retry.calls.length,4,"A later capture has no inherited challenge circuit and may retry every source");
+  assert(fresh.media.resources.every(resource => resource.body));
+
+  for (const mutate of [
+    value => value.attempts[1].blockedBy.url = otherImage,
+    value => value.attempts[1].upstreamStatus = 403,
+    value => value.attempts[1].upstreamRequests = 1,
+    value => value.attempts[1].serviceStatus = 502,
+    value => value.attempts[1].blockedBy.observedAt = "2099-01-01T00:00:00.000Z",
+    value => value.attempts[1].upstreamChallenge = "cloudflare",
+  ]) {
+    const forged = structuredClone(resources[1]); mutate(forged);
+    assert.equal(directPublisherImageAttemptsV1(forged.attempts,forged.url),null,"A deferred record cannot borrow an HTTP result or a different publisher origin");
+  }
+});
+
+test("bare or malformed challenge declarations never close a publisher image origin", async () => {
+  const observation = await source('<img src="' + image + '"><img src="' + image.replace("original","next") + '">');
+  for (const change of [
+    {"x-cti-upstream-challenge":null}, {"x-cti-upstream-challenge":"other"},
+    {"x-cti-provider-origin":"https://foreign.example"}, {"x-cti-provider-transport":"CTI_PUBLIC_BACKEND"},
+    {"x-cti-upstream-status":"404"}, {"x-cti-upstream-requests":"0"}, {"x-cti-upstream-bytes":"1"},
+  ]) {
+    let calls = 0;
+    const helper = {ready:async()=>{},supports:()=>true,request:async()=>{
+      calls++;
+      const headers = {"content-type":"application/json","x-cti-upstream-status":"403","x-cti-upstream-bytes":"0","x-cti-upstream-challenge":"cloudflare",...change};
+      const result = serviceResponse(observation.model.sha256,{status:502,bytes:new TextEncoder().encode("{}"),headers});
+      for (const [key,value] of Object.entries(change)) if (value === null) result.headers.delete(key);
+      return result;
+    }}, result = await captured(observation,async()=>{throw Error("Browser response unreadable");},{providerTransport:helper});
+    assert.equal(calls,2,"Only an independently validated actual challenge can suppress another service request");
+    assert(result.media.resources.every(resource => !resource.attempts[1].notAttempted && !resource.attempts[1].upstreamChallenge));
+    assert(directPublisherMediaStructureV1(observation,target,result.media));
+  }
+});
+
+test("cancelling a service image and its same-origin waiter settles both without an extra request", async () => {
+  const observation = await source('<img src="' + image + '"><img src="' + image.replace("original","waiting") + '">'),
+    inventory = directPublisherMediaInventoryV1(observation,target);
+  let serviceCalls = 0, browserCalls = 0, started, bothBrowsers;
+  const ready = new Promise(resolve => {started=resolve;}), browserReady = new Promise(resolve => {bothBrowsers=resolve;}),
+    helper = {ready:async()=>{},supports:()=>true,request:async(kind,payload,signal) => {
+      serviceCalls++;started();
+      return new Promise((resolve,reject) => signal.addEventListener("abort",() => reject(Error("cancelled")),{once:true}));
+    }}, reader = createDirectDataMediaReaderV1({archiveMode:true,providerTransport:helper,fetchImpl:async()=>{
+      if (++browserCalls === 2) bothBrowsers();
+      throw Error("unreadable");
+    }}),
+    reads = inventory.resources.map(resource => reader.readPublisherImage(observation,target,resource));
+  await Promise.all([ready,browserReady]);
+  reader.abort("OPERATOR_STOPPED");
+  const results = await Promise.all(reads);
+  assert(results.every(result => result.reason === "OPERATOR_STOPPED" && !result.body));
+  assert.equal(serviceCalls,1);assert.equal(reader.snapshot().requests,3);
+  assert.equal(reader.snapshot().active,0);assert.equal(reader.snapshot().queued,0);
+  await reader.readPublisherImage(observation,target,inventory.resources[1]);
+  assert.equal(serviceCalls,1,"A stopped capture cannot drain its deferred fallback as a new request");
 });
 
 test("validated service bytes are budgeted before body delivery and remain counted on truncation or missing body", async () => {

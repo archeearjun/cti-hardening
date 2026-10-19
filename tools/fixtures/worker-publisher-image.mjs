@@ -116,6 +116,11 @@ export async function publisherImageRuntimeChecks(env) {
       "No source revalidation is attested",
     );
     equal(
+      response.headers.get("X-CTI-Upstream-Challenge"),
+      null,
+      "Successful native image reads never declare a challenge",
+    );
+    equal(
       [...new Uint8Array(await response.arrayBuffer())],
       [...publisherImageBytes],
       "Exact binary bytes",
@@ -124,6 +129,7 @@ export async function publisherImageRuntimeChecks(env) {
   for (const [name, code, upstream] of [
     ["redirect", "REDIRECT", 307],
     ["denied", "HTTP_401", 401],
+    ["forbidden", "HTTP_403", 403],
     ["challenge", "CHALLENGE", 403],
     ["html", "MIME", 200],
     ["signature", "SIGNATURE", 200],
@@ -142,6 +148,15 @@ export async function publisherImageRuntimeChecks(env) {
       String(upstream),
       "Actual failed status",
     );
+    equal(
+      response.headers.get("X-CTI-Upstream-Challenge"),
+      name === "challenge" ? "cloudflare" : null,
+      "Only the actual explicit upstream challenge survives the private hops",
+    );
+    if (["challenge", "forbidden"].includes(name)) {
+      equal(response.headers.get("X-CTI-Upstream-Requests"), "1", "A refused image is requested only once");
+      equal(response.headers.get("X-CTI-Upstream-Bytes"), "0", "The refusal body is not read as image data");
+    }
     const result = await response.json();
     assert(
       /^PUBLISHER_IMAGE_PROVIDER_/.test(result.error),
@@ -159,6 +174,28 @@ export async function publisherImageRuntimeChecks(env) {
       "Failure has no successful image hash",
     );
   }
+  const refusals = (await (await fetch(stateUrl)).json()).calls;
+  for (const name of ["challenge", "forbidden"])
+    equal(
+      refusals.filter((call) => call.url === publisherImageUrl(name)).length,
+      1,
+      "Actual native refusal has exactly one public GET and no retry: " + name,
+    );
+  console.log(
+    "CTI_WORKERD_PUBLISHER_IMAGE_CHALLENGE_PROVED " +
+      JSON.stringify({
+        actualPrivateDurableObject: true,
+        explicitChallengeHeader: "cloudflare",
+        serviceStatus: 502,
+        upstreamStatus: 403,
+        upstreamRequests: 1,
+        upstreamBytes: 0,
+        ordinary403HasNoChallengeHeader: true,
+        successfulMediaHasNoChallengeHeader: true,
+        successfulImageHashAbsent: true,
+        externalNetwork: false,
+      }),
+  );
   // Separately prove the maintained provider's application-level cancellation
   // contract using native workerd fetch, without an already-aborted API hop.
   const nativeAbort = new AbortController();

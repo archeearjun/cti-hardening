@@ -23,6 +23,7 @@ interface Usage {
   observedAt: string;
   bytes: number;
   requests: number;
+  challenge?: "cloudflare";
 }
 const SERVICE_ORIGIN = "https://cti-hardening.pages.dev";
 const errorCode = (code: string) =>
@@ -51,6 +52,16 @@ export function publisherImageProviderErrorResponse(
 ): Response {
   const headers = headersFor(usage, origin);
   headers.set("Content-Type", "application/json");
+  // An HTTP 403 alone is not evidence of a challenge. This closed declaration
+  // is emitted only for an explicitly observed upstream cf-mitigated header.
+  if (
+    code === "PUBLISHER_IMAGE_PROVIDER_CHALLENGE" &&
+    usage.challenge === "cloudflare" &&
+    usage.status === 403 &&
+    usage.requests === 1 &&
+    usage.bytes === 0
+  )
+    headers.set("X-CTI-Upstream-Challenge", "cloudflare");
   return new Response(
     JSON.stringify({
       error: /^PUBLISHER_IMAGE_PROVIDER_[A-Z0-9_]{1,80}$/.test(code)
@@ -168,6 +179,7 @@ export async function readPublisherImageProvider(
         response.status === 403 &&
         response.headers.get("cf-mitigated")?.trim().toLowerCase() ===
           "challenge";
+      if (challenge) usage.challenge = "cloudflare";
       discard(response);
       throw errorCode(
         challenge

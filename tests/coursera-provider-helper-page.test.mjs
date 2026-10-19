@@ -84,6 +84,26 @@ test("publisher image target, upload reference, source hash and native channel s
   } finally {f.close();}
 });
 
+test("the relay preserves a declared publisher challenge without treating it as a successful image", async () => {
+  const headers = {"content-type":"application/json", "x-cti-provider-transport":"CTI_SERVICE_PUBLIC_IMAGE",
+    "x-cti-provider-origin":"https://cti-hardening.pages.dev", "x-cti-upstream-status":"403",
+    "x-cti-upstream-requests":"1", "x-cti-upstream-bytes":"0", "x-cti-upstream-challenge":"cloudflare"};
+  const f = fixture({fetcher:async()=>Response.json({error:"PUBLISHER_IMAGE_PROVIDER_CHALLENGE"},{status:502,headers})});
+  try {
+    await nextTurn(); f.emit({type:"init"}); f.emit(publisherRequest()); await nextTurn();
+    const head=f.messages.at(-1); assert.equal(head.type,"head"); assert.equal(head.status,502);
+    assert.equal(new Headers(head.headers).get("x-cti-upstream-challenge"),"cloudflare");
+    assert.equal(new Headers(head.headers).get("x-cti-upstream-status"),"403");
+    assert.equal(f.calls.length,2,"The relay does not solve or retry challenges");
+  } finally {f.close();}
+  const invalid=fixture({fetcher:async()=>new Response(publisherBytes,{headers:publisherHeaders({"x-cti-upstream-challenge":"cloudflare"})})});
+  try {
+    await nextTurn();invalid.emit({type:"init"});invalid.emit(publisherRequest());await nextTurn();
+    assert.equal(invalid.messages.at(-1).code,"PROVIDER_HELPER_INVALID_RESPONSE");
+    assert(!invalid.messages.some(m=>m.type==="head"));
+  } finally {invalid.close();}
+});
+
 test("one image stream reserves the public-service permit while a core request can use the second helper slot", async () => {
   const f=fixture({fetcher:async url=>url==="/api/provider/publisher-image"?new Response(publisherBytes,{headers:publisherHeaders()}):Response.json({native:true})});
   try {

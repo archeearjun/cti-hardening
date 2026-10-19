@@ -438,6 +438,8 @@ export function createDirectDataMediaReaderV1(options = {}) {
     queue = [],
     controllers = new Set(),
     pending = new Map(),
+    publisherImageChallenges = new Map(),
+    publisherImageServiceGates = new Map(),
     cancellation = new AbortController();
   const stats = {
     requests: 0,
@@ -838,12 +840,18 @@ export function createDirectDataMediaReaderV1(options = {}) {
     }
   }
   async function capturePublisherImage(job, controller) {
-    let response, serviceContext = null, browserAttempt = null,
+    let response, serviceContext = null, browserAttempt = null, serviceObservedAt = "",
       serviceFailure = {serviceOrigin:"https://cti-hardening.pages.dev",serviceStatus:0,
         upstreamStatus:0,upstreamObservedAt:"",upstreamRequests:0,upstreamBytes:0};
-    const failed = reason => failure(job.assetId, reason, {url:job.url,
-      ...(browserAttempt ? {attempts:[browserAttempt,{transport:"CTI_SERVICE_PUBLIC_IMAGE",observedAt:new Date().toISOString(),
-        ...serviceFailure,reason}]} : {})});
+    const failed = reason => {
+      const context = {...serviceFailure};
+      if (reason !== "PUBLISHER_IMAGE_UPSTREAM_CHALLENGE") delete context.upstreamChallenge;
+      if (reason !== "PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED") { delete context.notAttempted; delete context.blockedBy; }
+      return failure(job.assetId, reason, {url:job.url,
+        ...(browserAttempt ? {attempts:[browserAttempt,{transport:"CTI_SERVICE_PUBLIC_IMAGE",
+          observedAt:reason === "PUBLISHER_IMAGE_UPSTREAM_CHALLENGE" ? serviceObservedAt : new Date().toISOString(),
+          ...context,reason}]} : {})});
+    };
     job.publisherFailure = failed;
     if (!jobCurrent(controller)) return failed(jobStopReason(controller));
     if (stats.bytes >= limits.totalBytes) return failed("DIRECT_MEDIA_BYTE_LIMIT");
@@ -851,7 +859,24 @@ export function createDirectDataMediaReaderV1(options = {}) {
       const helper = options.providerTransport;
       if (!helper) return failed(reason);
       browserAttempt = {transport:"BROWSER_PUBLISHER_IMAGE",observedAt,status:0,responseType:"unreadable",reason};
+      // Serialize only public-service fallbacks for this image origin. A queued
+      // sibling must see an observed challenge before it can issue another GET.
+      const origin = new URL(job.url).origin, prior = publisherImageServiceGates.get(origin) || Promise.resolve();
+      let release, cancelWait;
+      const held = new Promise(resolve => { release = resolve; }), tail = prior.then(() => held);
+      publisherImageServiceGates.set(origin,tail);
       try {
+        await Promise.race([prior,new Promise(resolve => {
+          cancelWait = resolve;
+          if (controller.signal.aborted) resolve();
+          else controller.signal.addEventListener("abort",cancelWait,{once:true});
+        })]);
+        if (!jobCurrent(controller)) return failed(jobStopReason(controller));
+        const blockedBy = publisherImageChallenges.get(origin);
+        if (blockedBy) {
+          Object.assign(serviceFailure,{notAttempted:"ORIGIN_CHALLENGE",blockedBy:{...blockedBy}});
+          return failed("PUBLISHER_IMAGE_SERVICE_ORIGIN_CHALLENGE_NOT_ATTEMPTED");
+        }
         if (typeof helper.ready === "function") await helper.ready();
         if (!jobCurrent(controller)) return failed(jobStopReason(controller));
         if (typeof helper.supports !== "function" || !helper.supports("publisherImage"))
@@ -872,6 +897,14 @@ export function createDirectDataMediaReaderV1(options = {}) {
             Object.assign(serviceFailure,{upstreamStatus:status,upstreamObservedAt:at,upstreamRequests:requests,upstreamBytes:bytes});
         }
         if (!jobCurrent(controller)) { await discard(response); return failed(jobStopReason(controller)); }
+        if (h?.get("x-cti-upstream-challenge") === "cloudflare" && serviceFailure.serviceStatus === 502 &&
+            serviceFailure.upstreamStatus === 403 && serviceFailure.upstreamRequests === 1 && serviceFailure.upstreamBytes === 0) {
+          serviceFailure.upstreamChallenge = "cloudflare";
+          serviceObservedAt = new Date().toISOString();
+          publisherImageChallenges.set(origin,{url:job.url,observedAt:serviceObservedAt});
+          await discard(response);
+          return failed("PUBLISHER_IMAGE_UPSTREAM_CHALLENGE");
+        }
         serviceContext = directPublisherImageServiceHeadersV1(response,job.sourceSha256);
         if (!serviceContext) {
           stats.bytes += serviceFailure.upstreamBytes; notify();
@@ -897,6 +930,10 @@ export function createDirectDataMediaReaderV1(options = {}) {
       } catch (error) {
         return failed(!jobCurrent(controller) ? jobStopReason(controller) :
           /^[A-Z0-9_]{1,80}$/.test(error?.code || "") ? "PUBLISHER_IMAGE_" + error.code : "PUBLISHER_IMAGE_SERVICE_BLOCKED_OR_FAILED");
+      } finally {
+        controller.signal.removeEventListener("abort",cancelWait);
+        release();
+        tail.then(() => { if (publisherImageServiceGates.get(origin) === tail) publisherImageServiceGates.delete(origin); });
       }
     }
     try {
