@@ -11,6 +11,8 @@ import { comparisonFixture } from "../tests/workflow-fixtures.mjs";
 import { createWorkflows } from "../src/domain/workflows.ts";
 import { workerXml } from "../src/adapters/worker-xml.ts";
 import { checkContentReviewBundle } from "./browser-content-review-bundle-fixture.mjs";
+import { validateContentSnapshot } from "../src/domain/content-evidence.ts";
+import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotDirectory = "/tmp/cti-assignment-workspace";
@@ -669,6 +671,22 @@ try {
   await coursePicker().selectOption(input.course.id);
   await nav("Assignment workspace");
   await waitLoaded();
+  const beforeReadiness = await records();
+  const readiness = page.getByLabel("Purpose-specific evidence readiness", { exact: true });
+  await readiness.locator("summary").first().click();
+  const readinessTable = readiness.getByRole("table", { name: "Provisional purpose readiness for the selected evidence", exact: true });
+  assert.equal(await readinessTable.locator("tbody tr").count(), 5);
+  assert.deepEqual(await readinessTable.locator("tbody th").allTextContents(), [
+    "Understand this title", "Send structure to the map or outline agent", "Review assessment content",
+    "Verify retained original files", "Verify changes after editing",
+  ]);
+  for (const row of await readinessTable.locator("tbody tr").all())
+    assert(["Provisional", "Needs evidence", "Unknown"].includes((await row.locator("td").first().innerText()).trim()),
+      "Purpose readiness never labels incomplete evidence Ready or Complete");
+  await readiness.getByText("Evidence and limits", { exact: true }).first().click();
+  assert.match(await readiness.innerText(), /do not change the saved audit, certify complete extraction or approve publication/);
+  assert.deepEqual(await records(), beforeReadiness, "Opening purpose readiness is an inert review of saved evidence");
+  await readiness.locator("summary").first().click();
   await page.getByLabel("Show items", { exact: true }).selectOption("all");
   await reading().waitFor({ state: "visible" });
   const workSearch = page.getByLabel("Find a work item", { exact: true });
@@ -797,6 +815,39 @@ try {
     "A structural deliverable exports identified members",
   );
   assert.equal(artifact.courseId, input.course.id);
+  const beforeAgentPacket = await records();
+  const agentPacketText = await downloadedText(page.getByRole("button", { name: "Download agent evidence packet", exact: true }));
+  const agentPacket = JSON.parse(agentPacketText);
+  const canonicalHash = (value) => createHash("sha256").update(directCanonicalSourceTextV1(value)).digest("hex");
+  assert.equal(agentPacket.kind, "CTI_ASSIGNMENT_AGENT_EVIDENCE_PACKET");
+  assert.equal(agentPacket.schemaVersion, 1);
+  assert.equal(agentPacket.identity.courseId, input.course.id);
+  assert.equal(agentPacket.identity.auditId, audit.id);
+  assert.equal(agentPacket.identity.basisHash, artifact.basisHash);
+  assert.deepEqual(agentPacket.structuralArtifact, artifact,
+    "The agent packet carries the exact existing structural artifact, including every original member and its separate proposal");
+  validateContentSnapshot(agentPacket.richEvidence.contentEvidence);
+  assert(agentPacket.richEvidence.contentEvidence.coursera.length + agentPacket.richEvidence.contentEvidence.brightspace.length > 0);
+  assert.equal(agentPacket.richEvidence.followUp.contentEvidence, undefined);
+  assert.equal(agentPacket.richEvidence.followUp.contentEvidenceRef, "/richEvidence/contentEvidence");
+  assert.equal(agentPacket.scope.automaticDefaultsAreOwnerApproval, false);
+  assert.equal(agentPacket.scope.entries.length, artifact.members.length);
+  assert.equal(agentPacket.readiness.generatedOutputIsSource, false);
+  assert.equal(agentPacket.readiness.lmsApplicationVerified, false);
+  assert.equal(agentPacket.agentInstructions.returnOnly, "structuralArtifact");
+  assert.equal(agentPacket.agentInstructions.immutableEvidence, true);
+  assert.equal(agentPacket.agentInstructions.binaryBytesEmbedded, false);
+  assert.equal(agentPacket.agentInstructions.generatedProposalsAreSourceOriginals, false);
+  assert(agentPacket.agentInstructions.limitations.some(value => value.includes("Do not invent unseen content")));
+  assert(agentPacket.originalArchives.length > 0 && agentPacket.originalArchives.every(value => value.requiredForOriginalBinaryReview));
+  assert(agentPacket.ownerReport.text && agentPacket.ownerReport.taskHandoff);
+  assert.equal(agentPacket.integrity.structuralArtifactSha256, canonicalHash(agentPacket.structuralArtifact));
+  assert.equal(agentPacket.integrity.richEvidenceSha256, canonicalHash(agentPacket.richEvidence));
+  assert.equal(agentPacket.integrity.ownerReportTextSha256, createHash("sha256").update(agentPacket.ownerReport.text).digest("hex"));
+  const { packetSha256, ...otherIntegrity } = agentPacket.integrity;
+  assert.equal(packetSha256, canonicalHash({ ...agentPacket, integrity: otherIntegrity }));
+  assert(Buffer.byteLength(agentPacketText) <= 32 * 1024 * 1024);
+  assert.deepEqual(await records(), beforeAgentPacket, "Preparing the rich agent packet does not alter the audit, owner reviews or lifecycle history");
   await ownerTool(page, "Open advisory analysis");
   const advisory = page.getByRole("region", {
     name: "Measured advisory assistance",
@@ -939,6 +990,49 @@ try {
     path: path.join(screenshotDirectory, "advisory-sparse-data.png"),
     fullPage: true,
   });
+  const planCourses = Array.from({ length: 27 }, (_, index) => {
+    const course = structuredClone(input.course), suffix = String(index + 1).padStart(2, "0");
+    course.id = "capture_plan_" + suffix;
+    course.title = "Capture plan title " + suffix;
+    course.data.partner = "Capture plan partner " + suffix;
+    course.data.scan.fileName = "capture-plan-" + suffix + ".imscc";
+    course.data.scan.fileSha256 = createHash("sha256").update(course.data.scan.fileName).digest("hex");
+    if (index === 26) course.data.archived = true;
+    return course;
+  });
+  await nav("Setup");
+  await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
+    name: "capture-plan-fixture.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ kind: "CTI_BROWSER_WORKSPACE", schemaVersion: 1, records: planCourses })),
+  });
+  await page.getByText("27 records prepared.", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Import prepared records", exact: true }).click();
+  await page.getByText("Imported 27 records;", { exact: false }).waitFor();
+  await nav("Extract");
+  const capturePlan = page.locator("details").filter({ has: page.locator("summary", { hasText: "Plan bookmark captures across titles" }) });
+  await capturePlan.locator("summary").first().click();
+  await capturePlan.getByLabel("Find title in capture plan", { exact: true }).fill("Capture plan title");
+  const planTable = capturePlan.getByRole("region", { name: "Title capture plan", exact: true });
+  assert.equal(await planTable.locator("tbody tr").count(), 25);
+  await capturePlan.getByRole("button", { name: "Next titles", exact: true }).click();
+  assert.equal(await planTable.locator("tbody tr").count(), 1);
+  assert.match(await planTable.innerText(), /Capture plan title 26/);
+  assert.equal(await capturePlan.getByRole("button", { name: "Next titles", exact: true }).isDisabled(), true);
+  await capturePlan.getByRole("button", { name: "Previous titles", exact: true }).click();
+  assert.equal(await planTable.locator("tbody tr").count(), 25);
+  await capturePlan.getByLabel("Find title in capture plan", { exact: true }).fill("Capture plan title 26");
+  assert.equal(await planTable.locator("tbody tr").count(), 1);
+  const beforePlan = await records(), plan = JSON.parse(await downloadedText(capturePlan.getByRole("button", { name: "Download capture plan", exact: true })));
+  assert.equal(plan.kind, "CTI_OPERATOR_CAPTURE_PLAN");assert.equal(plan.automaticCapture, false);assert.equal(plan.completeContentEstablished, false);
+  assert.equal(plan.titles.filter(row => row.courseId.startsWith("capture_plan_")).length, 26,
+    "The full plan export includes other pages and excludes archived titles even while a search is active");
+  assert(plan.titles.every(row => row.captureStarted === false && row.completeContentEstablished === false));
+  assert(!plan.titles.some(row => row.courseId === "capture_plan_27"));
+  await capturePlan.getByRole("button", { name: "Continue Capture plan title 26", exact: true }).click();
+  await page.getByRole("heading", { name: "Capture the Brightspace source", exact: true }).waitFor();
+  assert.equal(await coursePicker().inputValue(), "capture_plan_26");
+  assert.deepEqual(await records(), beforePlan, "Continuing a capture plan only selects the internal tool; it does not create evidence or start an LMS capture");
+  await coursePicker().selectOption(input.course.id);await nav("Assignment workspace");await waitLoaded();
   await page.getByRole("tab", { name: "Evidence inbox", exact: true }).click();
   await page
     .getByRole("tab", { name: "Evidence inbox", exact: true })
@@ -975,6 +1069,9 @@ try {
         explicitBaseline: true,
         exactDocumentDownload: true,
         structuralDeliverableDownload: true,
+        richAgentPacketWithExactEvidenceHashesAndReadOnlyHistory: true,
+        provisionalPurposeReadinessWithoutCompletionCertification: true,
+        capturePlanPaginationFilterDownloadAndSafeInternalNavigation: true,
         advisorySparseData: true,
         truthfulIfs: true,
         reviewedDatasetImport: true,

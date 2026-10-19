@@ -10,8 +10,13 @@ import { directDraftWidgetProviderV1, directWidgetProviderSourceV1,
   directWidgetProviderTargetsV1, directInlineWidgetProviderSourceV1,
   directInlineWidgetProviderTargetsV1 } from "../src/extractors/coursera/direct-data-widget.js";
 import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
-  directInlineWidgetEvidenceV1, directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
-import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource } from "../src/extractors/coursera/direct-data-models.js";
+  directInlineWidgetEvidenceV1, directReceiptSourceValidV1, directAssessmentQuestionProjectionV1,
+  directAssessmentContractV1 as nativeAssessmentContract, parseCourseraCheckboxDefinitionDirectV1,
+  directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
+import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource,
+  directDraftAssessmentInventoryV1 as nativeAssessmentInventory } from "../src/extractors/coursera/direct-data-models.js";
+import { parseCourseraMcqDefinitionV61524 } from "../src/extractors/coursera/assessment-api.js";
+import { assessmentCaptureCoverageV613 } from "../src/extractors/coursera/assessments-4.js";
 import { directCanonicalSourceTextV1 as canonicalSource } from "../src/extractors/coursera/direct-data-canonical.js";
 import * as publishedDraftSnapshot from "../src/extractors/coursera/direct-data-authoring-snapshot.js";
 import { createInlinePublicContentFixture, createInlinePublisherContentFixture, createInlinePublisherMediaContentFixture } from "./coursera-inline-content-fixtures.mjs";
@@ -115,6 +120,7 @@ function harness(options = {}) {
     activeItemReads = 0;
   const nodes = [],
     items = new Map(),
+    groups = new Map(), definitions = new Map(),
     bodies = new Map(),
     runs = new Map(),
     urls = new Map(),
@@ -215,11 +221,13 @@ function harness(options = {}) {
   };
   const store = {
     available: true,
-    async getActiveRun() {
+    async getActiveRun(settings = {}) {
       const active = [...runs.values()].filter((row) =>
         ["RUNNING", "PAUSED"].includes(row.state) || row.state === "INCOMPLETE" &&
           row.captureMeta?.directDataCapture?.acquisitionComplete === true &&
-          row.captureMeta.directDataCapture.stopReason === "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS",
+          row.captureMeta.directDataCapture.stopReason === "ACQUISITION_COMPLETE_WITH_EVIDENCE_GAPS" ||
+          settings.recheckCompleted === true && row.state === "COMPLETE" &&
+          row.captureMeta?.directDataCapture?.wholeCourseVerified === true,
       );
       return clone(active.at(-1) || null);
     },
@@ -270,11 +278,10 @@ function harness(options = {}) {
       metrics.listItemCalls++;
       return clone([...items.values()].filter((row) => row.runId === runId));
     },
-    async putGroup() {},
-    async getDefinition() {
-      return null;
-    },
-    async putDefinition() {},
+    async putGroup(runId,itemId,id,value) {groups.set(runId+"/"+itemId+"/"+id,clone({value}));},
+    async getGroup(runId,itemId,id) {return clone(groups.get(runId+"/"+itemId+"/"+id)||null);},
+    async getDefinition(runId,id) {return clone(definitions.get(runId+"/"+id)||null);},
+    async putDefinition(runId,id,value) {definitions.set(runId+"/"+id,clone({value}));},
     async putBody(runId, sha256, blob, metadata) {
       assert.equal(createHash("sha256").update(Buffer.from(await blob.arrayBuffer())).digest("hex"), sha256);
       await options.beforePutBody?.({runId,sha256,blob,metadata});
@@ -515,6 +522,8 @@ function harness(options = {}) {
     directInlineWidgetBindingsV1,
     directInlineWidgetEvidenceV1,
     directWidgetProviderReceiptValidV1,
+    directReceiptSourceValidV1,
+    directAssessmentQuestionProjectionV1,
     directPublicPageTargetV1,
     directPublicPageObservationValidV1,
     CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1,
@@ -554,15 +563,16 @@ function harness(options = {}) {
         unvisitedTargetIds.length === 0 && summaries.every((fp) => fp.complete),
       noSilentMisses: true,
     }),
-    directDraftAssessmentInventoryV1: () => {
+    directDraftAssessmentInventoryV1: (bound) => {
+      if(options.nativeAssessment) return nativeAssessmentInventory(bound);
       if (options.assessmentInventory) return options.assessmentInventory();
       throw Error("Unexpected assessment fixture");
     },
-    directAssessmentContractV1: (fp) => options.assessmentInventory && contract(fp, "DIRECT_ASSESSMENT", true),
-    parseCourseraCheckboxDefinitionDirectV1() {},
+    directAssessmentContractV1: (...args) => options.nativeAssessment ? nativeAssessmentContract(...args) : options.assessmentInventory && contract(args[0], "DIRECT_ASSESSMENT", true),
+    parseCourseraCheckboxDefinitionDirectV1,
     directCmlTextV1: options.nativeCml ? parseNativeCml : options.parseCml || (() => undefined),
-    parseCourseraMcqDefinitionV61524() {},
-    assessmentCaptureCoverageV613() {},
+    parseCourseraMcqDefinitionV61524,
+    assessmentCaptureCoverageV613,
     __CTI_COURSERA_DIRECT_DATA_LIMITS__: options.limits,
     addEventListener(name, listener) {
       events.set(name, listener);
@@ -607,6 +617,7 @@ function harness(options = {}) {
     location,
     nodes,
     items,
+    groups, definitions,
     bodies,
     runs,
     store,
@@ -699,9 +710,169 @@ function publishedDraftEntryFixture({ sharedDefinition = false } = {}) {
         observedAt: new Date(call.at).toISOString(), bytes: 64,
       } };
     } };
-  return { options, fp, atom, relation, material, groupIds, definitionIds, definitions,
+  return { options, fp, atom, relation, material, groupIds, definitionIds, definitions, groups,
     fail: value => { failure = value; } };
 }
+
+function nativeRecheckEntryFixture() {
+  const fixture = publishedDraftEntryFixture();
+  fixture.fp.typeName = "staffGraded";
+  fixture.material.published = false;
+  fixture.material.content.typeName = "staffGraded";
+  fixture.atom.status.typeName = "draftAtomStatus";
+  fixture.options.nativeAssessment = true;
+  return fixture;
+}
+
+test("explicit native recheck selects a completed unchanged run after reopening and freshly checks every native item within saved budgets", async () => {
+  const app = harness(); app.launch(); await app.idle();
+  const runId=app.state().runId, budget=clone(app.runs.get(runId).budget), before=app.calls.length;
+  app.advance(1000); app.execute();
+  assert.equal(app.state().state,"READY"); assert.equal(app.calls.length,before);
+  app.button("Recheck native course content").click(); await app.idle();
+  assert.equal(app.state().runId,runId); assert.equal(app.state().state,"COMPLETE");
+  const calls=app.calls.slice(before);
+  assert.equal(calls.filter(call=>call.resource==="materials").length,2);
+  for(const id of ["ReadingA","ReadingB"]){
+    assert.equal(calls.filter(call=>call.resource==="atom"&&call.id==="Atom_"+id).length,2);
+    assert.equal(calls.filter(call=>call.resource==="relation"&&call.id==="Atom_"+id).length,1);
+  }
+  assert.equal(app.readers().at(-1).options.requests,1000-budget.requests);
+  assert.equal(app.readers().at(-1).options.totalBytes,1_000_000-budget.bytes);
+  assert.equal(app.readers().at(-1).options.concurrentRequests,2);
+  const capture=(await exportedCapture(app.downloads.at(-1))).capture;
+  assert.equal(capture.meta.directDataCapture.resumed,true);
+  assert.deepEqual(capture.meta.directDataCapture.nativeRecheck,{
+    scope:"ALL_NATIVE_ITEMS",requestedAt:capture.meta.directDataCapture.nativeRecheck.requestedAt,
+    retainedDefinitionObservations:true,externalRuntimeVerified:false,allMediaRefetched:false,
+  });
+  assert.equal(capture.meta.directDataCapture.mediaEnrichment,undefined);
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified,true);
+  assert(app.nodes.some(node=>node.textContent.includes("External runtime content and all media bytes are not certified")));
+  assert.equal(app.downloads.length,2);
+});
+
+test("native recheck reuses only unchanged exact-version definitions and their dates, then acquires a newly referenced version",async t=>{
+  const previousParser=globalThis.DOMParser;globalThis.DOMParser=DOMParser;
+  t.after(()=>{if(previousParser)globalThis.DOMParser=previousParser;else delete globalThis.DOMParser;});
+  const fixture=nativeRecheckEntryFixture(),app=harness(fixture.options);
+  app.launch();await app.idle();assert.equal(app.state().state,"COMPLETE",JSON.stringify(app.state()));
+  const runId=app.state().runId, old=clone(app.items.get(runId+"/"+fixture.fp.id).fingerprint),
+    oldDefinitions=clone([...app.definitions]),before=app.calls.length;
+  app.advance(1000);app.state().recheckNative();await app.idle();
+  let calls=app.calls.slice(before),current=app.items.get(runId+"/"+fixture.fp.id).fingerprint;
+  assert.equal(app.state().runId,runId);assert.equal(app.state().state,"COMPLETE");
+  assert.equal(calls.filter(call=>call.resource==="atom").length,2);
+  assert.equal(calls.filter(call=>call.resource==="relation").length,1);
+  assert.equal(calls.filter(call=>call.resource==="group").length,2);
+  assert.equal(calls.filter(call=>call.resource==="definition").length,0);
+  assert.deepEqual(current.payload.structuredAssessment.questions,old.payload.structuredAssessment.questions);
+  assert.deepEqual([...app.definitions],oldDefinitions,"Exact cached model bodies and receipt dates are immutable");
+  const previousId=fixture.definitionIds[0],nextId=previousId.replace(/@3$/,"@4"),nextDefinition=clone(fixture.definitions.get(previousId));
+  nextDefinition.id=nextId;nextDefinition.definition.definition.prompt.definition.value="<co-content><text>Observed new version prompt</text></co-content>";
+  fixture.definitions.set(nextId,nextDefinition);fixture.groups.get(fixture.groupIds[0]).questions=[nextId];
+  const changedStart=app.calls.length;app.advance(1000);app.state().recheckNative();await app.idle();
+  calls=app.calls.slice(changedStart);current=app.items.get(runId+"/"+fixture.fp.id).fingerprint;
+  assert.equal(app.state().state,"COMPLETE");
+  assert.deepEqual(calls.filter(call=>call.resource==="definition").map(call=>call.id),[nextId]);
+  assert.equal(calls.filter(call=>call.resource==="group").length,3,"Changed mapping has two current reads; unchanged group has one");
+  assert.deepEqual(current.payload.assessmentApiEvidence.questionDefinitions.find(value=>value.id===nextId),nextDefinition);
+  assert.equal(current.payload.structuredAssessment.questions[0].prompt,"Observed new version prompt");
+  assert(current.payload.structuredAssessment.questions[0].observedAtMs>old.payload.structuredAssessment.questions[0].observedAtMs);
+  assert.equal(current.payload.structuredAssessment.questions[1].observedAtMs,old.payload.structuredAssessment.questions[1].observedAtMs);
+  assert.deepEqual(app.definitions.get(runId+"/"+previousId),oldDefinitions.find(([key])=>key===runId+"/"+previousId)[1]);
+});
+
+test("failed native group recheck retains old primary originals and separate partial attempts without current completeness",async t=>{
+  const previousParser=globalThis.DOMParser;globalThis.DOMParser=DOMParser;
+  t.after(()=>{if(previousParser)globalThis.DOMParser=previousParser;else delete globalThis.DOMParser;});
+  const fixture=nativeRecheckEntryFixture(),app=harness(fixture.options);
+  app.launch();await app.idle();assert.equal(app.state().state,"COMPLETE");
+  const runId=app.state().runId,old=clone(app.items.get(runId+"/"+fixture.fp.id).fingerprint);
+  fixture.fail("group-a-503");app.advance(1000);app.state().recheckNative();await app.idle();
+  const current=app.items.get(runId+"/"+fixture.fp.id).fingerprint;
+  assert.equal(current.captureContract.complete,false);assert.equal(current.payload.directResumeRevalidation.verified,false);
+  assert.deepEqual(current.payload.assessmentApiEvidence,old.payload.assessmentApiEvidence);
+  assert.deepEqual(current.payload.structuredAssessment,old.payload.structuredAssessment);
+  assert.deepEqual(current.payload.directDataSources,old.payload.directDataSources);
+  const attempt=current.payload.directNativeRecheckAttempt;
+  assert.equal(attempt.currentNativeVerified,false);assert.equal(attempt.reason,"DIRECT_NATIVE_RECHECK_INCOMPLETE");
+  assert.equal(attempt.assessmentApiEvidence.questionDefinitions.length,1);
+  assert(attempt.assessmentApiEvidence.failures.some(value=>value.reason==="COURSE_API_HTTP_503"));
+  assert(Date.parse(attempt.sources.receipts.atom.observedAt)>Date.parse(old.payload.directDataSources.receipts.atom.observedAt));
+  const capture=(await exportedCapture(app.downloads.at(-1))).capture;
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified,false);assert.equal(capture.meta.directDataCapture.coverage.assessments.verified,0);
+  fixture.fail("atom-503");app.advance(1000);app.state().recheckNative();await app.idle();
+  const failed=app.items.get(runId+"/"+fixture.fp.id).fingerprint;
+  assert.deepEqual(failed.payload.directNativeRecheckAttemptHistory,[attempt]);
+  assert.deepEqual(failed.payload.assessmentApiEvidence,old.payload.assessmentApiEvidence);
+  assert.equal(failed.captureContract.complete,false);assert.equal(failed.payload.directNativeRecheckAttempt.reason,"COURSE_API_HTTP_503");
+  const lastFailed=clone(failed.payload.directNativeRecheckAttempt);
+  fixture.fail("");app.advance(1000);app.state().recheckNative();await app.idle();
+  const recovered=app.items.get(runId+"/"+fixture.fp.id).fingerprint;
+  assert.equal(recovered.captureContract.complete,true);
+  assert.equal(recovered.payload.directResumeRevalidation,undefined);
+  assert.equal(recovered.payload.directNativeRecheckAttempt,undefined);
+  assert.deepEqual(recovered.payload.directNativeRecheckAttemptHistory,[attempt,lastFailed],
+    "A successful current check moves the failed raw observations into flat historical records");
+  assert.deepEqual(recovered.payload.structuredAssessment.questions,old.payload.structuredAssessment.questions);
+  assert(recovered.payload.directNativeRecheckAttemptHistory.every(value=>value.currentNativeVerified===false));
+});
+
+test("interrupted native recheck withdraws unvisited saved proof across export, reload and ordinary Resume",async t=>{
+  for(const stopReason of ["COURSE_API_REQUEST_LIMIT","NETWORK_FAILED"]){
+    await t.test(stopReason,async()=>{
+      const app=harness();app.launch();await app.idle();
+      const runId=app.state().runId,old=clone(app.items.get(runId+"/ReadingB").fingerprint),before=app.calls.length;
+      app.control.beforeRead=(call,{abort})=>{
+        if(call.resource==="atom"&&call.id==="Atom_ReadingA"){abort(stopReason);return stopReason;}
+      };
+      app.advance(1000);app.state().recheckNative();await app.idle();
+      const capture=(await exportedCapture(app.downloads.at(-1))).capture,
+        untouched=capture.fingerprints.find(fp=>fp.id==="ReadingB"),saved=app.items.get(runId+"/ReadingB");
+      assert(!app.calls.slice(before).some(call=>call.resource==="atom"&&call.id==="Atom_ReadingB"));
+      assert.equal(app.state().counts.complete,0);assert.equal(capture.meta.directDataCapture.coverage.readings.verified,0);
+      assert.equal(untouched.captureContract.complete,false);assert.equal(saved.fingerprint.captureContract.complete,false);
+      assert.equal(saved.state.processed,false);
+      assert.equal(untouched.payload.directResumeRevalidation.reason,"DIRECT_NATIVE_RECHECK_NOT_READ");
+      assert.deepEqual(untouched.payload.directDataSources,old.payload.directDataSources);
+      assert.equal(untouched.payload.reading,old.payload.reading);
+      assert.equal(capture.meta.directDataCapture.acquisitionComplete,false);
+      app.execute();
+      const checkpointRun=app.runs.get(runId);
+      // A paused continuation is selectable without resetting its budget. A
+      // terminal safety limit remains separate; old rows stay unverified.
+      if(stopReason==="NETWORK_FAILED"){
+        app.button("Capture/resume course").click();await app.idle();
+        assert.equal(app.state().runId,runId);
+        assert.equal(app.state().counts.complete,0);
+        const resumed=(await exportedCapture(app.downloads.at(-1))).capture;
+        assert.equal(resumed.fingerprints.find(fp=>fp.id==="ReadingB").captureContract.complete,false);
+        assert.equal(resumed.meta.directDataCapture.coverage.readings.verified,0);
+      }
+      assert.equal(checkpointRun.captureMeta.directDataCapture.wholeCourseVerified,false);
+      assert.equal(app.items.get(runId+"/ReadingB").fingerprint.captureContract.complete,false);
+    });
+  }
+});
+
+test("failed pending checkpoint writes still export and later hydrate old native rows as unverified",async()=>{
+  const app=harness();app.launch();await app.idle();
+  const runId=app.state().runId,old=clone(app.items.get(runId+"/ReadingB").fingerprint),put=app.store.putItem;
+  app.store.putItem=async(...args)=>{if(args[1]==="ReadingB")throw Error("SYNTHETIC_PENDING_WRITE_FAILED");return put(...args);};
+  app.advance(1000);app.state().recheckNative();await app.idle();
+  assert.equal(app.state().counts.complete,0);
+  const capture=(await exportedCapture(app.downloads.at(-1))).capture,
+    untouched=capture.fingerprints.find(fp=>fp.id==="ReadingB");
+  assert.equal(untouched.captureContract.complete,false);
+  assert.deepEqual(untouched.payload.directDataSources,old.payload.directDataSources);
+  assert.equal(capture.meta.directDataCapture.coverage.readings.verified,0);
+  app.store.putItem=put;
+  app.control.beforeRead=(call,{abort})=>{if(call.resource==="atom"){abort("NETWORK_FAILED");return "NETWORK_FAILED";}};
+  app.execute();app.button("Capture/resume course").click();await app.idle();
+  assert.equal(app.state().runId,runId);assert.equal(app.state().counts.complete,0);
+  assert.equal(app.items.get(runId+"/ReadingB").fingerprint.captureContract.complete,false);
+});
 
 function assertSupplementalPublishedDraft(capture, itemId, count) {
   const fp = capture.fingerprints.find(item => item.id === itemId), snapshot = fp.payload.directAuthoringDraftSnapshot;

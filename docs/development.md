@@ -76,6 +76,9 @@ Separate draft snapshots on published items and typed retained authoring fields
 are covered by [the v1.8.7 audit](audits/coursera-published-draft-snapshots-2026-10-19.md).
 Bounded source-ordered publisher-image prefetch is covered by
 [the v1.8.8 audit](audits/coursera-bounded-image-pipeline-2026-10-19.md).
+The complete proposed-only agent packet, purpose-specific readiness, manual
+title capture plan and explicit all-item native recheck are described in
+[the v1.8.9 audit](audits/owner-evidence-handoff-native-recheck-2026-10-19.md).
 `server/publisher-image-provider.ts` owns the single bounded public GET; both
 helper ends, the original-media reader and archive intake retain independent
 protocol, byte and native-source checks. This route never receives publisher

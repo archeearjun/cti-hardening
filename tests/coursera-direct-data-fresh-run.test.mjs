@@ -27,17 +27,20 @@ const ast = ts.createSourceFile(
   true,
   ts.ScriptKind.JS,
 );
-let runNode, hydrateNode;
+let runNode, hydrateNode, pendingRecheckNode;
 function find(node) {
   if (ts.isFunctionDeclaration(node) && node.name?.text === "run")
     runNode = node;
   if (ts.isFunctionDeclaration(node) && node.name?.text === "hydrateSavedItems")
     hydrateNode = node;
+  if (ts.isFunctionDeclaration(node) && node.name?.text === "withdrawPendingNativeRecheck")
+    pendingRecheckNode = node;
   ts.forEachChild(node, find);
 }
 find(ast);
 assert(runNode);
 assert(hydrateNode);
+assert(pendingRecheckNode);
 
 /** Exercise the maintained run orchestrator without network or a browser.
  * Item acquisition and storage are controlled seams; the hosted browser test
@@ -519,7 +522,7 @@ test("retained hydration preserves unchanged checkpoint rows but persists real v
     const ctx = vm.createContext({ directCanonicalSourceTextV1: value => {
       if (mode === "comparison-fallback") throw Error("DIRECT_DATA_CANONICAL_BYTE_LIMIT");
       return directCanonicalSourceTextV1(value);
-    }, items: [{ id: "quiz" }], state: { runId: "same-run" }, courseId: "same-course", slug: "same-slug",
+    }, items: [{ id: "quiz" }], state: { runId: "same-run" }, meta: null, courseId: "same-course", slug: "same-slug",
       encoder: new TextEncoder(), inventory: { leaves: new Map([["quiz", { structural: false }]]) },
       publicPageStats: { retainedUtf8Bytes: 0 }, publicPageRetainedByItem: new Map(),
       CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1: 8388608,
@@ -546,7 +549,7 @@ test("retained hydration preserves unchanged checkpoint rows but persists real v
       }, summarizeItem: (fingerprint, processed, size) => summaries.push({ fingerprint: structuredClone(fingerprint), processed, size }),
       render() {},
     });
-    vm.runInContext(hydrateNode.getText(ast), ctx); await ctx.hydrateSavedItems();
+    vm.runInContext(pendingRecheckNode.getText(ast)+"\n"+hydrateNode.getText(ast), ctx); await ctx.hydrateSavedItems();
     assert.equal(summaries.length, 1); assert.equal(summaries[0].processed, true); assert(summaries[0].size > 0);
     if (["unchanged", "object-key-reorder", "transient-body-hydration", "comparison-fallback"].includes(mode)) {
       assert.equal(writes.length, 0, mode + " cannot relabel a saved checkpoint with a new updatedAt");

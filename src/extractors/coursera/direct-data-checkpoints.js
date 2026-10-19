@@ -1,5 +1,6 @@
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { CTI_DIRECT_DATA_BUILD_V1, directRecoverablePublisherBuildV1 } from "./direct-data-config.js";
+import { CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1 } from "./direct-data-material-stability.js";
 
 export async function createDirectDataCheckpointStoreV1(courseId) {
   const databaseName = "cti-coursera-direct-data-v1";
@@ -555,6 +556,31 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         ),
     );
   }
+  function recheckableCompletedRun(row) {
+    const capture = row.captureMeta?.directDataCapture, budget = row.budget,
+      counts = row.counts, stability = capture?.materialStability;
+    return Boolean(
+      (row.buildId === CTI_DIRECT_DATA_BUILD_V1 || directRecoverablePublisherBuildV1(row.buildId)) &&
+      row.captureMeta?.buildId === row.buildId && capture?.mode === "BOUND_AUTHORING_DRAFT_API" &&
+      capture.version === 1 && capture.runId === row.runId && capture.sourceState === "AUTHORING_DRAFT" &&
+      capture.materials?.elements?.length === 1 && capture.materials.elements[0]?.id === courseId &&
+      capture.finalMaterials?.elements?.length === 1 && capture.finalMaterials.elements[0]?.id === courseId &&
+      /^[a-f0-9]{64}$/.test(row.materialHash || "") && capture.initialMaterialHash === row.materialHash &&
+      /^[a-f0-9]{64}$/.test(capture.finalMaterialHash || "") &&
+      stability?.policy === CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1 &&
+      /^[a-f0-9]{64}$/.test(stability?.initialSha256 || "") &&
+      stability.initialSha256 === stability.finalSha256 &&
+      capture.sourceStable === true && capture.acquisitionComplete === true &&
+      capture.wholeCourseVerified === true && capture.stopReason === "COMPLETE_BOUND_AUTHORING_DRAFT" &&
+      row.captureMeta.noSilentMisses === true && row.captureMeta.captureAccounting?.complete === true &&
+      row.captureMeta.captureAccounting.noSilentMisses === true &&
+      Number.isSafeInteger(counts?.total) && counts.total > 0 && counts.processed === counts.total &&
+      counts.complete === counts.total && budget?.limits &&
+      [["requests", "requests"], ["bytes", "totalBytes"], ["elapsedMs", "durationMs"]].every(([used, limit]) =>
+        Number.isFinite(budget[used]) && budget[used] > 0 && Number.isFinite(budget.limits[limit]) &&
+        budget.limits[limit] > budget[used])
+    );
+  }
   store.getActiveRun = async (options = {}) => {
     const cutoff = Date.now() - ttlMs;
     return transact("runs", "readonly", (transaction, set, guard) => {
@@ -565,6 +591,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
         options.recoverExportLimit === true || options.recoverMediaGaps === true
           ? ["RUNNING", "PAUSED", "INCOMPLETE"]
           : ["RUNNING", "PAUSED"];
+      if (options.recheckCompleted === true) activeStates.push("COMPLETE");
       let pending = activeStates.length,
         newest = null;
       for (const activeState of activeStates) {
@@ -583,6 +610,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
               cursor &&
               (!sameRun(row, row.runId) ||
                 row.state !== activeState ||
+                (activeState === "COMPLETE" && !recheckableCompletedRun(row)) ||
                 (activeState === "INCOMPLETE" &&
                   !(
                     (options.recoverExportLimit === true &&
