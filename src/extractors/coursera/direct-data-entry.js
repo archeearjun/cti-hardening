@@ -339,7 +339,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (images.mixedHttp) failures.push(images.mixedHttp + " mixed HTTP outcomes");
           if (images.challengeDeferred) failures.push(images.challengeDeferred + " deferred after publisher challenge");
           if (images.browserUnavailable) failures.push(images.browserUnavailable + " browser-blocked or unreadable");
-          if (images.failed) failures.push(images.failed + " other read failures");
+          if (images.failed) failures.push(images.failed + " other uncaptured image sources");
           if (images.unverified) failures.push(images.unverified + " unverified");
           if (images.sourceGaps) failures.push(images.sourceGaps + " image source gaps");
           if (failures.length) count.textContent += " (" + failures.join("; ") + ")";
@@ -1732,21 +1732,76 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       for (const provider of fp.payload.directInlineWidgetProviderEvidence?.providers || [])
         for (const sibling of provider.publisherPages || []) if (sibling !== page) count += sibling.media?.resources?.length || 0;
       const withinItem = count + inventory.resources.length <= 256;
-      for (const resource of inventory.resources) {
+      const pending = new Map(), readLimit = inventory.resources.length
+        ? Number(ensureMediaReader().snapshot().limits?.concurrentRequests) : 1,
+        width = Math.min(2, Number.isSafeInteger(readLimit) && readLimit > 0 ? readLimit : 1);
+      let next = 0, captureError = null, prefetchRejected = false;
+      const reasonFor = error => /^[A-Z0-9_]{1,96}$/.test(error?.message || "")
+        ? error.message : "PUBLISHER_IMAGE_CAPTURE_FAILED";
+      const schedule = () => {
+        if (next >= inventory.resources.length || prefetchRejected) return;
+        const index = next++, resource = inventory.resources[index];
+        // Claim source URLs in their literal order, independently of response
+        // order. Only this page pipelines reads; the shared two-slot reader and
+        // same-origin service challenge gate retain their existing limits.
         const withinCourse = publisherImageTargets.has(resource.url) || publisherImageTargets.size < 1024;
         if (withinCourse) publisherImageTargets.add(resource.url);
-        const read = withinItem && withinCourse ? await ensureMediaReader().readPublisherImage(observation,page.targetUrl,resource)
-          : {reason:withinItem ? "PUBLISHER_IMAGE_COURSE_URL_LIMIT" : "PUBLISHER_IMAGE_ITEM_URL_LIMIT"};
-        media.resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason || "PUBLISHER_IMAGE_CAPTURE_FAILED",...(read.attempts ? {attempts:read.attempts} : {})})});
-        if (read.body) {
-          if (!directPublisherImageBodyStructureV1(read.body,resource.url,observation.model.sha256))
-            throw Error("PUBLISHER_IMAGE_EVIDENCE_INVALID");
-          // Private immutable Blob staging bounds memory. The final native
-          // ownership check alone decides which descriptors enter the item
-          // proof and exported archive; an unreferenced Blob is not evidence.
-          await archiveItemBodies(fp);
+        const work = Promise.resolve().then(() => {
+          const nativeState = reader.snapshot(), mediaState = ensureMediaReader().snapshot();
+          if (nativeState.stopped || mediaState.stopped || !assertContext())
+            return {reason:nativeState.stopReason || mediaState.stopReason || "DIRECT_MEDIA_CONTEXT_CHANGED"};
+          return withinItem && withinCourse
+            ? ensureMediaReader().readPublisherImage(observation,page.targetUrl,resource)
+            : {reason:withinItem ? "PUBLISHER_IMAGE_COURSE_URL_LIMIT" : "PUBLISHER_IMAGE_ITEM_URL_LIMIT"};
+        });
+        // Handle rejection immediately, including a prefetched response that
+        // settles before its earlier sibling. It must never become unhandled.
+        pending.set(index,work.then(read => ({read}),error => { prefetchRejected = true; return {error}; }));
+      };
+      for (let slot = 0; slot < width; slot++) schedule();
+      try {
+        for (let index = 0; index < inventory.resources.length; index++) {
+          const resource = inventory.resources[index], result = await pending.get(index);
+          pending.delete(index);
+          if (result.error) {
+            media.resources.push({...resource,reason:reasonFor(result.error)});
+            throw result.error;
+          }
+          const read = result.read;
+          media.resources.push({...resource,...(read.body ? {body:read.body} : {reason:read.reason || "PUBLISHER_IMAGE_CAPTURE_FAILED",...(read.attempts ? {attempts:read.attempts} : {})})});
+          if (read.body) {
+            try {
+              if (!directPublisherImageBodyStructureV1(read.body,resource.url,observation.model.sha256))
+                throw Error("PUBLISHER_IMAGE_EVIDENCE_INVALID");
+              // Commit and stage only in source order. Awaiting immutable Blob
+              // storage releases this byte view before another read is started;
+              // at most one prefetched result can retain another original.
+              await archiveItemBodies(fp);
+            } catch (error) {
+              media.resources[index] = {...resource,reason:reasonFor(error)};
+              throw error;
+            }
+          }
+          checkpointBudget();
+          schedule();
         }
-        checkpointBudget();
+      } catch (error) { captureError = error; }
+      finally {
+        // No item may finish, change source ownership, or persist while a
+        // prefetched read can still settle. A fatal staging/read error keeps
+        // every remaining literal reference as an explicit gap; it cannot
+        // promote a downloaded but unstored byte array into archive evidence.
+        const remaining = [...pending], settled = await Promise.all(remaining.map(([,promise]) => promise)),
+          drained = new Map(remaining.map(([index],position) => [index,settled[position]]));
+        for (let index = media.resources.length; index < inventory.resources.length; index++) {
+          const resource = inventory.resources[index], result = drained.get(index), read = result?.read;
+          media.resources.push({...resource,...(read?.reason
+            ? {reason:read.reason,...(read.attempts ? {attempts:read.attempts} : {})}
+            : {reason:result?.error ? reasonFor(result.error) : read?.body
+              ? "PUBLISHER_IMAGE_NOT_RETAINED_AFTER_CAPTURE_FAILURE"
+              : "PUBLISHER_IMAGE_NOT_ATTEMPTED_AFTER_CAPTURE_FAILURE"})});
+        }
+        pending.clear();
       }
       // Freshly observed matching bytes supersede the duplicate historical
       // descriptor only when its exact publisher source hash also matches.
@@ -1760,6 +1815,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       publicPageStats.retainedUtf8Bytes += retained.reduce((sum,group) => sum + group.observation.model.bytes,0) - oldHistoryBytes;
       if (!directPublisherMediaStructureV1(observation,page.targetUrl,media)) throw Error("PUBLISHER_IMAGE_EVIDENCE_INVALID");
       if (Object.hasOwn(page,"previousMedia")) delete page.previousMedia;
+      if (captureError) throw captureError;
     }
     async function captureInlinePublicPages(fp, provider) {
       for (const page of provider.publicPages) {
