@@ -51,6 +51,12 @@ explicit action and only with its existing course/run/build identity, native
 completion/stability proof, matching counts and unspent budgets. Ordinary
 capture/resume behavior remains separate.
 
+Graph discovery does not checkpoint into a prior run before ownership is known.
+A changed graph leaves the earlier run intact and charges its discovery reads
+to the new run. Failed discovery retains originals with current verification
+withdrawn. Once ownership is established, the existing hydration path restores
+retained page and body budgets before new allocation.
+
 A failed current read retains older raw observations as historical evidence,
 records the failed recheck separately, and does not count the item as currently
 verified. Pending-item invalidation and a per-attempt observation stamp keep

@@ -874,6 +874,50 @@ test("failed pending checkpoint writes still export and later hydrate old native
   assert.equal(app.items.get(runId+"/ReadingB").fingerprint.captureContract.complete,false);
 });
 
+test("reopened native recheck keeps discovery read-only until a changed graph receives its own charged run",async()=>{
+  const app=harness();app.launch();await app.idle();
+  const oldRunId=app.state().runId,oldRun=clone(app.runs.get(oldRunId)),
+    oldItems=clone([...app.items].filter(([key])=>key.startsWith(oldRunId+"/"))),savesBefore=app.metrics.saves.length;
+  app.advance(6000);app.execute();app.control.materialRevision++;
+  app.state().recheckNative();await app.idle();
+  assert.notEqual(app.state().runId,oldRunId);assert.equal(app.state().state,"COMPLETE");
+  assert.deepEqual(app.runs.get(oldRunId),oldRun,"Discovery must not change old state, dates or cumulative budgets");
+  assert.deepEqual([...app.items].filter(([key])=>key.startsWith(oldRunId+"/")),oldItems);
+  assert(!app.metrics.saves.slice(savesBefore).some(save=>save.runId===oldRunId));
+  const capture=(await exportedCapture(app.downloads.at(-1))).capture;
+  assert.equal(capture.meta.directDataCapture.resumed,false);
+  assert.equal(capture.meta.directDataCapture.stats.inheritedBudget.requests,2,
+    "The separate run owns the two actual graph discovery reads, without inheriting earlier attempts");
+});
+
+test("failed initial material discovery withdraws old native completion and retains exact raw originals with charged probe reads",async()=>{
+  const app=harness();app.launch();await app.idle();
+  const runId=app.state().runId,budget=clone(app.runs.get(runId).budget),old=clone([...app.items]),before=app.calls.length;
+  app.advance(6000);app.execute();
+  app.control.beforeRead=call=>call.resource==="materials"?"COURSE_API_HTTP_503":"";
+  app.state().recheckNative();await app.idle();
+  assert.equal(app.state().runId,runId);assert.equal(app.state().state,"PAUSED");
+  assert.deepEqual(app.calls.slice(before).map(call=>call.resource),["materials","course"]);
+  assert.equal(app.state().counts.complete,0);assert.equal(app.state().counts.processed,0);
+  const capture=(await exportedCapture(app.downloads.at(-1))).capture;
+  assert.equal(capture.meta.directDataCapture.nativeRecheck.scope,"ALL_NATIVE_ITEMS");
+  assert.equal(capture.meta.directDataCapture.wholeCourseVerified,false);
+  assert.equal(capture.meta.directDataCapture.sourceStable,false);
+  assert.equal(capture.meta.directDataCapture.coverage.readings.verified,0);
+  assert.equal(capture.meta.directDataCapture.stats.requests,budget.requests+2);
+  for(const [key,row]of old){
+    const retained=app.items.get(key),exported=capture.fingerprints.find(fp=>fp.id===row.itemId);
+    assert.equal(retained.state.processed,false);assert.equal(exported.captureContract.complete,false);
+    assert.deepEqual(exported.payload.directDataSources,row.fingerprint.payload.directDataSources);
+    assert.equal(exported.payload.reading,row.fingerprint.payload.reading);
+    assert.equal(exported.payload.directResumeRevalidation.reason,"DIRECT_NATIVE_RECHECK_NOT_READ");
+  }
+  const savedBudget=clone(app.runs.get(runId).budget);
+  app.execute();app.button("Capture/resume course").click();await app.idle();
+  assert.equal(app.state().runId,runId);assert.equal(app.state().counts.complete,0);
+  assert(app.runs.get(runId).budget.requests>=savedBudget.requests+2);
+});
+
 function assertSupplementalPublishedDraft(capture, itemId, count) {
   const fp = capture.fingerprints.find(item => item.id === itemId), snapshot = fp.payload.directAuthoringDraftSnapshot;
   assert(snapshot); assert.equal(snapshot.method, "BOUND_PUBLISHED_ATOM_DRAFT_SNAPSHOT");
@@ -1036,6 +1080,14 @@ test("inline page refresh replaces its own near-limit allocation and preserves t
   assert.equal(app.calls.filter(call => call.resource === "public").length, 3, "A new attempt refreshes the public source once");
   assert.equal(app.runs.get(runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes, 8 * Buffer.byteLength(html));
   assert(app.items.get(runId + "/" + fixtures[0].fp.id).fingerprint.captureContract.complete === false);
+  const retainedHtml=html;
+  fail=false;html="<!doctype html><html><body><main>"+"y".repeat(2*1024*1024-1024)+"</main></body></html>";
+  app.advance(60000);app.state().recheckNative();await app.idle();
+  assert.equal(app.state().runId,runId);
+  assert(pages().every((page,index)=>!page.observation&&canonicalSource(page.retainedObservation)===canonicalSource(previous[index])),
+    "Native recheck reserves all eight retained originals before the first larger page read, so no placement displaces another original");
+  assert.equal(app.runs.get(runId).captureMeta.directDataCapture.stats.publicPages.retainedUtf8Bytes,8*Buffer.byteLength(retainedHtml));
+  html=retainedHtml;fail=true;
   for (const f of fixtures)
     f.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value =
       f.fp.payload.directDataSources.atom.elements[0].draft.content.definition.content.definition.value.replace(provider.providerId, provider.providerBaseId + "@2");

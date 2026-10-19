@@ -1250,7 +1250,14 @@ try{
   const changedGraphRecheck=await recheckNativeCourse(success);
   assert.notEqual(changedGraphRecheck.state.runId,freshNativeState.runId);assert.notEqual(changedGraphRecheck.state.runId,success.state.runId);
   assert.equal(changedGraphRecheck.state.state,'COMPLETE');assert.equal(changedGraphRecheck.capture.meta.directDataCapture.resumed,false);
-  assert.equal(changedGraphRecheck.capture.meta.directDataCapture.stats.inheritedBudget.requests,0);
+  const changedGraphReads=requests.slice(changedGraphRecheck.start).filter(request=>request.courseId===complete.id),
+    changedGraphProof=changedGraphRecheck.capture.meta.directDataCapture,changedGraphStats=changedGraphProof.stats;
+  assert.deepEqual(changedGraphReads.slice(0,2).map(request=>request.resource).sort(),['authoringCourseMaterials.v1','authoringCourses.v2'].sort());
+  assert.equal(changedGraphStats.inheritedBudget.requests,2,
+    'A changed graph starts a separate run while charging its two current discovery reads, rather than inheriting the earlier run\'s spend');
+  assert.equal(changedGraphStats.inheritedBudget.bytes,changedGraphProof.materialsReceipt.bytes+changedGraphProof.courseReceipt.bytes);
+  assert.equal(changedGraphStats.currentAttempt.requests,changedGraphReads.length-2);
+  assert.equal(changedGraphStats.requests,changedGraphReads.length,'The new run charges each observed discovery and capture GET exactly once');
   assert.equal(changedGraphRecheck.capture.fingerprints.length,5);assert(changedGraphRecheck.capture.fingerprints.some(fp=>fp.id==='empty_native_recheck'&&fp.captureContract.complete));
   assert.equal(requests.slice(changedGraphRecheck.start).filter(request=>request.courseId===complete.id&&request.resource===definitionResource).length,10,
     'A changed native course graph keeps the existing independent-run behavior and acquires its own exact definitions');
