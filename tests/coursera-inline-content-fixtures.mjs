@@ -144,11 +144,37 @@ export function createInlinePublisherPartContentFixture(options = {}) {
   return { ...f, publisherPart: part, publisherRawJson: rawJson, publisherPartObservation: observation };
 }
 
+/** Synthetic back-matter source using the upstream typed contract. It does not
+ * certify a live course response, nor replace the two observed 404 receipts. */
+export function createInlinePublisherBackMatterContentFixture(options = {}) {
+  const f = createInlinePublisherPartContentFixture(options), observation = f.publisherObservation,
+    chapterReceipt = structuredClone(observation.receipt.resolution.chapterReceipt),
+    partReceipt = structuredClone(observation.receipt),
+    endpointUrl = observation.model.endpointUrl.replace("/parts/", "/back-matter/"),
+    backMatter = { ...structuredClone(f.publisherPart), type: "back-matter",
+      link: f.finalUrl.replace("/chapter/", "/back-matter/"),
+      title: { raw: "Synthetic original back matter", rendered: "Synthetic original back matter" },
+      _links: { self: [{ href: endpointUrl }] } },
+    rawJson = JSON.stringify(backMatter, null, 2) + "\n", bytes = new TextEncoder().encode(rawJson);
+  chapterReceipt.observedAt = chapterReceipt.attempts[0].observedAt = "2027-01-15T08:00:00.003Z";
+  delete partReceipt.resolution;
+  Object.assign(partReceipt, { observedAt: "2027-01-15T08:00:00.004Z", receivedAt: "", status: 404,
+    bytes: 0, originalResponseSha256: "", attempts: [{ credentials: "omit", observedAt: "2027-01-15T08:00:00.004Z",
+      status: 404, responseType: "cors", bytes: 0, reason: "PUBLISHER_BROWSER_HTTP_404" }] });
+  Object.assign(observation.model, { kind: "CTI_BROWSER_PUBLISHER_BACK_MATTER", resourceType: "back-matter", endpointUrl,
+    bytes: bytes.length, sha256: hashBytes(bytes), rawJson });
+  Object.assign(observation.receipt, { resource: "PublisherBackMatter", endpointUrl,
+    requestPath: new URL(endpointUrl).pathname, bytes: bytes.length, originalResponseSha256: observation.model.sha256,
+    resolution: { method: "CHAPTER_404_PART_404_TO_BACK_MATTER", chapterReceipt, partReceipt } });
+  observation.receipt.attempts[0].bytes = bytes.length;
+  return { ...f, publisherBackMatter: backMatter, publisherRawJson: rawJson, publisherBackMatterObservation: observation };
+}
+
 /** Synthetic owned images with archive descriptors. The non-enumerable bytes
  * model archive hydration and deliberately disappear from report JSON. */
-export function createInlinePublisherMediaContentFixture({ part = false, responsive = false, outcomes = ["CAPTURED", "PUBLISHER_IMAGE_BLOCKED_OR_FAILED"], ...options } = {}) {
-  const f = part ? createInlinePublisherPartContentFixture(options) : createInlinePublisherContentFixture(options),
-    resource = structuredClone(part ? f.publisherPart : f.publisherChapter), observation = f.publisherObservation,
+export function createInlinePublisherMediaContentFixture({ part = false, backMatter = false, responsive = false, outcomes = ["CAPTURED", "PUBLISHER_IMAGE_BLOCKED_OR_FAILED"], ...options } = {}) {
+  const f = backMatter ? createInlinePublisherBackMatterContentFixture(options) : part ? createInlinePublisherPartContentFixture(options) : createInlinePublisherContentFixture(options),
+    resource = structuredClone(backMatter ? f.publisherBackMatter : part ? f.publisherPart : f.publisherChapter), observation = f.publisherObservation,
     urls = outcomes.map((_, index) => "https://opentextbc.ca/synthetic-book/wp-content/uploads/2027/01/drawing-" + index + ".png"),
     html = "<p>Original publisher drawing references.</p>" + urls.map(url => '<img src="' + url + '"' +
       (responsive ? ' srcset="' + url + ' 1x, ' + url.replace(/\.png$/, "-300.png") + ' 2x"' : "") + '>').join("");

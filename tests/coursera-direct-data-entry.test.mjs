@@ -18,7 +18,7 @@ import { WIDGET_COURSE, WIDGET_SLUG } from "./coursera-direct-widget-fixtures.mj
 import { directPublicPageTargetV1, directPublicPageObservationValidV1,
   CTI_DIRECT_PUBLIC_PAGE_ENVELOPE_BYTES_V1, CTI_DIRECT_PUBLIC_PAGE_RETAINED_BYTES_V1 } from "../src/extractors/coursera/direct-data-public-page.js";
 import { directPublisherTargetV1, directPublisherObservationValidV1, directPublisherChapterV1,
-  directPublisherResourceObservationValidV1, directPublisherResourceV1, directPublisherPartResolutionValidV1 } from "../src/extractors/coursera/direct-data-publisher.js";
+  directPublisherResourceObservationValidV1, directPublisherResourceV1, directPublisherPartResolutionValidV1, directPublisherBackMatterResolutionValidV1 } from "../src/extractors/coursera/direct-data-publisher.js";
 import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1 } from "../src/extractors/coursera/direct-data-media.js";
@@ -522,6 +522,7 @@ function harness(options = {}) {
     directPublisherResourceObservationValidV1,
     directPublisherResourceV1,
     directPublisherPartResolutionValidV1,
+    directPublisherBackMatterResolutionValidV1,
     directPublisherMediaInventoryV1,
     directPublisherMediaStructureV1,
     directWidgetContractV1: (fp) => {
@@ -2317,6 +2318,8 @@ for (const [version, originalBuild] of [
   ["v1.8.1", "v1.8.1-browser-publisher-api-20261018"],
   ["v1.8.2", "v1.8.2-historical-publisher-checkpoint-20261018"],
   ["v1.8.3", "v1.8.3-publisher-sections-original-images-20261018"],
+  ["v1.8.4", "v1.8.4-public-publisher-images-20261019"],
+  ["v1.8.5", "v1.8.5-publisher-challenge-aware-20261019"],
 ]) test("exact " + version + " continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(), source = f.fixtures[0],

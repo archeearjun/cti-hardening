@@ -1327,7 +1327,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
       "v1.8.0-inline-widget-public-html-20261018",
       "v1.8.1-browser-publisher-api-20261018",
       "v1.8.2-historical-publisher-checkpoint-20261018",
-      "v1.8.3-publisher-sections-original-images-20261018", "v1.8.4-public-publisher-images-20261019",
+      "v1.8.3-publisher-sections-original-images-20261018", "v1.8.4-public-publisher-images-20261019", "v1.8.5-publisher-challenge-aware-20261019",
       CTI_DIRECT_DATA_BUILD_V1,
     ]) {
       await store.saveRun(completedMediaGapRun(stopped, {}, { buildId }));
@@ -1389,7 +1389,7 @@ test("media-gap recovery accepts only explicitly compatible builds and owned com
 });
 
 test("real checkpoint selection recovers exact publisher-era runs read-only with all 80 originals and assessment history intact", async () => {
-  for (const buildId of ["v1.8.0-inline-widget-public-html-20261018", "v1.8.1-browser-publisher-api-20261018", "v1.8.2-historical-publisher-checkpoint-20261018", "v1.8.3-publisher-sections-original-images-20261018", "v1.8.4-public-publisher-images-20261019"]) {
+  for (const buildId of ["v1.8.0-inline-widget-public-html-20261018", "v1.8.1-browser-publisher-api-20261018", "v1.8.2-historical-publisher-checkpoint-20261018", "v1.8.3-publisher-sections-original-images-20261018", "v1.8.4-public-publisher-images-20261019", "v1.8.5-publisher-challenge-aware-20261019"]) {
     await withDatabase(async fake => {
       const store = await storeFor(), opened = await store.openRun(), originalObservedAt = "2026-10-18T12:00:00.000Z", originals = [];
       for (let index = 0; index < 80; index++) {
