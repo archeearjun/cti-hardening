@@ -1,0 +1,30 @@
+name: Dispatch maintained runtime for v1.8.6
+on:
+  push:
+    branches:
+      - codex/v186-runtime-dispatch
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify exact main and dispatch its existing runtime workflow once
+        env:
+          DISPATCH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          const expected = 'c2eda5c287ee9c4639fdca407106417a1c38a620';
+          const api = 'https://api.github.com/repos/archeearjun/cti-hardening';
+          const headers = {Authorization: 'Bearer ' + process.env.DISPATCH_TOKEN, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'};
+          const current = await fetch(api + '/git/ref/heads/main', {headers, signal: AbortSignal.timeout(30000)});
+          if (!current.ok) throw new Error('Main verification failed: HTTP ' + current.status);
+          const ref = await current.json();
+          if (ref.object?.sha !== expected) throw new Error('Main moved; dispatch refused');
+          const result = await fetch(api + '/actions/workflows/deploy-coursera-extractor.yml/dispatches', {method: 'POST', headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify({ref: 'main'}), signal: AbortSignal.timeout(30000)});
+          if (result.status !== 204) throw new Error('Runtime dispatch failed: HTTP ' + result.status);
+          console.log(JSON.stringify({kind: 'CTI_MAINTAINED_RUNTIME_DISPATCH', expectedMain: expected, ref: 'main', workflow: 'deploy-coursera-extractor.yml', status: result.status, dispatches: 1}));
+          JS
