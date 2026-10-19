@@ -821,10 +821,15 @@ const server=https.createServer({key:fs.readFileSync(path.join(scratch,'key.pem'
       (config?.panoptoMode&&config.panoptoMode!=='metadata-csp'?' '+panoptoOrigin+' '+panoptoMediaOrigin:'')+
       (config?.publisherReaderCase&&!config.publisherCspBlocked?' '+publisherOrigin:''));
     response.end(`<!doctype html><title>Direct capture fixture</title><main><a id="editor" href="/teach/${slug}/${courseId}/content/item/project/item_0000">Open quiz normally</a><button id="foreign">Open unrelated test window</button></main><script nonce="fixture">
-      window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixtureCsp=[];window.fixtureCspEvents=[];
+      window.fixtureEditorClicks=0;window.fixtureScrolls=0;window.fixturePanelScrolls=0;window.fixtureCsp=[];window.fixtureCspEvents=[];
       document.getElementById('editor').onclick=()=>{window.fixtureEditorClicks++;};
       document.getElementById('foreign').onclick=()=>window.open('${helperOrigin}/foreign-window.html','fixture-attacker');
-      window.addEventListener('scroll',()=>window.fixtureScrolls++,true);
+      // Real operator clicks may scroll the fixed CTI controls. Course,
+      // document and window scrolling must still remain zero during capture.
+      window.addEventListener('scroll',event=>{
+        if(event.target instanceof Element&&event.target.closest('#cti-direct-data-capture-v1'))window.fixturePanelScrolls++;
+        else window.fixtureScrolls++;
+      },true);
       document.addEventListener('securitypolicyviolation',event=>{
         window.fixtureCsp.push(event.violatedDirective);
         window.fixtureCspEvents.push({blockedURI:event.blockedURI,effectiveDirective:event.effectiveDirective,disposition:event.disposition});
@@ -1148,7 +1153,7 @@ try{
       config?.panoptoMode&&[panoptoOrigin,panoptoMediaOrigin].includes(destination)||
       config?.publisherReaderCase&&destination===publisherOrigin),
       'Only the authenticated authoring API and exact metadata-returned CDN can be requested');
-    assert.equal(await page.evaluate(()=>window.fixtureEditorClicks),0);assert.equal(await page.evaluate(()=>window.fixtureScrolls),0);
+    assert.equal(await page.evaluate(()=>window.fixtureEditorClicks),0);assert.equal(await page.evaluate(()=>window.fixtureScrolls),0,'The course, document and window remain unscrolled; only the fixed CTI controls may scroll');
     assert(!documents.some(address=>address.includes('/content/item/')),'No authoring editor is opened');
     assert.equal(await page.evaluate(()=>document.cookie.includes('fixtureSession')),false);
     assert.equal(await page.evaluate(()=>localStorage.getItem('__CTI_AUTOMATIC_LOCAL_ACTIVE_V61517_'+location.pathname.split('/')[3])),'legacy-fixture-sentinel');
@@ -1232,6 +1237,16 @@ try{
       for(const secret of secrets)assert(!JSON.stringify(partialCapture).includes(secret));
     }finally{releaseFirst();releaseNext();await target.context.close();}
   }
+  const scrollGuard=await open(baseline);
+  const scrollCalibration=await scrollGuard.page.evaluate(()=>{
+    const controls=document.createElement('section');controls.id='cti-direct-data-capture-v1';document.body.append(controls);
+    controls.dispatchEvent(new Event('scroll'));
+    document.querySelector('main').dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('scroll'));
+    return {controls:window.fixturePanelScrolls,course:window.fixtureScrolls};
+  });
+  assert.deepEqual(scrollCalibration,{controls:1,course:2},'Owned-panel scrolling cannot conceal course or window traversal');
+  await scrollGuard.context.close();
   const main=await runFileCase(baseline);
   assert.equal(main.capture.page.courseId,baseline.id);assert.equal(main.capture.fingerprints.length,185);
   assert.equal(main.state.state,'INCOMPLETE');
