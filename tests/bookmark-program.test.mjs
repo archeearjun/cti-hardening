@@ -91,3 +91,16 @@ test("formatting retains one asynchronous invocation and an undefined bookmark c
     assert.equal(context.finished, true);
   }
 });
+
+test('literal brackets reduce delivery size without changing percent literals, fragments or queries', () => {
+  const program='void(globalThis.observed=["[literal]","%5B","%5D","?#","日本語"]);';
+  const encoded=encodeJavaScriptBookmarkPayload(program);
+  assert(encoded.includes('["') === false); // Quotes remain percent encoded.
+  assert(encoded.includes('['));assert(encoded.includes(']'));
+  assert(encoded.includes('%255B'));assert(encoded.includes('%255D'));
+  assert.equal(decodeURIComponent(encoded),program);
+  const parsed=new URL('javascript:'+encoded);
+  assert.equal(parsed.search,'');assert.equal(parsed.hash,'');
+  assert.equal(decodeURIComponent(parsed.pathname),program);
+  assert(encoded.length < encodeURI(program).replace(/[?#]/g,encodeURIComponent).length);
+});

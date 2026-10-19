@@ -82,19 +82,26 @@ import { captureAccountingItemsV61531 } from "./completion.js";
 (() => {
   "use strict";
   void (async () => {
-    if (window === window.top && ["https://opentextbc.ca", "https://pressbooks.bccampus.ca"].includes(location.origin) &&
-        new URLSearchParams((location.hash || "").slice(1)).has("cti-publisher-recovery")) {
+    if (["https://opentextbc.ca", "https://pressbooks.bccampus.ca"].includes(location.origin)) {
       const prior = window.__CTI_PUBLISHER_FIRST_PARTY_CAPTURE__;
       if (prior && prior.contextUrl === location.href && !prior.snapshot().stopped) { prior.focus(); return; }
       prior?.close();
       document.getElementById("cti-publisher-recovery-panel")?.remove();
       const panel=document.createElement("section"),message=document.createElement("p"),stop=document.createElement("button");
       panel.id="cti-publisher-recovery-panel";
-      panel.style.cssText="position:fixed;right:16px;bottom:16px;max-width:400px;padding:16px;background:white;color:#172b4d;border:1px solid #cad5e5;z-index:2147483647;font:14px/1.5 system-ui";
+      panel.style.cssText="display:block!important;position:fixed;right:16px;bottom:16px;max-width:400px;padding:16px;background:white;color:#172b4d;border:1px solid #cad5e5;z-index:2147483647;font:14px/1.5 system-ui";
       message.textContent="Connecting image recovery. Cookies stay here; download the capture in Coursera.";
       stop.textContent="Stop publisher recovery";panel.append(message,stop);document.body.append(panel);
-      const helper=directPublisherFirstPartyContextV1(location) && runDirectPublisherFirstPartyV1({onStatus:value=>{message.textContent=value;}});
-      if (!helper) {message.textContent="Recovery could not connect. No image content is established. Return to Coursera and prepare again; the browser may have separated the tabs.";stop.disabled=true;return;}
+      let helper;
+      try {
+        if (!directPublisherFirstPartyContextV1(location)) throw Error("INVALID_RECOVERY_URL");
+        if (window !== window.top || !window.opener || window.opener.closed) throw Error("OPENER_UNAVAILABLE");
+        helper=runDirectPublisherFirstPartyV1({onStatus:value=>{message.textContent=value+(value.startsWith("PUBLISHER_FIRST_PARTY_") ? ". Return to Coursera and prepare again; keep the new publisher tab open." : "");}});
+        if (!helper) throw Error("INITIALIZATION_FAILED");
+      } catch (error) {
+        message.textContent="Publisher recovery could not connect: "+(/^[A-Z_]+$/.test(error?.message || "") ? error.message : "INITIALIZATION_FAILED")+". No image content is established. Return to Coursera and prepare again.";
+        stop.disabled=true;return;
+      }
       window.__CTI_PUBLISHER_FIRST_PARTY_CAPTURE__={...helper,contextUrl:location.href};stop.onclick=()=>helper.close();
       window.addEventListener("pagehide",()=>helper.close());return;
     }
@@ -286,7 +293,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         meta?.directDataCapture?.mediaEnrichment?.scope,
       );
       hint.textContent = state.recovering || preparedRecovery
-        ? "Prepare saves image references; Open launches the publisher. Complete its access check, then click this same bookmark there. Keep both tabs open. Cookies stay there; earlier snapshots keep their dates."
+        ? "Activate the publisher tab, then run this bookmark there, not in Coursera. Show bookmarks: Mac Cmd+Shift+B; Windows Ctrl+Shift+B. Keep both tabs open."
         : activeRecovery
         ? "Recovering planned images and rechecking native bindings. Publisher snapshots keep their original dates. Whole widgets and published bodies remain unverified."
         : state.diagnosing || state.state === "READY"
@@ -2743,7 +2750,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         // Open synchronously inside this second button click. No asynchronous
         // preparation may consume the browser's user-gesture popup permission.
         publisherFirstPartyTransport = createDirectPublisherFirstPartyV1({courseId,entries:prepared.plan.entries,onStatus:message=>render(message)});
-        render("Complete the publisher access check, then click the same bookmark there. Keep both tabs open; cookies stay in the publisher tab.");
+        render("In the active publisher tab, click CTI in the bookmarks bar or Chrome Bookmarks menu. Clicking it in Coursera cannot connect recovery.");
         const ready = await publisherFirstPartyTransport.ready();
         if (!assertContext() || ready.planSha256 !== prepared.planSha256) throw Error("PUBLISHER_FIRST_PARTY_PLAN_CHANGED");
         const recovery = {...prepared,...ready,readyAt:new Date().toISOString(),transport:publisherFirstPartyTransport};
@@ -2751,7 +2758,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         await run(false,true,recovery);
       } catch (error) {
         state.phase = "Publisher recovery stopped";
-        render((/^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_FIRST_PARTY_CONNECTION_FAILED") + ". Opening a tab proves no image content. Prepare again to reconnect.");
+        render((/^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_FIRST_PARTY_CONNECTION_FAILED") + ". Prepare again; run the bookmark in the publisher tab. No image recovery is established.");
       } finally {
         publisherFirstPartyTransport?.close(); publisherFirstPartyTransport = null;
         preparedRecovery = null; state.recovering = false; render();
@@ -3408,7 +3415,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
     render("Capture/resume continues saved progress. Recheck native course content rereads current item and question references; Start fresh opens a separate run. Prior observations keep their original dates.");
   })().catch(() => {
     alert(
-      "CTI capture could not start. Open the course Content page and try the bookmark again.",
+      "CTI could not start. For recovery, return to Coursera, prepare again, and run CTI in the new publisher tab. Otherwise open the course Content page.",
     );
   });
 })();
