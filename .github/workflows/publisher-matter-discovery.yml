@@ -1,0 +1,37 @@
+name: Discover advertised publisher matter API
+on:
+  push:
+    branches: [codex/v185-back-matter-discovery]
+permissions:
+  contents: read
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify isolated diagnostic
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          expected='fd906ad318bf57d9ec6ff01e77a1083a653ae652'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==expected
+          paths=subprocess.check_output(['git','diff','--name-only',expected,'HEAD'],text=True).splitlines()
+          assert len(paths)==3
+          assert all(p=='.github/workflows/publisher-matter-discovery.yml' or p.startswith('tools/.diagnostics/v185-matter-discovery/') for p in paths)
+          print('Verified discovery-only source; no application or deployment changes.')
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tools/.diagnostics/v185-matter-discovery/probe.test.mjs
+      - name: Read only advertised public routes
+        run: node tools/.diagnostics/v185-matter-discovery/probe.mjs /tmp/public-matter-api-discovery.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: publisher-matter-discovery
+          path: /tmp/public-matter-api-discovery.json
+          if-no-files-found: error
+          retention-days: 7
