@@ -1180,7 +1180,15 @@ try{
   }
   for(const prior of initialAssessments){
     const current=unchangedRecheck.capture.fingerprints.find(fp=>fp.id===prior.id),before=prior.payload.assessmentApiEvidence,after=current.payload.assessmentApiEvidence;
-    assert.deepEqual(after.questionDefinitions,before.questionDefinitions);
+    // Raw definitions are an exact-ID evidence inventory populated by async
+    // workers; authored group/question order is checked independently below.
+    const beforeDefinitions=new Map(before.questionDefinitions.map(definition=>[definition.id,definition])),
+      afterDefinitions=new Map(after.questionDefinitions.map(definition=>[definition.id,definition]));
+    assert.equal(after.questionDefinitions.length,before.questionDefinitions.length);
+    assert.equal(beforeDefinitions.size,before.questionDefinitions.length);assert.equal(afterDefinitions.size,after.questionDefinitions.length);
+    assert.deepEqual(new Set(afterDefinitions.keys()),new Set(beforeDefinitions.keys()));
+    for(const [id,definition]of afterDefinitions)assert.deepEqual(definition,beforeDefinitions.get(id),
+      'Each exact definition retains its complete original model, including authored option order, regardless of worker arrival order');
     assert.deepEqual(current.payload.structuredAssessment.questions,prior.payload.structuredAssessment.questions,
       'Reused exact definitions preserve normalized question content and original observation dates');
     for(const original of before.receipts.filter(value=>value.resource===definitionResource))
