@@ -5,6 +5,19 @@ import {
   directDataCoverageSummaryV1,
 } from "../src/extractors/coursera/direct-data-summary.js";
 
+test("verified empty drafts, instructions and unkeyed reflections stay distinct from keyed questions", () => {
+  const summary = directDataCoverageSummaryV1([
+    {type: "Assignment", processed: true, questions: 0, contract: {complete: true, status: "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT"}},
+    {type: "Assignment", processed: true, questions: 0, contract: {complete: true, status: "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT"}},
+    {type: "Assignment", processed: true, questions: 2, contract: {complete: true, status: "COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT"}},
+    {type: "Assignment", processed: true, questions: 0, contract: {complete: false, status: "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT"}},
+  ]);
+  assert.deepEqual(summary.assessmentKinds, {emptyDrafts: 1, instructionOnly: 1, unkeyedReflections: 1});
+  assert.equal(summary.assessments.verified, 3);
+  assert.equal(summary.questions, 2);
+  assert.equal(summary.structures.total, 0);
+});
+
 test("coverage separates a complete question bank from reading media and empty structures", () => {
   const items = [
     ...Array.from({ length: 20 }, () => ({

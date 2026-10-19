@@ -723,6 +723,52 @@ function directAssessmentSourcesValid(
     const native = record(wrapper?.definition),
       kind = wrapper?.typeName;
     const prompt = cml(native?.prompt);
+    if (kind === "textExactMatch") {
+      // Independent import verification re-derives literal key records. This is
+      // source fidelity, not an implementation of learner matching semantics.
+      const incorrectFeedback = cml(native?.defaultIncorrectFeedback, false);
+      if (typeof sourceId !== "string" ||
+          !new RegExp("^" + atomId + "~[A-Za-z0-9_-]+@\\d+$").test(sourceId) ||
+          source?.id !== sourceId || !native ||
+          Object.keys(native).some(key => !["prompt", "options", "defaultIncorrectFeedback"].includes(key)) ||
+          !sourceReceipts.has("authoringAssignmentQuestionGroups.v1/" + groupId) ||
+          !sourceReceipts.has("authoringAssignmentMachineEvaluableQuestions.v1/" + sourceId) ||
+          !prompt || !incorrectFeedback ||
+          !/^(?:assess|staffGraded)\/1$/.test(native.prompt?.definition?.dtdId || "") ||
+          !/^(?:assess|staffGraded)\/1$/.test(native.defaultIncorrectFeedback?.definition?.dtdId || "") ||
+          !Array.isArray(native.options) || native.options.length < 1 || native.options.length > 100 ||
+          question?.id !== String(index + 1) || question.courseraQuestionId !== groupId ||
+          question.sourceDefinitionId !== sourceId || question.questionOrdinalObserved !== true ||
+          question.rawType !== kind || question.type !== "text-entry" ||
+          question.observationMethod !== "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION" ||
+          question.answerTextReliable !== true || question.optionTextReliable !== true ||
+          question.textFormat !== "PLAIN_TEXT" || question.prompt !== prompt.text || question.feedback !== "" ||
+          question.shuffleOptions !== null || question.defaultIncorrectFeedback !== incorrectFeedback.text ||
+          !Array.isArray(question.options) || question.options.length !== native.options.length ||
+          !Array.isArray(question.correctAnswers)) return false;
+      const sourceIds = new Set<string>(), sourceAnswers = new Set<string>(), correctIds = [], answers = [];
+      for (let position = 0; position < native.options.length; position++) {
+        const rawOption = record(native.options[position]), option = record(question.options[position]),
+          feedback = cml(rawOption?.feedback, false);
+        if (!rawOption || Object.keys(rawOption).some(key => !["id", "answer", "isCorrect", "feedback"].includes(key)) ||
+            typeof rawOption.id !== "string" || !rawOption.id || sourceIds.has(rawOption.id) ||
+            typeof rawOption.answer !== "string" || !rawOption.answer || rawOption.answer.length > 100000 ||
+            sourceAnswers.has(rawOption.answer) || typeof rawOption.isCorrect !== "boolean" || !feedback ||
+            !/^(?:assess|staffGraded)\/1$/.test(rawOption.feedback?.definition?.dtdId || "") ||
+            !option || option.id !== rawOption.id || option.sourceOptionId !== rawOption.id ||
+            option.correct !== rawOption.isCorrect || option.text !== rawOption.answer || option.label !== rawOption.answer ||
+            option.feedback !== feedback.text || option.description !== "" ||
+            !Array.isArray(option.aliases) || option.aliases.length !== 0) return false;
+        sourceIds.add(rawOption.id); sourceAnswers.add(rawOption.answer);
+        if (rawOption.isCorrect) { correctIds.push(rawOption.id); answers.push(rawOption.answer); }
+      }
+      const key = record(question.answerKeyEvidence);
+      if (!answers.length || JSON.stringify(question.correctAnswers) !== JSON.stringify(answers) ||
+          key?.method !== "EXPLICIT_TEXT_EXACT_MATCH_OPTIONS" ||
+          JSON.stringify(key.correctOptionIds) !== JSON.stringify(correctIds)) return false;
+      seen.add(groupId);
+      continue;
+    }
     const correct =
       kind === "mcq"
         ? [native?.correctOption]
@@ -834,6 +880,7 @@ function directEmptyAssessmentSourcesValid(
     emptySource = record(payload.explicitEmptyAssessmentEvidence);
   const empty = (value: unknown) => Array.isArray(value) && value.length === 0;
   const same = (left: unknown, right: unknown) => {
+    if (left === undefined || right === undefined) return left === right;
     try {
       return (
         directCanonicalSourceTextV1(left) === directCanonicalSourceTextV1(right)
@@ -843,6 +890,7 @@ function directEmptyAssessmentSourcesValid(
     }
   };
   const cml = (value: unknown) => {
+    if (value === undefined) return true;
     const source = record(value),
       body = record(source?.definition);
     return (
@@ -854,6 +902,7 @@ function directEmptyAssessmentSourcesValid(
   };
   return Boolean(
     empty(definition?.parts) &&
+      Object.keys(definition!).every(key => ["parts", "configuration", "introduction", "reviewCriteria", "passingFraction", "assignmentLevelRubrics"].includes(key)) &&
       record(definition?.configuration) &&
       cml(definition?.introduction) &&
       cml(definition?.reviewCriteria) &&
@@ -919,6 +968,150 @@ function directEmptyAssessmentSourcesValid(
       evidence.declaredContentParts === 0 &&
       empty(evidence.orderedGroupIds),
   );
+}
+
+function directReflectionAssessmentSourcesValid(
+  item: Record<string, any>, payload: Record<string, any>, evidence: Record<string, any>,
+  definition: Record<string, any> | null, atomId: string, courseId: string,
+): boolean {
+  const raw = record(payload.assessmentApiEvidence), inventory = record(payload.directAssessmentInventory),
+    assessment = record(payload.structuredAssessment), coverage = record(assessment?.captureCompleteness),
+    proof = record(payload.directReflectionAssessmentEvidence), parts = definition?.parts,
+    empty = (value: unknown) => Array.isArray(value) && value.length === 0,
+    same = (left: unknown, right: unknown) => left === undefined || right === undefined ? left === right : directModelHash(left) === directModelHash(right),
+    read = (value: unknown) => {
+      const source = record(value), body = record(source?.definition);
+      if (source?.typeName !== "cml" || !/^(?:assess|staffGraded)\/1$/.test(body?.dtdId || "") || typeof body?.value !== "string") return null;
+      const parsed = directCmlMediaInventoryV1(body.value);
+      return parsed.valid && !parsed.references.length ? parsed.text : null;
+    };
+  if (item.typeName !== "ungradedAssignment" || !definition || definition.configuration?.isGraded !== false ||
+      !Array.isArray(parts) || parts.length < 1 || !record(definition.configuration) ||
+      (definition.assignmentLevelRubrics !== undefined && !empty(definition.assignmentLevelRubrics)) ||
+      (definition.passingFraction !== undefined && (typeof definition.passingFraction !== "number" || !Number.isFinite(definition.passingFraction) || definition.passingFraction < 0 || definition.passingFraction > 1)) ||
+      ["introduction", "reviewCriteria"].some(key => definition[key] !== undefined && !(Array.isArray(definition[key]) && !definition[key].length) && read(definition[key]) === null) ||
+      ["configuration", "introduction", "reviewCriteria", "passingFraction", "assignmentLevelRubrics"].some(key => !same(definition[key], assessment?.[key]) || !same(definition[key], inventory?.[key])) ||
+      inventory?.complete !== true || inventory.assignmentId !== atomId || inventory.declared !== parts.length || inventory.declaredContentParts !== parts.length ||
+      !same(inventory.rawParts, parts) || !empty(inventory.unsupportedParts) ||
+      raw?.method !== "BOUND_AUTHORING_DRAFT_API" || raw.courseId !== courseId || raw.itemId !== item.id || raw.assignmentId !== atomId ||
+      !same(raw.rawParts, parts) || !empty(raw.unsupportedParts) || !empty(raw.failures) || !Array.isArray(raw.receipts) ||
+      [inventory.candidates, raw.inventory, raw.groups, raw.questionDefinitions, raw.groupStability, assessment?.questions].some(values => !Array.isArray(values) || values.length !== parts.length) ||
+      assessment?.declaredQuestionCount !== parts.length || assessment.questionCount !== parts.length || assessment.answerEvidenceQuestionCount !== 0 ||
+      coverage?.declared !== parts.length || coverage.declaredContentParts !== parts.length || coverage.captured !== parts.length ||
+      coverage.questionCoverageComplete !== true || coverage.answerCoverageComplete !== false || coverage.requiredAnswerCoverageComplete !== true ||
+      !empty(coverage.missingQuestionOrdinals) || !empty(coverage.missingRequiredAnswerOrdinals) ||
+      !same(coverage.answerKeyNotApplicableQuestionOrdinals, parts.map((_, index) => index + 1)) ||
+      coverage.answerKeyApplicability !== "NOT_APPLICABLE_UNKEYED_NATIVE_REFLECTION" ||
+      evidence.declaredContentParts !== parts.length || !same(evidence.orderedGroupIds, inventory.candidates.map((candidate: any) => candidate.id)) ||
+      evidence.answerKeyApplicability !== "NOT_APPLICABLE_UNKEYED_NATIVE_REFLECTION" ||
+      proof?.method !== "BOUND_NATIVE_UNGRADED_REFLECTION_DEFINITIONS" || proof.courseId !== courseId || proof.itemId !== item.id || proof.atomId !== atomId ||
+      proof.sourceDraftSha256 !== evidence.draftHash || proof.questionCount !== parts.length || proof.answerKeyApplicable !== false) return false;
+  const index = (values: any[]) => {
+    const map = new Map<string, any>();
+    for (const value of values) { if (!record(value) || typeof value.id !== "string" || map.has(value.id)) return null; map.set(value.id, value); }
+    return map;
+  }, groups = index(raw.groups), definitions = index(raw.questionDefinitions), stable = index(raw.groupStability), seen = new Set<string>();
+  if (!groups || !definitions || !stable) return false;
+  for (let position = 0; position < parts.length; position++) {
+    const part = record(parts[position]), groupId = atomId + "~" + part?.definition?.id, group = groups.get(groupId), fresh = stable.get(groupId),
+      sourceId = group?.questions?.[0], original = definitions.get(sourceId), kind = original?.definition?.typeName,
+      native = record(original?.definition?.definition), q = record(assessment.questions[position]),
+      receipt = (resource: string, id: string) => raw.receipts.some((value: any) => directReceiptValid(value, resource, id));
+    if (part?.typeName !== "storedQuestionGroupPart" || !/^[A-Za-z0-9_-]{22}$/.test(part.definition?.id || "") || seen.has(groupId) ||
+        inventory.candidates[position]?.id !== groupId || inventory.candidates[position]?.ordinal !== position + 1 || raw.inventory[position]?.id !== groupId || raw.inventory[position]?.ordinal !== position + 1 ||
+        group?.id !== groupId || !Array.isArray(group.questions) || group.questions.length !== 1 ||
+        typeof sourceId !== "string" || !new RegExp("^" + atomId + "~[A-Za-z0-9_-]+@\\d+$").test(sourceId) ||
+        original?.id !== sourceId || fresh?.stable !== true || !same(group, fresh.group) ||
+        !directReceiptValid(fresh.receipt, "authoringAssignmentQuestionGroups.v1", groupId) || !receipt("authoringAssignmentQuestionGroups.v1", groupId) || !receipt("authoringAssignmentMachineEvaluableQuestions.v1", sourceId) ||
+        !/^(?:mcqReflect|checkboxReflect)$/.test(kind || "") || !native ||
+        Object.keys(native).some(key => !["prompt", "options", "shuffleOptions", "noChosenFeedback"].includes(key)) ||
+        typeof native.shuffleOptions !== "boolean" || !Array.isArray(native.options) || native.options.length < 2 || native.options.length > 100 ||
+        !q || q.id !== String(position + 1) || q.courseraQuestionId !== groupId || q.sourceDefinitionId !== sourceId || q.questionOrdinalObserved !== true ||
+        q.rawType !== kind || q.type !== (kind === "mcqReflect" ? "reflection-single-select" : "reflection-multiple-select") ||
+        q.observationMethod !== "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION" || q.optionTextReliable !== true || q.answerTextReliable !== false || q.answerKeyApplicable !== false ||
+        q.answerKeyEvidence?.method !== "NATIVE_REFLECTION_NO_KEY" || q.answerKeyEvidence.applicable !== false || q.answerKeyEvidence.nativeType !== kind ||
+        q.textFormat !== "PLAIN_TEXT" || !empty(q.correctAnswers) || q.feedback !== "" || q.shuffleOptions !== native.shuffleOptions ||
+        !Array.isArray(q.options) || q.options.length !== native.options.length) return false;
+    const prompt = read(native.prompt), noChosen = native.noChosenFeedback === undefined ? null : read(native.noChosenFeedback);
+    if (!prompt || q.prompt !== prompt || (native.noChosenFeedback !== undefined && noChosen === null) || q.noChosenFeedback !== noChosen ||
+        q.noChosenFeedbackStatus !== (native.noChosenFeedback === undefined ? "ABSENT" : noChosen === "" ? "EXPLICIT_EMPTY" : "PRESENT")) return false;
+    const optionIds = new Set<string>();
+    for (let optionPosition = 0; optionPosition < native.options.length; optionPosition++) {
+      const source = record(native.options[optionPosition]), option = record(q.options[optionPosition]),
+        text = read(source?.display), feedback = read(source?.feedback);
+      if (!source || Object.keys(source).some(key => !["id", "display", "feedback"].includes(key)) || typeof source.id !== "string" || !source.id || optionIds.has(source.id) ||
+          !text || feedback === null || !option || option.id !== source.id || option.sourceOptionId !== source.id || option.text !== text || option.label !== text ||
+          option.feedback !== feedback || option.correct !== null || option.description !== "" || !empty(option.aliases)) return false;
+      optionIds.add(source.id);
+    }
+    seen.add(groupId);
+  }
+  return true;
+}
+
+function directInstructionAssessmentSourcesValid(
+  item: Record<string, any>, payload: Record<string, any>, evidence: Record<string, any>,
+  definition: Record<string, any> | null, atomId: string, courseId: string,
+): boolean {
+  const raw = record(payload.assessmentApiEvidence), inventory = record(payload.directAssessmentInventory),
+    assessment = record(payload.structuredAssessment), coverage = record(assessment?.captureCompleteness),
+    proof = record(payload.directInstructionAssessmentEvidence), parts = definition?.parts,
+    blocks = assessment?.contentBlocks,
+    empty = (value: unknown) => Array.isArray(value) && value.length === 0,
+    same = (left: unknown, right: unknown) => {
+      if (left === undefined || right === undefined) return left === right;
+      return directModelHash(left) === directModelHash(right);
+    };
+  const read = (value: unknown) => {
+    const source = record(value), body = record(source?.definition);
+    if (source?.typeName !== "cml" || !/^(?:assess|staffGraded)\/1$/.test(body?.dtdId || "") || typeof body?.value !== "string") return null;
+    const parsed = directCmlMediaInventoryV1(body.value, 2);
+    return parsed.valid && !parsed.references.length ? parsed : null;
+  };
+  if (item.typeName !== "ungradedAssignment" || !definition ||
+      Object.keys(definition).some(key => !["parts", "configuration", "introduction", "reviewCriteria", "passingFraction", "assignmentLevelRubrics"].includes(key)) ||
+      definition.configuration?.isGraded !== false || !Array.isArray(parts) || parts.length < 1 || parts.length > 100 ||
+      !Array.isArray(blocks) || blocks.length !== parts.length ||
+      !record(definition.configuration) || (definition.assignmentLevelRubrics !== undefined && !empty(definition.assignmentLevelRubrics)) ||
+      (definition.passingFraction !== undefined && (typeof definition.passingFraction !== "number" || !Number.isFinite(definition.passingFraction) || definition.passingFraction < 0 || definition.passingFraction > 1)) ||
+      ["introduction", "reviewCriteria"].some(key => definition[key] !== undefined && !(Array.isArray(definition[key]) && !definition[key].length) && !read(definition[key])) ||
+      ["configuration", "introduction", "reviewCriteria", "passingFraction", "assignmentLevelRubrics"].some(key => !same(definition[key], assessment?.[key]) || !same(definition[key], inventory?.[key])) ||
+      inventory?.complete !== true || inventory.instructionOnly !== true || inventory.reason !== "EXACT_AUTHORING_DRAFT_INSTRUCTION_PARTS" ||
+      inventory.assignmentId !== atomId || inventory.declared !== 0 || inventory.declaredContentParts !== parts.length ||
+      !same(inventory.rawParts, parts) || !same(inventory.nonQuestionPartOrdinals, parts.map((_, index) => index + 1)) ||
+      !empty(inventory.candidates) || !empty(inventory.unsupportedParts) ||
+      raw?.method !== "BOUND_AUTHORING_DRAFT_API" || raw.courseId !== courseId || raw.itemId !== item.id || raw.assignmentId !== atomId ||
+      !same(raw.rawParts, parts) || !["inventory", "unsupportedParts", "groups", "questionDefinitions", "receipts", "groupStability", "failures"].every(key => empty(raw[key])) ||
+      assessment?.declaredQuestionCount !== 0 || assessment.questionCount !== 0 || assessment.answerEvidenceQuestionCount !== 0 || !empty(assessment.questions) ||
+      coverage?.declared !== 0 || coverage.declaredContentParts !== parts.length || coverage.captured !== 0 || coverage.capturedContentParts !== parts.length ||
+      !same(coverage.nonQuestionPartOrdinals, parts.map((_, index) => index + 1)) || coverage.questionCoverageComplete !== true ||
+      coverage.answerCoverageComplete !== true || coverage.requiredAnswerCoverageComplete !== true || coverage.sourceEmpty !== false ||
+      coverage.answerKeyApplicability !== "NOT_APPLICABLE_NON_QUESTION_CONTENT" || !empty(coverage.missingQuestionOrdinals) || !empty(coverage.missingRequiredAnswerOrdinals) ||
+      evidence.instructionOnly !== true || evidence.sourceEmpty !== false || evidence.declaredContentParts !== parts.length || !empty(evidence.orderedGroupIds) ||
+      !same(evidence.nonQuestionPartOrdinals, parts.map((_, index) => index + 1)) ||
+      proof?.method !== "BOUND_AUTHORING_DRAFT_INSTRUCTION_PARTS" || proof.courseId !== courseId || proof.itemId !== item.id || proof.atomId !== atomId ||
+      proof.sourceDraftSha256 !== evidence.draftHash || proof.sourceEmpty !== false || proof.contentParts !== parts.length || proof.questionCount !== 0 || proof.answerKeyApplicable !== false)
+    return false;
+  const ids = new Set<string>(); let characters = 0;
+  for (let index = 0; index < parts.length; index++) {
+    const part = record(parts[index]), source = record(part?.definition), body = record(source?.body),
+      cml = record(body?.definition), parsed = read(body), block = record(blocks[index]);
+    if (part?.typeName !== "storedTextBlockPart" || Object.keys(part).some(key => !["typeName", "definition"].includes(key)) ||
+        !source || Object.keys(source).some(key => !["id", "title", "body"].includes(key)) ||
+        typeof source.id !== "string" || !/^textBlock~[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(source.id) ||
+        ids.has(source.id) || typeof source.title !== "string" || !parsed || !block || !cml || typeof cml.value !== "string" ||
+        block.ordinal !== index + 1 || block.nativeId !== source.id || block.nativeType !== part.typeName ||
+        block.title !== source.title || !same(block.rawCML, body) || block.text !== parsed.text || block.textProjectionVersion !== 2 ||
+        block.rawCmlLength !== cml?.value.length || block.sourcePartSha256 !== directModelHash(part) ||
+        block.originalCmlSha256 !== bytesToHex(sha256(new TextEncoder().encode(cml.value))) ||
+        block.textSha256 !== bytesToHex(sha256(new TextEncoder().encode(parsed.text)))) return false;
+    characters += source.title.length + cml.value.length; if (characters > 4000000) return false;
+    ids.add(source.id);
+  }
+  const text = blocks.map((block: any) => [block.title, block.text].filter(Boolean).join("\n\n")).join("\n\n"),
+    digest = bytesToHex(sha256(new TextEncoder().encode(text)));
+  return assessment.instructionTextSha256 === digest && payload.textSample === text && payload.textLength === text.length &&
+    payload.textSha256 === digest && payload.textScopeKind === "bound-authoring-draft-instruction-parts" && payload.textCaptureTruncated === false;
 }
 
 function directDiscussionSourcesValid(
@@ -1277,8 +1470,11 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
       continue;
     }
     if (contract.status === "COMPLETE_BOUND_DRAFT_ASSESSMENT") {
+      const sourceType = sourceItems.get(item.id)?.sourceContentType,
+        supportedAssignment = sourceType === "staffGraded" ||
+          (["gradedAssignment", "ungradedAssignment"].includes(sourceType) && item.typeName === sourceType);
       if (
-        sourceItems.get(item.id)?.sourceContentType !== "staffGraded" ||
+        !supportedAssignment ||
         content?.typeName !== "staffGradedDraft" ||
         !directAssessmentSourcesValid(
           item,
@@ -1292,9 +1488,23 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         reasons.push(`DIRECT_DRAFT_ASSESSMENT_SOURCE_INVALID:${id}`);
       continue;
     }
+    if (contract.status === "COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT") {
+      if (sourceItems.get(item.id)?.sourceContentType !== "ungradedAssignment" || content?.typeName !== "staffGradedDraft" ||
+          !directReflectionAssessmentSourcesValid(item, payload, evidence, definition, atomId, courseId))
+        reasons.push(`DIRECT_DRAFT_REFLECTION_ASSESSMENT_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    if (contract.status === "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT") {
+      if (sourceItems.get(item.id)?.sourceContentType !== "ungradedAssignment" ||
+          content?.typeName !== "staffGradedDraft" ||
+          !directInstructionAssessmentSourcesValid(item, payload, evidence, definition, atomId, courseId))
+        reasons.push(`DIRECT_DRAFT_INSTRUCTION_ASSESSMENT_SOURCE_INVALID:${id}`);
+      continue;
+    }
     if (contract.status === "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT") {
       if (
-        sourceItems.get(item.id)?.sourceContentType !== "staffGraded" ||
+        !["staffGraded", "gradedAssignment", "ungradedAssignment"].includes(String(sourceItems.get(item.id)?.sourceContentType || "")) ||
+        (sourceItems.get(item.id)?.sourceContentType !== "staffGraded" && item.typeName !== sourceItems.get(item.id)?.sourceContentType) ||
         content?.typeName !== "staffGradedDraft" ||
         !directEmptyAssessmentSourcesValid(
           item,

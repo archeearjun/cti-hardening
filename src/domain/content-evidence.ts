@@ -50,6 +50,7 @@ import {
 import { choiceLabel, ctiAnswerText } from "./cti-answer-check.ts";
 import { qaObservedEmptyAssessmentReceipt_ } from "../engine/assessment/assignment.js";
 import { observeDirectNativeGrading } from "../engine/assessment/native-grading.js";
+import { qaNativeReflectionEvidence_ } from "../engine/assessment/questions.js";
 import {
   retainedCourseraAuthoringContent,
   retainedCourseraAuthoringSize,
@@ -1110,6 +1111,8 @@ export function capturedContent(
     source?: boolean;
     excerpt?: boolean;
     editorObserved?: boolean;
+    nativeItem?: unknown;
+    nativeCourseId?: string;
   },
 ): ContentEvidence {
   const p = contentObject(payload),
@@ -1117,7 +1120,15 @@ export function capturedContent(
     c = contentObject(a.captureCompleteness),
     d = contentObject(a.definitionCoverage);
   const raw = array(a.questions),
-    questions = raw.slice(0, 5000).map(contentQuestion);
+    nativeReflection = options.source ? null : qaNativeReflectionEvidence_(options.nativeItem, options.nativeCourseId),
+    questions = raw.slice(0, 5000).map((value, index) => {
+      const question = contentQuestion(value, index);
+      if (nativeReflection && JSON.stringify(value) === JSON.stringify(nativeReflection.questions[index])) {
+        question.limitations = question.limitations.filter((text) => text !== "Answer-key coverage is unverified or not applicable.");
+        question.limitations.push("Source-bound native reflection: the captured ungraded model has no authored correct-answer key. Choice correctness remains unmarked; published content and learner behavior are not verified by this observation.");
+      }
+      return question;
+    });
   const limitations: string[] = [];
   if (raw.length > 5000)
     limitations.push(
@@ -1629,6 +1640,8 @@ export function buildContentSnapshot(
       capturedAt: string(raw.extractedAt),
       url: courseraItemUrl({ stats: { extractorMeta: { ...contentObject(raw.meta), page: raw.page } } }, String(f.id ?? ""), "", f) || string(contentObject(raw.page).url),
       itemId: String(f.id ?? ""),
+      nativeItem: f,
+      nativeCourseId: string(contentObject(raw.page).courseId),
     });
     let authoringDraftSnapshot: CourseraAuthoringDraftSnapshot | null = null;
     if (contentObject(f.payload).directAuthoringDraftSnapshot !== undefined) {

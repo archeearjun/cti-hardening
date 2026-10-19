@@ -480,11 +480,12 @@ export function directEmptyAssessmentContractV1(
     raw = payload.assessmentApiEvidence;
   const empty = (value) => Array.isArray(value) && value.length === 0;
   const cml = (value) =>
-    value?.typeName === "cml" &&
+    value === undefined || (value?.typeName === "cml" &&
     /^(?:assess|staffGraded)\/1$/.test(value.definition?.dtdId || "") &&
     typeof value.definition?.value === "string" &&
-    directCmlTextV1(value.definition.value)?.references.length === 0;
+    directCmlTextV1(value.definition.value)?.references.length === 0);
   const same = (left, right) => {
+    if (left === undefined || right === undefined) return left === right;
     try {
       return (
         directCanonicalSourceTextV1(left) === directCanonicalSourceTextV1(right)
@@ -495,9 +496,10 @@ export function directEmptyAssessmentContractV1(
   };
   const valid = Boolean(
     evidence &&
-      fp.typeName === "staffGraded" &&
+      ["staffGraded", "gradedAssignment", "ungradedAssignment"].includes(fp.typeName) &&
       content?.typeName === "staffGradedDraft" &&
       empty(definition?.parts) &&
+      Object.keys(definition).every(key => ["parts", "configuration", "introduction", "reviewCriteria", "passingFraction", "assignmentLevelRubrics"].includes(key)) &&
       definition.configuration &&
       typeof definition.configuration === "object" &&
       !Array.isArray(definition.configuration) &&
@@ -599,6 +601,10 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
     coverage = assessment && assessment.captureCompleteness;
   if (Array.isArray(parts) && parts.length === 0)
     return directEmptyAssessmentContractV1(fp, assessment, inventory, bound);
+  if (Array.isArray(parts) && parts.length > 0 && parts.every(part => part?.typeName === "storedTextBlockPart"))
+    return directInstructionAssessmentContractV1(fp, assessment, inventory, bound);
+  if (Array.isArray(raw?.questionDefinitions) && raw.questionDefinitions.some(value => /^(?:mcqReflect|checkboxReflect)$/.test(value?.definition?.typeName || "")))
+    return directReflectionAssessmentContractV1(fp, assessment, inventory, bound);
   const metadata = directAssessmentMetadataCoverageV1(
     bound?.draft?.content?.definition,
     assessment,
@@ -716,7 +722,9 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
           ? [native?.correctOption]
           : kind === "checkbox"
             ? native?.correctOptions
-            : null;
+            : kind === "textExactMatch" && Array.isArray(native?.options)
+              ? native.options.filter(option => option?.isCorrect === true).map(option => option.id)
+              : null;
       if (
         part?.typeName !== "storedQuestionGroupPart" ||
         !/^[A-Za-z0-9_-]{22}$/.test(part.definition?.id || "") ||
@@ -759,7 +767,7 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
         !correct.length ||
         new Set(correct).size !== correct.length ||
         !Array.isArray(native.options) ||
-        native.options.length < 2 ||
+        native.options.length < (kind === "textExactMatch" ? 1 : 2) ||
         native.options.length > 100 ||
         native.options.some(
           (option) => typeof option?.id !== "string" || !option.id,
@@ -799,7 +807,14 @@ export function directAssessmentContractV1(fp, assessment, inventory, bound) {
             question.answerKeyEvidence?.method !==
               "EXACT_CORRECT_OPTION_ID_SET" ||
             JSON.stringify(question.answerKeyEvidence.correctOptions) !==
-              JSON.stringify(native.correctOptions)))
+              JSON.stringify(native.correctOptions))) ||
+        (kind === "textExactMatch" &&
+          (question.type !== "text-entry" ||
+            question.rawType !== "textExactMatch" ||
+            question.defaultIncorrectFeedback !== projection.defaultIncorrectFeedback ||
+            question.options.some(option => option.description !== "" || !Array.isArray(option.aliases) || option.aliases.length !== 0) ||
+            question.answerKeyEvidence?.method !== "EXPLICIT_TEXT_EXACT_MATCH_OPTIONS" ||
+            JSON.stringify(question.answerKeyEvidence.correctOptionIds) !== JSON.stringify(correct)))
       ) {
         valid = false;
         break;
@@ -917,11 +932,47 @@ export function directAssessmentMetadataCoverageV1(
   return { valid: true, reason: "", references };
 }
 
+/** The observed exact-text model declares literal accepted/rejected answers.
+ * Preserve every string and correctness flag; do not simulate case folding,
+ * trimming, regular expressions, numeric tolerance or learner grading. */
+export function directTextExactMatchProjectionV1(element) {
+  const native = element?.definition?.definition;
+  if (element?.definition?.typeName !== "textExactMatch" || !native ||
+      Object.keys(native).some(key => !["prompt", "options", "defaultIncorrectFeedback"].includes(key)) ||
+      !Array.isArray(native.options) || native.options.length < 1 || native.options.length > 100)
+    return null;
+  const read = source => {
+    if (source?.typeName !== "cml" || !/^(?:assess|staffGraded)\/1$/.test(source.definition?.dtdId || "")) return null;
+    const parsed = directCmlMediaInventoryV1(source.definition?.value);
+    return parsed.valid && !parsed.references.length ? parsed.text : null;
+  };
+  const prompt = read(native.prompt), defaultIncorrectFeedback = read(native.defaultIncorrectFeedback);
+  if (!prompt || defaultIncorrectFeedback == null) return null;
+  const ids = new Set(), answers = new Set(), options = [];
+  for (const source of native.options) {
+    const feedback = read(source?.feedback);
+    if (!source || Object.keys(source).some(key => !["id", "answer", "isCorrect", "feedback"].includes(key)) ||
+        typeof source.id !== "string" || !source.id || ids.has(source.id) ||
+        typeof source.answer !== "string" || !source.answer || source.answer.length > 100000 ||
+        answers.has(source.answer) || typeof source.isCorrect !== "boolean" || feedback == null)
+      return null;
+    ids.add(source.id); answers.add(source.answer);
+    options.push({id: source.id, sourceOptionId: source.id, text: source.answer, label: source.answer,
+      description: "", aliases: [], correct: source.isCorrect, feedback});
+  }
+  const correctAnswers = options.filter(option => option.correct).map(option => option.text);
+  if (!correctAnswers.length) return null;
+  return {textFormat: "PLAIN_TEXT", prompt, options, correctAnswers, feedback: "",
+    defaultIncorrectFeedback, shuffleOptions: null};
+}
+
 /** Derive learner text from the native definition without HTML interpretation.
  * No media URL can substitute for the body of an assessment image/attachment. */
 export function directAssessmentQuestionProjectionV1(element) {
   const kind = element?.definition?.typeName,
     native = element?.definition?.definition;
+  if (kind === "textExactMatch") return directTextExactMatchProjectionV1(element);
+  if (/^(?:mcqReflect|checkboxReflect)$/.test(kind || "")) return directReflectionQuestionProjectionV1(element);
   if (
     !/^(?:mcq|checkbox)$/.test(kind || "") ||
     !Array.isArray(native?.options) ||
@@ -1329,4 +1380,208 @@ export function parseCourseraCheckboxDefinitionDirectV1(element, candidate) {
     observedAtMs: Date.now(),
     parserConfidence: 0.98,
   };
+}
+
+/** Exact native IDs and literal source keys establish this projection. The
+ * independent draft/group/source stability contracts still decide coverage. */
+export function directQuestionIdentityV1(element, candidate) {
+  return /^[A-Za-z0-9_-]+~[A-Za-z0-9_-]+@\d+$/.test(element?.id || "") &&
+    /^[A-Za-z0-9_-]+~[A-Za-z0-9_-]+$/.test(candidate?.id || "") &&
+    element.id.split("~")[0] === candidate.id.split("~")[0] &&
+    Number.isSafeInteger(candidate.ordinal) && candidate.ordinal >= 1;
+}
+
+export function parseCourseraTextExactMatchDefinitionDirectV1(element, candidate) {
+  const projection = directTextExactMatchProjectionV1(element);
+  if (!projection || !directQuestionIdentityV1(element, candidate)) return null;
+  return {...projection, id: String(candidate.ordinal), courseraQuestionId: candidate.id,
+    sourceDefinitionId: element.id, questionOrdinalObserved: true, type: "text-entry", rawType: "textExactMatch",
+    points: null, optionTextReliable: true, answerTextReliable: true,
+    answerKeyEvidence: {method: "EXPLICIT_TEXT_EXACT_MATCH_OPTIONS",
+      correctOptionIds: projection.options.filter(option => option.correct).map(option => option.sourceOptionId)},
+    observationMethod: "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION", observedAtMs: Date.now(), parserConfidence: 0.98};
+}
+
+/** Original authored instruction blocks are content parts, not questions or an
+ * empty assessment. Their source order and original CML remain explicit. */
+export function directInstructionBlocksProjectionV1(parts) {
+  if (!Array.isArray(parts) || parts.length < 1 || parts.length > 100) return null;
+  const blocks = [], ids = new Set(); let characters = 0;
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index], source = part?.definition, body = source?.body;
+    if (part?.typeName !== "storedTextBlockPart" ||
+        Object.keys(part).some(key => !["typeName", "definition"].includes(key)) ||
+        !source || Object.keys(source).some(key => !["id", "title", "body"].includes(key)) ||
+        typeof source.id !== "string" || !/^textBlock~[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(source.id) ||
+        ids.has(source.id) || typeof source.title !== "string" || body?.typeName !== "cml" ||
+        !/^(?:assess|staffGraded)\/1$/.test(body.definition?.dtdId || "") || typeof body.definition.value !== "string") return null;
+    characters += source.title.length + body.definition.value.length;
+    if (characters > 4000000) return null;
+    const parsed = directCmlMediaInventoryV1(body.definition.value, 2);
+    if (!parsed.valid || parsed.references.length) return null;
+    ids.add(source.id);
+    blocks.push({ordinal: index + 1, nativeId: source.id, nativeType: part.typeName,
+      title: source.title, rawCML: body, text: parsed.text, textProjectionVersion: 2,
+      rawCmlLength: body.definition.value.length});
+  }
+  return blocks;
+}
+
+export async function directInstructionAssessmentModelV1(inventory) {
+  const blocks = inventory?.instructionOnly === true && inventory.complete === true &&
+    directInstructionBlocksProjectionV1(inventory.rawParts);
+  if (!blocks) throw Error("DIRECT_INSTRUCTION_SOURCE_UNSUPPORTED");
+  for (const block of blocks) {
+    block.sourcePartSha256 = await sha256(directCanonicalSourceTextV1(inventory.rawParts[block.ordinal - 1]));
+    block.originalCmlSha256 = await sha256(block.rawCML.definition.value);
+    block.textSha256 = await sha256(block.text);
+    if (![block.sourcePartSha256, block.originalCmlSha256, block.textSha256].every(value => /^[a-f0-9]{64}$/.test(value || "")))
+      throw Error("DIRECT_INSTRUCTION_HASH_UNAVAILABLE");
+  }
+  const text = blocks.map(block => [block.title, block.text].filter(Boolean).join("\n\n")).join("\n\n");
+  return {schemaVersion: 6, parser: "coursera-bound-authoring-draft-instruction-api-v1", origin: "coursera-authoring-api",
+    declaredQuestionCount: 0, questionCount: 0, answerEvidenceQuestionCount: 0, questions: [], contentBlocks: blocks,
+    instructionTextSha256: await sha256(text), captureCompleteness: {declared: 0, declaredContentParts: blocks.length,
+      nonQuestionPartOrdinals: blocks.map(block => block.ordinal), captured: 0, capturedContentParts: blocks.length,
+      questionCoverageComplete: true, answerCoverageComplete: true, requiredAnswerCoverageComplete: true,
+      missingQuestionOrdinals: [], missingRequiredAnswerOrdinals: [], sourceEmpty: false,
+      answerKeyApplicability: "NOT_APPLICABLE_NON_QUESTION_CONTENT", stopReason: "EXACT_AUTHORING_DRAFT_INSTRUCTION_PARTS"},
+    configuration: inventory.configuration, introduction: inventory.introduction, reviewCriteria: inventory.reviewCriteria,
+    passingFraction: inventory.passingFraction, assignmentLevelRubrics: inventory.assignmentLevelRubrics, warnings: []};
+}
+
+export function directInstructionAssessmentContractV1(fp, assessment, inventory, bound) {
+  const payload = fp.payload || (fp.payload = {}), evidence = directSourceBindingEvidenceV1(fp, bound),
+    definition = bound?.draft?.content?.definition, parts = definition?.parts,
+    projected = directInstructionBlocksProjectionV1(parts), blocks = assessment?.contentBlocks,
+    raw = payload.assessmentApiEvidence, coverage = assessment?.captureCompleteness,
+    metadata = directAssessmentMetadataCoverageV1(definition, assessment, inventory),
+    empty = value => Array.isArray(value) && value.length === 0,
+    same = (left, right) => { try { return directCanonicalSourceTextV1(left) === directCanonicalSourceTextV1(right); } catch (_) { return false; } };
+  const valid = Boolean(evidence && fp.typeName === "ungradedAssignment" && definition?.configuration?.isGraded === false &&
+    Object.keys(definition).every(key => ["parts", "configuration", "introduction", "reviewCriteria", "passingFraction", "assignmentLevelRubrics"].includes(key)) &&
+    projected && metadata.valid && inventory?.complete === true && inventory.instructionOnly === true &&
+    inventory.reason === "EXACT_AUTHORING_DRAFT_INSTRUCTION_PARTS" && inventory.assignmentId === bound.atomId &&
+    inventory.declared === 0 && inventory.declaredContentParts === parts.length &&
+    same(inventory.rawParts, parts) && same(inventory.nonQuestionPartOrdinals, projected.map(block => block.ordinal)) &&
+    empty(inventory.candidates) && empty(inventory.unsupportedParts) &&
+    raw?.method === "BOUND_AUTHORING_DRAFT_API" && raw.courseId === bound.courseId && raw.itemId === fp.id && raw.assignmentId === bound.atomId &&
+    same(raw.rawParts, parts) && ["inventory", "unsupportedParts", "groups", "questionDefinitions", "receipts", "groupStability", "failures"].every(key => empty(raw[key])) &&
+    assessment?.declaredQuestionCount === 0 && assessment.questionCount === 0 && assessment.answerEvidenceQuestionCount === 0 && empty(assessment.questions) &&
+    Array.isArray(blocks) && blocks.length === parts.length && blocks.every((block, index) =>
+      ["ordinal", "nativeId", "nativeType", "title", "rawCML", "text", "textProjectionVersion", "rawCmlLength"].every(key => same(block[key], projected[index][key])) &&
+      [block.sourcePartSha256, block.originalCmlSha256, block.textSha256].every(value => /^[a-f0-9]{64}$/.test(value || ""))) &&
+    /^[a-f0-9]{64}$/.test(assessment.instructionTextSha256 || "") && coverage?.declared === 0 &&
+    coverage.declaredContentParts === parts.length && coverage.captured === 0 && coverage.capturedContentParts === parts.length &&
+    same(coverage.nonQuestionPartOrdinals, projected.map(block => block.ordinal)) && coverage.questionCoverageComplete === true &&
+    coverage.requiredAnswerCoverageComplete === true && coverage.answerCoverageComplete === true &&
+    coverage.sourceEmpty === false && coverage.answerKeyApplicability === "NOT_APPLICABLE_NON_QUESTION_CONTENT" &&
+    empty(coverage.missingQuestionOrdinals) && empty(coverage.missingRequiredAnswerOrdinals));
+  if (evidence) payload.directDataEvidence = {...evidence, declaredContentParts: Array.isArray(parts) ? parts.length : 0,
+    orderedGroupIds: [], sourceEmpty: false, instructionOnly: valid, nonQuestionPartOrdinals: projected?.map(block => block.ordinal) || []};
+  if (assessment) payload.structuredAssessment = assessment;
+  if (valid) {
+    payload.textSample = blocks.map(block => [block.title, block.text].filter(Boolean).join("\n\n")).join("\n\n");
+    payload.textLength = payload.textSample.length; payload.textSha256 = assessment.instructionTextSha256;
+    payload.textScopeKind = "bound-authoring-draft-instruction-parts"; payload.textCaptureTruncated = false;
+    payload.directInstructionAssessmentEvidence = {method: "BOUND_AUTHORING_DRAFT_INSTRUCTION_PARTS", courseId: bound.courseId,
+      itemId: fp.id, atomId: bound.atomId, sourceDraftSha256: evidence.draftHash, sourceEmpty: false,
+      contentParts: blocks.length, questionCount: 0, answerKeyApplicable: false};
+  }
+  return applyDirectContractV1(fp, valid ? "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT" : "UNRESOLVED_DIRECT_ASSESSMENT", valid,
+    valid ? [] : ["DIRECT_INSTRUCTION_ASSESSMENT_SOURCE_OR_COVERAGE_INCOMPLETE", ...(metadata.reason ? [metadata.reason] : [])]);
+}
+
+/** A native reflection offers choices without declaring any answer key. Null
+ * correctness means not applicable; it must never become false or an answer. */
+export function directReflectionQuestionProjectionV1(element) {
+  const kind = element?.definition?.typeName, native = element?.definition?.definition;
+  if (!/^(?:mcqReflect|checkboxReflect)$/.test(kind || "") || !native ||
+      Object.keys(native).some(key => !["prompt", "options", "shuffleOptions", "noChosenFeedback"].includes(key)) ||
+      typeof native.shuffleOptions !== "boolean" || !Array.isArray(native.options) || native.options.length < 2 || native.options.length > 100) return null;
+  const read = source => {
+    if (source?.typeName !== "cml" || !/^(?:assess|staffGraded)\/1$/.test(source.definition?.dtdId || "")) return null;
+    const parsed = directCmlMediaInventoryV1(source.definition?.value);
+    return parsed.valid && !parsed.references.length ? parsed.text : null;
+  };
+  const prompt = read(native.prompt), noChosenFeedback = native.noChosenFeedback === undefined ? null : read(native.noChosenFeedback);
+  if (!prompt || (native.noChosenFeedback !== undefined && noChosenFeedback == null)) return null;
+  const ids = new Set(), options = [];
+  for (const source of native.options) {
+    const text = read(source?.display), feedback = read(source?.feedback);
+    if (!source || Object.keys(source).some(key => !["id", "display", "feedback"].includes(key)) ||
+        typeof source.id !== "string" || !source.id || ids.has(source.id) || !text || feedback == null) return null;
+    ids.add(source.id); options.push({id: source.id, sourceOptionId: source.id, text, label: text,
+      description: "", aliases: [], correct: null, feedback});
+  }
+  return {textFormat: "PLAIN_TEXT", prompt, options, correctAnswers: [], feedback: "", shuffleOptions: native.shuffleOptions,
+    noChosenFeedback, noChosenFeedbackStatus: native.noChosenFeedback === undefined ? "ABSENT" : noChosenFeedback === "" ? "EXPLICIT_EMPTY" : "PRESENT"};
+}
+
+export function parseCourseraReflectionDefinitionDirectV1(element, candidate) {
+  const projection = directReflectionQuestionProjectionV1(element), kind = element?.definition?.typeName;
+  if (!projection || !directQuestionIdentityV1(element, candidate)) return null;
+  return {...projection, id: String(candidate.ordinal), courseraQuestionId: candidate.id, sourceDefinitionId: element.id,
+    questionOrdinalObserved: true, type: kind === "mcqReflect" ? "reflection-single-select" : "reflection-multiple-select", rawType: kind,
+    points: null, optionTextReliable: true, answerTextReliable: false, answerKeyApplicable: false,
+    answerKeyEvidence: {method: "NATIVE_REFLECTION_NO_KEY", applicable: false, nativeType: kind},
+    observationMethod: "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION", observedAtMs: Date.now(), parserConfidence: 0.98};
+}
+
+export function directReflectionAssessmentContractV1(fp, assessment, inventory, bound) {
+  const payload = fp.payload || (fp.payload = {}), evidence = directSourceBindingEvidenceV1(fp, bound),
+    definition = bound?.draft?.content?.definition, parts = definition?.parts, raw = payload.assessmentApiEvidence,
+    metadata = directAssessmentMetadataCoverageV1(definition, assessment, inventory),
+    empty = value => Array.isArray(value) && value.length === 0,
+    same = (left, right) => { try { return directCanonicalSourceTextV1(left) === directCanonicalSourceTextV1(right); } catch (_) { return false; } };
+  let valid = Boolean(evidence && fp.typeName === "ungradedAssignment" && definition?.configuration?.isGraded === false && metadata.valid &&
+    Array.isArray(parts) && parts.length > 0 && inventory?.complete === true && inventory.assignmentId === bound.atomId &&
+    inventory.declared === parts.length && inventory.declaredContentParts === parts.length && empty(inventory.unsupportedParts) &&
+    same(inventory.rawParts, parts) && Array.isArray(inventory.candidates) && inventory.candidates.length === parts.length &&
+    raw?.method === "BOUND_AUTHORING_DRAFT_API" && raw.courseId === bound.courseId && raw.itemId === fp.id && raw.assignmentId === bound.atomId &&
+    same(raw.rawParts, parts) && empty(raw.unsupportedParts) && empty(raw.failures) && Array.isArray(raw.receipts) &&
+    [raw.groups, raw.groupStability, raw.questionDefinitions, raw.inventory, assessment?.questions].every(values => Array.isArray(values) && values.length === parts.length) &&
+    assessment.declaredQuestionCount === parts.length && assessment.questionCount === parts.length && assessment.answerEvidenceQuestionCount === 0);
+  const index = values => {
+    if (!Array.isArray(values)) return null;
+    const map = new Map(); for (const value of values) {
+      if (typeof value?.id !== "string" || map.has(value.id)) return null; map.set(value.id, value);
+    } return map;
+  }, groups = index(raw?.groups), stable = index(raw?.groupStability), definitions = index(raw?.questionDefinitions), seen = new Set();
+  valid &&= Boolean(groups && stable && definitions);
+  for (let position = 0; valid && position < parts.length; position++) {
+    const part = parts[position], groupId = bound.atomId + "~" + part?.definition?.id,
+      group = groups.get(groupId), fresh = stable.get(groupId), sourceId = group?.questions?.[0], original = definitions.get(sourceId),
+      projection = directReflectionQuestionProjectionV1(original), q = assessment.questions[position], kind = original?.definition?.typeName;
+    const receipt = (resource, id) => raw.receipts.some(value => directReceiptSourceValidV1(value, resource, id));
+    valid = Boolean(part?.typeName === "storedQuestionGroupPart" && /^[A-Za-z0-9_-]{22}$/.test(part.definition?.id || "") && !seen.has(groupId) &&
+      inventory.candidates[position]?.id === groupId && inventory.candidates[position]?.ordinal === position + 1 &&
+      raw.inventory[position]?.id === groupId && raw.inventory[position]?.ordinal === position + 1 &&
+      group?.id === groupId && Array.isArray(group.questions) && group.questions.length === 1 &&
+      typeof sourceId === "string" && new RegExp("^" + bound.atomId + "~[A-Za-z0-9_-]+@\\d+$").test(sourceId) &&
+      original?.id === sourceId && projection && fresh?.stable === true && same(group, fresh.group) &&
+      directReceiptSourceValidV1(fresh.receipt, "authoringAssignmentQuestionGroups.v1", groupId) &&
+      receipt("authoringAssignmentQuestionGroups.v1", groupId) && receipt("authoringAssignmentMachineEvaluableQuestions.v1", sourceId) &&
+      q?.id === String(position + 1) && q.courseraQuestionId === groupId && q.sourceDefinitionId === sourceId && q.questionOrdinalObserved === true &&
+      q.rawType === kind && q.type === (kind === "mcqReflect" ? "reflection-single-select" : "reflection-multiple-select") &&
+      q.observationMethod === "AUTHORING_DRAFT_PARTS_AND_EXACT_DEFINITION" && q.optionTextReliable === true && q.answerTextReliable === false &&
+      q.answerKeyApplicable === false && q.answerKeyEvidence?.method === "NATIVE_REFLECTION_NO_KEY" &&
+      q.answerKeyEvidence.applicable === false && q.answerKeyEvidence.nativeType === kind &&
+      ["textFormat", "prompt", "options", "correctAnswers", "feedback", "shuffleOptions", "noChosenFeedback", "noChosenFeedbackStatus"].every(key => same(q[key], projection[key])));
+    seen.add(groupId);
+  }
+  if (evidence) payload.directDataEvidence = {...evidence, declaredContentParts: Array.isArray(parts) ? parts.length : 0,
+    orderedGroupIds: inventory?.candidates?.map(candidate => candidate.id) || [],
+    answerKeyApplicability: valid ? "NOT_APPLICABLE_UNKEYED_NATIVE_REFLECTION" : "UNVERIFIED"};
+  if (assessment) payload.structuredAssessment = assessment;
+  if (valid) {
+    assessment.captureCompleteness = {declared: parts.length, declaredContentParts: parts.length, captured: parts.length,
+      questionCoverageComplete: true, answerCoverageComplete: false, requiredAnswerCoverageComplete: true,
+      missingQuestionOrdinals: [], missingRequiredAnswerOrdinals: [], answerKeyNotApplicableQuestionOrdinals: parts.map((_, index) => index + 1),
+      answerKeyApplicability: "NOT_APPLICABLE_UNKEYED_NATIVE_REFLECTION", stopReason: "BOUND_NATIVE_UNGRADED_REFLECTION_DEFINITIONS"};
+    payload.directReflectionAssessmentEvidence = {method: "BOUND_NATIVE_UNGRADED_REFLECTION_DEFINITIONS", courseId: bound.courseId,
+      itemId: fp.id, atomId: bound.atomId, sourceDraftSha256: evidence.draftHash, questionCount: parts.length, answerKeyApplicable: false};
+  }
+  return applyDirectContractV1(fp, valid ? "COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT" : "UNRESOLVED_DIRECT_ASSESSMENT", valid,
+    valid ? [] : ["DIRECT_REFLECTION_ASSESSMENT_SOURCE_OR_COVERAGE_INCOMPLETE", ...(metadata.reason ? [metadata.reason] : [])]);
 }

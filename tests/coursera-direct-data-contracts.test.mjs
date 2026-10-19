@@ -20,6 +20,7 @@ import {
 import { directCmlMediaInventoryV1 } from "../src/extractors/coursera/direct-data-media-contracts.js";
 import { parseCourseraMcqDefinitionV61524 } from "../src/extractors/coursera/assessment-api.js";
 import { assessmentCaptureCoverageV613 } from "../src/extractors/coursera/assessments-4.js";
+import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
 
 const courseId = "Synthetic_course_123",
   slug = "synthetic-course",
@@ -1429,4 +1430,232 @@ test("missing parts, discarded settings, hidden questions and unfetched introduc
       mode,
     );
   }
+});
+
+// The observed empty ungraded-assignment model has these four definition
+// fields. Optional CML is absent, rather than null or fabricated empty text.
+function observedEmptyAssignmentFixture(typeName = "ungradedAssignment") {
+  const f = emptyAssessmentFixture(),
+    definition = f.bound.atom.draft.content.definition;
+  f.fp.typeName = typeName;
+  definition.configuration = {
+    isGraded: typeName !== "ungradedAssignment",
+    gradeSelectionStrategy: "KEEP_LATEST",
+    learnerSubmissionVisibility: "VISIBLE",
+    isTeamSubmissionEnabled: false,
+    attemptConfiguration: { submissionLimitForEachAttempt: 1 },
+    learnerFeedbackVisibility: "FULL",
+    showGradeOnGradeRelease: true,
+    integrityCheckConfigurationStatus: "DISABLED",
+    assignmentType: "STANDARD",
+  };
+  definition.passingFraction = 0;
+  delete definition.introduction;
+  delete definition.reviewCriteria;
+  f.sources.receipts.stability.atom = structuredClone(f.sources.atom);
+  f.sources.receipts.stability.draftHash = createHash("sha256")
+    .update(directCanonicalSourceTextV1(f.bound.atom.draft))
+    .digest("hex");
+  f.inventory = directDraftAssessmentInventoryV1(f.bound);
+  f.fp.payload.directAssessmentInventory = f.inventory;
+  for (const key of [
+    "configuration",
+    "introduction",
+    "reviewCriteria",
+    "passingFraction",
+    "assignmentLevelRubrics",
+  ]) {
+    if (Object.hasOwn(definition, key))
+      f.assessment[key] = structuredClone(definition[key]);
+    else delete f.assessment[key];
+  }
+  return f;
+}
+
+test("known assignment aliases preserve explicitly empty parts with absent optional CML as source observations", () => {
+  for (const typeName of [
+    "staffGraded",
+    "gradedAssignment",
+    "ungradedAssignment",
+  ]) {
+    const f = observedEmptyAssignmentFixture(typeName),
+      before = JSON.stringify(f.sources),
+      configuration = structuredClone(
+        f.bound.atom.draft.content.definition.configuration,
+      );
+    assert.deepEqual(
+      Object.keys(f.bound.atom.draft.content.definition).sort(),
+      ["assignmentLevelRubrics", "configuration", "parts", "passingFraction"],
+    );
+    const result = directAssessmentContractV1(
+      f.fp,
+      f.assessment,
+      f.inventory,
+      f.bound,
+    );
+    assert.equal(result.complete, true, typeName);
+    assert.equal(result.status, "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT");
+    assert.deepEqual(f.assessment.configuration, configuration);
+    assert.equal(Object.hasOwn(f.assessment, "introduction"), false);
+    assert.equal(Object.hasOwn(f.assessment, "reviewCriteria"), false);
+    assert.deepEqual(f.assessment.questions, []);
+    assert.equal(
+      f.fp.payload.explicitEmptyAssessmentEvidence.answerKeyApplicable,
+      false,
+    );
+    assert.equal(
+      f.fp.payload.directDataEvidence.sourceState,
+      "AUTHORING_DRAFT",
+    );
+    assert.equal(
+      JSON.stringify(f.sources),
+      before,
+      "The contract cannot rewrite source observations",
+    );
+  }
+});
+
+test("empty alias support rejects hidden content, null optionals, fabricated projections and stale or unrelated sources", () => {
+  const cases = [
+    [
+      "missing parts",
+      (f, d) => {
+        delete d.parts;
+      },
+    ],
+    [
+      "null parts",
+      (f, d) => {
+        d.parts = null;
+      },
+    ],
+    [
+      "ignored definition questions",
+      (f, d) => {
+        d.questions = [{ prompt: "Hidden native question" }];
+      },
+    ],
+    [
+      "explicit null introduction",
+      (f, d) => {
+        d.introduction = null;
+        f.assessment.introduction = null;
+        f.inventory.introduction = null;
+      },
+    ],
+    [
+      "explicit null review criteria",
+      (f, d) => {
+        d.reviewCriteria = null;
+        f.assessment.reviewCriteria = null;
+        f.inventory.reviewCriteria = null;
+      },
+    ],
+    [
+      "invented absent introduction",
+      (f) => {
+        f.assessment.introduction = cml("Not in the source");
+      },
+    ],
+    [
+      "invented absent criteria in inventory",
+      (f) => {
+        f.inventory.reviewCriteria = cml("Not in the source");
+      },
+    ],
+    [
+      "lost source configuration",
+      (f) => {
+        delete f.assessment.configuration;
+      },
+    ],
+    [
+      "lost nested source configuration",
+      (f) => {
+        delete f.assessment.configuration.attemptConfiguration;
+      },
+    ],
+    [
+      "lost passing fraction",
+      (f) => {
+        delete f.inventory.passingFraction;
+      },
+    ],
+    [
+      "hidden rubric",
+      (f, d) => {
+        d.assignmentLevelRubrics.push({ criteria: "Uncaptured rubric" });
+      },
+    ],
+    [
+      "source media",
+      (f, d) => {
+        d.introduction = {
+          typeName: "cml",
+          definition: {
+            dtdId: "assess/1",
+            value:
+              '<co-content><img src="https://example.test/not-retained.png"/></co-content>',
+          },
+        };
+        f.assessment.introduction = structuredClone(d.introduction);
+        f.inventory.introduction = structuredClone(d.introduction);
+      },
+    ],
+    [
+      "unknown assignment alias",
+      (f) => {
+        f.fp.typeName = "futureAssignment";
+      },
+    ],
+    [
+      "published atom",
+      (f) => {
+        f.bound.atom.status.typeName = "publishedAtomStatus";
+      },
+    ],
+    [
+      "wrong item binding",
+      (f) => {
+        f.bound.itemId = "other-item";
+      },
+    ],
+    [
+      "wrong empty evidence scope",
+      (f) => {
+        f.fp.payload.assessmentApiEvidence.courseId = "other-course";
+      },
+    ],
+    [
+      "failed current recheck",
+      (f) => {
+        f.fp.payload.directResumeRevalidation = { verified: false };
+      },
+    ],
+  ];
+  for (const [name, mutate] of cases) {
+    const f = observedEmptyAssignmentFixture(),
+      definition = f.bound.atom.draft.content.definition;
+    mutate(f, definition);
+    // A coordinated final source copy must not hide unsupported native fields.
+    f.sources.receipts.stability.atom = structuredClone(f.sources.atom);
+    assert.equal(
+      directAssessmentContractV1(f.fp, f.assessment, f.inventory, f.bound)
+        .complete,
+      false,
+      name,
+    );
+  }
+  const stale = observedEmptyAssignmentFixture();
+  stale.sources.receipts.stability.atom.elements[0].draft.content.definition.configuration.isGraded = true;
+  assert.equal(
+    directAssessmentContractV1(
+      stale.fp,
+      stale.assessment,
+      stale.inventory,
+      stale.bound,
+    ).complete,
+    false,
+    "A fresh source change cannot be concealed by explicit zero counts",
+  );
 });

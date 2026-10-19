@@ -6,6 +6,8 @@ import { directInlineWidgetEvidenceV1 } from "../extractors/coursera/direct-data
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import { directPublisherResourceEvidenceV1 } from "../extractors/coursera/direct-data-publisher.js";
 import { directPublisherMediaStructureV1, directPublisherImageKindV1 } from "../extractors/coursera/direct-data-publisher-media.js";
+import { directPublisherFirstPartyPlanV1 } from "../extractors/coursera/direct-data-publisher-first-party.js";
+import { directMaterialStabilityModelV1 } from "../extractors/coursera/direct-data-material-stability.js";
 
 export const MAX_COURSERA_ARCHIVE_BYTES = 640 * 1024 * 1024;
 export const MAX_COURSERA_ARCHIVE_ORIGINAL_BYTES = 512 * 1024 * 1024;
@@ -93,9 +95,54 @@ function validPath(path: string): boolean {
   return path === "capture.json.gz" || /^files\/[a-f0-9]{64}$/.test(path);
 }
 
+/** Validate a frozen recovery manifest once per archive, then use exact source
+ * membership for each body. This is ownership context, not HTTP attestation. */
+function publisherFirstPartyRecoveryValid(captureMode: any, courseId: string, receipt: any, cache: Map<any,any>): boolean {
+  try {
+    const matches = (contexts: Map<string,any>) => {
+      const binding = receipt.firstPartyBinding, context = contexts.get(binding?.sessionId + ":" + binding?.planSha256);
+      return Boolean(context && Date.parse(context.readyAt) <= Date.parse(receipt.responseObservedAt) &&
+        context.entries.has(directCanonicalSourceTextV1({itemId:binding.itemId,atomId:binding.atomId,providerId:binding.providerId,
+          targetUrl:binding.targetUrl,imageUrl:receipt.requestedUrl,sourceSha256:binding.sourceSha256})));
+    };
+    if (cache.has(captureMode)) return matches(cache.get(captureMode));
+    const hashValue = (value: unknown) => bytesToHex(sha256(new TextEncoder().encode(directCanonicalSourceTextV1(value)))),
+      history = captureMode?.firstPartyRecoveryHistory;
+    if (history !== undefined && (!Array.isArray(history) || history.length > 16)) return false;
+    const contexts = [captureMode?.firstPartyRecovery,...(history || [])], seen = new Set<string>(),
+      comparison = captureMode?.materialStability,
+      initial = captureMode?.materials?.elements?.[0];
+    if (!initial || initial.id !== courseId || comparison?.policy !== "NATIVE_ASSIGNMENT_FEATURE_FLAGS_V1" ||
+        hashValue(directMaterialStabilityModelV1(initial)) !== comparison.initialSha256 ||
+        captureMode.finalMaterials && (hashValue(directMaterialStabilityModelV1(captureMode.finalMaterials.elements?.[0])) !== comparison.initialSha256 ||
+          comparison.finalSha256 !== comparison.initialSha256)) return false;
+    const prepared = new Map<string,any>();
+    for (const context of contexts) {
+      const plan = context && directPublisherFirstPartyPlanV1(courseId,context.entries);
+      if (!plan || Object.keys(context).length !== 14 || Object.keys(context).some(key => !["scope","courseId","origin","planSha256","sessionId","requestedAt","readyAt",
+          "pinnedRunId","pinnedMaterialHash","pinnedComparisonSha256","entries","publisherPagesRefetched","wholeWidgetVerified","publishedContentVerified"].includes(key)) ||
+          context.scope !== "PLANNED_PUBLISHER_IMAGES" || context.courseId !== courseId || context.origin !== plan.origin ||
+          !/^[a-f0-9]{64}$/.test(context.pinnedMaterialHash || "") || context.pinnedComparisonSha256 !== comparison.initialSha256 ||
+          typeof captureMode.runId !== "string" || !captureMode.runId || context.pinnedRunId !== captureMode.runId ||
+          !/^[a-f0-9]{32}$/.test(context.sessionId || "") ||
+          !Number.isFinite(Date.parse(context.requestedAt)) || new Date(context.requestedAt).toISOString() !== context.requestedAt ||
+          !Number.isFinite(Date.parse(context.readyAt)) || new Date(context.readyAt).toISOString() !== context.readyAt || Date.parse(context.requestedAt) > Date.parse(context.readyAt) ||
+          context.publisherPagesRefetched !== false || context.wholeWidgetVerified !== false || context.publishedContentVerified !== false ||
+          directCanonicalSourceTextV1(context.entries) !== directCanonicalSourceTextV1(plan.entries) ||
+          context.planSha256 !== hashValue({courseId,entries:plan.entries})) return false;
+      const key = context.sessionId + ":" + context.planSha256;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      prepared.set(key,{readyAt:context.readyAt,entries:new Set(plan.entries.map((entry: any) => directCanonicalSourceTextV1(entry)))});
+    }
+    cache.set(captureMode,prepared);
+    return matches(prepared);
+  } catch (_) { return false; }
+}
+
 /** A failed current refresh cannot revoke independently proven historical file
  * ownership. Omitting that marker here makes no current-content claim. */
-function publisherOwnedBodies(fp: any, courseId: string): Set<any> {
+function publisherOwnedBodies(fp: any, courseId: string, captureMode: any, recoveryCache: Map<any,any>): Set<any> {
   const result = new Set<any>(), hashBytes = (bytes: Uint8Array) => bytesToHex(sha256(bytes)),
     hashValue = (value: unknown) => hashBytes(new TextEncoder().encode(directCanonicalSourceTextV1(value)));
   try {
@@ -116,11 +163,17 @@ function publisherOwnedBodies(fp: any, courseId: string): Set<any> {
           observation = page.observation || page.retainedObservation;
         if (!fields.length || seen.has(page.targetUrl) || hashValue(fields) !== hashValue(page.sourceFields) ||
             !directPublisherResourceEvidenceV1(observation,page.targetUrl,hashBytes) ||
-            !directPublisherMediaStructureV1(observation,page.targetUrl,page.media)) return new Set();
+            !directPublisherMediaStructureV1(observation,page.targetUrl,page.media,
+              {courseId,itemId:fp.id,atomId:fp.atomId,providerId:proof.providerId})) return new Set();
         seen.add(page.targetUrl);
         for (const group of [{observation,resources:page.media.resources},...(page.media.retained || [])]) {
           if (!directPublisherResourceEvidenceV1(group.observation,page.targetUrl,hashBytes)) return new Set();
-          for (const resource of group.resources) if (resource.body) result.add(resource.body);
+          for (const resource of group.resources) if (resource.body) {
+            if (resource.body.receipt?.transport === "FIRST_PARTY_BROWSER" &&
+                (!(Date.parse(resource.body.receipt.observedAt) <= Date.parse(sources.receipts.stability.receipt.observedAt)) ||
+                  !publisherFirstPartyRecoveryValid(captureMode,courseId,resource.body.receipt,recoveryCache))) return new Set();
+            result.add(resource.body);
+          }
         }
       }
     }
@@ -133,7 +186,8 @@ function nativeBodyReferences(capture: unknown) {
     archiveError("the capture metadata is not an object.");
   const raw = capture as Record<string, any>,
     references: { body: Record<string, any>; podcast: boolean }[] = [],
-    courseId = raw.meta?.directDataCapture?.materials?.elements?.[0]?.id;
+    courseId = raw.meta?.directDataCapture?.materials?.elements?.[0]?.id,
+    recoveryCache = new Map<any,any>();
   if (!Array.isArray(raw.fingerprints)) return references;
   const add = (body: any, podcast: boolean) => {
     if (!body || !Object.hasOwn(body, "archivePath")) return;
@@ -168,7 +222,7 @@ function nativeBodyReferences(capture: unknown) {
         add(asset?.retainedEvidence?.body, false);
       }
     }
-    const publisherBodies = publisherOwnedBodies(fp,courseId);
+    const publisherBodies = publisherOwnedBodies(fp,courseId,raw.meta?.directDataCapture,recoveryCache);
     for (const evidence of [fp?.payload?.directInlineWidgetProviderEvidence,fp?.payload?.directInlineWidgetProviderAttempt])
       for (const provider of evidence?.providers || [])
         for (const page of provider.publisherPages || [])

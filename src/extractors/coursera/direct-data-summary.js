@@ -47,8 +47,16 @@ export function directDataCoverageSummaryV1(items) {
           (summary.retainedDraftSnapshots.historicalObservations || 0) + integer(item.retainedDraftHistoricalObservations);
     }
     const type = String(item.type || "").toLowerCase();
-    if (/^(?:assignment|assessment|quiz)$/.test(type))
+    if (/^(?:assignment|assessment|quiz)$/.test(type)) {
       count(summary.assessments, item);
+      const kind = status === "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT" ? "emptyDrafts"
+        : status === "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT" ? "instructionOnly"
+        : status === "COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT" ? "unkeyedReflections" : "";
+      if (kind && item.contract?.complete === true) {
+        if (!summary.assessmentKinds) summary.assessmentKinds = {emptyDrafts: 0, instructionOnly: 0, unkeyedReflections: 0};
+        summary.assessmentKinds[kind]++;
+      }
+    }
     else if (type === "reading") {
       count(summary.readings, item);
       const references = integer(item.assetReferenceCount);

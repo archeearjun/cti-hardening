@@ -107,9 +107,29 @@ export function directDraftAssessmentInventoryV1(bound) {
     throw new Error("DIRECT_AUTHORING_ASSESSMENT_MODEL_UNSUPPORTED");
   const definition = content.definition,
     parts = definition.parts;
+  const instructionOnly = parts.length > 0 && parts.every(part => part?.typeName === "storedTextBlockPart");
   const candidates = [],
     unsupportedParts = [],
     seen = new Set();
+  if (instructionOnly) {
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index], id = part.definition?.id;
+      if (Object.keys(part).some(key => !["typeName", "definition"].includes(key)) ||
+          !object(part.definition) || Object.keys(part.definition).some(key => !["id", "title", "body"].includes(key)) ||
+          typeof id !== "string" || !/^textBlock~[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id) ||
+          seen.has(id) || typeof part.definition.title !== "string" || !object(part.definition.body))
+        unsupportedParts.push({ordinal: index + 1, typeName: part.typeName, reason: "DIRECT_INSTRUCTION_PART_MODEL_UNSUPPORTED"});
+      seen.add(id);
+    }
+    return {complete: unsupportedParts.length === 0 && parts.length <= 100,
+      reason: unsupportedParts.length === 0 && parts.length <= 100 ? "EXACT_AUTHORING_DRAFT_INSTRUCTION_PARTS" : "AUTHORING_DRAFT_PARTS_INCOMPLETE",
+      assignmentId: bound.atomId, candidates, declared: 0, declaredContentParts: parts.length,
+      instructionOnly: true, nonQuestionPartOrdinals: parts.map((_, index) => index + 1),
+      rawParts: parts, unsupportedParts, configuration: definition.configuration,
+      introduction: definition.introduction, reviewCriteria: definition.reviewCriteria,
+      passingFraction: definition.passingFraction, assignmentLevelRubrics: definition.assignmentLevelRubrics,
+      draftTimeCommitment: bound.draftTimeCommitment, publishedTimeCommitment: bound.publishedTimeCommitment};
+  }
   for (let index = 0; index < parts.length; index++) {
     const part = parts[index],
       ordinal = index + 1;

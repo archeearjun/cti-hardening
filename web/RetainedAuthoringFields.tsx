@@ -13,6 +13,8 @@ function Field({ label, field }: { label: string; field: AuthoredField }) {
         <pre className="captured-text">
           {typeof field.value === "boolean" ? String(field.value) : field.value}
         </pre>
+      ) : field.status === "EXPLICIT_EMPTY_SOURCE" ? (
+        <p className="hint">Explicitly empty in captured source.</p>
       ) : field.status === "EXPLICIT_EMPTY" ? (
         <p className="hint">
           {field.kind === "CML"
@@ -66,9 +68,14 @@ export function RetainedAuthoringFields({
           ? "Authored instruction fields"
           : fields.nativeType === "textExactMatch"
             ? "Authored text-answer fields"
-            : "Authored reflection fields"}
+            : fields.sourceDefect ? "Captured source defect" : "Authored reflection fields"}
       </h6>
       <p className="hint">{fields.applicabilityReason}</p>
+      {fields.sourceDefect && <>
+        <p className="hint">Explicitly empty option displays: {fields.sourceDefect.emptyOptionOrdinals.join(", ")}. This is an observed source field, not a missing download.</p>
+        <Field label="Native correct-option ID · SOURCE_REFERENCE" field={fields.sourceDefect.nativeCorrectOption} />
+        <p className="hint">The reference identifies a native option only. Usable answer text remains unverified; inspect and correct the source if required.</p>
+      </>}
       {fields.kind === "TEXT_BLOCK" ? (
         <>
           <Field label="Authored title" field={fields.title} />
@@ -110,7 +117,7 @@ export function RetainedAuthoringFields({
           <>
             {!fields.options.length && (
               <p className="hint">
-                Authored reflection options:{" "}
+                {fields.sourceDefect ? "Captured source options:" : "Authored reflection options:"}{" "}
                 {fields.optionsStatus === "EXPLICIT_EMPTY"
                   ? "explicitly empty array"
                   : fields.optionsStatus === "NOT_RECORDED"
@@ -121,7 +128,7 @@ export function RetainedAuthoringFields({
             )}
             {fields.options.map((option) => (
               <div key={option.ordinal}>
-                <h6>Authored reflection option {option.ordinal}</h6>
+                <h6>{fields.sourceDefect ? "Captured source option" : "Authored reflection option"} {option.ordinal}</h6>
                 <Field label="Native option ID" field={option.id} />
                 <Field label="Authored display" field={option.display} />
                 <Field label="Authored feedback" field={option.feedback} />

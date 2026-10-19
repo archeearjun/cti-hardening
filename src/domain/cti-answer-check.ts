@@ -235,6 +235,19 @@ function compareKey(
   };
 }
 export function ctiAnswerCheck(q: ContentQuestion): CtiAnswerCheck {
+  if (
+    /^(?:mcqReflect|checkboxReflect|reflection-single-select|reflection-multiple-select)$/i.test(
+      q.type,
+    )
+  )
+    return {
+      ...review(
+        "This checker does not calculate correct answers for reflection response models. A type label alone does not establish native answer-key applicability.",
+        "",
+        "Retain the captured prompt, choices and feedback. Use the source-bound assessment evidence to establish key applicability; this check requests no answer-key correction.",
+      ),
+      answer: "Not calculated for reflection",
+    };
   if (q.mathTextChecked !== true)
     return review(
       "Older saved text has not been checked for lost mathematical notation. Load the original extraction content or refresh the source questions before calculating.",

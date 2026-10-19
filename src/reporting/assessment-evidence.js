@@ -9,6 +9,10 @@ export function qaAssessmentScoreLabel_(a) {
  }
 
 export function qaAssessmentAnswerEvidenceText_(sa) {
+   if(sa.nativeReflectionKeyApplicability===true && sa.answerEvidenceApplicable===false)
+       return 'N/A (source-bound native reflection or written-response models; no authored correct-answer key)';
+   if(sa.nativeReflectionKeyApplicability===true && (sa.sourceAnswerEvidenceApplicable===false || sa.courseraAnswerEvidenceApplicable===false))
+       return 'not comparable (keys do not apply to the source-bound native reflection side; the other side requires separate review)';
    if(sa.answerEvidenceApplicable===false)return 'N/A (written-response questions; grading still requires review)';
    if(Number(sa.unknownTypeCount)>0)return 'not established (unknown/unsupported question types)';
    return sa.answerEvidenceCoverage==null?'not recorded':Math.round(Number(sa.answerEvidenceCoverage||0)*100)+'%';
