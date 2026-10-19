@@ -244,6 +244,10 @@ test("service failures preserve browser and upstream outcomes and stale helper m
 });
 
 test("one validated challenge defers only later same-origin service image reads while browser and other-origin reads continue", async () => {
+  let enteredOriginal, releaseOriginal, enteredDeferred;
+  const originalEntered = new Promise(resolve => { enteredOriginal = resolve; }),
+    originalHeld = new Promise(resolve => { releaseOriginal = resolve; }),
+    deferredEntered = new Promise(resolve => { enteredDeferred = resolve; });
   const deferredImage = image.replace("original","deferred"), browserImage = image.replace("original","browser-readable"),
     otherImage = image.replace("opentextbc.ca","pressbooks.bccampus.ca"),
     observation = await source([image,deferredImage,browserImage,otherImage].map(url => '<img src="' + url + '">').join("")),
@@ -251,20 +255,39 @@ test("one validated challenge defers only later same-origin service image reads 
     helper = {ready:async()=>{},supports:()=>true,request:async(kind,payload) => {
       calls.push(payload.imageUrl);
       if (payload.imageUrl === image) {
-        await new Promise(resolve => setTimeout(resolve,10));
+        enteredOriginal();
+        await originalHeld;
         return serviceResponse(observation.model.sha256,{status:502,bytes:new TextEncoder().encode('{"error":"PUBLISHER_IMAGE_PROVIDER_CHALLENGE"}'),
           headers:{"content-type":"application/json","x-cti-upstream-status":"403","x-cti-upstream-bytes":"0","x-cti-upstream-challenge":"cloudflare"}});
       }
       return serviceResponse(observation.model.sha256);
     }}, reader = createDirectDataMediaReaderV1({archiveMode:true,providerTransport:helper,fetchImpl:async url => {
       browserCalls.push(url);
+      if (url === deferredImage) enteredDeferred();
       if (url === browserImage) return response(url,png);
       throw Error("Browser response unreadable");
-    }}), reads = await Promise.all(inventory.resources.map(resource => reader.readPublisherImage(observation,target,resource))),
+    }});
+  // Source hashing may finish in a different order from read invocation. Hold
+  // the first actual helper operation before launching its concurrent siblings.
+  const firstRead = reader.readPublisherImage(observation,target,inventory.resources[0]);
+  let concurrentReads;
+  try {
+    await originalEntered;
+    concurrentReads = inventory.resources.slice(1).map(resource => reader.readPublisherImage(observation,target,resource));
+    await deferredEntered;
+    // Drain the deferred browser rejection so its same-origin fallback is queued
+    // behind the held helper. This is a scheduling boundary, not a timed delay.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls.filter(url => new URL(url).origin === new URL(image).origin),[image],
+      "The same-origin waiter cannot bypass the held original helper operation");
+  } finally { releaseOriginal(); }
+  const reads = await Promise.all([firstRead,...concurrentReads]),
     resources = inventory.resources.map((resource,index) => ({...resource,...(reads[index].body ? {body:reads[index].body} :
       {reason:reads[index].reason,attempts:reads[index].attempts})})), media = {...inventory,resources};
   assert.deepEqual(calls,[image,otherImage],"The queued same-origin fallback never reaches the service after the first challenge");
-  assert.deepEqual(browserCalls,[image,deferredImage,browserImage,otherImage]);
+  assert.equal(browserCalls[0],image);
+  assert.deepEqual([...browserCalls].sort(),[image,deferredImage,browserImage,otherImage].sort(),
+    "Every original browser image read still runs without assuming concurrent sibling order");
   assert.equal(reader.snapshot().requests,6,"Only four browser reads and two actual helper requests are charged");
   assert.equal(resources[0].reason,"PUBLISHER_IMAGE_UPSTREAM_CHALLENGE");
   assert.equal(resources[0].attempts[1].upstreamChallenge,"cloudflare");
