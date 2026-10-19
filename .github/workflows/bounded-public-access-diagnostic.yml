@@ -1,0 +1,44 @@
+name: Bounded publisher access diagnostic
+on:
+  push:
+    branches: [codex/v185-public-access-diagnostic]
+permissions:
+  contents: read
+jobs:
+  public-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify isolated diagnostic source
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          expected = 'c4c56ed6da36ba4561d76ce68852b55b1ec6e6e6'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip() == expected
+          paths = subprocess.check_output(['git','diff','--name-only',expected,'HEAD'],text=True).splitlines()
+          assert len(paths) == 5
+          assert all(p == '.github/workflows/bounded-public-access-diagnostic.yml' or p.startswith('tools/.diagnostics/v185-public-probe/') for p in paths)
+          print('Verified isolated diagnostic; no application or deployment changes.')
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: node --test tools/.diagnostics/v185-public-probe/probe.test.mjs
+      - name: Compare bounded public reads on runner and ephemeral edge
+        run: npx --yes --package=wrangler@4.143.0 -- node tools/.diagnostics/v185-public-probe/probe.mjs both /tmp/cti-public-access-result.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Retain only status and hash observations
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bounded-public-access-result
+          path: /tmp/cti-public-access-result.json
+          if-no-files-found: error
+          retention-days: 7
