@@ -1293,9 +1293,11 @@
     {
       "name": "sourcePayloadForResource_",
       "line": 3208,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/manifest.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "6657ee7dc145db14b4f03bbc90628e8310e9a4fa5ac32094c3bb7e2bb9edd3d6",
+      "note": "Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "analyzeImsccFromXmlString",
@@ -2299,9 +2301,11 @@
     {
       "name": "flattenTreeForQa_",
       "line": 7614,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/brightspace-matching.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "45f33871a818967bb9b507524d3ce600146a31c4f1a9092ef0d50c1a86c8726c",
+      "note": "Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "qaHiddenDependencyKind_",
@@ -2375,9 +2379,11 @@
     {
       "name": "normalizeSourceItem_",
       "line": 7886,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/source/content.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "f8a0a15224a8def0f58fe4b143eb00ab99b24aed283e7fe625d5cf4ec02ce472",
+      "note": "Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "qaMergeCourseraStructuredEvidence_",
@@ -2469,8 +2475,8 @@
       "status": "adapted",
       "path": "src/engine/capture/normalization.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "499e4438e7a7dfb0a48ecc05caf9830efd2c08d84593e229a05f0e3d8aaf3dc4",
-      "note": "Reject null, empty, boolean, negative and nonfinite durations instead of converting unknown to zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Preserve XLSX lesson metadata for owner hierarchy without changing the module-level source placement comparison. Regression: tests/owner-scope-time.test.mjs and tools/browser-owner-scope-check.mjs. Retain an independently rebound native grading setting only with the enclosing capture course ID. Keep nativeAssignment and unrelated grader capabilities unchanged; explicit booleans only, with no inferred attempts or thresholds. Regression: tests/native-grading.test.mjs and tests/content-native-grading.test.mjs."
+      "reviewedCurrentHash": "2c4d9c23c9f52f82065582ee7cf8ee1fdb88fe63a6367a1b2bac4aaafaa9e360",
+      "note": "Reject null, empty, boolean, negative and nonfinite durations instead of converting unknown to zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Preserve XLSX lesson metadata for owner hierarchy without changing the module-level source placement comparison. Regression: tests/owner-scope-time.test.mjs and tools/browser-owner-scope-check.mjs. Retain an independently rebound native grading setting only with the enclosing capture course ID. Keep nativeAssignment and unrelated grader capabilities unchanged; explicit booleans only, with no inferred attempts or thresholds. Regression: tests/native-grading.test.mjs and tests/content-native-grading.test.mjs. Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "qaMatchScore_",
@@ -2722,9 +2728,11 @@
     {
       "name": "qaTextComparison_",
       "line": 9722,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/matching/payload.js",
-      "effectiveOverride": false
+      "effectiveOverride": false,
+      "reviewedCurrentHash": "ef75927248e8dc35903d51f6746b760af85d705cab09ffddf299af308356373a",
+      "note": "Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "qaSemanticTokenList_",
@@ -2866,10 +2874,12 @@
     {
       "name": "compareItemFidelity_",
       "line": 10779,
-      "status": "preserved",
+      "status": "adapted",
       "path": "src/engine/comparison/item.js",
       "effectiveOverride": true,
-      "basePath": "src/engine/comparison/item.js"
+      "basePath": "src/engine/comparison/item.js",
+      "reviewedCurrentHash": "0d74fff0b9906da1d76d6f6cb309db2e5a7e21484f475b2deb14a4912cc2e9f6",
+      "note": "Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "qaBuildSummary_",
@@ -2894,8 +2904,8 @@
       "status": "adapted",
       "path": "src/engine/capture/recovery.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "934615c782772abcdc5c267bb7ef292096dfb5756bab9e89373493fc0713dec3",
-      "note": "Only merge observed numeric durations; a missing live estimate must not overwrite a recorded value with zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Exact unique case-sensitive item enrichment may retain a minimal raw native grading proof bound to the enclosing capture course. Duplicate, foreign and title-only candidates cannot contribute that setting. The original workbook remains unchanged. Regression: tests/native-grading.test.mjs."
+      "reviewedCurrentHash": "ddfcae062eb88f89adc8cf351082ae840a15d5119abcbff31e6a0751b10633c8",
+      "note": "Only merge observed numeric durations; a missing live estimate must not overwrite a recorded value with zero. Regression: tests/owner-scope-time.test.mjs; review: docs/audits/owner-scope-time-2026-10-05.md. Exact unique case-sensitive item enrichment may retain a minimal raw native grading proof bound to the enclosing capture course. Duplicate, foreign and title-only candidates cannot contribute that setting. The original workbook remains unchanged. Regression: tests/native-grading.test.mjs. Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md."
     },
     {
       "name": "qaAssertNotDiagnosticCapture_",
@@ -2916,8 +2926,8 @@
       "status": "adapted",
       "path": "src/engine/comparison/course.js",
       "effectiveOverride": false,
-      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits and structural authority. Payload enrichment now requires one unique case-sensitive native Coursera item ID on both XLSX and capture sides. Duplicate or conflicting native IDs and title-only suggestions never borrow payload; retained unresolved candidates are recomputed as diagnostics and unmatched fingerprints remain evidence-only. Standard uniquely identified comparisons retain full reference parity. See syllabus-readiness.test.mjs, workflows.test.mjs and strict-evidence-identity.test.mjs. The optional direct-capture structure adapter is explicitly tagged as retained native material inventory rather than an independent XLSX; canonical item IDs remain required and derived structure never certifies complete content. See unified-inputs.test.mjs and docs/unified-assignment-workspace.md. Reviewed Brightspace v1.1.0/schema2: source-preserving bookmark, explicit on-page start/pause/recovery, scoped native inventories and identity anomalies, raw HTML/literal captions and hashed original bytes, independent bounded importer checks. Native banks, external/runtime content and whole-course completeness remain unverified. Brightspace JSON transport/engine bounds are128MiB. See docs/brightspace-bookmark-capture.md and Brightspace regression fixtures. Pass the enclosing capture course ID into native-item normalization so grading evidence cannot select its own course context. Both native-only and independent-workbook comparisons reject foreign or missing binding and preserve unknown source grading. Regression: tests/native-grading.test.mjs. Reviewed v1.2.0: accepts bounded Brightspace UTF-8 manifest bytes through the per-workflow parsed-source callback and preserves exact input SHA-256. Legacy BASE64 path and audit decisions remain; asynchronously attached original Blobs are independently validated before the synchronous engine. Source visibility retains exact hidden ancestors for owner review, without changing fidelity decisions.",
-      "reviewedCurrentHash": "eadaf6b1e62d208f0f4164e27b1507f3a59b7f592b0ee1095f4072bce2e89e98"
+      "note": "Attach a separate conservative review of observed live-source wording for unique exact mapped readings before readiness aggregation; preserves package fidelity, raw evidence, uncertainty, stronger defects and policy exemptions. Browser comparison accepts bounded UTF-8 JSON bytes and a per-workflow parsed capture bridge, avoiding a full Base64 copy while preserving original-byte hashes, legacy Base64 limits and structural authority. Payload enrichment now requires one unique case-sensitive native Coursera item ID on both XLSX and capture sides. Duplicate or conflicting native IDs and title-only suggestions never borrow payload; retained unresolved candidates are recomputed as diagnostics and unmatched fingerprints remain evidence-only. Standard uniquely identified comparisons retain full reference parity. See syllabus-readiness.test.mjs, workflows.test.mjs and strict-evidence-identity.test.mjs. The optional direct-capture structure adapter is explicitly tagged as retained native material inventory rather than an independent XLSX; canonical item IDs remain required and derived structure never certifies complete content. See unified-inputs.test.mjs and docs/unified-assignment-workspace.md. Reviewed Brightspace v1.1.0/schema2: source-preserving bookmark, explicit on-page start/pause/recovery, scoped native inventories and identity anomalies, raw HTML/literal captions and hashed original bytes, independent bounded importer checks. Native banks, external/runtime content and whole-course completeness remain unverified. Brightspace JSON transport/engine bounds are128MiB. See docs/brightspace-bookmark-capture.md and Brightspace regression fixtures. Pass the enclosing capture course ID into native-item normalization so grading evidence cannot select its own course context. Both native-only and independent-workbook comparisons reject foreign or missing binding and preserve unknown source grading. Regression: tests/native-grading.test.mjs. Reviewed v1.2.0: accepts bounded Brightspace UTF-8 manifest bytes through the per-workflow parsed-source callback and preserves exact input SHA-256. Legacy BASE64 path and audit decisions remain; asynchronously attached original Blobs are independently validated before the synchronous engine. Source visibility retains exact hidden ancestors for owner review, without changing fidelity decisions. Reviewed bilateral evidence coverage: preserve source text/hash scope and native incomplete-body diagnostics through exact-ID enrichment; do not certify sample parity or absence during incomplete traversal. Existing independent observed differences remain visible. See tests/bilateral-evidence-coverage.test.mjs and docs/audits/bilateral-evidence-hardening-2026-10-21.md.",
+      "reviewedCurrentHash": "d42dbf2baa0fd0222695722c3c373ade18d7489f7a1d8d8344cb1bcafea6c02f"
     },
     {
       "name": "tokenJaccardSimilarity_",
@@ -4080,7 +4090,9 @@
     {
       "name": "extractTextEvidence_",
       "path": "src/source/content.js",
-      "status": "preserved"
+      "status": "adapted",
+      "reviewedCurrentHash": "d6e46f9adaeec7b7f6ce6811e48a8a953754bef004aae2832b8910d17a5c9553",
+      "note": "Source scanner v6.8.9: explicitly scope normalized-text hashes and incomplete declared-resource text; reject HTML parser failure rather than treating raw markup as learner prose. Originals and bounded acquisition remain unchanged. See bilateral-evidence-coverage.test.mjs and the 2026-10-21 audit."
     },
     {
       "name": "sourceBehaviorEvidence_",
@@ -4196,8 +4208,8 @@
       "name": "buildSourceEvidenceFromZip_",
       "path": "src/source/scan.js",
       "status": "adapted",
-      "note": "Keep explicit PDF services. Preserve presence after read limits; distinguish external references, omitted text/PDF capture and truncation. Bound orphan recovery and prevent association after an incomplete search. Version v6.8.8.",
-      "reviewedCurrentHash": "bb8edd265390b1a0b479b413cd32b32a4d8a5f151db26566d1ed765aeeac7700"
+      "note": "Keep explicit PDF services. Preserve presence after read limits; distinguish external references, omitted text/PDF capture and truncation. Bound orphan recovery and prevent association after an incomplete search. Version v6.8.8. Source scanner v6.8.9: explicitly scope normalized-text hashes and incomplete declared-resource text; reject HTML parser failure rather than treating raw markup as learner prose. Originals and bounded acquisition remain unchanged. See bilateral-evidence-coverage.test.mjs and the 2026-10-21 audit.",
+      "reviewedCurrentHash": "0b10ab19a06d9162ab4a09923674d9ed036e317f6ac4adaffff70b94fab5f6d6"
     },
     {
       "name": "xmlParserErrorText_",

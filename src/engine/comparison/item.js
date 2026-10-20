@@ -12,6 +12,7 @@ import { qaSmartIngestionClaimsForSource_ } from "../provenance/claims.js";
 import { qaOwnerActionForResult_ } from "../reporting/actions.js";
 import { qaEvidenceStrength_ } from "../reporting/evidence.js";
 import { qaExternalWebpageEvidence_ } from "../source/content.js";
+import { qaSourceTextLimitation_ } from "../capture/evidence-limitations.js";
 
 export function base_compareItemFidelity_(source, coursera, matchScore, allCourseraItems, snapshotContext, ingestionIntelligence) {
     var checks = {};
@@ -316,7 +317,17 @@ export function base_compareItemFidelity_(source, coursera, matchScore, allCours
 
 export function compareItemFidelity_(source,coursera,matchScore,allCourseraItems,snapshotContext,ingestionIntelligence){
   var result=base_compareItemFidelity_.apply(this,arguments);
-  return qaApplyDimensionalVerdictGateV8_(source,coursera,result);
+  result=qaApplyDimensionalVerdictGateV8_(source,coursera,result);
+  var sourceLimitation=qaSourceTextLimitation_(source), destinationLimitation=coursera.directCaptureLimitation;
+  if(sourceLimitation || destinationLimitation) {
+    if(result.issues.indexOf('PAYLOAD_UNVERIFIED')<0)result.issues.push('PAYLOAD_UNVERIFIED');
+    result.checks.evidenceAvailability={schemaVersion:1,status:'INSUFFICIENT_EVIDENCE',
+      source:sourceLimitation,destination:destinationLimitation || null,weight:0};
+    if(result.verdict==='VERIFIED' || result.verdict==='EXPECTED_TRANSFORMATION')result.verdict='UNVERIFIED';
+    result.ownerAction=qaOwnerActionForResult_(result);
+    result.evidenceStrength=qaEvidenceStrength_(result);
+  }
+  return result;
 }
 
 export function base_qaBuildSummary_(itemResults, injected) {

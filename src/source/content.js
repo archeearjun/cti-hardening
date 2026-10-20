@@ -27,7 +27,9 @@ export function extractTextEvidence_(text, extension) {
           var src=el.getAttribute('src');if(src){refs.push(src);if(/^https?:\/\//i.test(src)&&!isTechnicalSourceUrl_(src))links.push(src);}
         });
         Array.from(doc.querySelectorAll('object[data]')).forEach(function(el) { var src = el.getAttribute('data'); if (src) images.push(src); });
-      } catch (e) {}
+      } catch (e) {
+        throw new Error('Source HTML learner-text extraction failed; original markup is not verified learner text.');
+      }
     } else if (ext === 'xml') {
       // Use the same compatibility parser as QTI/manifest scanning. A parse
       // failure must never silently promote raw XML to learner content.

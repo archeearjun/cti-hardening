@@ -11,6 +11,7 @@ import { qaMergeCourseraStructuredEvidence_ } from "../source/content.js";
 import { workSourceItemPolicy_ } from "../work/policy.js";
 import { inspectDirectNativeGrading } from "../assessment/native-grading.js";
 import { applyDirectNativeGrading } from "../assessment/native-grading-comparison.js";
+import { qaDirectCaptureLimitation_ } from "./evidence-limitations.js";
 
 export function normalizeCourseraItem_(item, expectedCourseId) {
     item = item || {};
@@ -35,6 +36,10 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
     var linkEvidenceConfidence = Number(qaPayloadField_(payload,item,'linkEvidenceConfidence',0));
     if (!Number.isFinite(linkEvidenceConfidence) || linkEvidenceConfidence < 0) linkEvidenceConfidence = 0;
     if (linkEvidenceConfidence > 1) linkEvidenceConfidence = 1;
+    var directCaptureLimitation = qaDirectCaptureLimitation_(item);
+    // Positive retained asset/link matches remain usable. An incomplete native
+    // body cannot establish exhaustive absence, regardless of a saved score.
+    if (directCaptureLimitation) { assetEvidenceConfidence = 0; linkEvidenceConfidence = 0; }
 
     var textEvidenceCompleteness = Number(qaPayloadField_(payload,item,'textEvidenceCompleteness',0));
     if (!Number.isFinite(textEvidenceCompleteness) || textEvidenceCompleteness < 0) textEvidenceCompleteness = 0;
@@ -98,6 +103,7 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
         links: qaExternalLinks_(links),
         textSample: qaCleanText_(qaPayloadField_(payload,item,'textSample','')),
         textSha256: String(qaPayloadField_(payload,item,'textSha256','')),
+        ...(directCaptureLimitation ? {directCaptureLimitation:directCaptureLimitation} : {}),
         textLength: nonNegativeInteger_(qaPayloadField_(payload,item,'textLength',0)),
         textConfidence: qaCleanText_(qaPayloadField_(payload,item,'textConfidence','')),
         textEvidenceCompleteness: textEvidenceCompleteness,

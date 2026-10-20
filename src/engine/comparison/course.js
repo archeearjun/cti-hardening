@@ -23,6 +23,8 @@ import { qaApplyReadinessToSummary_, qaAttachReadinessActions_, qaAttachSourceAs
 import { qaApplyIngestionActionabilityPolicy_, workBuildRawQaOperationalPolicy_ } from "../work/policy.js";
 import { compareItemFidelity_, qaBuildSummary_ } from "./item.js";
 import { qaAttachLiveSourceTextReviews_ } from "../source/live-text-review.js";
+import { qaCaptureTraversalSummary_ } from "../provenance/current-state.js";
+import { qaApplyIncompleteTraversalGap_, qaSourceTextLimitation_ } from "../capture/evidence-limitations.js";
 
 // XLSX and a Coursera capture share the same native item-ID namespace. A
 // plausible title is useful to review, but cannot identify another item's body.
@@ -455,6 +457,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 if(source.sourceTextNormalization) missingResult.checks.sourceTextNormalization=source.sourceTextNormalization;
                 missingResult = qaApplySourceTextGap_(missingResult,source);
                 missingResult = qaApplyUnreachedCarrierGap_(missingResult,source,courseraItems,extractorMeta);
+                missingResult = qaApplyIncompleteTraversalGap_(missingResult,qaCaptureTraversalSummary_(extractorMeta),qaSourceTextLimitation_(source));
                 missingResult.ownerAction = qaOwnerActionForResult_(missingResult);
                 missingResult.evidenceStrength = qaEvidenceStrength_(missingResult);
                 itemResults.push(missingResult);

@@ -5,8 +5,14 @@ import { qaAssessmentText_, qaCharNgramCosine_, qaTextPreview_ } from "../assess
 import { qaDocumentScopeComparison_ } from "../source/metrics.js";
 import { qaAssetKey_ } from "./assets.js";
 import { qaCleanName_, qaCleanText_, qaJaccard_ } from "./text.js";
+import { qaSourceTextLimitation_ } from "../capture/evidence-limitations.js";
 
 export function qaTextComparison_(source, coursera) {
+    var sourceGap = qaSourceTextLimitation_(source), destinationGap = coursera && coursera.directCaptureLimitation;
+    if (sourceGap || destinationGap) return {status:'UNVERIFIED',similarity:null,
+        sourcePreview:qaTextPreview_(source.textSample),courseraPreview:qaTextPreview_(coursera.textSample),
+        reasonCode:sourceGap?'SOURCE_TEXT_EVIDENCE_INCOMPLETE':'DESTINATION_NATIVE_BODY_UNVERIFIED',
+        reason:(sourceGap || destinationGap).reason};
     if(source&&source.sourceTextRefreshRequired) return {status:'UNVERIFIED',similarity:null,sourcePreview:'',courseraPreview:qaTextPreview_(coursera.textSample),reason:source.sourceTextNormalization.reason};
     if (source && source.contentComparable === false) {
         return { status: 'NOT_APPLICABLE', similarity: null, reason: 'Source resource is a web-link/LTI package definition; learner-facing equivalence should be judged by target/link and tool behavior, not package XML text.', sourcePreview: '', courseraPreview: '' };

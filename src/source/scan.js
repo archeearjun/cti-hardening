@@ -15,9 +15,9 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
       // Schema 4 existed both before and after the first PDF-text patch, which made
       // an old stored scan indistinguishable from a fresh extraction failure.
       schemaVersion: 8,
-      extractor: 'CTI Source Evidence v6.8.8',
-      buildId: 'v6.8.8-hierarchy-coverage-20261005',
-      capabilities: { declaredAssignmentAttachments: true, pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true },
+      extractor: 'CTI Source Evidence v6.8.9',
+      buildId: 'v6.8.9-explicit-text-coverage-20261021',
+      capabilities: { textCoverageV1: true, declaredAssignmentAttachments: true, pdfText: true, dependencyPdfEvidence: true, pdfPageSemanticSamples: true, sourcePresenceState: true, qtiStructure: true, assignmentBehavior: true, interactivePackageSignals: true, sourceRuntimeSemantics: true },
       manifestOnly: false,
       manifestPath: manifestPath,
       resources: Object.create(null),
@@ -57,8 +57,8 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
 
       var resourceEvidence = {
         schemaVersion: 8,
-        evidenceExtractor: 'CTI Source Evidence v6.8.8',
-        evidenceBuildId: 'v6.8.8-hierarchy-coverage-20261005',
+        evidenceExtractor: 'CTI Source Evidence v6.8.9',
+        evidenceBuildId: 'v6.8.9-explicit-text-coverage-20261021',
         files: [],
         links: [],
         images: [],
@@ -184,6 +184,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
               fileEvidence.textFormat = 'learner-text';
               fileEvidence.textLength = normalized.length;
               fileEvidence.textSha256 = await sha256Text_(normalized);
+              fileEvidence.textHashScope = 'FULL_NORMALIZED_FILE_TEXT';
               fileEvidence.links = parsedText.links;
               fileEvidence.images = parsedText.images;
               fileEvidence.embeddedRefs = parsedText.refs;
@@ -211,6 +212,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
                 if (normalized) resourceEvidence.evidenceTruncated = true;
               }
             } catch (readError) {
+              resourceEvidence.evidenceTruncated = true;
               fileEvidence.readError = String(readError && readError.message || readError);
               fileEvidence.textNormalizationStatus = 'SOURCE_REFRESH_REQUIRED';
               resourceEvidence.textNormalizationStatus = 'SOURCE_REFRESH_REQUIRED';
@@ -284,6 +286,20 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
       if (combinedText.length > evidence.limits.maxTextSample) resourceEvidence.evidenceTruncated = true;
       if (resourceEvidence.textNormalizationStatus !== 'SOURCE_REFRESH_REQUIRED') resourceEvidence.textNormalizationStatus = combinedText ? 'NORMALIZED' : 'NO_TEXT';
       resourceEvidence.textSha256 = combinedText ? await sha256Text_(combinedText) : '';
+      // This hash historically covers collected fragments, not necessarily all
+      // declared source text. Retain it with an explicit scope; never pass a
+      // sample digest off as complete original-content evidence.
+      resourceEvidence.textCoverage = {
+        version: 1, scope: 'DECLARED_RESOURCE_TEXT',
+        status: resourceEvidence.evidenceTruncated || resourceEvidence.files.some(function(file) {
+          return file.presentInPackage !== true || file.readError || file.pdfReadError ||
+            file.pathResolutionAmbiguous || file.textTruncated ||
+            (file.extension === 'pdf' && !file.textLength);
+        }) ? 'INCOMPLETE' : (combinedText ? 'CAPTURED_TEXT' : 'NO_TEXT_OBSERVED'),
+        wholeResourceVerified: false
+      };
+      resourceEvidence.textHashScope = resourceEvidence.textCoverage.status === 'INCOMPLETE'
+        ? 'CAPTURED_SAMPLE' : (combinedText ? 'COLLECTED_NORMALIZED_TEXT' : 'NO_TEXT_HASH');
       resourceEvidence.behavior = sourceBehaviorEvidence_(resourceType, behaviorFragments.join(' '), fileNodes);
       resourceEvidence.interactiveSignals = sourceInteractiveSignals_(resourceType, fileNodes, resourceHref);
 

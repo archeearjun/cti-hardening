@@ -81,6 +81,8 @@ export function sourcePayloadForResource_(idref, resourceMap) {
     textNormalizationStatus: String(evidence.textNormalizationStatus || ''),
     textLength: nonNegativeInteger_(evidence.textLength),
     textSha256: String(evidence.textSha256 || ''),
+    textHashScope: String(evidence.textHashScope || ''),
+    textCoverage: evidence.textCoverage ? JSON.parse(JSON.stringify(evidence.textCoverage)) : null,
     structuredAssessment: (evidence.structuredAssessment && typeof evidence.structuredAssessment === 'object') ? evidence.structuredAssessment : null,
     behavior: (evidence.behavior && typeof evidence.behavior === 'object') ? evidence.behavior : null,
     interactiveSignals: (evidence.interactiveSignals && typeof evidence.interactiveSignals === 'object') ? evidence.interactiveSignals : null,
