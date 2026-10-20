@@ -104,3 +104,12 @@ test('literal brackets reduce delivery size without changing percent literals, f
   assert.equal(decodeURIComponent(parsed.pathname),program);
   assert(encoded.length < encodeURI(program).replace(/[?#]/g,encodeURIComponent).length);
 });
+
+ test('literal braces preserve opaque javascript URL programs and percent-encoded literals',()=>{
+  const program='void(()=>{globalThis.value={text:"{literal} %7B %7D ?# 日本語"};})()';
+  const encoded=encodeJavaScriptBookmarkPayload(program),url=new URL('javascript:'+encoded);
+  assert(encoded.includes('{'));assert(encoded.includes('}'));assert(encoded.includes('%257B'));assert(encoded.includes('%257D'));
+  assert.equal(url.search,'');assert.equal(url.hash,'');assert.equal(decodeURIComponent(url.pathname),program);
+  const context=vm.createContext({});assert.equal(new vm.Script(decodeURIComponent(url.pathname)).runInContext(context),undefined);
+  assert.equal(context.value.text,'{literal} %7B %7D ?# 日本語');
+});

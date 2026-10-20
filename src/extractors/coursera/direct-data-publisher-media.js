@@ -295,3 +295,28 @@ export function directPublisherMediaEvidenceV1(observation, targetUrl, media, ha
     return media;
   } catch (_) { return null; }
 }
+
+/** Literal wrapped images are related evidence, never replacements for a broken
+ * full-size link. Derive this view without changing the immutable inventory. */
+export function directPublisherInlineAlternativesV1(observation, targetUrl, media) {
+  if (!directPublisherMediaStructureV1(observation,targetUrl,media)) return [];
+  const source = JSON.parse(observation.model.rawJson), result = [], seen = new Set();
+  for (const field of ["raw","rendered"]) {
+    const raw = source.content?.[field];
+    if (typeof raw !== "string") continue;
+    const html = raw.replace(/<!--[^]*?(?:-->|$)/g, "").replace(/<(script|style|textarea|title|xmp|noembed|noframes|iframe|template)\b[^<>]*>[^]*?(?:<\/\1\s*>|$)/gi, "");
+    const wrappers = /<a\b([^<>]*)>\s*<img\b([^<>]*)>\s*<\/a\s*>/gi;
+    let match;
+    while ((match = wrappers.exec(html))) {
+      const attribute = (value,key) => {
+        const found = [...value.matchAll(/([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].filter(a=>a[1].toLowerCase()===key);
+        return found.length === 1 ? directPublisherImageUrlV1(directPublisherMediaAttributeV1(found[0][2] ?? found[0][3]),source.link) : "";
+      };
+      const linkedUrl = attribute(match[1],"href"), inlineUrl = attribute(match[2],"src"),
+        linked = media.resources.find(r=>r.url===linkedUrl), inline = media.resources.find(r=>r.url===inlineUrl), key=linkedUrl+"\n"+inlineUrl;
+      if (!linked || linked.body || !inline?.body || seen.has(key) || linkedUrl===inlineUrl) continue;
+      seen.add(key); result.push({linkedUrl,inlineUrl,inlineSha256:inline.body.sha256,relationship:"AUTHORED_WRAPPED_IMAGE",replacesLinkedOriginal:false});
+    }
+  }
+  return result;
+}

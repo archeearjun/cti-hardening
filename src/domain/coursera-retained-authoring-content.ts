@@ -1,3 +1,4 @@
+import { directManualPartTargetsV1, directManualObservationV1 } from "../extractors/coursera/direct-data-native-observations.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
@@ -222,6 +223,18 @@ function derive(
           originalModelSha256: hash(part),
           originalModelJson: literal,
         });
+        continue;
+      }
+      if (part.typeName === "storedManualGradedQuestionPart" && rawValid) {
+        const target = directManualPartTargetsV1(bound).find((value: Obj) => value.ordinal === index + 1),
+          observations = list(raw.manualDefinitions).filter(record => record.id === target?.id);
+        if (target && observations.length === 1 && directManualObservationV1(observations[0],target,hash) &&
+            Date.parse(observations[0].final.receipt.observedAt) <= Date.parse(proof.sources.receipts?.stability?.receipt?.observedAt)) {
+          const original = observations[0].initial.data.elements[0], prompt = cmlText(original.prompt);
+          blocks.push({kind:"QUESTION_DEFINITION",ordinal:index+1,nativeId:target.id,groupId:"",nativeType:"manualGraded",
+            title:"",prompt:prompt.value,options:[],formatStatus:prompt.known ? "KNOWN_CML" : "UNSUPPORTED_CML",
+            nativeValidation:"UNRECORDED",originalModelSha256:hash(original),originalModelJson:JSON.stringify(original,null,2)});
+        }
         continue;
       }
       if (

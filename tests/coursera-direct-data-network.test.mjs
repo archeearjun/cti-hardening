@@ -239,3 +239,10 @@ test('source changes and failed or incomplete sanitization cannot release succes
     assert(!JSON.stringify(result).includes('private'));
   }
 });
+
+test('manual definitions use exact mutable owner IDs, bounded same-origin GETs and no guessed version',async()=>{
+ const id='A'.repeat(22)+'~'+'B'.repeat(22),calls=[],reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{calls.push({url:new URL(url),options});return reply(url,{prompt:'original',rubrics:[{points:4}]});}});
+ const result=await reader.readManualDefinition(id);assert(result.ok);assert.equal(calls.length,1);assert.equal(calls[0].url.pathname,'/api/authoringAssignmentManualGradedQuestions.v1/'+id);assert.equal(calls[0].options.credentials,'same-origin');assert.equal(calls[0].options.redirect,'error');assert.equal(result.data.elements[0].rubrics[0].points,4);
+ for(const invalid of [id+'@1',id+'/other','short~id'])assert.equal((await reader.readManualDefinition(invalid)).ok,false);
+ assert.equal(calls.length,1);
+});

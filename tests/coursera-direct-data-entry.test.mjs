@@ -1,3 +1,4 @@
+import * as nativeObservations from "../src/extractors/coursera/direct-data-native-observations.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -435,6 +436,7 @@ function harness(options = {}) {
       readRelation: (id) => read("relation", id),
       readGroup: (id) => read("group", id),
       readDefinition: (id) => read("definition", id),
+      readManualDefinition: (id) => read("manual", id),
       readWidgetProvider: (id, courseId) => read("widget", id, courseId),
       readPanoptoDeliveryInfo: (url) => read("panopto", url),
       readPublicPage: (url) => read("public", url),
@@ -462,7 +464,7 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_MAX_PARTS_V1,
     directDataCoverageSummaryV1,
     directDataAttemptMetricsV1,
-    ...publishedDraftSnapshot,
+    ...publishedDraftSnapshot, ...nativeObservations,
     location,
     document,
     crypto: { subtle: webcrypto.subtle, randomUUID: webcrypto.randomUUID },
@@ -1509,7 +1511,7 @@ test("the bounded inline overlay summary distinguishes configuration from unique
   }
   const summary = clone(context.inlineExternalContentSummary());
   assert.equal(summary.readings, 24); assert.deepEqual(summary.settings, { captured: 54, total: 54 });
-  assert.deepEqual(summary.pages, { saved: 0, unique: 44, historical: 0 });
+  assert.deepEqual(summary.pages, { saved: 0, unique: 44, historical: 0, skipped: 0, reused: 0 });
   assert.deepEqual(summary.failures, { upstreamHttp: { "403": 42, "404": 1 }, timeouts: 1, unsupported: 0, other: 0, unclassified: 0, mixed: 0 });
   assert.equal(summary.wholeWidgetVerified, false); assert.equal(summary.limited, false);
   context.itemStates.clear();
@@ -1559,7 +1561,7 @@ test("inline progress separates exposed publisher API HTTP outcomes from HTML fa
   }
   const original = JSON.stringify(fingerprints), summary = clone(context.inlineExternalContentSummary());
   assert.equal(summary.readings, 24); assert.deepEqual(summary.settings, { captured: 54, total: 54 });
-  assert.deepEqual(summary.pages, { saved: 29, unique: 44, historical: 0 });
+  assert.deepEqual(summary.pages, { saved: 29, unique: 44, historical: 0, skipped: 0, reused: 0 });
   assert.equal(summary.publisherApi.saved, 29); assert.equal(summary.publisherApi.unique, 44);
   assert.deepEqual(summary.publisherApi.failures.observedHttp, { "401": 1, "404": 14 });
   assert.equal(summary.publisherApi.failures.other, 0); assert.equal(summary.publisherApi.failures.unclassified, 0);
@@ -1627,7 +1629,7 @@ test("publisher image progress deduplicates owned originals and distinguishes bl
   const before = fixtures.map(f => JSON.stringify(f.raw));
   for (const f of fixtures) context.itemStates.set(f.fp.id, { inlineExternalContent: context.summarizeInlineItem(f.fp) });
   const summary = clone(context.inlineExternalContentSummary());
-  assert.deepEqual(summary.publisherImages, { unique: 3, saved: 1, historical: 1, browserUnavailable: 1, failed: 1, unverified: 0 });
+  assert.deepEqual(summary.publisherImages, { uniqueFiles: 1, unique: 3, saved: 1, historical: 1, browserUnavailable: 1, failed: 1, unverified: 0 });
   assert.equal(summary.pages.saved, 1); assert.equal(summary.publisherApi.saved, 1);
   assert.deepEqual(summary.settings, { captured: 2, total: 2 });
   assert.equal(summary.wholeWidgetVerified, false);
@@ -1636,7 +1638,7 @@ test("publisher image progress deduplicates owned originals and distinguishes bl
   const start = source.indexOf("      const inline = stats.inlineExternalContent;"), end = source.indexOf("      count.hidden =", start),
     renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
   new vm.Script(source.slice(start, end)).runInContext(renderContext);
-  assert(renderContext.count.textContent.includes("Publisher image sources 1/3 saved (1 browser-blocked or unreadable; 1 other uncaptured image sources)"));
+  assert(renderContext.count.textContent.includes("Publisher image sources 1/3 saved · 1 distinct publisher files (1 browser-blocked or unreadable; 1 other uncaptured image sources)"));
   assert(renderContext.count.textContent.includes("1 historical image originals retained"));
   context.itemStates.clear();
   const metadataOnly = createInlinePublisherMediaContentFixture({ outcomes: ["CAPTURED"] });
@@ -1700,7 +1702,7 @@ test("publisher image progress distinguishes observed publisher failures from CT
     for (const f of fixtures) context.itemStates.set(f.fp.id, { inlineExternalContent: context.summarizeInlineItem(f.fp) });
     return clone(context.inlineExternalContentSummary());
   }, summary = summarize();
-  assert.deepEqual(summary.publisherImages, { unique: 3, saved: 0, historical: 0, browserUnavailable: 0,
+  assert.deepEqual(summary.publisherImages, { uniqueFiles: 0, unique: 3, saved: 0, historical: 0, browserUnavailable: 0,
     failed: 1, unverified: 0, publisherHttp: { "403": 1 }, serviceHttp: { "502": 1 } });
   assert.equal(summary.wholeWidgetVerified, false);
   assert(fixtures.every(f => f.fp.captureContract.complete === false));
@@ -1708,7 +1710,7 @@ test("publisher image progress distinguishes observed publisher failures from CT
   const start = source.indexOf("      const inline = stats.inlineExternalContent;"), end = source.indexOf("      count.hidden =", start),
     renderContext = vm.createContext({ stats: { inlineExternalContent: summary }, state: {}, count: { textContent: "" } });
   new vm.Script(source.slice(start, end)).runInContext(renderContext);
-  assert(renderContext.count.textContent.includes("Publisher image sources 0/3 saved (1 publisher HTTP 403; 1 CTI service HTTP 502; 1 other uncaptured image sources)"));
+  assert(renderContext.count.textContent.includes("Publisher image sources 0/3 saved · 0 distinct publisher files (1 publisher HTTP 403; 1 CTI service HTTP 502; 1 other uncaptured image sources)"));
   assert(!renderContext.count.textContent.includes("2 CTI service HTTP 502"), "A service 502 wrapping the observed publisher 403 is the same failed image read");
   assert(!renderContext.count.textContent.includes("Cloudflare check"),"A generic 403 reason or status is not an observed Cloudflare challenge");
   assert.equal(summary.publisherImages.publisherHttp["403"], 1,
