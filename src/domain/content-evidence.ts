@@ -1131,6 +1131,8 @@ export function capturedContent(
       return question;
     });
   const limitations: string[] = [];
+  if (a.parser === "coursera-bound-manual-draft-v1")
+    limitations.push("Manual-submission evidence is scoped to the authoring draft. Published bodies and AI-grader execution are not verified; rubric-based grading is not a captured answer key.");
   if (raw.length > 5000)
     limitations.push(
       "Only the first 5,000 captured question positions are displayed.",

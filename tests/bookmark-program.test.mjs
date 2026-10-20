@@ -74,6 +74,23 @@ test("the build-time parser formats without evaluating the program", () => {
   assert.equal(context[key], true);
 });
 
+test("shortened local bindings preserve closures, shorthand evidence keys and dynamic property names", () => {
+  const source = `(() => {
+    const sourceIdentity = "original", observationProvenance = {sourceIdentity};
+    const {sourceIdentity: retainedIdentity} = observationProvenance;
+    function OriginalReceiptFactory() {
+      const originalResponseSha256 = "a".repeat(64);
+      return () => ({originalResponseSha256, sourceIdentity: retainedIdentity});
+    }
+    globalThis.observed = {
+      observationProvenance, receipt: OriginalReceiptFactory()(),
+      name: OriginalReceiptFactory.name,
+      dynamic: observationProvenance["sourceIdentity"]
+    };
+  })()`;
+  assert.deepEqual(execute(formatJavaScriptBookmarkProgram(source)), execute(source));
+});
+
 test("classic-script syntax errors and empty inputs cannot become bookmark deliveries", () => {
   for (const source of ["", " \n\t ", null, undefined])
     assert.throws(() => formatJavaScriptBookmarkProgram(source), /non-empty/);

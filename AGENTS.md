@@ -1,5 +1,15 @@
 # Working on CTI
 
+CTI independently extracts source LMS evidence (including Brightspace and IMSCC)
+and destination Coursera evidence. Neither side is subordinate to the other.
+Preserve each side's raw snapshots, identifiers, hierarchy, content, provenance,
+independent inventories, coverage contracts and failure history. Extractor failure
+or unsupported content is unknown evidence, never proof of LMS absence.
+High-confidence parity requires independently verified evidence on both sides;
+ambiguous mappings require review. Keep draft and published states separate.
+Targeted rechecks must preserve prior snapshots. See
+`docs/development.md` for the implementation boundaries.
+
 `main` is the maintained application. Read `docs/development.md` before editing.
 Cloudflare currently builds `codex/typescript-pages-migration`; CI forwards
 verified `main` commits to that branch without force-pushing. Treat it as a

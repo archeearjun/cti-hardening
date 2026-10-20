@@ -130,10 +130,11 @@ export function directDraftAssessmentInventoryV1(bound) {
       passingFraction: definition.passingFraction, assignmentLevelRubrics: definition.assignmentLevelRubrics,
       draftTimeCommitment: bound.draftTimeCommitment, publishedTimeCommitment: bound.publishedTimeCommitment};
   }
+  const manualOnly = parts.length > 0 && parts.every(p=>p?.typeName==="storedManualGradedQuestionPart");
   for (let index = 0; index < parts.length; index++) {
     const part = parts[index],
       ordinal = index + 1;
-    if (!object(part) || part.typeName !== "storedQuestionGroupPart") {
+    if (!object(part) || (!manualOnly && part.typeName !== "storedQuestionGroupPart")) {
       unsupportedParts.push({
         ordinal,
         typeName:
@@ -178,6 +179,7 @@ export function directDraftAssessmentInventoryV1(bound) {
     declared: parts.length,
     declaredContentParts: parts.length,
     rawParts: parts,
+    ...(manualOnly ? {manualOnly:true} : {}),
     unsupportedParts,
     configuration: definition.configuration,
     introduction: definition.introduction,

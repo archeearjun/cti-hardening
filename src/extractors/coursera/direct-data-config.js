@@ -1,7 +1,8 @@
-export const CTI_DIRECT_DATA_VERSION_V1 = "1.9.3";
-export const CTI_DIRECT_DATA_BUILD_V1 = "v1.9.3-bound-native-content-20261020";
+export const CTI_DIRECT_DATA_VERSION_V1 = "1.9.4";
+export const CTI_DIRECT_DATA_BUILD_V1 = "v1.9.4-manual-draft-contract-20261020";
 export function directRecoverablePublisherBuildV1(buildId) {
   return [
+    "v1.9.3-bound-native-content-20261020",
     "v1.9.2-manual-authoring-questions-20261020",
     "v1.9.1-recovery-accounting-manual-sources-20261020",
     "v1.9.0-native-fidelity-and-publisher-recovery-20261019",

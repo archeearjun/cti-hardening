@@ -102,6 +102,15 @@ checks continue at the app and API boundaries.
 
 ## Extractors
 
+Source LMS and destination LMS extraction are independent, equally important
+evidence tracks. Each owns its inventories, raw observations, type-specific
+coverage contracts and uncertainty. A failed acquisition is not LMS absence.
+High-confidence comparison requires verified evidence on both sides, with
+ambiguous mappings retained for review. Draft fidelity, publication state and
+runtime access remain separate. See the
+[source extractor assessment and plan](audits/source-extractor-assessment-2026-10-20.md)
+and [manual draft contract](audits/manual-draft-contract-2026-10-20.md).
+
 Each platform has `entry.js` for its per-run state, orchestration, guards and
 cleanup. Coursera helpers are grouped into assessment, asset, plugin, navigation,
 retry, evidence and text/DOM modules. Brightspace separates reusable helpers from

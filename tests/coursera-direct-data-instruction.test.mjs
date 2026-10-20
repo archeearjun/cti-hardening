@@ -81,7 +81,8 @@ test("unknown/mixed/manual/duplicate part inventories cannot acquire instruction
   ]) {
     const bound = {sourceState: "AUTHORING_DRAFT", atomId, draft: {content: {typeName: "staffGradedDraft", definition: {parts}}}},
       inventory = directDraftAssessmentInventoryV1(bound);
-    assert.equal(inventory.complete, false);
+    assert.equal(inventory.complete, inventory.manualOnly === true);
+    if (inventory.manualOnly) assert.notEqual(inventory.instructionOnly, true);
     await assert.rejects(directInstructionAssessmentModelV1(inventory), /UNSUPPORTED/);
   }
 });

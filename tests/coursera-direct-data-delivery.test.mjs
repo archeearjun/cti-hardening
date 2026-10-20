@@ -43,10 +43,10 @@ test("the universal bookmark carries the parser-formatted current program while 
   );
   assert(courseraDirectDataBookmarkSource.length < courseraDirectDataSource.length);
   assert(address.length < 499 * 1024, "Native models and guided recovery retain at least 1 KiB headroom below the unchanged 500 KiB browser limit.");
-  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.9.3");
+  assert.equal(COURSERA_DIRECT_DATA_CAPTURE_VERSION, "1.9.4");
   assert.equal(
     COURSERA_DIRECT_DATA_CAPTURE_BUILD,
-    "v1.9.3-bound-native-content-20261020",
+    "v1.9.4-manual-draft-contract-20261020",
   );
   assert.deepEqual(CTI_RELEASE_REGISTRY_.directDataCourseraExtractor, {
     version: "v" + COURSERA_DIRECT_DATA_CAPTURE_VERSION,

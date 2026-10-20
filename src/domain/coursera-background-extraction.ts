@@ -2,6 +2,8 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parseCourseraCourseMaterialsRelations } from "./coursera-course-relations.ts";
 import { publishedReadingVerified } from "./coursera-published-reading-verification.ts";
+import { directManualDraftContractV1 } from "../extractors/coursera/direct-data-manual-draft.js";
+import { bindDirectAuthoringDraftV1 } from "../extractors/coursera/direct-data-models.js";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import {
   CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
@@ -1473,6 +1475,20 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
         payload.emptyReadingEvidence != null
       )
         reasons.push(`DIRECT_DRAFT_READING_SOURCE_INVALID:${id}`);
+      continue;
+    }
+    if (contract.status === "COMPLETE_BOUND_DRAFT_MANUAL_ASSESSMENT") {
+      let valid = false;
+      try {
+        const copy = {...item, payload: {...payload}},
+          bound = bindDirectAuthoringDraftV1(copy, courseId, slug, sources?.atom, sources?.relation);
+        valid = rawLeaves.get(item.id)?.published === false &&
+          ["staffGraded", "gradedAssignment", "ungradedAssignment"].includes(sourceItems.get(item.id)?.sourceContentType) &&
+          directManualDraftContractV1(copy, bound, directModelHash) &&
+          ["structuredAssessment", "directDataEvidence", "directManualDraftEvidence"].every(key =>
+            directCanonicalSourceTextV1(copy.payload[key]) === directCanonicalSourceTextV1(payload[key]));
+      } catch { valid = false; }
+      if (!valid) reasons.push(`DIRECT_DRAFT_MANUAL_ASSESSMENT_SOURCE_INVALID:${id}`);
       continue;
     }
     if (contract.status === "COMPLETE_BOUND_DRAFT_ASSESSMENT") {
