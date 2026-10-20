@@ -1,4 +1,4 @@
-import { directManualPartTargetsV1, directManualObservationV1 } from "../extractors/coursera/direct-data-native-observations.js";
+import { directManualPartTargetsV1, directManualObservationV1, directManualQuestionV1 } from "../extractors/coursera/direct-data-native-observations.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
@@ -63,6 +63,7 @@ export interface RetainedAuthoringBlock {
   options: { id: string; text: string }[];
   formatStatus: "KNOWN_CML" | "UNSUPPORTED_CML";
   nativeValidation: "READY" | "NOT_READY" | "UNRECORDED";
+  manualSubmission?: ReturnType<typeof directManualQuestionV1>;
   originalModelSha256: string;
   originalModelJson: string;
 }
@@ -230,10 +231,11 @@ function derive(
           observations = list(raw.manualDefinitions).filter(record => record.id === target?.id);
         if (target && observations.length === 1 && directManualObservationV1(observations[0],target,hash) &&
             Date.parse(observations[0].final.receipt.observedAt) <= Date.parse(proof.sources.receipts?.stability?.receipt?.observedAt)) {
-          const original = observations[0].initial.data.elements[0], prompt = cmlText(original.prompt);
+          const original = observations[0].initial.data.elements[0], prompt = cmlText(original.prompt), manual = directManualQuestionV1(original);
           blocks.push({kind:"QUESTION_DEFINITION",ordinal:index+1,nativeId:target.id,groupId:"",nativeType:"manualGraded",
             title:"",prompt:prompt.value,options:[],formatStatus:prompt.known ? "KNOWN_CML" : "UNSUPPORTED_CML",
-            nativeValidation:"UNRECORDED",originalModelSha256:hash(original),originalModelJson:JSON.stringify(original,null,2)});
+            ...(manual ? {manualSubmission: manual} : {}),
+            nativeValidation:original.validation?.isReadyForPublish === true ? "READY" : original.validation?.isReadyForPublish === false ? "NOT_READY" : "UNRECORDED",originalModelSha256:hash(original),originalModelJson:JSON.stringify(original,null,2)});
         }
         continue;
       }
@@ -404,6 +406,9 @@ export function retainedCourseraAuthoringText(
       ...(block.title ? [block.title] : []),
       ...(block.prompt ? [block.prompt] : []),
       ...(fields ? [retainedAuthoringFieldsText(fields)] : []),
+      ...(block.manualSubmission ? ["Manual submission source: current authoring question; published body unverified",
+        "Source graderType: " + JSON.stringify(object(block.manualSubmission.fields).graderType),
+        "Exact manual submission fields:", JSON.stringify(block.manualSubmission.fields,null,2)] : []),
       ...block.options.map(
         (option, index) =>
           `Authored option ${option.id}: ${fields?.sourceDefect

@@ -1,3 +1,4 @@
+import { CTI_DIRECT_MANUAL_FIELDS_V1 } from "./direct-data-native-observations.js";
 import { sanitizeCourseraCourseDataModel } from './direct-data-privacy.js';
 import { CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
   CTI_DIRECT_WIDGET_PROVIDER_INCLUDES_V1 } from './direct-data-widget.js';
@@ -143,8 +144,8 @@ export function createDirectDataReaderV1(options = {}) {
       if (!group.test(id)) return null;
       all=true;includes='_links';fields='id,questions,typeName';
     } else if (resource === 'authoringAssignmentManualGradedQuestions.v1') {
-      if (!/^[A-Za-z0-9_-]{22}~[A-Za-z0-9_-]{22}$/.test(id)) return null;
-      all=true;includes='_links';
+      if (!/^[A-Za-z0-9_-]{22}$/.test(id)) return null;
+      fields=CTI_DIRECT_MANUAL_FIELDS_V1;
     } else if (resource === 'authoringAssignmentMachineEvaluableQuestions.v1') {
       if (!definition.test(id)) return null;
       all=true;includes='_links';fields='id,definition,validation';
@@ -166,7 +167,7 @@ export function createDirectDataReaderV1(options = {}) {
       url.searchParams.set('widgetSessionProviderId',id);
       url.searchParams.set('courseId',courseId);
     } else if (collection) url.searchParams.set('ids',id);
-    if (resource === 'authoringAssignmentQuestionGroups.v1') url.searchParams.set('id',id);
+    if (['authoringAssignmentQuestionGroups.v1','authoringAssignmentManualGradedQuestions.v1'].includes(resource)) url.searchParams.set('id',id);
     if (fields) url.searchParams.set('fields',fields);
     if (includes) url.searchParams.set('includes',includes);
     return {resource,id,url,all,responseId:resource === 'authoringWidgetSessionProviders.v1' ? id.split('@')[0] : id};
@@ -513,7 +514,7 @@ export function createDirectDataReaderV1(options = {}) {
           typeof sanitized.data!=='object') return failure(job,'SANITIZER_INCOMPLETE');
       if (!Array.isArray(sanitized.data.elements) || sanitized.data.elements.length!==1 ||
           sanitized.data.elements[0]?.id!==job.descriptor.responseId) return failure(job,'SANITIZER_INCOMPLETE');
-      if (['assets.v1','authoringWidgetSessionProviders.v1'].includes(job.descriptor.resource)) {
+      if (['assets.v1','authoringWidgetSessionProviders.v1','authoringAssignmentManualGradedQuestions.v1'].includes(job.descriptor.resource)) {
         const protectedModel=sanitizeCourseraCourseDataModel(sanitized.data);
         if (protectedModel.limitReached) return failure(job,'SANITIZER_INCOMPLETE');
         sanitized={...protectedModel,removedFields:Math.max(0,Number(sanitized.removedFields) || 0)+protectedModel.removedFields,

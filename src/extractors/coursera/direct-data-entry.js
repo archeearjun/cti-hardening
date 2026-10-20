@@ -1,4 +1,4 @@
-import { directManualPartTargetsV1 } from "./direct-data-native-observations.js";
+import { directManualPartTargetsV1, directManualQuestionV1 } from "./direct-data-native-observations.js";
 import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
@@ -1080,8 +1080,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const record = {...target,initial,final,stable:!!final && initial.modelSha256===final.modelSha256};
           record.stable = record.stable && initial.data?.elements?.length === 1 &&
             initial.data.elements[0].id === target.id && initial.data.paging?.next == null;
+          const acquired = record.stable && directManualQuestionV1(initial.data?.elements?.[0]);
+          record.acquisition = acquired ? {kind:acquired.kind,sourceState:acquired.sourceState,publishedBodyVerified:false}
+            : {kind:"UNVERIFIED_MANUAL_SOURCE",publishedBodyVerified:false};
           evidence.manualDefinitions.push(record);
-          failures.push({id:target.id,reason:record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
+          failures.push({id:target.id,reason:acquired ? "DIRECT_MANUAL_AUTHORING_CONTENT_RETAINED_PUBLISHED_BODY_UNVERIFIED" : record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
         }
       }
       if (parts.instructionOnly === true) {

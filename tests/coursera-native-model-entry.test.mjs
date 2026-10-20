@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { harness, useNativeCml, exportedCapture } from "./coursera-direct-data-entry.test.mjs";
+import { CTI_DIRECT_MANUAL_FIELDS_V1 } from "../src/extractors/coursera/direct-data-native-observations.js";
 import { directCanonicalSourceTextV1 } from "../src/extractors/coursera/direct-data-canonical.js";
 
 const COURSE = "Synthetic_course", SLUG = "synthetic-course", clone = value => structuredClone(value),
@@ -138,15 +139,24 @@ test('ten manual parts acquire two exact mutable observations each without fabri
     relation={id:atomId,atomId,branchRelationMap:{[COURSE+'~'+itemId]:{courseId:COURSE,itemId,courseSlug:SLUG}}},
     node={...fp,published:false,content:{typeName:fp.typeName,definition:{assignmentId:atomId+'@1'}}},
     material={id:COURSE,conflictMetadata:{version:1,courseBranchVersion:1},material:{elements:[{id:'ModuleOne',name:'Manual module',elements:[node]}]}},
-    records=new Map(parts.map((part,i)=>{const id=atomId+'~'+part.definition.id;return [id,{id,prompt:cml('Exact manual prompt '+i),rubrics:[{title:'Original criterion '+i,points:4}],options:[{display:''}]}];})),
+    records=new Map(parts.map((part,i)=>{const id=part.definition.id;return [id,{id,graderType:'AI',submissionSchema:{typeName:'richText'},prompt:cml('Exact manual prompt '+i),rubrics:[{details:{typeName:'multiLineInput',definition:{points:2}},prompt:cml('Original criterion '+i)}],graderInstructions:'',options:[{display:''}]}];})),
     resources={atom:'authoringAtoms.v2',relation:'authoringItemContentRelations.v1',materials:'authoringCourseMaterials.v1',course:'authoringCourses.v2',manual:'authoringAssignmentManualGradedQuestions.v1'},
     app=harness({ids:[itemId],fingerprints:{[itemId]:fp},materialNodes:{[itemId]:node},nativeCml:true,nativeAssessment:true,readResult(call){
       const value=call.resource==='atom'?atom:call.resource==='relation'?relation:call.resource==='materials'?material:call.resource==='course'?{id:COURSE}:call.resource==='manual'?records.get(call.id):null;
       if(!value)return undefined;const data={elements:[clone(value)],paging:{},linked:{}};
-      return {ok:true,data,receipt:{resource:resources[call.resource],id:call.id,status:200,requestPath:'/api/'+resources[call.resource]+'/'+call.id,bodyFormat:'PARSED_SANITIZED_JSON_MODEL',originalResponseSha256:hash(data),observedAt:new Date(call.at).toISOString(),bytes:64}};
+      return {ok:true,data,receipt:{...(call.resource==='manual'?{requestQuery:[['id',call.id],['fields',CTI_DIRECT_MANUAL_FIELDS_V1]]}:{}),resource:resources[call.resource],id:call.id,status:200,requestPath:'/api/'+resources[call.resource]+'/'+call.id,bodyFormat:'PARSED_SANITIZED_JSON_MODEL',originalResponseSha256:hash(data),observedAt:new Date(call.at).toISOString(),bytes:64}};
     }});
   app.launch();await app.idle();const {capture}=await exportedCapture(app.downloads.at(-1)),item=byId(capture,itemId),manual=item.payload.assessmentApiEvidence.manualDefinitions;
   assert.equal(manual.length,10);assert.equal(app.calls.filter(c=>c.resource==='manual').length,20);assert.equal(app.calls.filter(c=>c.resource==='definition'||c.resource==='group').length,0);
-  for(const record of manual){assert.equal(record.stable,true);assert.deepEqual(record.initial.data.elements[0],records.get(record.id));assert.equal(record.initial.data.elements[0].options[0].display,'');}
+  for(const record of manual){assert.equal(record.stable,true);assert.deepEqual(record.acquisition,{kind:"MANUAL_SUBMISSION",sourceState:"CURRENT_AUTHORING_QUESTION",publishedBodyVerified:false});assert.deepEqual(record.initial.data.elements[0],records.get(record.id));assert.equal(record.initial.data.elements[0].options[0].display,'');}
   assert.equal(item.payload.structuredAssessment.questionCount,0);assert.equal(item.captureContract.complete,false);assert.equal(capture.meta.directDataCapture.wholeCourseVerified,false);
+  const original=clone(item.payload.assessmentApiEvidence),before=app.calls.length;
+  app.advance(1000);app.state().recheckNative();await app.idle();
+  const current=app.items.get(app.state().runId+"/"+itemId).fingerprint;
+  assert.equal(app.calls.slice(before).filter(c=>c.resource==='manual').length,20);
+  assert.deepEqual(current.payload.assessmentApiEvidence,original,"Prior original bodies and timestamps remain intact");
+  const attempt=current.payload.directNativeRecheckAttempt;
+  assert.equal(attempt.currentNativeVerified,false);assert.equal(attempt.assessmentApiEvidence.manualDefinitions.length,10);
+  assert(attempt.assessmentApiEvidence.manualDefinitions.every(r=>r.stable && r.acquisition.publishedBodyVerified===false));
+
 });
