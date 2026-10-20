@@ -1,3 +1,4 @@
+import { directManualPartTargetsV1 } from "./direct-data-native-observations.js";
 import {
   CTI_DIRECT_DATA_VERSION_V1,
   CTI_DIRECT_DATA_BUILD_V1,
@@ -361,6 +362,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       if (inline.settings.total) {
         count.textContent += " · Inline widget settings " + inline.settings.captured + "/" + inline.settings.total +
           " captured in " + inline.readings + " readings · External pages " + inline.pages.saved + "/" + inline.pages.unique + " saved";
+        if (inline.pages.reused) count.textContent += " · " + inline.pages.reused + " page bodies reused; not refetched";
+        if (inline.pages.skipped) count.textContent += " · " + inline.pages.skipped + " page reads skipped";
         if (inline.pages.historical) count.textContent += " · " + inline.pages.historical + " historical pages retained";
         for (const [label, transport, total] of [
           ["Publisher API sources", inline.publisherApi, inline.publisherApi.unique],
@@ -381,6 +384,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (inline.publisherImages?.unique || inline.publisherImages?.sourceGaps || inline.publisherImages?.responsiveImageSets) {
           const images = inline.publisherImages, failures = [];
           count.textContent += images.unique ? " · Publisher image sources " + images.saved + "/" + images.unique + " saved" : " · Publisher images";
+          count.textContent += " · " + images.uniqueFiles + " distinct publisher files";
           for (const [key, label] of [["publisherHttp", "publisher HTTP"], ["serviceHttp", "CTI service HTTP"]])
             for (const [status, n] of Object.entries(images[key] || {})) failures.push(n + " " + label + " " + status);
           if (images.mixedHttp) failures.push(images.mixedHttp + " mixed HTTP outcomes");
@@ -621,12 +625,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (pages.length > 128 - result.pages.length) result.limited = true;
         for (const page of pages.slice(0, Math.max(0, 128 - result.pages.length))) {
           if (typeof page.targetUrl !== "string" || !page.targetUrl || page.targetUrl.length > 8192) { result.limited = true; continue; }
-          const failures = Array.isArray(page.failures) ? page.failures : [];
+          const failures = Array.isArray(page.failures) ? page.failures : [],
+            skipped = (page.readScope === "NOT_REFETCHED" || failures.length > 0) && failures.every(value =>
+              ["PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED", "PUBLISHER_FIRST_PARTY_HTML_NOT_REFETCHED", "PUBLISHER_FIRST_PARTY_PAGE_NOT_PLANNED"].includes(value.reason));
           result.pages.push({ targetUrl: page.targetUrl, saved: !!page.observation && !failures.length,
-            historical: !!page.retainedObservation && failures.length > 0,
+            historical: !!page.retainedObservation, reused: skipped && !!(page.observation || page.retainedObservation),
             representation: page.representation,
-            skipped: page.representation === "HTML" && failures.length > 0 && failures.every(value => value.reason === "PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED"),
-            outcomes: [...new Set(failures.slice(0, 32).filter(value => value.reason !== "PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED").map(publicPageFailureOutcome))],
+            skipped,
+            outcomes: [...new Set((skipped ? [] : failures).slice(0, 32).map(publicPageFailureOutcome))],
             browserUnavailable: failures.some(value => value.reason === "PUBLISHER_BROWSER_BLOCKED_OR_FAILED") });
           if (page.representation === "PUBLISHER_API" && page.media !== undefined) {
             const selected = page.observation || page.retainedObservation,
@@ -649,12 +655,12 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                   if (result.images.length >= 256) { result.limited = true; break; }
                   // The media structure checked the complete attempt record above.
                   // A reason string cannot establish a service or publisher status.
-                  const service = resource.reason && resource.attempts?.[1],
-                    outcome = service?.notAttempted === "ORIGIN_CHALLENGE" ? "DEFERRED_ORIGIN_CHALLENGE" :
+                  const service = resource.reason && resource.attempts?.[1], firstParty = resource.firstPartyAttempt,
+                    outcome = firstParty?.requestAttempted === true && firstParty.status >= 400 && firstParty.responseType === "basic" ? "PUBLISHER_HTTP_" + firstParty.status : service?.notAttempted === "ORIGIN_CHALLENGE" ? "DEFERRED_ORIGIN_CHALLENGE" :
                       service?.upstreamStatus >= 400 ? "PUBLISHER_HTTP_" + service.upstreamStatus :
                       service?.serviceStatus >= 400 ? "SERVICE_HTTP_" + service.serviceStatus :
                       resource.reason ? publicPageFailureOutcome({ reason: resource.reason }) : resource.body ? "" : "UNCLASSIFIED";
-                  result.images.push({ url: resource.url, saved: !group.historical && !!resource.body,
+                  result.images.push({ url: resource.url, sha256: resource.body?.sha256 || "", saved: !group.historical && !!resource.body,
                     historical: group.historical && !!resource.body,
                     outcome, ...(service?.upstreamChallenge === "cloudflare" ? {challenged:true} : {}) });
                 }
@@ -679,11 +685,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           counts[Object.prototype.hasOwnProperty.call(counts, key) ? key : "other"]++;
         }
       }
-      const sources = new Map(), imageSources = new Map(), imageGaps = new Set(), responsiveImages = new Set(), result = { method: "CAPTURE_REPORTED_INLINE_SOURCE_SUMMARY", readings: 0,
-        settings: { captured: 0, total: 0 }, pages: { saved: 0, unique: 0, historical: 0 },
+      const sources = new Map(), imageSources = new Map(), imageGaps = new Set(), responsiveImages = new Set(), imageFiles = new Set(), result = { method: "CAPTURE_REPORTED_INLINE_SOURCE_SUMMARY", readings: 0,
+        settings: { captured: 0, total: 0 }, pages: { saved: 0, unique: 0, historical: 0, skipped: 0, reused: 0 },
         failures: failureCounts(),
         htmlPages: { saved: 0, unique: 0, readTargets: 0, skipped: 0, historical: 0, failures: failureCounts() },
-        publisherApi: { saved: 0, unique: 0, historical: 0, browserUnavailable: 0, failures: { ...failureCounts("observedHttp"), browserUnavailable: 0, limits: 0 } },
+        publisherApi: { saved: 0, unique: 0, historical: 0, skipped: 0, reused: 0, browserUnavailable: 0, failures: { ...failureCounts("observedHttp"), browserUnavailable: 0, limits: 0 } },
         limited: false, sourceLimit: 256, wholeWidgetVerified: false };
       for (const item of itemStates.values()) {
         const value = item.inlineExternalContent;
@@ -694,13 +700,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (!sources.has(page.targetUrl)) {
             if (sources.size >= result.sourceLimit) { result.limited = true; continue; }
             sources.set(page.targetUrl, { saved: false, historical: false, outcomes: new Set(), publisher: false,
-              publisherSaved: false, publisherHistorical: false, publisherOutcomes: new Set(), browserUnavailable: false,
+              publisherSaved: false, publisherHistorical: false, publisherSkipped: false, publisherRead: false, reused: false, publisherOutcomes: new Set(), browserUnavailable: false,
               html: false, htmlSaved: false, htmlHistorical: false, htmlRead: false, htmlSkipped: false });
           }
           const source = sources.get(page.targetUrl);
-          source.saved ||= page.saved; source.historical ||= page.historical;
+          source.saved ||= page.saved; source.historical ||= page.historical; source.reused ||= page.reused;
           if (page.representation === "PUBLISHER_API") {
-            source.publisher = true; source.publisherSaved ||= page.saved; source.publisherHistorical ||= page.historical;
+            source.publisherSkipped ||= page.skipped; source.publisherRead ||= !page.skipped; source.publisher = true; source.publisherSaved ||= page.saved; source.publisherHistorical ||= page.historical;
             source.browserUnavailable ||= page.browserUnavailable;
             for (const outcome of page.outcomes) source.publisherOutcomes.add(outcome);
           } else {
@@ -710,6 +716,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           }
         }
         for (const image of value.images || []) {
+          if (image.sha256) imageFiles.add(image.sha256);
           if (!imageSources.has(image.url)) {
             if (imageSources.size >= 512) { result.limited = true; continue; }
             imageSources.set(image.url, { saved: false, historical: false, challenged: false, outcomes: new Set() });
@@ -735,7 +742,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (source.publisherSaved) result.publisherApi.saved++;
           if (source.publisherHistorical) result.publisherApi.historical++;
           if (!source.publisherSaved && source.browserUnavailable) result.publisherApi.browserUnavailable++;
-          if (!source.publisherSaved) addFailures(result.publisherApi.failures, source.publisherOutcomes, "observedHttp");
+          if (source.publisherSkipped && !source.publisherRead) result.publisherApi.skipped++;
+          if (source.reused) result.publisherApi.reused++;
+          if (!source.publisherSaved && source.publisherRead) addFailures(result.publisherApi.failures, source.publisherOutcomes, "observedHttp");
         }
         if (source.html) {
           result.htmlPages.unique++;
@@ -746,11 +755,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (source.htmlRead && !source.htmlSaved) addFailures(result.htmlPages.failures, source.outcomes);
         }
         if (source.historical) result.pages.historical++;
+        if (source.reused) result.pages.reused++;
+        if (source.publisherSkipped && !source.publisherRead || source.htmlSkipped && !source.publisher) result.pages.skipped++;
         if (source.saved) { result.pages.saved++; continue; }
-        addFailures(result.failures, source.outcomes);
+        if (!source.publisherSkipped && source.htmlRead) addFailures(result.failures, source.outcomes);
       }
       if (imageSources.size || imageGaps.size || responsiveImages.size) {
-        result.publisherImages = { unique: imageSources.size, saved: 0, historical: 0, browserUnavailable: 0, failed: 0, unverified: 0 };
+        result.publisherImages = { uniqueFiles: imageFiles.size, unique: imageSources.size, saved: 0, historical: 0, browserUnavailable: 0, failed: 0, unverified: 0 };
         if (imageGaps.size) result.publisherImages.sourceGaps = imageGaps.size;
         if (responsiveImages.size) result.publisherImages.responsiveImageSets = responsiveImages.size;
         for (const image of imageSources.values()) {
@@ -1055,6 +1066,24 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         failures,
       };
       const evidence = fp.payload.assessmentApiEvidence;
+      const manualTargets = directManualPartTargetsV1(bound);
+      if (manualTargets.length) {
+        evidence.manualDefinitions = [];
+        for (const target of manualTargets) {
+          if (reader.snapshot().stopped) break;
+          const observe = async () => {
+            const read = await reader.readManualDefinition(target.id);
+            return {data:read.data,receipt:receipt(read,target.id),modelSha256:read.ok ? await hash(read.data) : "",
+              ...(read.ok ? {} : {reason:read.reason})};
+          };
+          const initial = await observe(), final = initial.receipt?.status === 200 ? await observe() : null;
+          const record = {...target,initial,final,stable:!!final && initial.modelSha256===final.modelSha256};
+          record.stable = record.stable && initial.data?.elements?.length === 1 &&
+            initial.data.elements[0].id === target.id && initial.data.paging?.next == null;
+          evidence.manualDefinitions.push(record);
+          failures.push({id:target.id,reason:record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
+        }
+      }
       if (parts.instructionOnly === true) {
         fp.payload.structuredAssessment = await directInstructionAssessmentModelV1(parts);
         fp.payload.directAssessmentInventory = parts;
@@ -1704,6 +1733,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             value.itemId === provider.itemId && value.atomId === provider.atomId);
         const pages = prior?.length === 1 ? prior[0][collection]?.filter(value => value.targetUrl === targetUrl) : [];
         if (pages?.length !== 1) continue;
+        if (activeRecovery) {
+          const history = [...(pages[0].priorFailures || []), ...(pages[0].failures || [])];
+          if (history.length) page.priorFailures = JSON.parse(JSON.stringify([...new Map(history.map(value => [JSON.stringify(value), value])).values()]));
+        }
         const candidates = [pages[0].observation, pages[0].retainedObservation]
           .filter(value => publisher ? directPublisherResourceObservationValidV1(value, targetUrl) : directPublicPageObservationValidV1(value, targetUrl))
           .sort((a, b) => Date.parse(b.model.observedAt) - Date.parse(a.model.observedAt));
@@ -1748,8 +1781,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           claimExternalSource(page.targetUrl);
           if (activeRecovery) {
             const pinned = activeRecovery.pages.get(recoveryPageKey(fp.id,fp.atomId,provider.providerId,page.targetUrl));
-            if (!pinned || !directPublisherResourceObservationValidV1(pinned,page.targetUrl))
-              throw Error("PUBLISHER_FIRST_PARTY_PAGE_NOT_PLANNED");
+            page.readScope = "NOT_REFETCHED";
+            if (!pinned) continue;
+            if (!directPublisherResourceObservationValidV1(pinned,page.targetUrl))
+              throw Error("PUBLISHER_FIRST_PARTY_SOURCE_INVALID");
             const actual = await hashText(pinned.model.rawJson);
             if (actual !== pinned.model.sha256) throw Error("PUBLISHER_FIRST_PARTY_SOURCE_HASH_INVALID");
             const previousBytes = page.retainedObservation?.model?.bytes || 0;
@@ -1953,7 +1988,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         const targetUrl = page.targetUrl;
         let attemptedRead = null;
         try {
-          if (activeRecovery) throw Error("PUBLISHER_FIRST_PARTY_HTML_NOT_REFETCHED");
+          if (activeRecovery) { page.readScope = "NOT_REFETCHED"; continue; }
           if (provider.publisherPages?.some(value => value.targetUrl === targetUrl && value.observation && !value.failures.length))
             throw Error("PUBLIC_HTML_NOT_READ_PUBLISHER_API_SELECTED");
           if (!directPublicPageTargetV1(targetUrl)) throw Error("DIRECT_PUBLIC_PAGE_TARGET_UNSUPPORTED");
@@ -2689,6 +2724,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (actual !== observation.model.sha256) throw Error("PUBLISHER_FIRST_PARTY_SOURCE_HASH_INVALID");
           const inventory = directPublisherMediaInventoryV1(observation, target.url);
           if (!inventory) continue;
+          output.push({entry:null,providerId:provider.binding.providerId,targetUrl:target.url,observation});
           const validMedia = page.media && directPublisherMediaStructureV1(observation,target.url,page.media,
             {courseId,itemId:fp.id,atomId:fp.atomId,providerId:provider.binding.providerId}) ? page.media : null;
           for (const resource of inventory.resources) {
@@ -2736,13 +2772,15 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           const row = await checkpoint.getItem(saved.runId,item.id), fp = row?.fingerprint;
           if (!fp || fp.id !== item.id || fp.atomId !== item.atomId || fp.typeName !== item.typeName) continue;
           for (const selected of await publisherRecoveryItem(fp)) {
-            selections.push(selected.entry);
+            if (selected.entry) selections.push(selected.entry);
             if (selections.length > 1024) throw Error("PUBLISHER_FIRST_PARTY_PLAN_LIMIT");
-            const key = recoveryPageKey(fp.id,fp.atomId,selected.entry.providerId,selected.entry.targetUrl), old = pages.get(key);
+            const key = recoveryPageKey(fp.id,fp.atomId,selected.entry?.providerId || selected.providerId,selected.entry?.targetUrl || selected.targetUrl), old = pages.get(key);
             if (old && old.model.sha256 !== selected.observation.model.sha256) throw Error("PUBLISHER_FIRST_PARTY_SOURCE_AMBIGUOUS");
             pages.set(key,JSON.parse(JSON.stringify(selected.observation)));
           }
         }
+        if (!selections.length && !pages.size) throw Error("PUBLISHER_FIRST_PARTY_NO_ELIGIBLE_CAPTURE");
+        if (!selections.length) { state.phase = "No pending publisher images"; render("All eligible image sources already have saved originals. Page evidence was preserved."); return; }
         const plan = directPublisherFirstPartyPlanV1(courseId,selections), planSha256 = await directPublisherFirstPartyPlanHashV1(plan);
         if (!assertContext()) throw Error("PUBLISHER_FIRST_PARTY_CONTEXT_CHANGED");
         preparedRecovery = {plan,planSha256,pages,pinnedRunId:saved.runId,pinnedMaterialHash:saved.materialHash,

@@ -129,3 +129,24 @@ test("entry never exempts reflection keys or instruction questions when the same
   assert.equal(byId(capture, "ExactTextModel").captureContract.complete, true);
   assert.equal(capture.meta.directDataCapture.wholeCourseVerified, false);
 });
+
+test('ten manual parts acquire two exact mutable observations each without fabricating normalized questions or verification', async t=>{
+  useNativeCml(t);
+  const atomId='M'.repeat(22),itemId='ManualParts',parts=Array.from({length:10},(_,i)=>({typeName:'storedManualGradedQuestionPart',definition:{id:String.fromCharCode(97+i).repeat(22)}})),
+    fp={id:itemId,type:'Assignment',typeName:'ungradedAssignment',name:'Manual source',atomId,contentId:'atom~'+atomId,payload:{},sourceIdentity:{published:false}},
+    atom={id:atomId,contentId:fp.contentId,status:{typeName:'draftAtomStatus'},storedAtomVersion:1,metadata:{updatedAt:1700000000000},draft:{name:fp.name,content:{typeName:'staffGradedDraft',definition:{parts,configuration:{isGraded:true},passingFraction:0.8,assignmentLevelRubrics:[]}}}},
+    relation={id:atomId,atomId,branchRelationMap:{[COURSE+'~'+itemId]:{courseId:COURSE,itemId,courseSlug:SLUG}}},
+    node={...fp,published:false,content:{typeName:fp.typeName,definition:{assignmentId:atomId+'@1'}}},
+    material={id:COURSE,conflictMetadata:{version:1,courseBranchVersion:1},material:{elements:[{id:'ModuleOne',name:'Manual module',elements:[node]}]}},
+    records=new Map(parts.map((part,i)=>{const id=atomId+'~'+part.definition.id;return [id,{id,prompt:cml('Exact manual prompt '+i),rubrics:[{title:'Original criterion '+i,points:4}],options:[{display:''}]}];})),
+    resources={atom:'authoringAtoms.v2',relation:'authoringItemContentRelations.v1',materials:'authoringCourseMaterials.v1',course:'authoringCourses.v2',manual:'authoringAssignmentManualGradedQuestions.v1'},
+    app=harness({ids:[itemId],fingerprints:{[itemId]:fp},materialNodes:{[itemId]:node},nativeCml:true,nativeAssessment:true,readResult(call){
+      const value=call.resource==='atom'?atom:call.resource==='relation'?relation:call.resource==='materials'?material:call.resource==='course'?{id:COURSE}:call.resource==='manual'?records.get(call.id):null;
+      if(!value)return undefined;const data={elements:[clone(value)],paging:{},linked:{}};
+      return {ok:true,data,receipt:{resource:resources[call.resource],id:call.id,status:200,requestPath:'/api/'+resources[call.resource]+'/'+call.id,bodyFormat:'PARSED_SANITIZED_JSON_MODEL',originalResponseSha256:hash(data),observedAt:new Date(call.at).toISOString(),bytes:64}};
+    }});
+  app.launch();await app.idle();const {capture}=await exportedCapture(app.downloads.at(-1)),item=byId(capture,itemId),manual=item.payload.assessmentApiEvidence.manualDefinitions;
+  assert.equal(manual.length,10);assert.equal(app.calls.filter(c=>c.resource==='manual').length,20);assert.equal(app.calls.filter(c=>c.resource==='definition'||c.resource==='group').length,0);
+  for(const record of manual){assert.equal(record.stable,true);assert.deepEqual(record.initial.data.elements[0],records.get(record.id));assert.equal(record.initial.data.elements[0].options[0].display,'');}
+  assert.equal(item.payload.structuredAssessment.questionCount,0);assert.equal(item.captureContract.complete,false);assert.equal(capture.meta.directDataCapture.wholeCourseVerified,false);
+});

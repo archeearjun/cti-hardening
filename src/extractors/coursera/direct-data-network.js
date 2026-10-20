@@ -142,6 +142,9 @@ export function createDirectDataReaderV1(options = {}) {
     } else if (resource === 'authoringAssignmentQuestionGroups.v1') {
       if (!group.test(id)) return null;
       all=true;includes='_links';fields='id,questions,typeName';
+    } else if (resource === 'authoringAssignmentManualGradedQuestions.v1') {
+      if (!/^[A-Za-z0-9_-]{22}~[A-Za-z0-9_-]{22}$/.test(id)) return null;
+      all=true;includes='_links';
     } else if (resource === 'authoringAssignmentMachineEvaluableQuestions.v1') {
       if (!definition.test(id)) return null;
       all=true;includes='_links';fields='id,definition,validation';
@@ -646,6 +649,7 @@ export function createDirectDataReaderV1(options = {}) {
     readAtom:id=>read({resource:'authoringAtoms.v2',id}),
     readRelation:id=>read({resource:'authoringItemContentRelations.v1',id}),
     readGroup:id=>read({resource:'authoringAssignmentQuestionGroups.v1',id}),
+    readManualDefinition:id=>read({resource:'authoringAssignmentManualGradedQuestions.v1',id}),
     readDefinition:id=>read({resource:'authoringAssignmentMachineEvaluableQuestions.v1',id}),
     readAsset:id=>read({resource:'assets.v1',id}),
     readWidgetProvider:(id,courseId)=>read({resource:'authoringWidgetSessionProviders.v1',id,courseId})};

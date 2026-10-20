@@ -6,7 +6,7 @@ import { directInlineWidgetEvidenceV1, directSourceBindingEvidenceV1 } from "../
 import { directPublicHtmlEvidenceV1 } from "../extractors/coursera/direct-data-public-page.js";
 import { directPublisherEvidenceV1, directPublisherChapterV1,
   directPublisherResourceEvidenceV1, directPublisherResourceV1 } from "../extractors/coursera/direct-data-publisher.js";
-import { directPublisherMediaStructureV1 } from "../extractors/coursera/direct-data-publisher-media.js";
+import { directPublisherMediaStructureV1, directPublisherInlineAlternativesV1 } from "../extractors/coursera/direct-data-publisher-media.js";
 
 type Obj = Record<string, any>;
 const object = (value: unknown): Obj => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
@@ -39,6 +39,8 @@ export interface InlineWidgetProviderContent {
   publisherPages?: InlineWidgetPublisherPage[];
 }
 interface InlineWidgetPublisherPageBase {
+  readScope?: "NOT_REFETCHED";
+  priorFailures?: string[];
   targetUrl: string;
   sourceFields: string[];
   endpointUrl: string;
@@ -112,6 +114,7 @@ export interface InlineWidgetPublisherFirstPartyAttempt {
   challenge?: "cloudflare";
 }
 export interface InlineWidgetPublisherMedia {
+  linkedInlineAlternatives?: {linkedUrl:string;inlineUrl:string;inlineSha256:string;relationship:string;replacesLinkedOriginal:boolean}[];
   scope: "ORIGINAL_FILE_REFERENCES_ONLY";
   sourceSha256: string;
   resources: InlineWidgetPublisherFileReference[];
@@ -230,8 +233,10 @@ function publisherMediaContent(observation: Obj | null, targetUrl: string, media
       historicalJsonBytes += source.model.bytes;
       retainedSources.push({ sourceSha256: source.model.sha256, observedAt: source.model.observedAt, resources: resources(group.resources) });
     }
+    const alternatives = directPublisherInlineAlternativesV1(observation,targetUrl,checked);
     return { content: { scope: "ORIGINAL_FILE_REFERENCES_ONLY", sourceSha256: checked.sourceSha256,
       resources: resources(checked.resources), retainedSources,
+      ...(alternatives.length ? {linkedInlineAlternatives: alternatives} : {}),
       failures: checked.failures.map((failure: Obj) => text(failure.reason)).filter((reason: string) => /^[A-Z0-9_]{1,96}$/.test(reason)) }, historicalJsonBytes };
   } catch { return unavailable("PUBLISHER_IMAGE_MEDIA_EVIDENCE_INVALID"); }
 }
@@ -272,7 +277,7 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
           retained = hasRetained ? directPublicHtmlEvidenceV1(entry.retainedObservation, targetUrl, hashBytes) : null;
         if (entry.observation !== null && !observation) return null;
         if (observation && entry.failures.length) return null;
-        if (hasRetained && (!retained || observation || !entry.failures.length)) return null;
+        if (hasRetained && (!retained || observation || !entry.failures.length && entry.readScope !== "NOT_REFETCHED")) return null;
         const selected = observation || retained, model = object(selected?.model);
         if (selected && (retainedPublicBytes += model.bytes) > 8 * 1024 * 1024) return null;
         publicPages.push({ targetUrl, sourceFields: fields,
@@ -298,7 +303,7 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
             hasRetained = entry.retainedObservation !== undefined,
             retained = hasRetained ? directPublisherResourceEvidenceV1(entry.retainedObservation, targetUrl, hashBytes) : null;
           if (entry.observation !== null && !observation || observation && entry.failures.length ||
-              hasRetained && (!retained || observation || !entry.failures.length)) return null;
+              hasRetained && (!retained || observation || !entry.failures.length && entry.readScope !== "NOT_REFETCHED")) return null;
           const selected = observation || retained, model = object(selected?.model),
             resourceType = model.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" : model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter",
             resource = selected ? directPublisherResourceV1(model.rawJson, targetUrl, resourceType) : null;
@@ -319,6 +324,8 @@ function derive(proof: CourseraInlineWidgetContent["proof"]): CourseraInlineWidg
             else { media = projected.content; retainedPublicBytes += projected.historicalJsonBytes; }
           }
           publisherPages.push({ targetUrl, sourceFields: fields,
+            ...(entry.readScope === "NOT_REFETCHED" ? {readScope: "NOT_REFETCHED" as const} : {}),
+            ...(Array.isArray(entry.priorFailures) ? {priorFailures: entry.priorFailures.slice(0,32).map((f: Obj)=>text(f.reason)).filter((r:string)=>/^[A-Z0-9_]{1,96}$/.test(r))} : {}),
             status: resourceType === "back-matter" && selected
               ? observation ? "CAPTURED_PUBLISHER_API_BACK_MATTER" : "HISTORICAL_RETAINED_PUBLISHER_API_BACK_MATTER"
               : resourceType === "part" && selected
@@ -358,6 +365,13 @@ export function courseraInlineWidgetContent(item: unknown, courseId: string): Co
 export function validateCourseraInlineWidgetContent(value: unknown, itemId: string, courseId: string): asserts value is CourseraInlineWidgetContent {
   courseraInlineWidgetContentSize(value);
   const derived = derive(object(object(value).proof) as CourseraInlineWidgetContent["proof"]);
+  // Older immutable snapshots predate the optional relationship projection.
+  // Missing enrichment is allowed; any supplied relationship must still equal
+  // the independently derived authored link/image pair.
+  if (derived) for (const [i, provider] of derived.providers.entries()) for (const [j, page] of (provider.publisherPages || []).entries()) {
+    if (page.media && object(value).providers?.[i]?.publisherPages?.[j]?.media?.linkedInlineAlternatives === undefined)
+      delete page.media.linkedInlineAlternatives;
+  }
   if (!derived || !courseId || derived.courseId !== courseId || derived.itemId !== itemId || canonical(value) !== canonical(derived))
     throw Error("Captured embedded-page content differs from its native configuration or publisher source evidence.");
 }
@@ -516,6 +530,9 @@ export function courseraInlineWidgetContentText(content: CourseraInlineWidgetCon
           : `Publisher image source outcome: ${reason}`));
       }
       out.push(...(page.mediaFailures || []).map(reason => `Publisher image collection outcome: ${reason}`));
+      if (page.readScope === "NOT_REFETCHED") out.push("Publisher page not refetched during image recovery; original observation time preserved.");
+      out.push(...(page.priorFailures || []).map(reason => `Earlier publisher read outcome: ${reason}`));
+      for (const relation of page.media?.linkedInlineAlternatives || []) out.push(`Saved inline image ${relation.inlineUrl} (SHA-256 ${relation.inlineSha256}) is authored inside link ${relation.linkedUrl}; it does not replace that missing original.`);
       out.push(...page.failures.map(reason => `Current publisher read outcome: ${reason}`));
     }
   }
