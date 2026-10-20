@@ -309,8 +309,8 @@ export function directPublisherInlineAlternativesV1(observation, targetUrl, medi
     let match;
     while ((match = wrappers.exec(html))) {
       const attribute = (value,key) => {
-        const found = [...value.matchAll(/([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].filter(a=>a[1].toLowerCase()===key);
-        return found.length === 1 ? directPublisherImageUrlV1(directPublisherMediaAttributeV1(found[0][2] ?? found[0][3]),source.link) : "";
+        const found = [...value.matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)].filter(a=>a[1].toLowerCase()===key);
+        return found.length === 1 ? directPublisherImageUrlV1(directPublisherMediaAttributeV1(found[0][2] ?? found[0][3] ?? found[0][4] ?? ""),source.link) : "";
       };
       const linkedUrl = attribute(match[1],"href"), inlineUrl = attribute(match[2],"src"),
         linked = media.resources.find(r=>r.url===linkedUrl), inline = media.resources.find(r=>r.url===inlineUrl), key=linkedUrl+"\n"+inlineUrl;

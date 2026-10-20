@@ -4,7 +4,7 @@ import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
  * invent a version or route these IDs through the machine question endpoint. */
 export function directManualPartTargetsV1(bound) {
   const parts=bound?.draft?.content?.definition?.parts;
-  if (bound?.sourceState !== "AUTHORING_DRAFT" || bound.draft.content.typeName !== "staffGradedDraft" ||
+  if (bound?.sourceState !== "AUTHORING_DRAFT" || bound.draft?.content?.typeName !== "staffGradedDraft" ||
       !/^[A-Za-z0-9_-]{22}$/.test(bound.atomId || "") || !Array.isArray(parts) || parts.length>100) return [];
   const seen=new Set(), targets=[];
   for (const [index,part] of parts.entries()) {

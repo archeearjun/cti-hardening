@@ -69,3 +69,14 @@ test('a skipped duplicate never hides an actual failed retrieval of the same pub
  ]}});
  const s=c.inlineExternalContentSummary();assert.equal(s.publisherApi.skipped,0);assert.equal(s.publisherApi.failures.observedHttp['401'],1);
 });
+
+test('repeated recovery retains exact prior page receipts without duplicating them',async()=>{
+ const ast=ts.createSourceFile('entry.js',source,ts.ScriptTarget.Latest,true);let declaration;
+ function walk(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='prepareInlinePublicPages')declaration=n.getText(ast);else ts.forEachChild(n,walk);}walk(ast);
+ const c=vm.createContext({activeRecovery:{},directPublisherTargetV1:()=>true,directPublisherResourceObservationValidV1:()=>false});new vm.Script(declaration).runInContext(c);
+ const failure={reason:'PUBLISHER_BROWSER_HTTP_401',receipt:{status:401,observedAt:'2026-10-19T07:23:00Z'}},provider={providerId:'P',courseId:'C',itemId:'I',atomId:'A',targets:[{url:'target',sourceField:'url'}]},old={...provider,publisherPages:[{targetUrl:'target',priorFailures:[failure],failures:[failure]}]};
+ await c.prepareInlinePublicPages(provider,{payload:{directInlineWidgetProviderEvidence:{providers:[old]}}},true);
+ assert.equal(JSON.stringify(provider.publisherPages[0].priorFailures),JSON.stringify([failure]));
+ const again={...provider};await c.prepareInlinePublicPages(again,{payload:{directInlineWidgetProviderEvidence:{providers:[provider]}}},true);
+ assert.equal(JSON.stringify(again.publisherPages[0].priorFailures),JSON.stringify([failure]));
+});
