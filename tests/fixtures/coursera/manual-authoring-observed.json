@@ -1,0 +1,19 @@
+{
+  "elements": [{
+    "id": "MMMMMMMMMMMMMMMMMMMMMM",
+    "graderType": "AI",
+    "graderInstructions": "",
+    "submissionSchema": {"typeName": "richText"},
+    "schema": {},
+    "prompt": {"typeName": "cml", "definition": {
+      "dtdId": "assess/1",
+      "value": "<co-content><text>Explain café &amp; evidence.\nPreserve spacing.</text></co-content>",
+      "renderableHtmlWithMetadata": "<p>Explain café &amp; evidence.\nPreserve spacing.</p>"
+    }},
+    "rubrics": [{"details": {"typeName": "multiLineInput", "definition": {"points": 2}},
+      "prompt": {"typeName": "cml", "definition": {"dtdId": "assess/1", "value": "<co-content><text>Exact rubric</text></co-content>"}}}],
+    "academicIntegrityConfiguration": {},
+    "plagiarismConfig": {},
+    "validation": {"isReadyForPublish": true}
+  }]
+}
