@@ -827,7 +827,8 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
         await page
           .getByRole("alert")
           .filter({ hasText: "Synthetic temporary read failure" })
-          .waitFor({ timeout: 15000 });
+          // Six attempts allow up to 28.75s backoff plus local request time.
+          .waitFor({ timeout: 40000 });
         assert.equal(
           api.uploads.size,
           1,
@@ -842,8 +843,8 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
                 event.method === "GET" &&
                 event.path === `records/${receipt.auditId}`,
             ).length,
-          3,
-          "Only the safe read follows the existing bounded retry policy",
+          6,
+          "Only the safe read follows the bounded saved-evidence retry policy",
         );
         const readDiagnostic = assertRecoveryEvidenceUnchanged(
           (await downloadBytes(page, exportJson)).bytes,
@@ -853,7 +854,7 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
         assert.equal(readDiagnostic.code, "WORKSPACE_HTTP_ERROR");
         assert.equal(readDiagnostic.phase, "download");
         assert.equal(readDiagnostic.status, 503);
-        assert.equal(readDiagnostic.attempts, 3);
+        assert.equal(readDiagnostic.attempts, 6);
         assert(readDiagnostic.context.includes(receipt.auditId));
         assert.match(readDiagnostic.message, /Synthetic temporary read failure/);
       } else {
