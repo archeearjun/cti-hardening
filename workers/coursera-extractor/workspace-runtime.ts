@@ -154,7 +154,7 @@ export class WorkspaceRuntime extends DurableObject<WorkspaceRuntimeEnvironment>
       return new Response(
         JSON.stringify({
           error:
-            "The workspace is processing other evidence. Retry this exact upload after a moment.",
+            "The workspace is processing other evidence. Retry this exact request after a moment.",
         }),
         {
           status: 503,

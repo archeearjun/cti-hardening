@@ -107,11 +107,13 @@ async function transfer(
         : method === "PUT"
           ? "upload"
           : "prepare");
+  const maxAttempts = method === "GET" && phase === "download" ? 6 : 3;
   for (let attempt = 1; ; attempt++) {
     if (signal?.aborted) throw new Error("Transfer stopped by you.");
     let failure: WorkspaceFailure;
     let retryable = false;
-    let delay = 1000 * 2 ** (attempt - 1);
+    const backoff = Math.min(8000, 1000 * 2 ** (attempt - 1));
+    let delay = backoff + Math.floor(Math.random() * backoff * 0.25);
     let retryAfter: number | undefined;
     try {
       const timeout = AbortSignal.timeout(45000);
@@ -248,9 +250,11 @@ async function transfer(
       );
     }
     failure.attempts = attempt;
-    if (!retrySafe || !retryable || attempt >= 3 || delay > 30000) {
+    if (!retrySafe || !retryable || attempt >= maxAttempts || delay > 30000) {
       if (retryAfter !== undefined && retryAfter > 0)
         failure.message += ` The service asked to wait ${Math.ceil(retryAfter / 1000)} seconds before retrying.`;
+      if (retrySafe && retryable)
+        failure.message += ` Automatic retry budget exhausted after ${attempt} attempt${attempt === 1 ? "" : "s"}. Retry the same operation; stored evidence is unchanged.`;
       if (!retrySafe)
         failure.message += options.comparisonRecovery
           ? " This write was not automatically repeated. Use Check save / retry to check the existing report ID first."
@@ -258,7 +262,7 @@ async function transfer(
       throw failure;
     }
     options.onProgress?.(
-      `${label}: temporary failure${failure.status ? ` (HTTP ${failure.status})` : ""}; retry ${attempt + 1}/3 in ${Math.ceil(delay / 1000)} seconds.`,
+      `${label}: temporary failure${failure.status ? ` (HTTP ${failure.status})` : ""}; retry ${attempt + 1}/${maxAttempts} in ${Math.ceil(delay / 1000)} seconds.`,
     );
     await pause(delay, signal);
   }

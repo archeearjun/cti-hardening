@@ -320,7 +320,7 @@ export default function FullWorkspace({
       try {
         const s =
           localStorage.getItem("cti-workspace-mode") === "team"
-            ? await teamStore()
+            ? await teamStore({ onProgress: setImportProgress })
             : localStore();
         if (alive) {
           setStore(s);
@@ -835,11 +835,18 @@ export default function FullWorkspace({
         }
       };
       assertDeclarationCurrent();
-      let history = await Promise.all(
-        ingestionHistoryRefs(currentRecords, course.id).map((record) =>
-          store.get(record.id),
-        ),
-      );
+      const loadHistory = async () => {
+        const history: WorkspaceRecord[] = [];
+        for (const record of ingestionHistoryRefs(currentRecords, course.id))
+          history.push(
+            await store.get(record.id, {
+              signal: controller.current?.signal,
+              onProgress: setImportProgress,
+            }),
+          );
+        return history;
+      };
+      let history = await loadHistory();
       let currentAttempt = currentIngestionAttempt(course.id, history);
       if (attemptRecordingUncertain)
         setAttemptRecordingStatus(
@@ -900,11 +907,7 @@ export default function FullWorkspace({
           setAttemptRecordingUncertain(true);
           throw e;
         }
-        history = await Promise.all(
-          ingestionHistoryRefs(currentRecords, course.id).map((record) =>
-            store.get(record.id),
-          ),
-        );
+        history = await loadHistory();
         currentAttempt = currentIngestionAttempt(course.id, history);
       }
       const automaticIngestion = createAutomaticIngestionBasis(
@@ -2929,7 +2932,9 @@ export default function FullWorkspace({
                 disabled={!!busy || !connectionReady}
                 onClick={() =>
                   void act("Connecting to shared workspace", async () => {
-                    const s = await teamStore();
+                    const s = await teamStore({
+                      onProgress: setImportProgress,
+                    });
                     localStorage.setItem("cti-workspace-mode", s.mode);
                     setStore(s);
                     setRecords([]);
