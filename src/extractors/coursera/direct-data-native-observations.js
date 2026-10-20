@@ -45,16 +45,13 @@ export function directManualObservationV1(record, target, hashValue) {
 
 
 /** Observed authoring response shape. This is question-content acquisition,
- * not execution of the configured grader or proof of a published revision. */
+ * not execution of the configured grader or proof of a published revision.
+ * Callers supply sanitized reader data or independently checked observations. */
 export function directManualQuestionV1(model) {
   if (!model || !/^[A-Za-z0-9_-]{22}$/.test(model.id || "") ||
       model.prompt?.typeName !== "cml" || model.prompt.definition?.dtdId !== "assess/1" ||
       typeof model.prompt.definition.value !== "string" ||
       model.submissionSchema?.typeName !== "richText" || !Array.isArray(model.rubrics) || model.rubrics.length>100) return null;
-  const clean=sanitizeCourseraCourseDataModel(model);
-  if (clean.limitReached || directCanonicalSourceTextV1(clean.data)!==directCanonicalSourceTextV1(model)) return null;
-  const fields={};
-  for (const key of CTI_DIRECT_MANUAL_FIELDS_V1.split(","))
-    if (Object.prototype.hasOwnProperty.call(model,key)) fields[key]=model[key];
+  const fields=Object.fromEntries(CTI_DIRECT_MANUAL_FIELDS_V1.split(",").filter(key=>Object.hasOwn(model,key)).map(key=>[key,model[key]]));
   return {kind:"MANUAL_SUBMISSION",graderClassification:model.graderType === "AI" ? "AI" : "UNKNOWN",sourceState:"CURRENT_AUTHORING_QUESTION",publishedBodyVerified:false,fields};
 }

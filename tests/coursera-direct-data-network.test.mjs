@@ -251,12 +251,12 @@ test('manual definitions use exact mutable owner IDs, bounded same-origin GETs a
  const {CTI_DIRECT_MANUAL_FIELDS_V1}=await import('../src/extractors/coursera/direct-data-native-observations.js');
  let request;
  const reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{
-   request={url:new URL(url),options};return reply(url,{graderType:'AI',writeAccessToken:'synthetic-never-retain',prompt:{typeName:'cml',definition:{dtdId:'assess/1',value:''}},graderInstructions:'',rubrics:[],submissionSchema:{typeName:'richText'}});
+   request={url:new URL(url),options};return reply(url,{graderType:'AI',writeAccessToken:'synthetic-never-retain',plagiarismConfig:{writeAccessToken:'synthetic-nested-secret'},prompt:{typeName:'cml',definition:{dtdId:'assess/1',value:''}},graderInstructions:'',rubrics:[],submissionSchema:{typeName:'richText'}});
  }});
  const result=await reader.readManualDefinition('Q'.repeat(22));assert(result.ok);
  assert.deepEqual([...request.url.searchParams],[['id','Q'.repeat(22)],['fields',CTI_DIRECT_MANUAL_FIELDS_V1]]);
  assert.equal(request.options.headers['X-Coursera-Naptime-Fields'],undefined);
- assert(!JSON.stringify(result).includes('synthetic-never-retain'));assert(!JSON.stringify(result).includes('writeAccessToken'));
+ assert(!JSON.stringify(result).includes('synthetic-never-retain'));assert(!JSON.stringify(result).includes('synthetic-nested-secret'));assert(!JSON.stringify(result).includes('writeAccessToken'));
  assert(result.receipt.credentialFieldsRemoved>=1);assert.equal(result.data.elements[0].prompt.definition.value,'');assert.equal(result.data.elements[0].graderInstructions,'');
  });
 
@@ -279,10 +279,10 @@ test('published reading uses observed same-origin POST envelope, read-only selec
 
 test('published GraphQL errors, wrong identities and expired authorization cannot produce a body',async()=>{
  const {publishedReadingFixture}=await import('./published-reading-fixture.mjs');
- for(const variant of ['errors','identity','auth']) {
+ for(const variant of ['errors','identity','auth','unexpected-status']) {
   const f=publishedReadingFixture();if(variant==='errors')f.response[0].errors=[{message:'private server error'}];
   if(variant==='identity')f.response[0].data.ItemAuthoring.queryAuthoringItemByAtomId.atomId='Z'.repeat(22);
-  const reader=createDirectDataReaderV1({sanitize,fetchImpl:async()=>new Response(JSON.stringify(f.response),{status:variant==='auth'?403:200,headers:{'content-type':'application/json'}})});
+  const reader=createDirectDataReaderV1({sanitize,fetchImpl:async()=>new Response(JSON.stringify(f.response),{status:variant==='auth'?403:variant==='unexpected-status'?201:200,headers:{'content-type':'application/json'}})});
   const result=await reader.readPublishedReading(f.context.item.atomId);assert.equal(result.ok,false);assert.equal(result.data,null);assert(!JSON.stringify(result).includes('private server error'));
  }
 });

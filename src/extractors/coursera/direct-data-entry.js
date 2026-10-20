@@ -1,4 +1,4 @@
-import { directReadingObservationV1 } from "./direct-data-published-reading.js";
+import { directReadingContentV1 } from "./direct-data-published-reading.js";
 import { directManualPartTargetsV1, directManualQuestionV1 } from "./direct-data-native-observations.js";
 import {
   CTI_DIRECT_DATA_VERSION_V1,
@@ -2046,17 +2046,16 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const context={item:fp,material,courseId,courseSlug:slug,atomData:atomRead.data,relationData:relationRead.data};
       const observe=async()=>{
         const read=await reader.readPublishedReading(fp.atomId);
-        return {receipt:receipt(read,fp.atomId),model:read.ok ? directReadingObservationV1(read.data,context,read.receipt) : null,
+        return {receipt:receipt(read,fp.atomId),model:read.ok ? directReadingContentV1(read.data,context) : null,
           ...(read.ok ? {} : {reason:read.reason})};
       };
       const initial=await observe(),final=initial.model ? await observe() : null,
         atomFinal=final?.model ? await reader.readAtom(fp.atomId) : null;
-      const stable=!!final?.model && await hash(initial.model.publishedItemContent)===await hash(final.model.publishedItemContent) &&
-        await hash(initial.model.draftItemContent)===await hash(final.model.draftItemContent) &&
+      const stable=!!final?.model && await hash(initial.model)===await hash(final.model) &&
         atomFinal?.ok===true && await hash(atomRead.data)===await hash(atomFinal.data);
       const history=[...(previous?.payload?.directPublishedReadingHistory || [])];
       if (previous?.payload?.directPublishedReadingEvidence) history.push(previous.payload.directPublishedReadingEvidence);
-      const evidence={method:"BOUND_PUBLISHED_READING_GRAPHQL",courseId,itemId:fp.id,atomId:fp.atomId,
+      const evidence={method:"BOUND_PUBLISHED_READING_GRAPHQL",
         initial,final,stable,wholeItemVerified:false,
         sources:{material,atom:atomRead.data,relation:relationRead.data,atomFinal:atomFinal?.data,
           receipts:{atom:receipt(atomRead,fp.atomId),relation:receipt(relationRead,fp.atomId),atomFinal:atomFinal?receipt(atomFinal,fp.atomId):null}}};

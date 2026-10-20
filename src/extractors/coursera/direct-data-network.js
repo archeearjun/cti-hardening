@@ -185,7 +185,7 @@ export function createDirectDataReaderV1(options = {}) {
       observedAtBasis:'BROWSER_ATTEMPT',observedAt:new Date().toISOString(),receivedAt:'',status:0,bytes:0,
       originalResponseSha256:'',attempts:[]};
     const value={resource:d.resource,
-      ...(d.graphql ? {id:d.id,method:'POST',operationName:d.resource,variables:{atomId:d.id},requestDocument:CTI_DIRECT_READING_QUERY_V1} : {}), requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
+      ...(d.graphql ? {method:'POST',variables:{atomId:d.id},requestDocument:CTI_DIRECT_READING_QUERY_V1} : {}), requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
       ...(d.external ? {origin:d.url.origin,id:d.id,targetUrl:d.targetUrl,method:'POST',
         requestForm:d.form.map(pair=>pair.slice()),mime:''} : {}),
       observedAt:new Date().toISOString(), status:0, bytes:0, originalResponseSha256:'',
@@ -489,7 +489,7 @@ export function createDirectDataReaderV1(options = {}) {
         const retryAfter=response.headers.get('retry-after');await discard(response);
         return {...failure(job,'RATE_LIMITED'),retryAfter};
       }
-      if (!response.ok) {await discard(response);return failure(job,'HTTP_'+response.status);}
+      if (!response.ok || (job.descriptor.graphql && response.status!==200)) {await discard(response);return failure(job,'HTTP_'+response.status);}
       const actual=new URL(response.url || job.descriptor.url.href);
       if (response.redirected || actual.origin!==origin || actual.pathname!==job.descriptor.url.pathname ||
           actual.search!==job.descriptor.url.search) {

@@ -16,6 +16,9 @@ test('manual source retention requires two matching owned observations and prese
  initial={data,receipt,modelSha256:hash(data)},record={...target,initial,final:structuredClone(initial),stable:true};
  assert(directManualObservationV1(record,target,hash));assert.equal(record.initial.data.elements[0].options[0].display,'');assert.equal(record.initial.data.elements[0].rubrics[0].points,4);
  for(const mutate of [r=>r.final.data.elements[0].rubrics[0].points=5,r=>r.final.receipt.status=404,r=>r.initial.data.elements[0].id='foreign',r=>r.stable=false,r=>r.final.receipt.requestQuery=[['id',target.id],['fields','ALL']],r=>r.final.receipt.observedAt='2026-10-19T08:00:00.000Z']){const r=structuredClone(record);mutate(r);assert.equal(directManualObservationV1(r,target,hash),false);}
+ const unsafe=structuredClone(record);unsafe.initial.data.elements[0].plagiarismConfig={writeAccessToken:'synthetic-nested-secret'};
+ unsafe.initial.modelSha256=hash(unsafe.initial.data);unsafe.final=structuredClone(unsafe.initial);
+ assert.equal(directManualObservationV1(unsafe,target,hash),false,"Independent saved-observation validation rejects credentials even with matching hashes");
  assert.equal(record.wholeItemVerified,undefined);
 });
 
@@ -32,7 +35,7 @@ test('observed AI manual rich-text shape preserves exact CML, rubric points, con
  const staff={...source,graderType:'SYNTHETIC_STAFF'};
  assert.equal(directManualQuestionV1(staff).fields.graderType,'SYNTHETIC_STAFF');assert.equal(directManualQuestionV1(staff).graderClassification,'UNKNOWN');
  assert.equal(directManualQuestionV1({...source,id:'owner~'+source.id}),null);
- assert.equal(directManualQuestionV1({...source,writeAccessToken:'synthetic-rejected'}),null);
+ assert(!JSON.stringify(directManualQuestionV1({...source,writeAccessToken:'synthetic-rejected'})).includes('synthetic-rejected'));
  assert(!JSON.stringify(fixture).includes('writeAccessToken'));
 });
 
