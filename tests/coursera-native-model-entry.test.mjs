@@ -106,7 +106,10 @@ test("native recheck retains original exact definitions, keys, reflection applic
   assert.deepEqual(clone([...f.app.definitions]), oldDefinitions);
   for (const id of ["ReflectionModel", "ExactTextModel"]) {
     const old = byId(original, id), now = byId(current, id);
-    assert.deepEqual(now.payload.assessmentApiEvidence.questionDefinitions, old.payload.assessmentApiEvidence.questionDefinitions);
+    // These independent response records are collected concurrently; their
+    // arrival order is not authored question order. Compare exact records by ID.
+    const recordsById = records => [...records].sort((a,b)=>a.id.localeCompare(b.id));
+    assert.deepEqual(recordsById(now.payload.assessmentApiEvidence.questionDefinitions), recordsById(old.payload.assessmentApiEvidence.questionDefinitions));
     assert.deepEqual(now.payload.structuredAssessment.questions, old.payload.structuredAssessment.questions);
     assert.equal(now.captureContract.status, old.captureContract.status);
   }

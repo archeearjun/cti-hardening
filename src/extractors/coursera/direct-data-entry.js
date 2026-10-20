@@ -20,7 +20,7 @@ import { createDirectProviderHelperV1 } from "./direct-data-provider-helper.js";
 import { directPublisherFirstPartyPlanV1, directPublisherFirstPartyPlanHashV1,
   directPublisherFirstPartyContextV1, createDirectPublisherFirstPartyV1,
   runDirectPublisherFirstPartyV1 } from "./direct-data-publisher-first-party.js";
-import { createDirectDataCheckpointStoreV1 } from "./direct-data-checkpoints.js";
+import { createDirectDataCheckpointStoreV1, directSavedCaptureFailuresV1 } from "./direct-data-checkpoints.js";
 import { sanitizeCourseraCourseDataModel } from "./direct-data-privacy.js";
 import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import {
@@ -408,7 +408,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       publisherAccessButton.disabled = busy;
       stopButton.disabled = !state.running && !state.diagnosing && !state.recovering;
       downloadButton.textContent = state.running ? "Download partial capture" : "Download saved capture";
-      downloadButton.disabled = state.diagnosing || state.recovering || exporting || !meta || (state.running && !checkpointReady);
+      downloadButton.disabled = state.diagnosing || state.recovering || exporting || (state.running && !checkpointReady);
       resumeButton.hidden =
         state.running || state.terminal || state.state !== "PAUSED";
       resumeButton.disabled = exporting || state.diagnosing || state.recovering;
@@ -2300,11 +2300,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       for (const delivery of fp.payload.directPanoptoEvidence?.deliveries || [])
         for (const podcast of delivery.podcasts || []) mediaReader?.release?.(podcast.assetId);
     }
-    async function prepareResult(partial = false) {
-      if (!meta) throw Error("DIRECT_INVENTORY_NOT_AVAILABLE");
-      const captureItems = items,
-        captureRunId = state.runId,
-        captureMeta = partial ? { ...meta, directDataCapture: { ...meta.directDataCapture } } : meta;
+    async function prepareResult(partial = false, saved = null) {
+      if (!meta && !saved) throw Error("DIRECT_INVENTORY_NOT_AVAILABLE");
+      const captureItems = saved ? (await directCourseInventoryV1(saved.captureMeta.directDataCapture.materials, courseId)).fingerprints : items,
+        captureRunId = saved ? saved.runId : state.runId,
+        captureMeta = saved ? saved.captureMeta : partial ? { ...meta, directDataCapture: { ...meta.directDataCapture } } : meta;
       const output = [],
         summaries = [],
         partialStates = [],
@@ -2321,7 +2321,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             payload: {},
             captureContract: undefined,
           };
-        const pendingRecheck = withdrawPendingNativeRecheck(fp);
+        if (saved && (!row?.state?.processed || fp.id !== base.id || fp.atomId !== base.atomId || fp.typeName !== base.typeName))
+          throw Error("DIRECT_SAVED_ITEM_UNAVAILABLE");
+        const pendingRecheck = !saved && withdrawPendingNativeRecheck(fp);
         if (pendingRecheck && !partial) summarizeItem(fp, false, encoder.encode(JSON.stringify(fp)).byteLength);
         // A quota/write failure must not prevent exporting older embedded
         // originals that are still readable. Migrate those only in this
@@ -2359,6 +2361,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           throw Error("DIRECT_CAPTURE_EXPORT_BYTE_LIMIT");
         output.push(part);
       }
+      if (!saved) {
       captureMeta.captureAccounting = captureAccountingItemsV61531(summaries, {
         unvisitedTargetIds: unvisited,
       });
@@ -2385,6 +2388,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         captureMeta.directDataCapture.partialExport = { provisional: true, scope: "COMMITTED_ITEM_BOUNDARY", capturedAt: new Date().toISOString(), stateAtSnapshot: operatorStopped ? "OPERATOR_PAUSED" : state.state };
       }
       captureMeta.directDataCapture.stats = partial ? budgetSnapshot() : captureMeta.directDataCapture.stats || budgetSnapshot();
+      }
       if (typeof CompressionStream !== "function")
         throw Error("DIRECT_ARCHIVE_COMPRESSION_UNAVAILABLE");
       captureMeta.directDataCapture.exportTransport = {
@@ -2426,7 +2430,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       const blob = new Blob(pieces, { type: "application/json" });
       if (blob.size > CTI_DIRECT_DATA_EXPORT_BYTES_V1)
         throw Error("DIRECT_CAPTURE_EXPORT_BYTE_LIMIT");
-      if (!partial) state.result = {
+      if (!partial && !saved) state.result = {
         schemaVersion: 35,
         meta: captureMeta,
         inventoryCount: captureItems.length,
@@ -2453,13 +2457,21 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       exportFinished = new Promise(resolve => { finishExport = resolve; });
       render(partial ? "Waiting for the current item checkpoint. New item reads wait briefly while the partial snapshot is prepared." : "");
       try {
+        let saved = null;
+        if (!partial && !meta) {
+          store = store?.available ? store : await createDirectDataCheckpointStoreV1(courseId);
+          if (!store.available) throw Error("DIRECT_CHECKPOINT_STORAGE_UNAVAILABLE");
+          saved = await store.getActiveRun({savedCapture:true});
+          if (!saved) throw Error("DIRECT_SAVED_CAPTURE_NOT_FOUND");
+          render("Exporting saved capture; checking original files. No scan or checkpoint writes.");
+        }
         const prepared = partial
           ? await new Promise((resolve, reject) => { partialExportRequest = { resolve, reject }; })
-          : await prepareResult();
+          : await prepareResult(false, saved);
         if (location.origin !== "https://www.coursera.org" || location.pathname !== initialPath || requestedRunId !== state.runId)
           throw Error("DIRECT_EXPORT_CONTEXT_CHANGED");
         let blob = prepared.blob;
-        if (!partial) await saveRun(state.state, true).catch(() => {
+        if (!partial && !saved) await saveRun(state.state, true).catch(() => {
           state.exportError = "Capture prepared from readable checkpoints; saving the export status failed.";
         });
         if (prepared.captureMeta.directDataCapture.exportTransport.format === "ZIP_GZIP_JSON_V1") {
@@ -2508,6 +2520,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         state.downloadAttempts++;
         anchor.click();
         anchor.remove();
+        render("Capture download requested. Check Chrome Downloads. Saved evidence was retained.");
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (error) {
         state.exportError =
@@ -2701,12 +2714,11 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       try {
         const checkpoint = store?.available ? store : await createDirectDataCheckpointStoreV1(courseId);
         if (!checkpoint.available) throw Error("DIRECT_CHECKPOINT_STORAGE_UNAVAILABLE");
-        const saved = await checkpoint.getActiveRun({recoverMediaGaps:true,recoverExportLimit:true}), capture = saved?.captureMeta?.directDataCapture;
-        if (!saved || !(saved.buildId === CTI_DIRECT_DATA_BUILD_V1 || directRecoverablePublisherBuildV1(saved.buildId)) ||
-            capture?.runId !== saved.runId || capture.acquisitionComplete !== true || capture.sourceStable !== true ||
-            capture.materialStability?.policy !== CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1 ||
-            capture.materials?.elements?.[0]?.id !== courseId || capture.finalMaterials?.elements?.[0]?.id !== courseId)
-          throw Error("PUBLISHER_FIRST_PARTY_NO_ELIGIBLE_CAPTURE");
+        const diagnostics = [];
+        const saved = await checkpoint.getActiveRun({savedCapture:true, diagnostics}), capture = saved?.captureMeta?.directDataCapture;
+        const failures = directSavedCaptureFailuresV1(saved, courseId);
+        state.recoveryEligibility = {runId:saved?.runId || null, failedPredicates:failures, candidates:diagnostics};
+        if (!saved || failures.length) throw Error("PUBLISHER_FIRST_PARTY_NO_ELIGIBLE_CAPTURE");
         if (capture.firstPartyRecoveryHistory !== undefined && !Array.isArray(capture.firstPartyRecoveryHistory) ||
             (capture.firstPartyRecoveryHistory?.length || 0) + Number(!!capture.firstPartyRecovery) > 16)
           throw Error("PUBLISHER_FIRST_PARTY_HISTORY_LIMIT");
@@ -2739,7 +2751,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         render(plan.entries.length + " image placements prepared. Choose Open publisher recovery, then click the same bookmark there after its access check.");
       } catch (error) {
         state.phase = "Publisher recovery could not be prepared";
-        render((/^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_FIRST_PARTY_PREPARATION_FAILED") + ". Saved course progress was not changed.");
+        render((/^[A-Z0-9_]{1,96}$/.test(error?.message || "") ? error.message : "PUBLISHER_FIRST_PARTY_PREPARATION_FAILED") + ". Saved course progress was not changed." + (state.recoveryEligibility?.failedPredicates?.length ? " Failed checks: " + state.recoveryEligibility.failedPredicates.join(", ") : ""));
       } finally { state.recovering = false; render(); }
     }
     async function openPublisherRecovery() {
@@ -2924,6 +2936,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
             recoverExportLimit: true,
             recoverMediaGaps: true,
             recheckCompleted: recheckNative,
+            savedCapture: !!recovery, pinnedRunId: recovery?.pinnedRunId,
           }),
           candidate = (directRecoverablePublisherBuildV1(active?.buildId) || [
             CTI_DIRECT_DATA_BUILD_V1,

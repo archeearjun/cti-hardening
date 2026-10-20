@@ -27,6 +27,7 @@ import { directPublicPageTargetV1, directPublicPageObservationValidV1,
 import { directPublisherTargetV1, directPublisherObservationValidV1, directPublisherChapterV1,
   directPublisherResourceObservationValidV1, directPublisherResourceV1, directPublisherPartResolutionValidV1, directPublisherBackMatterResolutionValidV1 } from "../src/extractors/coursera/direct-data-publisher.js";
 import { directPublisherMediaInventoryV1, directPublisherMediaStructureV1, directPublisherImageBodyStructureV1 } from "../src/extractors/coursera/direct-data-publisher-media.js";
+import { directSavedCaptureFailuresV1 } from "../src/extractors/coursera/direct-data-checkpoints.js";
 import { createDirectDataArchiveV1 } from "../src/extractors/coursera/direct-data-archive.js";
 import { decodeDirectAssetBodyV1, directAssetMetadataBindingV1, createDirectDataMediaReaderV1 as createNativeMediaReader } from "../src/extractors/coursera/direct-data-media.js";
 import { directPanoptoAutomaticTargetV1, directPanoptoSourceV1,
@@ -226,6 +227,9 @@ function harness(options = {}) {
   const store = {
     available: true,
     async getActiveRun(settings = {}) {
+      if (settings.savedCapture) return clone([...runs.values()].filter(row =>
+        (!settings.pinnedRunId || settings.pinnedRunId === row.runId) &&
+        directSavedCaptureFailuresV1(row, options.courseId || COURSE).length === 0).at(-1) || null);
       const active = [...runs.values()].filter((row) =>
         ["RUNNING", "PAUSED"].includes(row.state) || row.state === "INCOMPLETE" &&
           row.captureMeta?.directDataCapture?.acquisitionComplete === true &&
@@ -491,6 +495,7 @@ function harness(options = {}) {
     clearInterval() {},
     setTimeout: () => 1,
     clearTimeout() {},
+    directSavedCaptureFailuresV1,
     createDirectDataCheckpointStoreV1: async () => { metrics.storeOpens++; return store; },
     createDirectDataReaderV1: createReader,
     directPublisherFirstPartyPlanV1, directPublisherFirstPartyPlanHashV1, directPublisherFirstPartyContextV1,

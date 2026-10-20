@@ -165,3 +165,22 @@ test('invalid saved media budgets after preparation cannot mutate the pinned run
   await until(()=>!f.app.state().running&&!f.app.state().recovering,'Invalid budget failure did not settle');
   assert.deepEqual(f.app.runs.get(runId),old);assert.equal(f.app.calls.length,before);assert.equal(f.app.metrics.saves.length,writes);assert.equal(f.events.reads.length,0);
 });
+
+test('reopened bookmark exports the older eligible capture without writes or reads from the course', async t => {
+  const f=recoveryFixture(t),runId=await initial(f),original=(await exportedCapture(f.app.downloads.at(-1))).capture;
+  const old=clone(f.app.runs.get(runId));
+  for(let i=0;i<2;i++) f.app.runs.set('interrupted-'+i,{...clone(old),runId:'interrupted-'+i,state:'RUNNING',updatedAt:old.updatedAt+i+1,
+    captureMeta:{...clone(old.captureMeta),directDataCapture:{...clone(old.captureMeta.directDataCapture),runId:'interrupted-'+i,acquisitionComplete:false,sourceStable:false,finalMaterials:null}}});
+  const runs=clone([...f.app.runs]),items=clone([...f.app.items]),saves=f.app.metrics.saves.length,reads=f.app.calls.length;
+  f.app.execute();assert.equal(f.app.state().runId,'');assert.equal(f.app.button('Download saved capture').disabled,false);
+  const downloads=f.app.downloads.length;f.app.button('Download saved capture').click();
+  await until(()=>!f.app.state().exporting,'Saved export did not finish');
+  assert.equal(f.app.downloads.length,downloads+1);
+  const exported=(await exportedCapture(f.app.downloads.at(-1))).capture;
+  assert.deepEqual(exported.fingerprints,original.fingerprints);assert.deepEqual(exported.meta.directDataCapture,original.meta.directDataCapture);
+  assert.deepEqual([...f.app.runs],runs);assert.deepEqual([...f.app.items],items);assert.equal(f.app.metrics.saves.length,saves);assert.equal(f.app.calls.length,reads);
+  f.app.items.delete(runId+'/'+f.image.fp.id);
+  f.app.button('Download saved capture').click();await until(()=>!f.app.state().exporting,'Missing item export did not settle');
+  assert.equal(f.app.state().exportError,'DIRECT_SAVED_ITEM_UNAVAILABLE');assert.equal(f.app.downloads.length,downloads+1);
+  assert(f.app.nodes.some(n=>n.textContent.includes('DIRECT_SAVED_ITEM_UNAVAILABLE')));assert.equal(f.app.metrics.saves.length,saves);
+});
