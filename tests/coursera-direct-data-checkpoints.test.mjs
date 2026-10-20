@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createDirectDataCheckpointStoreV1 } from "../src/extractors/coursera/direct-data-checkpoints.js";
+import { createDirectDataCheckpointStoreV1, directSavedCaptureFailuresV1 } from "../src/extractors/coursera/direct-data-checkpoints.js";
 import { CTI_DIRECT_DATA_BUILD_V1 } from "../src/extractors/coursera/direct-data-config.js";
 
 const DATABASE = "cti-coursera-direct-data-v1",
@@ -1851,5 +1851,33 @@ test("a blocked database open times out promptly and closes a late successful co
       globalThis.setTimeout = oldTimeout;
       globalThis.clearTimeout = oldClear;
     }
+  });
+});
+
+
+test("saved recovery skips newer interrupted runs without changing resume selection or stored evidence", async () => {
+  await withDatabase(async fake => {
+    const store = await storeFor(), original = await store.openRun();
+    const saved = completedMediaGapRun(original, {materialStability:{policy:"NATIVE_ASSIGNMENT_FEATURE_FLAGS_V1"}}, {buildId:CTI_DIRECT_DATA_BUILD_V1});
+    await store.saveRun(saved);
+    const newer = await store.openRun();
+    await store.saveRun({...saved, runId:newer.runId, state:"RUNNING", captureMeta:{directDataCapture:{...saved.captureMeta.directDataCapture,runId:newer.runId,acquisitionComplete:false,sourceStable:false,finalMaterials:null}}});
+    for (const row of fake.rows("runs")) ageRow(row,row.runId === original.runId ? 60000 : 1000);
+    const before = structuredClone(fake.rows("runs")), writes = fake.metrics.writes.length;
+    assert.equal((await store.getActiveRun({recoverMediaGaps:true})).runId,newer.runId);
+    const diagnostics = [], selected = await store.getActiveRun({savedCapture:true,diagnostics});
+    assert.equal(selected.runId, original.runId);
+    assert.deepEqual(diagnostics.find(row=>row.runId===newer.runId).failedPredicates,["acquisitionComplete","sourceStable","finalCourseMatches"]);
+    assert.deepEqual(directSavedCaptureFailuresV1(selected,COURSE),[]);
+    assert.equal(await store.getActiveRun({savedCapture:true,pinnedRunId:newer.runId}),null);
+    assert.deepEqual(fake.rows("runs"),before);
+    assert.equal(fake.metrics.writes.length,writes);
+    // Export/read-only selection is independent of exhausted acquisition budgets.
+    const row = fake.rows("runs").find(row=>row.runId===original.runId);
+    row.budget.requests=row.budget.limits.requests;
+    assert.equal((await store.getActiveRun({savedCapture:true})).runId,original.runId);
+    row.captureMeta.directDataCapture.sourceStable=false;
+    assert.equal(await store.getActiveRun({savedCapture:true}),null);
+    store.close();
   });
 });

@@ -2,6 +2,20 @@ import { directCanonicalSourceTextV1 } from "./direct-data-canonical.js";
 import { CTI_DIRECT_DATA_BUILD_V1, directRecoverablePublisherBuildV1 } from "./direct-data-config.js";
 import { CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1 } from "./direct-data-material-stability.js";
 
+export function directSavedCaptureFailuresV1(row, courseId) {
+  const capture = row?.captureMeta?.directDataCapture;
+  const checks = {
+    buildCompatible: row?.buildId === CTI_DIRECT_DATA_BUILD_V1 || directRecoverablePublisherBuildV1(row?.buildId),
+    runIdMatches: !!row?.runId && capture?.runId === row.runId,
+    acquisitionComplete: capture?.acquisitionComplete === true,
+    sourceStable: capture?.sourceStable === true,
+    stabilityPolicyMatches: capture?.materialStability?.policy === CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
+    initialCourseMatches: capture?.materials?.elements?.[0]?.id === courseId,
+    finalCourseMatches: capture?.finalMaterials?.elements?.[0]?.id === courseId,
+  };
+  return Object.keys(checks).filter(key => !checks[key]);
+}
+
 export async function createDirectDataCheckpointStoreV1(courseId) {
   const databaseName = "cti-coursera-direct-data-v1";
   const ttlMs = 7 * 24 * 60 * 60 * 1000;
@@ -587,11 +601,11 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
       const index = transaction
         .objectStore("runs")
         .index("courseStateUpdatedAt");
-      const activeStates =
+      const activeStates = options.savedCapture === true ? ["RUNNING", "PAUSED", "INCOMPLETE", "COMPLETE"] :
         options.recoverExportLimit === true || options.recoverMediaGaps === true
           ? ["RUNNING", "PAUSED", "INCOMPLETE"]
           : ["RUNNING", "PAUSED"];
-      if (options.recheckCompleted === true) activeStates.push("COMPLETE");
+      if (options.recheckCompleted === true && !activeStates.includes("COMPLETE")) activeStates.push("COMPLETE");
       let pending = activeStates.length,
         newest = null;
       for (const activeState of activeStates) {
@@ -606,10 +620,14 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
           guard(() => {
             const cursor = request.result,
               row = cursor?.value;
+            if (options.savedCapture === true && row && Array.isArray(options.diagnostics) && options.diagnostics.length < 32)
+              options.diagnostics.push({runId:row.runId, failedPredicates:directSavedCaptureFailuresV1(row, courseId)});
             if (
               cursor &&
               (!sameRun(row, row.runId) ||
                 row.state !== activeState ||
+                (options.pinnedRunId && row.runId !== options.pinnedRunId) ||
+                (options.savedCapture === true ? directSavedCaptureFailuresV1(row, courseId).length > 0 :
                 (activeState === "COMPLETE" && !recheckableCompletedRun(row)) ||
                 (activeState === "INCOMPLETE" &&
                   !(
@@ -617,7 +635,7 @@ export async function createDirectDataCheckpointStoreV1(courseId) {
                       recoverableExportRun(row)) ||
                     (options.recoverMediaGaps === true &&
                       recoverableMediaRun(row))
-                  )))
+                  ))))
             ) {
               cursor.continue();
               return;

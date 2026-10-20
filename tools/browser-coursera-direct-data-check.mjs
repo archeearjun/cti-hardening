@@ -2519,9 +2519,28 @@ try{
   assert.equal(firstPartyTarget.state.state,'INCOMPLETE');
   assert.equal(firstPartyOriginalPages.length,2);
   for(const fp of firstPartyOriginalPages)assert(fp.payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0].media.resources.every(resource=>!resource.body));
+  // A newer interrupted run must not hide the completed v1.9.0 capture.
+  const recoveryCheckpointSnapshot = () => checkpointSnapshot(firstPartyTarget.page);
+  await firstPartyTarget.page.evaluate(async () => {
+    const db=await new Promise(resolve=>{const r=indexedDB.open('cti-coursera-direct-data-v1',2);r.onsuccess=()=>resolve(r.result)});
+    await new Promise((resolve,reject)=>{const t=db.transaction('runs','readwrite'),st=t.objectStore('runs'),r=st.getAll();r.onsuccess=()=>{
+      const old=r.result[0];for(let i=0;i<2;i++){const runId=crypto.randomUUID();st.put({...old,runId,key:[old.courseId,runId],state:'RUNNING',updatedAt:Date.now()+i,counts:{total:96,processed:15,complete:8},captureMeta:{...old.captureMeta,directDataCapture:{...old.captureMeta.directDataCapture,runId,acquisitionComplete:false,sourceStable:false,finalMaterials:null}}})}
+    };t.oncomplete=resolve;t.onerror=()=>reject(t.error)});db.close();
+  });
+  const beforeSavedExport=await recoveryCheckpointSnapshot();
+  await firstPartyTarget.page.reload();await launch(firstPartyTarget.page,firstPartyTarget.context,false);
+  assert.equal(await firstPartyTarget.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.runId),'');
+  const savedDownload=firstPartyTarget.page.waitForEvent('download');
+  await firstPartyTarget.page.getByRole('button',{name:'Download saved capture',exact:true}).click();
+  const savedExport=await readFile(await savedDownload);
+  assert.deepEqual(savedExport.fingerprints,firstPartyBefore.fingerprints,'Read-only export retains every original item and its timestamps');
+  assert.deepEqual(savedExport.meta.directDataCapture,firstPartyBefore.meta.directDataCapture);
+  assert.deepEqual(await recoveryCheckpointSnapshot(),beforeSavedExport,'Export cannot write or replace any checkpoint');
   await firstPartyTarget.page.getByRole('button',{name:'Prepare publisher recovery',exact:true}).click();
   await firstPartyTarget.page.getByRole('button',{name:'Open publisher recovery',exact:true}).waitFor();
   assert.equal(firstPartyPublisherRequests.length,firstPartyBodyStart,'Preparation does not read publisher bytes or silently open another origin');
+  assert.deepEqual(await recoveryCheckpointSnapshot(),beforeSavedExport,'Recovery preparation is read-only even with newer interrupted captures');
+  assert.equal(await firstPartyTarget.page.evaluate(()=>window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__.recoveryEligibility.runId),firstPartyTarget.state.runId);
   const firstPartyPopupEvent=firstPartyTarget.context.waitForEvent('page'),firstPartyDownload=firstPartyTarget.page.waitForEvent('download',{timeout:180000});
   void firstPartyDownload.catch(()=>{});
   await firstPartyTarget.page.getByRole('button',{name:'Open publisher recovery',exact:true}).click();
@@ -2576,9 +2595,9 @@ try{
       assert.deepEqual(after.receipts.find(value=>value.resource===definitionResource&&value.id===receipt.id),receipt);
   }
   assert.equal(evaluateCourseraCapture(firstPartyCapture,firstPartyPublisher.config.id).complete,false);
-  assert.equal(firstPartyTarget.contextDownloads.length,2);assert(firstPartyTarget.contextDownloads.every(value=>value.page===firstPartyTarget.page));
+  assert.equal(firstPartyTarget.contextDownloads.length,3);assert(firstPartyTarget.contextDownloads.every(value=>value.page===firstPartyTarget.page));
   assert(!JSON.stringify(firstPartyCapture).includes('publisher-local-only'),'Publisher cookies are not retained or forwarded in evidence');
-  const firstPartyZip=await JSZip.loadAsync(fs.readFileSync(await firstPartyTarget.contextDownloads[1].download.path()),{checkCRC32:true});
+  const firstPartyZip=await JSZip.loadAsync(fs.readFileSync(await firstPartyTarget.contextDownloads[2].download.path()),{checkCRC32:true});
   assert.equal(Object.keys(firstPartyZip.files).filter(name=>/^files\/[a-f0-9]{64}$/.test(name)).length,2,'Original ZIP bytes are deduplicated independently of native placements');
   await assertNoEditor(firstPartyTarget.page,firstPartyTarget.destinations);await firstPartyTarget.context.close();
 
