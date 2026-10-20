@@ -72,6 +72,10 @@ export function qaMergeCourseraPayload_(excelItem, liveItem) {
     excelItem.pluginEvidence = excelItem.id && excelItem.id===liveItem.id && liveItem.pluginEvidence && liveItem.pluginEvidence.itemId===excelItem.id ? JSON.parse(JSON.stringify(liveItem.pluginEvidence)) : null;
     excelItem.readingEditorEvidence = excelItem.id && excelItem.id===liveItem.id ? liveItem.readingEditorEvidence || null : null;
     var sameEvidenceItem=Boolean(excelItem.id && excelItem.id===liveItem.id);
+    if(sameEvidenceItem && liveItem.directCaptureLimitation)
+        excelItem.directCaptureLimitation=JSON.parse(JSON.stringify(liveItem.directCaptureLimitation));
+    else delete excelItem.directCaptureLimitation;
+    if(excelItem.directCaptureLimitation) { excelItem.assetEvidenceConfidence=0; excelItem.linkEvidenceConfidence=0; }
     // Keep the independently rebound setting through canonical XLSX enrichment.
     // This is a zero-copy internal source subset, not a replacement original or
     // a question-definition payload. Title fallback cannot transfer this proof.

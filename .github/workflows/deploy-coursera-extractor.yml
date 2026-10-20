@@ -7,6 +7,12 @@ on:
     paths:
       - "workers/coursera-extractor/**"
       - "src/extractors/coursera/**"
+      # Both evidence pipelines and their comparison rules are production-critical.
+      - "src/extractors/brightspace/**"
+      - "src/source/**"
+      - "src/engine/**"
+      - "src/domain/brightspace-capture-evidence.ts"
+      - "src/domain/workflows.ts"
       - "src/domain/coursera-background-extraction.ts"
       - "src/domain/coursera-extraction-http.ts"
       # Assignment UI/API releases must verify the final Pages service binding too.

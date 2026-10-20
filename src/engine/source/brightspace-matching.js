@@ -402,6 +402,8 @@ export function flattenTreeForQa_(nodes, currentPath) {
                     sourceTextFormat: String(payload.textFormat || ''),
                     sourceTextNormalizationStatus: String(payload.textNormalizationStatus || ''),
                     sourceTextSha256: String(payload.textSha256 || ''),
+                    sourceTextHashScope: String(payload.textHashScope || ''),
+                    sourceTextCoverage: payload.textCoverage ? JSON.parse(JSON.stringify(payload.textCoverage)) : null,
                     sourceTextLength: nonNegativeInteger_(payload.textLength),
                     sourceStructuredAssessment: (payload.structuredAssessment && typeof payload.structuredAssessment === 'object') ? payload.structuredAssessment : null,
                     sourceBehavior: (payload.behavior && typeof payload.behavior === 'object') ? payload.behavior : null,

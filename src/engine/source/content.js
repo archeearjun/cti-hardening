@@ -260,6 +260,8 @@ return function normalizeSourceItem_(item) {
         sourceTextRefreshRequired: !!discussionText && discussionText.status==='SOURCE_REFRESH_REQUIRED',
         textSample: sourceText,
         textSha256: textChanged ? '' : String(item.sourceTextSha256 || ''),
+        textHashScope: String(item.sourceTextHashScope || ''),
+        textCoverage: item.sourceTextCoverage ? JSON.parse(JSON.stringify(item.sourceTextCoverage)) : null,
         textLength: textChanged && item.sourceEvidenceTruncated !== true ? sourceText.length : nonNegativeInteger_(item.sourceTextLength),
         evidenceTruncated: item.sourceEvidenceTruncated === true,
         sourceTypeRaw: qaCleanText_(item.sourceTypeRaw || ''),
