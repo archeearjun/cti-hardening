@@ -14,7 +14,7 @@ export function directManualPartTargetsV1(bound) {
     if(part?.typeName!=="storedManualGradedQuestionPart") continue;
     const id=part.definition?.id;
     if(!/^[A-Za-z0-9_-]{22}$/.test(id || "") || seen.has(id)) return [];
-    seen.add(id);targets.push({id,localId:id,ordinal:index+1});
+    seen.add(id);targets.push({id:bound.atomId+"~"+id,localId:id,ordinal:index+1});
   }
   return targets;
 }
@@ -37,7 +37,7 @@ export function directManualObservationV1(record, target, hashValue) {
       directCanonicalSourceTextV1(clean.data)===directCanonicalSourceTextV1(observation.data) &&
       observation.modelSha256===hashValue(observation.data);
     };
-    return record?.id===target.id && record.ordinal===target.ordinal && check(record.initial) && check(record.final) &&
+    return record?.id===target.id && record.localId===target.localId && record.ordinal===target.ordinal && check(record.initial) && check(record.final) &&
       Date.parse(record.initial.receipt.observedAt)<=Date.parse(record.final.receipt.observedAt) &&
       directCanonicalSourceTextV1(record.initial.data)===directCanonicalSourceTextV1(record.final.data) && record.stable===true;
   } catch (_) {return false;}
@@ -48,7 +48,7 @@ export function directManualObservationV1(record, target, hashValue) {
  * not execution of the configured grader or proof of a published revision.
  * Callers supply sanitized reader data or independently checked observations. */
 export function directManualQuestionV1(model) {
-  if (!model || !/^[A-Za-z0-9_-]{22}$/.test(model.id || "") ||
+  if (!model || !/^[A-Za-z0-9_-]{22}~[A-Za-z0-9_-]{22}$/.test(model.id || "") ||
       model.prompt?.typeName !== "cml" || model.prompt.definition?.dtdId !== "assess/1" ||
       typeof model.prompt.definition.value !== "string" ||
       model.submissionSchema?.typeName !== "richText" || !Array.isArray(model.rubrics) || model.rubrics.length>100) return null;

@@ -150,7 +150,7 @@ export function createDirectDataReaderV1(options = {}) {
       if (!group.test(id)) return null;
       all=true;includes='_links';fields='id,questions,typeName';
     } else if (resource === 'authoringAssignmentManualGradedQuestions.v1') {
-      if (!/^[A-Za-z0-9_-]{22}$/.test(id)) return null;
+      if (!/^[A-Za-z0-9_-]{22}~[A-Za-z0-9_-]{22}$/.test(id)) return null;
       fields=CTI_DIRECT_MANUAL_FIELDS_V1;
     } else if (resource === 'authoringAssignmentMachineEvaluableQuestions.v1') {
       if (!definition.test(id)) return null;
