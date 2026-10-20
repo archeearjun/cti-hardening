@@ -111,3 +111,21 @@ Next source-evidence test (no full capture and no publisher retries):
 
 Release status: candidate v1.9.1, draft pending live acquisition evidence and
 hosted CI. No merge, deployment or production verification is claimed.
+
+## PR #95 browser regression correction
+
+Hosted run 39402445646 exposed a valid BOM-prefixed back-matter fixture whose
+image bytes, archive path and source binding passed independent validation,
+but whose report media array was empty. The new optional inline-alternative
+helper used plain `JSON.parse` instead of the existing BOM-aware typed publisher
+parser. Its exception reached the report's fail-closed media handler and replaced
+the valid references with `PUBLISHER_IMAGE_MEDIA_EVIDENCE_INVALID`. Acquisition
+and archived originals were intact; the report projection was defective.
+
+The helper now uses `directPublisherResourceV1` with the observed chapter, part
+or back-matter type. Original JSON (including BOM), SHA-256, byte lengths,
+receipts and timestamps remain unchanged. The hosted assertion at line 2129 is
+retained. Added regression coverage validates original image bytes first, then
+checks preserved `originalRef`, image hash and report round-trip for all three
+resource types. No recovery planner, native assessment or completion contract
+changes are included in this correction.

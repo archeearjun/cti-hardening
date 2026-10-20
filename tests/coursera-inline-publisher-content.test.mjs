@@ -485,3 +485,29 @@ test("actual CORS mode fallback stays declared browser context and failed API re
   assert.equal(failed.providers[0].configuredTargets[0].url, f.targetUrl);
   assert.equal(f.fp.captureContract.complete, false);
 });
+
+test("BOM-prefixed publisher JSON preserves source-bound original image references for every resource type", () => {
+  for (const options of [{}, { part: true }, { backMatter: true }]) {
+    const f = createInlinePublisherMediaContentFixture({ ...options, outcomes: ["CAPTURED"] }),
+      observation = f.publisherObservation, media = f.publisherMedia,
+      rawJson = "\ufeff" + observation.model.rawJson,
+      sourceBytes = new TextEncoder().encode(rawJson), sourceSha256 = sha(rawJson);
+    Object.assign(observation.model, { rawJson, bytes: sourceBytes.length, sha256: sourceSha256 });
+    observation.receipt.bytes = observation.receipt.attempts[0].bytes = sourceBytes.length;
+    observation.receipt.originalResponseSha256 = media.sourceSha256 = sourceSha256;
+    media.resources[0].body.receipt.sourceSha256 = sourceSha256;
+    const before = JSON.stringify(f.raw), body = media.resources[0].body;
+    assert(directPublisherMediaEvidenceV1(observation, f.targetUrl, media,
+      bytes => createHash("sha256").update(bytes).digest("hex")), "Source JSON, image bytes and source binding validate before projection");
+    assert.deepEqual(body.bytes, f.publisherMediaBytes);
+    const inline = courseraInlineWidgetContent(f.fp, f.courseId), page = inline.providers[0].publisherPages[0];
+    assert.equal(page.media.resources.length, 1, "Optional relationship enrichment must not discard valid original evidence");
+    assert.equal(page.media.resources[0].originalRef, body.archivePath);
+    assert.equal(page.media.resources[0].sha256, body.sha256);
+    assert.deepEqual(page.media.failures, []);
+    assert.equal(courseraInlinePublisherResource(inline, f.providerId, f.targetUrl).rawJson, rawJson);
+    validateCourseraInlineWidgetContent(JSON.parse(JSON.stringify(inline)), f.fp.id, f.courseId);
+    assert.equal(JSON.stringify(f.raw), before, "The BOM, original hashes, receipts and timestamps stay untouched");
+    assert.equal(f.fp.captureContract.complete, false);
+  }
+});

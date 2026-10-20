@@ -300,7 +300,13 @@ export function directPublisherMediaEvidenceV1(observation, targetUrl, media, ha
  * full-size link. Derive this view without changing the immutable inventory. */
 export function directPublisherInlineAlternativesV1(observation, targetUrl, media) {
   if (!directPublisherMediaStructureV1(observation,targetUrl,media)) return [];
-  const source = JSON.parse(observation.model.rawJson), result = [], seen = new Set();
+  // Use the same typed, BOM-aware parser as the validated inventory. The raw
+  // JSON and its original-byte hash remain unchanged.
+  const source = directPublisherResourceV1(observation.model.rawJson, targetUrl,
+    observation.model.kind === "CTI_BROWSER_PUBLISHER_BACK_MATTER" ? "back-matter" :
+    observation.model.kind === "CTI_BROWSER_PUBLISHER_PART" ? "part" : "chapter");
+  if (!source) return [];
+  const result = [], seen = new Set();
   for (const field of ["raw","rendered"]) {
     const raw = source.content?.[field];
     if (typeof raw !== "string") continue;
