@@ -160,3 +160,22 @@ test('ten manual parts acquire two exact mutable observations each without fabri
   assert(attempt.assessmentApiEvidence.manualDefinitions.every(r=>r.stable && r.acquisition.publishedBodyVerified===false));
 
 });
+
+test('published reading acquisition retains paired source-bound bodies and previous observation history without completeness uplift',async t=>{
+ useNativeCml(t);
+ const {publishedReadingFixture}=await import('./published-reading-fixture.mjs'),f=publishedReadingFixture(),c=f.context,
+   fp={...c.item,type:'Reading',name:'Published reading',payload:{},sourceIdentity:{published:true}},
+   node={...c.material,name:fp.name},material={id:COURSE,conflictMetadata:{version:1,courseBranchVersion:1},material:{elements:[{id:'ModuleOne',name:'Module',elements:[node]}]}},
+   resources={atom:'authoringAtoms.v2',relation:'authoringItemContentRelations.v1',materials:'authoringCourseMaterials.v1',course:'authoringCourses.v2'};
+ const app=harness({ids:[fp.id],fingerprints:{[fp.id]:fp},materialNodes:{[fp.id]:node},nativeCml:true,nativeAssessment:true,readResult(call){
+   const data=call.resource==='publishedReading'?clone(f.response):{elements:[clone(call.resource==='atom'?c.atomData.elements[0]:call.resource==='relation'?c.relationData.elements[0]:call.resource==='materials'?material:{id:COURSE})]};
+   return {ok:true,data,receipt:call.resource==='publishedReading'?{...f.receipt,observedAt:new Date(call.at).toISOString()}:{resource:resources[call.resource],id:call.id,status:200,requestPath:'/api/'+resources[call.resource]+'/'+call.id,bodyFormat:'PARSED_SANITIZED_JSON_MODEL',observedAt:new Date(call.at).toISOString(),originalResponseSha256:hash(data),bytes:64}};
+ }});
+ app.launch();await app.idle();let capture=(await exportedCapture(app.downloads.at(-1))).capture,item=byId(capture,fp.id),evidence=item.payload.directPublishedReadingEvidence;
+ assert(evidence,JSON.stringify(item.captureContract));assert.equal(evidence.stable,true);assert.equal(evidence.initial.model.draftItemContent,null);
+ assert.equal(evidence.initial.model.publishedItemContent.content.cmlValue,f.response[0].data.ItemAuthoring.queryAuthoringItemByAtomId.publishedItemContent.content.cmlValue);
+ assert.equal(app.calls.filter(c=>c.resource==='publishedReading').length,2);assert.equal(item.captureContract.complete,false);
+ const original=clone(evidence);app.advance(1000);app.state().recheckNative();await app.idle();
+ item=app.items.get(app.state().runId+'/'+fp.id).fingerprint;assert.deepEqual(item.payload.directPublishedReadingHistory,[original]);
+ assert.equal(item.payload.directPublishedReadingEvidence.stable,true);assert.equal(item.captureContract.complete,false);
+});

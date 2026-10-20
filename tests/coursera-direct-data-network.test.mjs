@@ -259,3 +259,30 @@ test('manual definitions use exact mutable owner IDs, bounded same-origin GETs a
  assert(!JSON.stringify(result).includes('synthetic-never-retain'));assert(!JSON.stringify(result).includes('writeAccessToken'));
  assert(result.receipt.credentialFieldsRemoved>=1);assert.equal(result.data.elements[0].prompt.definition.value,'');assert.equal(result.data.elements[0].graderInstructions,'');
  });
+
+test('published reading uses observed same-origin POST envelope, read-only selections and no unsolicited configuration',async()=>{
+ const {publishedReadingFixture}=await import('./published-reading-fixture.mjs');
+ const {CTI_DIRECT_READING_QUERY_V1}=await import('../src/extractors/coursera/direct-data-published-reading.js');
+ const f=publishedReadingFixture(),calls=[],source=f.response[0].data.ItemAuthoring.queryAuthoringItemByAtomId;
+ source.conflictDetectionToken='synthetic-secret';source.clientSecret='synthetic-client';source.consumerKey='synthetic-consumer';source.permissions={private:'synthetic-private'};
+ const reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(f.response),{headers:{'content-type':'application/json'}});}});
+ const read=await reader.readPublishedReading(f.context.item.atomId);assert(read.ok);
+ const request=calls[0];assert.equal(request.url,'https://www.coursera.org/graphql-gateway?opname=ItemAuthoringFrameworkData');
+ assert.equal(request.options.method,'POST');assert.equal(request.options.credentials,'same-origin');assert.equal(request.options.redirect,'error');
+ assert.deepEqual(JSON.parse(request.options.body),[{operationName:'ItemAuthoringFrameworkData',variables:{atomId:f.context.item.atomId},query:CTI_DIRECT_READING_QUERY_V1}]);
+ assert(!/mutation|conflictDetectionToken|clientSecret|consumerKey|permission|writeAccessToken|url/i.test(request.options.body));
+ assert(!/synthetic-secret|synthetic-client|synthetic-consumer|synthetic-private|permissions/.test(JSON.stringify(read)));
+ assert.equal(read.data[0].data.ItemAuthoring.queryAuthoringItemByAtomId.draftItemContent,null);
+ assert.equal(read.receipt.method,'POST');assert.match(read.receipt.originalResponseSha256,/^[a-f0-9]{64}$/);
+ assert.equal((await reader.readPublishedReading('Read1')).ok,false);assert.equal(calls.length,1);
+});
+
+test('published GraphQL errors, wrong identities and expired authorization cannot produce a body',async()=>{
+ const {publishedReadingFixture}=await import('./published-reading-fixture.mjs');
+ for(const variant of ['errors','identity','auth']) {
+  const f=publishedReadingFixture();if(variant==='errors')f.response[0].errors=[{message:'private server error'}];
+  if(variant==='identity')f.response[0].data.ItemAuthoring.queryAuthoringItemByAtomId.atomId='Z'.repeat(22);
+  const reader=createDirectDataReaderV1({sanitize,fetchImpl:async()=>new Response(JSON.stringify(f.response),{status:variant==='auth'?403:200,headers:{'content-type':'application/json'}})});
+  const result=await reader.readPublishedReading(f.context.item.atomId);assert.equal(result.ok,false);assert.equal(result.data,null);assert(!JSON.stringify(result).includes('private server error'));
+ }
+});

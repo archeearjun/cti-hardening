@@ -1,3 +1,4 @@
+import { CTI_DIRECT_READING_QUERY_V1, directReadingResponseV1 } from "./direct-data-published-reading.js";
 import { CTI_DIRECT_MANUAL_FIELDS_V1 } from "./direct-data-native-observations.js";
 import { sanitizeCourseraCourseDataModel } from './direct-data-privacy.js';
 import { CTI_DIRECT_WIDGET_PROVIDER_FIELDS_V1,
@@ -131,6 +132,11 @@ export function createDirectDataReaderV1(options = {}) {
     const group = /^[A-Za-z0-9_-]{1,128}~[A-Za-z0-9_-]{1,128}$/;
     const definition = /^[A-Za-z0-9_-]{1,128}~[A-Za-z0-9_-]{1,128}@\d{1,12}$/;
     let fields = '', includes = '', all = false, trailing = false, collection = false;
+    if (resource === 'ItemAuthoringFrameworkData') {
+      if (!/^[A-Za-z0-9_-]{22}$/.test(id)) return null;
+      const url=new URL('/graphql-gateway?opname=ItemAuthoringFrameworkData',origin);
+      return {resource,id,url,graphql:true,body:JSON.stringify([{operationName:resource,variables:{atomId:id},query:CTI_DIRECT_READING_QUERY_V1}])};
+    }
     if (resource === 'authoringCourseMaterials.v1') {
       if (!simple.test(id)) return null;
       fields='material,conflictMetadata,authoringAtomRelations.v1(embeddedContentSourceCourseId)';
@@ -178,7 +184,8 @@ export function createDirectDataReaderV1(options = {}) {
       method:'GET',bodyFormat:'ORIGINAL_PUBLISHER_JSON',responseType:'unreadable',credentials:'omit',
       observedAtBasis:'BROWSER_ATTEMPT',observedAt:new Date().toISOString(),receivedAt:'',status:0,bytes:0,
       originalResponseSha256:'',attempts:[]};
-    const value={resource:d.resource, requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
+    const value={resource:d.resource,
+      ...(d.graphql ? {id:d.id,method:'POST',operationName:d.resource,variables:{atomId:d.id},requestDocument:CTI_DIRECT_READING_QUERY_V1} : {}), requestPath:d.url.pathname, requestQuery:[...d.url.searchParams.entries()],
       ...(d.external ? {origin:d.url.origin,id:d.id,targetUrl:d.targetUrl,method:'POST',
         requestForm:d.form.map(pair=>pair.slice()),mime:''} : {}),
       observedAt:new Date().toISOString(), status:0, bytes:0, originalResponseSha256:'',
@@ -467,9 +474,10 @@ export function createDirectDataReaderV1(options = {}) {
     // ALL overrides query projections; credential removal is always delegated
     // to the required sanitizer, never claimed from a negative field query.
     if (job.descriptor.all) headers['X-Coursera-Naptime-Fields']='ALL';
+    if (job.descriptor.graphql) headers['Content-Type']='application/json';
     let response;
     try {
-      response=await fetchImpl(job.descriptor.url.href,{method:'GET',credentials:'same-origin',
+      response=await fetchImpl(job.descriptor.url.href,{method:job.descriptor.graphql?'POST':'GET',...(job.descriptor.graphql?{body:job.descriptor.body}:{}),credentials:'same-origin',
         redirect:'error',headers,signal:controller.signal});
       if (!current()) {await discard(response);return failure(job,stopReason);}
       job.receipt.status=Number(response.status || 0);
@@ -499,7 +507,10 @@ export function createDirectDataReaderV1(options = {}) {
       let parsed;
       try {parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body.bytes));}
       catch {return failure(job,'INVALID_API_JSON');}
-      if (!parsed || !Array.isArray(parsed.elements) || parsed.elements.length!==1 ||
+      if (job.descriptor.graphql) {
+        parsed=directReadingResponseV1(parsed,job.descriptor.id);
+        if (!parsed) return failure(job,'UNEXPECTED_GRAPHQL_MODEL');
+      } else if (!parsed || !Array.isArray(parsed.elements) || parsed.elements.length!==1 ||
           !parsed.elements[0] || parsed.elements[0].id!==job.descriptor.responseId) return failure(job,'UNEXPECTED_API_IDENTITY');
       if (parsed.paging && parsed.paging.next!=null) return failure(job,'UNEXPECTED_API_PAGINATION');
       // Signed delivery locations are deliberately not part of the returned
@@ -512,9 +523,10 @@ export function createDirectDataReaderV1(options = {}) {
       if (!sanitized || typeof sanitized!=='object' || sanitized.limitReached ||
           !Object.prototype.hasOwnProperty.call(sanitized,'data') || !sanitized.data ||
           typeof sanitized.data!=='object') return failure(job,'SANITIZER_INCOMPLETE');
-      if (!Array.isArray(sanitized.data.elements) || sanitized.data.elements.length!==1 ||
-          sanitized.data.elements[0]?.id!==job.descriptor.responseId) return failure(job,'SANITIZER_INCOMPLETE');
-      if (['assets.v1','authoringWidgetSessionProviders.v1','authoringAssignmentManualGradedQuestions.v1'].includes(job.descriptor.resource)) {
+      if (job.descriptor.graphql ? !directReadingResponseV1(sanitized.data,job.descriptor.id) :
+          (!Array.isArray(sanitized.data.elements) || sanitized.data.elements.length!==1 ||
+          sanitized.data.elements[0]?.id!==job.descriptor.responseId)) return failure(job,'SANITIZER_INCOMPLETE');
+      if (['ItemAuthoringFrameworkData','assets.v1','authoringWidgetSessionProviders.v1','authoringAssignmentManualGradedQuestions.v1'].includes(job.descriptor.resource)) {
         const protectedModel=sanitizeCourseraCourseDataModel(sanitized.data);
         if (protectedModel.limitReached) return failure(job,'SANITIZER_INCOMPLETE');
         sanitized={...protectedModel,removedFields:Math.max(0,Number(sanitized.removedFields) || 0)+protectedModel.removedFields,
@@ -650,6 +662,7 @@ export function createDirectDataReaderV1(options = {}) {
     readAtom:id=>read({resource:'authoringAtoms.v2',id}),
     readRelation:id=>read({resource:'authoringItemContentRelations.v1',id}),
     readGroup:id=>read({resource:'authoringAssignmentQuestionGroups.v1',id}),
+    readPublishedReading:id=>read({resource:'ItemAuthoringFrameworkData',id}),
     readManualDefinition:id=>read({resource:'authoringAssignmentManualGradedQuestions.v1',id}),
     readDefinition:id=>read({resource:'authoringAssignmentMachineEvaluableQuestions.v1',id}),
     readAsset:id=>read({resource:'assets.v1',id}),

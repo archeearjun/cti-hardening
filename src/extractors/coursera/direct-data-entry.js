@@ -1,3 +1,4 @@
+import { directReadingObservationV1 } from "./direct-data-published-reading.js";
 import { directManualPartTargetsV1, directManualQuestionV1 } from "./direct-data-native-observations.js";
 import {
   CTI_DIRECT_DATA_VERSION_V1,
@@ -1084,7 +1085,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           record.acquisition = acquired ? {kind:acquired.kind,sourceState:acquired.sourceState,publishedBodyVerified:false}
             : {kind:"UNVERIFIED_MANUAL_SOURCE",publishedBodyVerified:false};
           evidence.manualDefinitions.push(record);
-          failures.push({id:target.id,reason:acquired ? "DIRECT_MANUAL_AUTHORING_CONTENT_RETAINED_PUBLISHED_BODY_UNVERIFIED" : record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
+          failures.push({id:target.id,reason:acquired ? "DIRECT_MANUAL_AUTHORING_RETAINED_PUBLISHED_UNVERIFIED" : record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
         }
       }
       if (parts.instructionOnly === true) {
@@ -2041,6 +2042,30 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 bytes += encoder.encode(observation.model.rawJson ?? observation.model.html).byteLength;
       return bytes;
     }
+    async function captureReading(fp, material, atomRead, relationRead, previous) {
+      const context={item:fp,material,courseId,courseSlug:slug,atomData:atomRead.data,relationData:relationRead.data};
+      const observe=async()=>{
+        const read=await reader.readPublishedReading(fp.atomId);
+        return {receipt:receipt(read,fp.atomId),model:read.ok ? directReadingObservationV1(read.data,context,read.receipt) : null,
+          ...(read.ok ? {} : {reason:read.reason})};
+      };
+      const initial=await observe(),final=initial.model ? await observe() : null,
+        atomFinal=final?.model ? await reader.readAtom(fp.atomId) : null;
+      const stable=!!final?.model && await hash(initial.model.publishedItemContent)===await hash(final.model.publishedItemContent) &&
+        await hash(initial.model.draftItemContent)===await hash(final.model.draftItemContent) &&
+        atomFinal?.ok===true && await hash(atomRead.data)===await hash(atomFinal.data);
+      const history=[...(previous?.payload?.directPublishedReadingHistory || [])];
+      if (previous?.payload?.directPublishedReadingEvidence) history.push(previous.payload.directPublishedReadingEvidence);
+      const evidence={method:"BOUND_PUBLISHED_READING_GRAPHQL",courseId,itemId:fp.id,atomId:fp.atomId,
+        initial,final,stable,wholeItemVerified:false,
+        sources:{material,atom:atomRead.data,relation:relationRead.data,atomFinal:atomFinal?.data,
+          receipts:{atom:receipt(atomRead,fp.atomId),relation:receipt(relationRead,fp.atomId),atomFinal:atomFinal?receipt(atomFinal,fp.atomId):null}}};
+      // New observations are supplementary; saved originals retain their dates.
+      if (previous?.payload) fp.payload={...previous.payload};
+      if (history.length) fp.payload.directPublishedReadingHistory=history;
+      fp.payload.directPublishedReadingEvidence=evidence;
+      directUnsupportedContractV1(fp,stable ? "DIRECT_PUBLISHED_READING_RETAINED_UNVERIFIED" : "DIRECT_PUBLISHED_READING_SOURCE_UNVERIFIED");
+    }
     async function captureItem(fp) {
       const source = inventory.leaves.get(fp.id);
       if (source.structural) {
@@ -2098,7 +2123,10 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         requireRead(atomRead);
         requireRead(relationRead);
         const nativeAtom = atomRead.data.elements?.[0];
-        if (nativeAtom?.status?.typeName === "publishedAtomStatus" &&
+        if (nativeAtom?.status?.typeName === "publishedAtomStatus" && fp.typeName === "supplement" &&
+            nativeAtom?.published?.content?.typeName === "reading") {
+          await captureReading(fp, source.node, atomRead, relationRead, previous);
+        } else if (nativeAtom?.status?.typeName === "publishedAtomStatus" &&
             nativeAtom?.draft?.content?.typeName === "staffGradedDraft") {
           const snapshotBinding = bindDirectPublishedDraftSnapshotV1(fp, courseId, slug,
             source.node, atomRead.data, relationRead.data);

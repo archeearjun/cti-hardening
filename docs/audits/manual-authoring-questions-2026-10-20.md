@@ -76,7 +76,7 @@ A successful draft read does not resolve SekFW's published-body gap or certify
 whole-course completeness. No HAR, cookies, headers, learner submissions or
 write tokens are needed.
 
-## SekFW published reading: response contract, request still missing
+## SekFW published reading: observed POST envelope and minimized query
 
 The owner's subsequent real array-wrapped `ItemAuthoringFrameworkData` response
 has `draftItemContent: null` and typed `publishedItemContent` containing exact
@@ -92,13 +92,30 @@ keeps observation provenance and never assigns a historical version. An allowlis
 omits editing and permission fields; the shared sanitizer additionally removes
 `conflictDetectionToken`. Synthetic fixtures mirror the observed wrapper/types.
 
-The repository has no request document or variables for this operation. The
-older crawl watches generic GraphQL responses; that is not an authorized request
-definition for deterministic replay. This adapter is therefore not wired into
-native network acquisition or completeness. The minimum outstanding evidence
-is the exact HTTP method, GraphQL document/operationName and variables from this
-request's Payload tab, excluding headers, cookies, credentials and learner data.
-No request is invented. Once safely acquired with fresh matching bindings and
-source stability, this body contract could address SekFW's reading gap and other
-readings that meet the same contract. It does not apply to arbitrary published
-assignments or prove historical published versions.
+The owner subsequently confirmed POST to
+`/graphql-gateway?opname=ItemAuthoringFrameworkData`, with a one-operation JSON
+array containing operationName, an atomId variable and a query document. The
+bounded native reader now supports only this fixed read-only operation. The
+minimized query requests reading bodies and parent-course identity; it never
+requests conflict tokens, consumer keys, client secrets, URLs or permissions.
+The same reading fragment is used independently for draft and published bodies.
+A mandatory response allowlist precedes sanitization and persistence.
+
+The supplied minimized field selection has not yet been tested against the live
+endpoint. Locally, paired bound observations plus an unchanged final native atom
+are required for a stable retained result. The raw response hash, exact request
+selection, timestamps, native sources and source relation remain in the separate
+`payload.directPublishedReadingEvidence` record; earlier records remain in
+`directPublishedReadingHistory`. A null draft never suppresses a published body.
+No historical revision is inferred, and whole-item completeness remains false.
+Source CML, title, duration and current-published identity stay separate from
+manual-question current-authoring evidence and older native drafts.
+
+This reusable path can acquire SekFW and other published readings meeting the
+same source contract; it does not acquire arbitrary published assignments.
+After the native recheck, inspect SekFW's paired GraphQL POST receipts and
+`directPublishedReadingEvidence.initial.model.publishedItemContent`: confirm
+exact CML, title, PT5M, null draft, matching atom/course and `stable: true`.
+Treat HTTP/GraphQL errors or failed bindings as unresolved source acquisition,
+not a reason to substitute an older draft. No real-course verification increase
+is claimed until fresh source evidence has been inspected against the contracts.

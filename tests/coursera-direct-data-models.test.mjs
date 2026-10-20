@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import {
+  bindDirectIdentityV1,
   bindDirectAuthoringDraftV1,
   directDraftAssessmentInventoryV1,
   directDraftReadingSourceV1,
@@ -406,7 +407,7 @@ test("observed assess/1 CML remains an exact supplementDraft reading rather than
 
 test("the native helper declarations run independently of imports and preserve readonly source models", () => {
   const helpers = vm.runInNewContext(
-    "const directDraftReadingDtdSupportedV1 = " +
+    "const bindDirectIdentityV1 = " + bindDirectIdentityV1.toString() + "; const directDraftReadingDtdSupportedV1 = " +
       directDraftReadingDtdSupportedV1.toString() +
       "; ({bind:(" +
       bindDirectAuthoringDraftV1.toString() +

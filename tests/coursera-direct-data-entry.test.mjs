@@ -1,3 +1,4 @@
+import * as publishedReading from "../src/extractors/coursera/direct-data-published-reading.js";
 import * as nativeObservations from "../src/extractors/coursera/direct-data-native-observations.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -436,6 +437,7 @@ function harness(options = {}) {
       readRelation: (id) => read("relation", id),
       readGroup: (id) => read("group", id),
       readDefinition: (id) => read("definition", id),
+      readPublishedReading: (id) => read("publishedReading", id),
       readManualDefinition: (id) => read("manual", id),
       readWidgetProvider: (id, courseId) => read("widget", id, courseId),
       readPanoptoDeliveryInfo: (url) => read("panopto", url),
@@ -464,7 +466,7 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_MAX_PARTS_V1,
     directDataCoverageSummaryV1,
     directDataAttemptMetricsV1,
-    ...publishedDraftSnapshot, ...nativeObservations,
+    ...publishedDraftSnapshot, ...nativeObservations, ...publishedReading,
     location,
     document,
     crypto: { subtle: webcrypto.subtle, randomUUID: webcrypto.randomUUID },

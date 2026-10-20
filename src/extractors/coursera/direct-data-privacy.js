@@ -5,6 +5,7 @@ export function sanitizeCourseraCourseDataModel(value) {
       "token",
       "writeaccesstoken",
       "conflictdetectiontoken",
+      "consumerkey",
       "write_access_token",
       "accesstoken",
       "access_token",

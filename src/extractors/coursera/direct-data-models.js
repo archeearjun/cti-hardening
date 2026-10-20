@@ -1,7 +1,7 @@
 /** Bind the current authoring draft to exact material and relation identities.
  * Titles are deliberately not identity: a draft may have a different name from
  * both the structural inventory and its retained published snapshot. */
-export function bindDirectAuthoringDraftV1(
+export function bindDirectIdentityV1(
   fp,
   courseId,
   slug,
@@ -60,6 +60,12 @@ export function bindDirectAuthoringDraftV1(
     branch.courseSlug !== slug
   )
     badBinding();
+  return {atom,relation,atomId:fp.atomId,contentId:fp.contentId,courseId,itemId:fp.id,courseSlug:slug};
+}
+
+export function bindDirectAuthoringDraftV1(fp, courseId, slug, atomData, relationData) {
+  const identity=bindDirectIdentityV1(fp,courseId,slug,atomData,relationData),
+    {atom}=identity, object=value=>value && typeof value==="object" && !Array.isArray(value);
   if (
     !object(atom.status) ||
     atom.status.typeName !== "draftAtomStatus" ||
@@ -68,13 +74,7 @@ export function bindDirectAuthoringDraftV1(
   )
     throw new Error("DIRECT_AUTHORING_ATOM_STATE_UNSUPPORTED");
   return {
-    atom,
-    relation,
-    atomId: fp.atomId,
-    contentId: fp.contentId,
-    courseId,
-    itemId: fp.id,
-    courseSlug: slug,
+    ...identity,
     draft: atom.draft,
     published: atom.published,
     sourceState: "AUTHORING_DRAFT",
