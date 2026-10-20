@@ -1,4 +1,5 @@
 import { directReadingContentV1 } from "./direct-data-published-reading.js";
+import { directManualDraftContractV1 } from "./direct-data-manual-draft.js";
 import { directManualPartTargetsV1, directManualQuestionV1 } from "./direct-data-native-observations.js";
 import {
   CTI_DIRECT_DATA_VERSION_V1,
@@ -354,7 +355,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       if (summary.assessmentKinds) {
         const kinds = summary.assessmentKinds;
         count.textContent += " · Verified native drafts: " + kinds.emptyDrafts + " explicitly empty, " +
-          kinds.instructionOnly + " instruction-only, " + kinds.unkeyedReflections + " unkeyed reflection";
+          kinds.instructionOnly + " instruction-only, " + kinds.unkeyedReflections + " unkeyed reflection" +
+          (kinds.manualDrafts ? ", " + kinds.manualDrafts + " manual-submission drafts (published bodies unverified)" : "");
       }
       if (summary.retainedDraftSnapshots?.historicalObservations)
         count.textContent += " · " + summary.retainedDraftSnapshots.historicalObservations + " earlier draft observations retained";
@@ -873,7 +875,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               const projection = matches.length === 1 && directAssessmentQuestionProjectionV1(matches[0]);
               if (projection) Object.assign(question, projection);
             }
-            directAssessmentContractV1(
+            if (!(retained.captureContract?.status === "COMPLETE_BOUND_DRAFT_MANUAL_ASSESSMENT" &&
+                await verifyManualDraft(retained,bound))) directAssessmentContractV1(
               retained, retained.payload.structuredAssessment,
               directDraftAssessmentInventoryV1(bound), bound,
             );
@@ -1085,7 +1088,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           record.acquisition = acquired ? {kind:acquired.kind,sourceState:acquired.sourceState,publishedBodyVerified:false}
             : {kind:"UNVERIFIED_MANUAL_SOURCE",publishedBodyVerified:false};
           evidence.manualDefinitions.push(record);
-          failures.push({id:target.id,reason:acquired ? "DIRECT_MANUAL_AUTHORING_RETAINED_PUBLISHED_UNVERIFIED" : record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
+          if(!acquired || !parts.manualOnly) failures.push({id:target.id,reason:acquired ? "DIRECT_MANUAL_AUTHORING_RETAINED_PUBLISHED_UNVERIFIED" : record.stable ? "DIRECT_MANUAL_DEFINITION_RETAINED_SEMANTICS_UNVERIFIED" : initial.reason || final?.reason || "DIRECT_MANUAL_DEFINITION_SOURCE_INVALID"});
         }
       }
       if (parts.instructionOnly === true) {
@@ -1275,7 +1278,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           (_, index) => index,
         ).map(async () => {
           try {
-            while (next < parts.candidates.length && !reader.snapshot().stopped)
+            while (!parts.manualOnly && next < parts.candidates.length && !reader.snapshot().stopped)
               await readCandidate(parts.candidates[next++]);
           } catch (error) {
             reader.abort("DIRECT_CHECKPOINT_STORAGE_FAILED");
@@ -1322,6 +1325,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         parts,
         bound,
       );
+    }
+    async function verifyManualDraft(fp,bound) {
+      const hashes=new Map();
+      for(const r of fp.payload.assessmentApiEvidence?.manualDefinitions || [])
+        for(const o of [r.initial,r.final]) if(o?.data)
+          hashes.set(directCanonicalSourceTextV1(o.data),await hash(o.data));
+      return directManualDraftContractV1(fp,bound,v=>hashes.get(directCanonicalSourceTextV1(v)));
     }
     async function capturePublishedDraftSnapshot(fp, binding, atomRead, relationRead, previous) {
       const parts = directPublishedDraftSnapshotInventoryV1(binding);
@@ -2244,14 +2254,14 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               bound,
               directDraftDiscussionSourceV1(bound),
             );
-          else if (bound.draft.content.typeName === "staffGradedDraft")
-            directAssessmentContractV1(
+          else if (bound.draft.content.typeName === "staffGradedDraft") {
+            if(!await verifyManualDraft(fp,bound)) directAssessmentContractV1(
               fp,
               fp.payload.structuredAssessment,
               fp.payload.directAssessmentInventory,
               bound,
             );
-          else if (bound.draft.content.typeName === "widgetDraft")
+          } else if (bound.draft.content.typeName === "widgetDraft")
             directWidgetContractV1(fp, bound);
           else
             directUnsupportedContractV1(
@@ -2339,6 +2349,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (previous?.payload?.directNativeRecheckAttempt) history.push(previous.payload.directNativeRecheckAttempt);
         if (history.length) fp.payload.directNativeRecheckAttemptHistory = history;
         delete fp.payload.directNativeRecheckAttempt;
+        if(fp.captureContract?.status==="COMPLETE_BOUND_DRAFT_MANUAL_ASSESSMENT") {
+          const old=previous?.payload, history=[...(old?.directManualDraftHistory || [])];
+          if(old?.assessmentApiEvidence?.manualDefinitions?.length) history.push({
+            sources:old.directDataSources,assessmentApiEvidence:old.assessmentApiEvidence,
+            structuredAssessment:old.structuredAssessment,directManualDraftEvidence:old.directManualDraftEvidence});
+          if(history.length) fp.payload.directManualDraftHistory=history;
+        }
       }
       if (meta.directDataCapture.nativeRecheck)
         fp.payload.directNativeRecheckRequestedAt = meta.directDataCapture.nativeRecheck.requestedAt;

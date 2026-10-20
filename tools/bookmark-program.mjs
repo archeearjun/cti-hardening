@@ -2,7 +2,9 @@ import vm from "node:vm";
 import { minifySync } from "rolldown/experimental";
 
 /** Format a second, build-time delivery copy of a standalone classic script.
- * Compression, dead-code removal and all name mangling remain disabled. The
+ * Compression and dead-code removal remain disabled. Local lexical bindings
+ * may be shortened; property names, top-level bindings and reflected function
+ * and class names remain unchanged. The
  * parser/code generator handles comments, literals and ASI without evaluating
  * the program. Source-preserving console output never passes through here. */
 export function formatJavaScriptBookmarkProgram(source, filename = "bookmark.js") {
@@ -12,7 +14,7 @@ export function formatJavaScriptBookmarkProgram(source, filename = "bookmark.js"
   const result = minifySync(filename, source, {
     module: false,
     compress: false,
-    mangle: false,
+    mangle: {toplevel: false, keepNames: true},
     codegen: {
       removeWhitespace: true,
       asciiOnly: false,

@@ -51,10 +51,11 @@ export function directDataCoverageSummaryV1(items) {
       count(summary.assessments, item);
       const kind = status === "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT" ? "emptyDrafts"
         : status === "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT" ? "instructionOnly"
-        : status === "COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT" ? "unkeyedReflections" : "";
+        : status === "COMPLETE_BOUND_DRAFT_REFLECTION_ASSESSMENT" ? "unkeyedReflections"
+        : status === "COMPLETE_BOUND_DRAFT_MANUAL_ASSESSMENT" ? "manualDrafts" : "";
       if (kind && item.contract?.complete === true) {
         if (!summary.assessmentKinds) summary.assessmentKinds = {emptyDrafts: 0, instructionOnly: 0, unkeyedReflections: 0};
-        summary.assessmentKinds[kind]++;
+        summary.assessmentKinds[kind]=(summary.assessmentKinds[kind] || 0)+1;
       }
     }
     else if (type === "reading") {

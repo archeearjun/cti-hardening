@@ -1,0 +1,196 @@
+{
+  "provenance": {
+    "captureGzipSha256": "c8a15a912edc715a2dc693b2567664a8a06826e34a9bec7a69a7503b9738e17a",
+    "scope": "Observed identities and structural facts only; test question text is synthetic."
+  },
+  "itemId": "LFrHs",
+  "atomId": "RwzXxrTaEfGOPAr_0ssJ-Q",
+  "atomStatus": "draftAtomStatus",
+  "storedAtomVersion": 1,
+  "draftIsGraded": true,
+  "published": {
+    "generationSource": "USER",
+    "name": "Untitled",
+    "timeCommitment": 1800000,
+    "content": {
+      "typeName": "staffGraded",
+      "definition": {
+        "isGraded": false,
+        "isTeamSubmissionEnabled": false,
+        "assignmentId": "SPnBUGLKT0i5wVBiyj9IGQ@1"
+      }
+    }
+  },
+  "questions": [
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~R_f6cLTaEfGh5Qr_wfyFdQ",
+      "localId": "R_f6cLTaEfGh5Qr_wfyFdQ",
+      "ordinal": 1,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        2
+      ],
+      "readyForPublish": true,
+      "modelSha256": "dce4c48428bcfb2650c476cd4595a91538c05e69b0ea464df4a248cd0c1226be"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~SIXig7TaEfG8Ow7_-knS0w",
+      "localId": "SIXig7TaEfG8Ow7_-knS0w",
+      "ordinal": 2,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        3
+      ],
+      "readyForPublish": true,
+      "modelSha256": "ee50b033a1c949a581adbb4076b2b63134f7a3363bc7d46b58999b0d50ca8202"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~SQrJ9LTaEfG8Ow7_-knS0w",
+      "localId": "SQrJ9LTaEfG8Ow7_-knS0w",
+      "ordinal": 3,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        2
+      ],
+      "readyForPublish": true,
+      "modelSha256": "a7af6ec338f01afc53d803328436fe018f0896e06636ce714fd02d4f540e5f6c"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~SZDC4bTaEfGc8xL_1-Q0Lw",
+      "localId": "SZDC4bTaEfGc8xL_1-Q0Lw",
+      "ordinal": 4,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        3
+      ],
+      "readyForPublish": true,
+      "modelSha256": "c7c1486f56bca12890cd2eba1d573b5352619b98c5f09882ff5f696be96b9954"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~ShHZwbTaEfGh5Qr_wfyFdQ",
+      "localId": "ShHZwbTaEfGh5Qr_wfyFdQ",
+      "ordinal": 5,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        5
+      ],
+      "readyForPublish": true,
+      "modelSha256": "baa49095bbc533a313c2c8ce5cf432ed43693628398456af427eacd75303bb72"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~SowS1bTaEfGqVQ7_1MvWlQ",
+      "localId": "SowS1bTaEfGqVQ7_1MvWlQ",
+      "ordinal": 6,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        5
+      ],
+      "readyForPublish": true,
+      "modelSha256": "7f64d839ba7a1f63da52d8465cb9aca9360ebee78889cb16e08147ec10132f3c"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~Swjj5rTaEfG8Ow7_-knS0w",
+      "localId": "Swjj5rTaEfG8Ow7_-knS0w",
+      "ordinal": 7,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        4
+      ],
+      "readyForPublish": true,
+      "modelSha256": "2326f750f81f74106b1c76334a5f5b4e0a4a157739c3c845bdf981ef8b4119b3"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~S5gro7TaEfGh5Qr_wfyFdQ",
+      "localId": "S5gro7TaEfGh5Qr_wfyFdQ",
+      "ordinal": 8,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        3
+      ],
+      "readyForPublish": true,
+      "modelSha256": "6a5ab16f9b0976dec6736db98a1c349e6ef86fa66773dbc3036791953244a88a"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~TBgKBLTaEfGh5Qr_wfyFdQ",
+      "localId": "TBgKBLTaEfGh5Qr_wfyFdQ",
+      "ordinal": 9,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        4
+      ],
+      "readyForPublish": true,
+      "modelSha256": "725ccb2b80de23e25163ea473d03a3169587b0fb8e902a6aad82ffeb812589f7"
+    },
+    {
+      "id": "RwzXxrTaEfGOPAr_0ssJ-Q~TKGsY7TaEfGc8xL_1-Q0Lw",
+      "localId": "TKGsY7TaEfGc8xL_1-Q0Lw",
+      "ordinal": 10,
+      "stable": true,
+      "statuses": [
+        200,
+        200
+      ],
+      "graderType": "AI",
+      "submissionType": "richText",
+      "rubricPoints": [
+        4
+      ],
+      "readyForPublish": true,
+      "modelSha256": "7eda7f23bc61068e2e9653a1eef3fac1fdd4668d333c786932a6c8f0860837fa"
+    }
+  ]
+}

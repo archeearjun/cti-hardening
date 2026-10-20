@@ -44,7 +44,8 @@ const directDataSource = bundleConsole(
 );
 new vm.Script(directDataSource, { filename: "coursera-direct-data.js" });
 // Keep the linked console source intact. Only the saved bookmark receives a
-// parser-formatted delivery copy; no compression or name mangling is enabled.
+// parser-formatted delivery copy with local bindings shortened. Compression,
+// property mangling and function/class name changes remain disabled.
 const directDataBookmarkSource = formatJavaScriptBookmarkProgram(
   directDataSource,
   "coursera-direct-data-bookmark.js",

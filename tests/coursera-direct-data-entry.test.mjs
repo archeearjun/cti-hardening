@@ -1,5 +1,6 @@
 import * as publishedReading from "../src/extractors/coursera/direct-data-published-reading.js";
 import * as nativeObservations from "../src/extractors/coursera/direct-data-native-observations.js";
+import * as manualDraft from "../src/extractors/coursera/direct-data-manual-draft.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -466,7 +467,7 @@ function harness(options = {}) {
     CTI_DIRECT_DATA_MAX_PARTS_V1,
     directDataCoverageSummaryV1,
     directDataAttemptMetricsV1,
-    ...publishedDraftSnapshot, ...nativeObservations, ...publishedReading,
+    ...publishedDraftSnapshot, ...nativeObservations, ...publishedReading, ...manualDraft,
     location,
     document,
     crypto: { subtle: webcrypto.subtle, randomUUID: webcrypto.randomUUID },
