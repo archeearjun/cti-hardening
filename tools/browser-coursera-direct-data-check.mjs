@@ -990,6 +990,8 @@ try{
     if(startCapture)await page.getByRole('button',{name:'Capture/resume course',exact:true}).click();
   }
   async function launchFirstPartyBookmark(page,context){
+    // A previous failed initialization panel cannot prove this activation ran.
+    await page.evaluate(()=>document.getElementById('cti-publisher-recovery-panel')?.remove());
     const session=await context.newCDPSession(page),reply=await session.send('Page.navigate',{url:bookmark,transitionType:'auto_bookmark'});
     const observed=await poll(()=>page.evaluate(()=>Boolean(document.getElementById('cti-publisher-recovery-panel'))));
     if(!observed){
