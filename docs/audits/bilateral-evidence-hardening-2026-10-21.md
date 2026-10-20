@@ -2,6 +2,7 @@
 
 ## Baseline and claim boundaries
 
+New comparison reports identify engine build `v8.0.3-bilateral-evidence-20261021`.
 Implementation starts from deployed main `7de171178f67273e0a1baec86024b75018cf3392`.
 The uploaded v1.9.4 `capture.json.gz` has SHA-256
 `6d7120892fb5d197b6ed75d264e1d365d095a8be56bd1eb87dea5950e0603952`.

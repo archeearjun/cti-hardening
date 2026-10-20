@@ -5,7 +5,7 @@ export const CTI_ARCHITECTURE_VERSION_ = 'evidence-integrity-modular-monolith-v1
 
 export const CTI_RELEASE_REGISTRY_ = Object.freeze({
   gateway:'v8.0.0',
-  qaEngine:'v8.0.0',
+  qaEngine:'v8.0.3',
   architecture:CTI_ARCHITECTURE_VERSION_,
   courseraExtractor:{version:'v6.15.33',schema:35,build:'v6.15.33-bound-assessment-surface-and-body-resume-20261013',delivery:'GENERATED_BROWSER_BUNDLE'},
   directDataCourseraExtractor:{version:'v1.9.4',schema:35,build:'v1.9.4-manual-draft-contract-20261020',delivery:'GENERATED_BROWSER_BUNDLE'},
