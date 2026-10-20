@@ -457,7 +457,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 if(source.sourceTextNormalization) missingResult.checks.sourceTextNormalization=source.sourceTextNormalization;
                 missingResult = qaApplySourceTextGap_(missingResult,source);
                 missingResult = qaApplyUnreachedCarrierGap_(missingResult,source,courseraItems,extractorMeta);
-                missingResult = qaApplyIncompleteTraversalGap_(missingResult,qaCaptureTraversalSummary_(extractorMeta),qaSourceTextLimitation_(source));
+                missingResult = qaApplyIncompleteTraversalGap_(missingResult,qaCaptureTraversalSummary_(extractorMeta),qaSourceTextLimitation_(source),courseraItems);
                 missingResult.ownerAction = qaOwnerActionForResult_(missingResult);
                 missingResult.evidenceStrength = qaEvidenceStrength_(missingResult);
                 itemResults.push(missingResult);

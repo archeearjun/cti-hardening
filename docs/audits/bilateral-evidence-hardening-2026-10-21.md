@@ -47,7 +47,9 @@ verification. The earlier detailed matrix remains applicable:
    candidates. An unmatched non-link item could be `MISSING` during incomplete
    editor traversal. It now remains `UNVERIFIED`, with `standaloneMatch:
    NOT_FOUND`, unresolved destination IDs and a separate evidence-availability
-   check. Known incomplete source text likewise prevents that definitive absence
+   check. Native captures with complete inventories but unverified item bodies
+   receive the same protection with a distinct body-evidence reason.
+   Known incomplete source text likewise prevents that definitive absence
    claim. Independently observed type, placement and publication differences
    are retained.
 

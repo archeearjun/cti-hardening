@@ -142,6 +142,13 @@ test("full comparison does not call an unmatched non-link item missing while edi
   capture.meta.activeSpaCrawl.targetDiagnostics[0].editorSurfaceCaptured=true;
   input.json.bytes=encode(capture);
   assert.equal(createWorkflows(workerXml).compare(input).result.itemResults.find(r=>r.sourceId==="reading").verdict,"MISSING");
+  delete capture.meta.activeSpaCrawl;
+  Object.assign(capture.fingerprints[0].payload,{directDataSources:{},captureContract:{
+    itemId:"reading",complete:false,status:"UNRESOLVED_DIRECT_READING",reasons:["DIRECT_CML_MEDIA_REFERENCE_UNSUPPORTED"]}});
+  input.json.bytes=encode(capture);
+  const native=createWorkflows(workerXml).compare(input).result.itemResults.find(r=>r.sourceId==="reading");
+  assert.equal(native.verdict,"UNVERIFIED");
+  assert.equal(native.checks.evidenceAvailability.destination.reasonCode,"DESTINATION_NATIVE_BODIES_UNVERIFIED");
 });
 
 test("a native incomplete body cannot turn an unobserved source attachment into confirmed missing media", () => {

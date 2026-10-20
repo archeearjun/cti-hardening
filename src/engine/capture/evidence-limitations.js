@@ -23,15 +23,21 @@ export function qaDirectCaptureLimitation_(item) {
         reason:'The native capture retains this item but has not verified its complete body. Configuration, references and historical observations are not complete current instructional evidence.'};
 }
 
-export function qaApplyIncompleteTraversalGap_(result, traversal, sourceGap) {
-    if (!result || result.verdict !== 'MISSING' || (!sourceGap && !(traversal && traversal.recorded && !traversal.complete))) return result;
+export function qaApplyIncompleteTraversalGap_(result, traversal, sourceGap, destinationItems) {
+    var nativeIds=(destinationItems || []).filter(function(item){return item.directCaptureLimitation &&
+        item.directCaptureLimitation.itemId===String(item.id || '');}).map(function(item){return String(item.id);});
+    nativeIds=Array.from(new Set(nativeIds));
+    if (!result || result.verdict !== 'MISSING' || (!sourceGap && !nativeIds.length && !(traversal && traversal.recorded && !traversal.complete))) return result;
     result.verdict = 'UNVERIFIED';
     result.evidenceCoverage = 0;
     result.fidelityPercent = 0;
     result.issues = (result.issues || []).filter(function(v){return v !== 'MISSING_ITEM';}).concat(['PAYLOAD_UNVERIFIED']);
     result.checks.structure = {status:'UNVERIFIED',weight:0,standaloneMatch:'NOT_FOUND'};
     result.checks.evidenceAvailability = {schemaVersion:1,status:'INSUFFICIENT_EVIDENCE',
-        source:sourceGap || null,destination:traversal && traversal.recorded && !traversal.complete ? {
+        source:sourceGap || null,destination:nativeIds.length ? {
+            reasonCode:'DESTINATION_NATIVE_BODIES_UNVERIFIED',unresolvedItemIds:nativeIds,
+            unresolvedCount:nativeIds.length,inventoryMayBeComplete:true
+        } : traversal && traversal.recorded && !traversal.complete ? {
             reasonCode:'DESTINATION_TRAVERSAL_INCOMPLETE',unresolvedItemIds:traversal.unresolvedItemIds.slice(),
             unresolvedCount:traversal.unresolvedCount} : null,
         reason:'No standalone match was found. Incomplete source content or unread destination items prevent a definitive absence claim; retained or transformed content may not yet be located.'};
