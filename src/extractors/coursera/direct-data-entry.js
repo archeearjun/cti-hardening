@@ -2042,28 +2042,36 @@ import { captureAccountingItemsV61531 } from "./completion.js";
                 bytes += encoder.encode(observation.model.rawJson ?? observation.model.html).byteLength;
       return bytes;
     }
-    async function captureReading(fp, material, atomRead, relationRead, previous) {
-      const context={item:fp,material,courseId,courseSlug:slug,atomData:atomRead.data,relationData:relationRead.data};
+    async function captureReading(fp, node, a, r, prior) {
+      const id=fp.atomId, ctx={item:fp,material:node,courseId,courseSlug:slug,atomData:a.data,relationData:r.data};
       const observe=async()=>{
-        const read=await reader.readPublishedReading(fp.atomId);
-        return {receipt:receipt(read,fp.atomId),model:read.ok ? directReadingContentV1(read.data,context) : null,
+        const read=await reader.readPublishedReading(id);
+        return {receipt:receipt(read,id),model:read.ok ? directReadingContentV1(read.data,ctx) : null,
           ...(read.ok ? {} : {reason:read.reason})};
       };
       const initial=await observe(),final=initial.model ? await observe() : null,
-        atomFinal=final?.model ? await reader.readAtom(fp.atomId) : null;
+        last=final?.model ? await reader.readAtom(id) : null;
       const stable=!!final?.model && await hash(initial.model)===await hash(final.model) &&
-        atomFinal?.ok===true && await hash(atomRead.data)===await hash(atomFinal.data);
-      const history=[...(previous?.payload?.directPublishedReadingHistory || [])];
-      if (previous?.payload?.directPublishedReadingEvidence) history.push(previous.payload.directPublishedReadingEvidence);
-      const evidence={method:"BOUND_PUBLISHED_READING_GRAPHQL",
+        last?.ok===true && await hash(a.data)===await hash(last.data);
+      const old=[...(prior?.payload?.directPublishedReadingHistory || [])];
+      if (prior?.payload?.directPublishedReadingEvidence) old.push(prior.payload.directPublishedReadingEvidence);
+      const proof={method:"BOUND_PUBLISHED_READING_GRAPHQL",
         initial,final,stable,wholeItemVerified:false,
-        sources:{material,atom:atomRead.data,relation:relationRead.data,atomFinal:atomFinal?.data,
-          receipts:{atom:receipt(atomRead,fp.atomId),relation:receipt(relationRead,fp.atomId),atomFinal:atomFinal?receipt(atomFinal,fp.atomId):null}}};
+        sources:{material:node,atom:a.data,relation:r.data,atomFinal:last?.data,
+          receipts:{atom:receipt(a,id),relation:receipt(r,id),atomFinal:last?receipt(last,id):null}}};
       // New observations are supplementary; saved originals retain their dates.
-      if (previous?.payload) fp.payload={...previous.payload};
-      if (history.length) fp.payload.directPublishedReadingHistory=history;
-      fp.payload.directPublishedReadingEvidence=evidence;
-      directUnsupportedContractV1(fp,stable ? "DIRECT_PUBLISHED_READING_RETAINED_UNVERIFIED" : "DIRECT_PUBLISHED_READING_SOURCE_UNVERIFIED");
+      if (prior?.payload) fp.payload={...prior.payload};
+      const p=fp.payload;
+      if (old.length) p.directPublishedReadingHistory=old;
+      p.directPublishedReadingEvidence=proof;
+      const parsed=stable && directCmlTextV1(initial.model.publishedItemContent.content.cmlValue,2);
+      if (parsed && !parsed.references.length) {
+        proof.wholeItemVerified=true;
+        p.textSample=parsed.text; p.textLength=parsed.text.length;
+        p.textSha256=await hashText(parsed.text); p.textCaptureTruncated=false;
+        p.textScopeKind="bound-current-published-cml";
+        applyDirectContractV1(fp,"COMPLETE_BOUND_PUBLISHED_READING",true);
+      } else directUnsupportedContractV1(fp,stable ? "DIRECT_PUBLISHED_CML_UNRESOLVED" : "DIRECT_PUBLISHED_READING_SOURCE_UNVERIFIED");
     }
     async function captureItem(fp) {
       const source = inventory.leaves.get(fp.id);

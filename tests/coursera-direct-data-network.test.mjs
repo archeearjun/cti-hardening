@@ -241,9 +241,9 @@ test('source changes and failed or incomplete sanitization cannot release succes
 });
 
 test('manual definitions use exact mutable owner IDs, bounded same-origin GETs and no guessed version',async()=>{
- const id='B'.repeat(22),calls=[],reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{calls.push({url:new URL(url),options});return reply(url,{prompt:'original',rubrics:[{points:4}]});}});
+ const id='A'.repeat(22)+'~'+'B'.repeat(22),calls=[],reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{calls.push({url:new URL(url),options});return reply(url,{prompt:'original',rubrics:[{points:4}]});}});
  const result=await reader.readManualDefinition(id);assert(result.ok);assert.equal(calls.length,1);assert.equal(calls[0].url.pathname,'/api/authoringAssignmentManualGradedQuestions.v1/'+id);assert.equal(calls[0].options.credentials,'same-origin');assert.equal(calls[0].options.redirect,'error');assert.equal(result.data.elements[0].rubrics[0].points,4);
- for(const invalid of [id+'@1',id+'/other','short~id','A'.repeat(22)+'~'+id])assert.equal((await reader.readManualDefinition(invalid)).ok,false);
+ for(const invalid of [id+'@1',id+'/other','short~id','B'.repeat(22),'A'.repeat(22)+'~'+id])assert.equal((await reader.readManualDefinition(invalid)).ok,false);
  assert.equal(calls.length,1);
 });
 
@@ -253,8 +253,8 @@ test('manual definitions use exact mutable owner IDs, bounded same-origin GETs a
  const reader=createDirectDataReaderV1({sanitize,fetchImpl:async(url,options)=>{
    request={url:new URL(url),options};return reply(url,{graderType:'AI',writeAccessToken:'synthetic-never-retain',plagiarismConfig:{writeAccessToken:'synthetic-nested-secret'},prompt:{typeName:'cml',definition:{dtdId:'assess/1',value:''}},graderInstructions:'',rubrics:[],submissionSchema:{typeName:'richText'}});
  }});
- const result=await reader.readManualDefinition('Q'.repeat(22));assert(result.ok);
- assert.deepEqual([...request.url.searchParams],[['id','Q'.repeat(22)],['fields',CTI_DIRECT_MANUAL_FIELDS_V1]]);
+ const result=await reader.readManualDefinition('A'.repeat(22)+'~'+'Q'.repeat(22));assert(result.ok);
+ assert.deepEqual([...request.url.searchParams],[['id','A'.repeat(22)+'~'+'Q'.repeat(22)],['fields',CTI_DIRECT_MANUAL_FIELDS_V1]]);
  assert.equal(request.options.headers['X-Coursera-Naptime-Fields'],undefined);
  assert(!JSON.stringify(result).includes('synthetic-never-retain'));assert(!JSON.stringify(result).includes('synthetic-nested-secret'));assert(!JSON.stringify(result).includes('writeAccessToken'));
  assert(result.receipt.credentialFieldsRemoved>=1);assert.equal(result.data.elements[0].prompt.definition.value,'');assert.equal(result.data.elements[0].graderInstructions,'');

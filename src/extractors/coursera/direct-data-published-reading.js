@@ -4,41 +4,41 @@ export const CTI_DIRECT_READING_QUERY_V1 = "query ItemAuthoringFrameworkData($at
 
 /** Allowlist the requested response fields before persistence. No generic
  * GraphQL execution or editing/private configuration is exposed. */
-export function directReadingResponseV1(response, atomId) {
-  if (!Array.isArray(response) || response.length !== 1 || !response[0] ||
-      (response[0].errors != null && (!Array.isArray(response[0].errors) || response[0].errors.length))) return null;
-  const data=response[0].data?.ItemAuthoring, item=data?.queryAuthoringItemByAtomId, parent=data?.queryParentBranchByAtomId;
-  if (item?.id !== atomId || item.atomId !== atomId || !Object.hasOwn(item,"draftItemContent") ||
-      !Object.hasOwn(item,"publishedItemContent") || !Array.isArray(parent?.edges) || parent.edges.length>100) return null;
-  const pick=(value,keys)=>Object.fromEntries(keys.split(",").filter(key=>Object.hasOwn(value || {},key)).map(key=>[key,value[key]])),
-    content=value=>value===null ? null : {...pick(value,"__typename,name,timeCommitment"),
-      ...(value?.content ? {content:pick(value.content,"__typename,cmlValue,dtdId")} : {})};
+export function directReadingResponseV1(value, id) {
+  if (!Array.isArray(value) || value.length !== 1 || !value[0] ||
+      (value[0].errors != null && (!Array.isArray(value[0].errors) || value[0].errors.length))) return null;
+  const data=value[0].data?.ItemAuthoring, i=data?.queryAuthoringItemByAtomId, p=data?.queryParentBranchByAtomId;
+  if (i?.id !== id || i.atomId !== id || !Object.hasOwn(i,"draftItemContent") ||
+      !Object.hasOwn(i,"publishedItemContent") || !Array.isArray(p?.edges) || p.edges.length>100) return null;
+  const pick=(v,keys)=>Object.fromEntries(keys.split(",").filter(k=>Object.hasOwn(v || {},k)).map(k=>[k,v[k]])),
+    body=v=>v===null ? null : {...pick(v,"__typename,name,timeCommitment"),
+      ...(v?.content ? {content:pick(v.content,"__typename,cmlValue,dtdId")} : {})};
   return [{data:{ItemAuthoring:{
-    queryAuthoringItemByAtomId:{...pick(item,"id,atomId,itemType"),
-      draftItemContent:content(item.draftItemContent),publishedItemContent:content(item.publishedItemContent)},
-    queryParentBranchByAtomId:{edges:parent.edges.map(edge=>({node:pick(edge?.node,"id,courseId,isAtomAtLatestVersion")}))}}}}];
+    queryAuthoringItemByAtomId:{...pick(i,"id,atomId,itemType"),
+      draftItemContent:body(i.draftItemContent),publishedItemContent:body(i.publishedItemContent)},
+    queryParentBranchByAtomId:{edges:p.edges.map(edge=>({node:pick(edge?.node,"id,courseId,isAtomAtLatestVersion")}))}}}}];
 }
 
 /** A bound current published observation is separate from a historical version
  * and from whole-item completeness. The bounded reader owns HTTP receipts and
  * mandatory sanitization before this deterministic content projection. */
-export function directReadingContentV1(response, context) {
+export function directReadingContentV1(value, ctx) {
   try {
-    const {item, material, atomData, relationData, courseId, courseSlug} = context;
-    const {atom}=bindDirectIdentityV1(item,courseId,courseSlug,atomData,relationData);
-    if (item.typeName !== "supplement" || ["id","atomId","contentId"].some(key=>material?.[key]!==item[key]) ||
-        material.content?.typeName !== item.typeName || material.published !== true ||
-        atomData.paging?.next != null || relationData.paging?.next != null ||
+    const {item:i, material:m, atomData:a, relationData:r, courseId, courseSlug} = ctx;
+    const {atom}=bindDirectIdentityV1(i,courseId,courseSlug,a,r);
+    if (i.typeName !== "supplement" || ["id","atomId","contentId"].some(key=>m?.[key]!==i[key]) ||
+        m.content?.typeName !== i.typeName || m.published !== true ||
+        a.paging?.next != null || r.paging?.next != null ||
         atom.status?.typeName !== "publishedAtomStatus" || atom.published?.content?.typeName !== "reading") return null;
-    const data=directReadingResponseV1(response,item.atomId)[0].data.ItemAuthoring,
-      source=data.queryAuthoringItemByAtomId, reading=source.publishedItemContent,
-      nodes=data.queryParentBranchByAtomId.edges.filter(edge=>edge.node.courseId===courseId),node=nodes[0]?.node;
-    if (source.itemType!=="READING" || nodes.length!==1 || node.id !== courseId || node.isAtomAtLatestVersion !== true ||
-        reading?.__typename !== "ItemPlatform_ReadingContent" || typeof reading.name !== "string" ||
-        typeof reading.timeCommitment !== "string" || reading.content?.__typename !== "CmlContent" ||
-        reading.content.dtdId !== "assess/1" || typeof reading.content.cmlValue !== "string") return null;
+    const data=directReadingResponseV1(value,i.atomId)[0].data.ItemAuthoring,
+      s=data.queryAuthoringItemByAtomId, body=s.publishedItemContent,
+      all=data.queryParentBranchByAtomId.edges.filter(edge=>edge.node.courseId===courseId),node=all[0]?.node;
+    if (s.itemType!=="READING" || all.length!==1 || node.id !== courseId || node.isAtomAtLatestVersion !== true ||
+        body?.__typename !== "ItemPlatform_ReadingContent" || typeof body.name !== "string" ||
+        typeof body.timeCommitment !== "string" || body.content?.__typename !== "CmlContent" ||
+        body.content.dtdId !== "assess/1" || typeof body.content.cmlValue !== "string") return null;
     // Allowlist only observed instructional/source fields. Editing tokens,
     // permissions and unrelated GraphQL data never enter the returned model.
-    return {...source,courseId,itemId:item.id,parentBranch:node};
+    return {...s,courseId,itemId:i.id,parentBranch:node};
   } catch (_) {return null;}
 }

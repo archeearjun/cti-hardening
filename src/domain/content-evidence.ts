@@ -1,3 +1,4 @@
+import { publishedReadingVerified } from "./coursera-published-reading-verification.ts";
 import { safeWebUrl, courseraItemUrl, courseraLocation } from "./owner-urls.ts";
 import { supportedMathText } from "./supported-math-text.ts";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -1199,9 +1200,14 @@ export function capturedContent(
     p.evidenceTruncated === false &&
     integer(p.textLength) === full.length &&
     p.textNormalizationStatus === "NORMALIZED";
+  const publishedSources = contentObject(contentObject(p.directPublishedReadingEvidence).sources),
+    publishedRelations = array(contentObject(publishedSources.relation).elements),
+    publishedBranch = contentObject(contentObject(contentObject(publishedRelations[0]).branchRelationMap)[String(options.nativeCourseId) + "~" + options.itemId]);
+  const publishedFull = !options.source && !!options.nativeCourseId && !!options.nativeItem &&
+    publishedReadingVerified({...contentObject(options.nativeItem),payload:p}, publishedSources.material, options.nativeCourseId, string(publishedBranch.courseSlug));
   const directFull =
-    !options.source && verifiedDirectDraftText(p, options.itemId);
-  const imageAltText = directFull ? authoredImageAltText(p) : [];
+    !options.source && (publishedFull || verifiedDirectDraftText(p, options.itemId));
+  const imageAltText = directFull && !publishedFull ? authoredImageAltText(p) : [];
   const textCoverage: ContentCoverage = full
     ? !options.excerpt &&
       !truncated &&

@@ -1,0 +1,123 @@
+{
+  "provenance": "v1.9.2 uploaded capture; only source IDs, part order and failed HTTP receipts retained. Successful composite request reported separately by owner DevTools observation.",
+  "atomId": "RwzXxrTaEfGOPAr_0ssJ-Q",
+  "parts": [
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "R_f6cLTaEfGh5Qr_wfyFdQ"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "SIXig7TaEfG8Ow7_-knS0w"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "SQrJ9LTaEfG8Ow7_-knS0w"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "SZDC4bTaEfGc8xL_1-Q0Lw"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "ShHZwbTaEfGh5Qr_wfyFdQ"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "SowS1bTaEfGqVQ7_1MvWlQ"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "Swjj5rTaEfG8Ow7_-knS0w"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "S5gro7TaEfGh5Qr_wfyFdQ"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "TBgKBLTaEfGh5Qr_wfyFdQ"
+      }
+    },
+    {
+      "typeName": "storedManualGradedQuestionPart",
+      "definition": {
+        "id": "TKGsY7TaEfGc8xL_1-Q0Lw"
+      }
+    }
+  ],
+  "failedRequests": [
+    {
+      "localId": "R_f6cLTaEfGh5Qr_wfyFdQ",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/R_f6cLTaEfGh5Qr_wfyFdQ"
+    },
+    {
+      "localId": "SIXig7TaEfG8Ow7_-knS0w",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/SIXig7TaEfG8Ow7_-knS0w"
+    },
+    {
+      "localId": "SQrJ9LTaEfG8Ow7_-knS0w",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/SQrJ9LTaEfG8Ow7_-knS0w"
+    },
+    {
+      "localId": "SZDC4bTaEfGc8xL_1-Q0Lw",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/SZDC4bTaEfGc8xL_1-Q0Lw"
+    },
+    {
+      "localId": "ShHZwbTaEfGh5Qr_wfyFdQ",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/ShHZwbTaEfGh5Qr_wfyFdQ"
+    },
+    {
+      "localId": "SowS1bTaEfGqVQ7_1MvWlQ",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/SowS1bTaEfGqVQ7_1MvWlQ"
+    },
+    {
+      "localId": "Swjj5rTaEfG8Ow7_-knS0w",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/Swjj5rTaEfG8Ow7_-knS0w"
+    },
+    {
+      "localId": "S5gro7TaEfGh5Qr_wfyFdQ",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/S5gro7TaEfGh5Qr_wfyFdQ"
+    },
+    {
+      "localId": "TBgKBLTaEfGh5Qr_wfyFdQ",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/TBgKBLTaEfGh5Qr_wfyFdQ"
+    },
+    {
+      "localId": "TKGsY7TaEfGc8xL_1-Q0Lw",
+      "status": 404,
+      "requestPath": "/api/authoringAssignmentManualGradedQuestions.v1/TKGsY7TaEfGc8xL_1-Q0Lw"
+    }
+  ],
+  "observedSuccessfulRequest": {
+    "method": "GET",
+    "status": 200,
+    "id": "RwzXxrTaEfGOPAr_0ssJ-Q~R_f6cLTaEfGh5Qr_wfyFdQ"
+  }
+}

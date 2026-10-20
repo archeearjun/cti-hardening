@@ -1,6 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parseCourseraCourseMaterialsRelations } from "./coursera-course-relations.ts";
+import { publishedReadingVerified } from "./coursera-published-reading-verification.ts";
 import { directCanonicalSourceTextV1 } from "../extractors/coursera/direct-data-canonical.js";
 import {
   CTI_DIRECT_MATERIAL_STABILITY_POLICY_V1,
@@ -1310,6 +1311,11 @@ function directDraftCaptureReasons(capture: Record<string, any>): string[] {
       !/widget|plugin|lti/i.test(String(sourceItems.get(item.id)?.sourceContentType || ""))
     )
       reasons.push(`DIRECT_WIDGET_PROVIDER_SOURCE_INVALID:${id}`);
+    if (contract.status === "COMPLETE_BOUND_PUBLISHED_READING") {
+      if (!publishedReadingVerified(item, rawLeaves.get(item.id), courseId, slug))
+        reasons.push(`DIRECT_PUBLISHED_READING_SOURCE_INVALID:${id}`);
+      continue;
+    }
     const evidence = record(payload.directDataEvidence),
       sources = record(payload.directDataSources);
     const receipts = record(sources?.receipts),

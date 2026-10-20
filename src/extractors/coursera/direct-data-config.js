@@ -1,18 +1,21 @@
-export const CTI_DIRECT_DATA_VERSION_V1 = "1.9.2";
-export const CTI_DIRECT_DATA_BUILD_V1 = "v1.9.2-manual-authoring-questions-20261020";
+export const CTI_DIRECT_DATA_VERSION_V1 = "1.9.3";
+export const CTI_DIRECT_DATA_BUILD_V1 = "v1.9.3-bound-native-content-20261020";
 export function directRecoverablePublisherBuildV1(buildId) {
-  return buildId === "v1.9.1-recovery-accounting-manual-sources-20261020" ||
-    buildId === "v1.9.0-native-fidelity-and-publisher-recovery-20261019" ||
-    buildId === "v1.8.9-native-recheck-and-owner-handoff-20261019" ||
-    buildId === "v1.8.0-inline-widget-public-html-20261018" ||
-    buildId === "v1.8.1-browser-publisher-api-20261018" ||
-    buildId === "v1.8.2-historical-publisher-checkpoint-20261018" ||
-    buildId === "v1.8.3-publisher-sections-original-images-20261018" ||
-    buildId === "v1.8.4-public-publisher-images-20261019" ||
-    buildId === "v1.8.5-publisher-challenge-aware-20261019" ||
-    buildId === "v1.8.6-publisher-back-matter-20261019" ||
-    buildId === "v1.8.7-published-atom-draft-snapshots-20261019" ||
-    buildId === "v1.8.8-bounded-publisher-image-pipeline-20261019";
+  return [
+    "v1.9.2-manual-authoring-questions-20261020",
+    "v1.9.1-recovery-accounting-manual-sources-20261020",
+    "v1.9.0-native-fidelity-and-publisher-recovery-20261019",
+    "v1.8.9-native-recheck-and-owner-handoff-20261019",
+    "v1.8.0-inline-widget-public-html-20261018",
+    "v1.8.1-browser-publisher-api-20261018",
+    "v1.8.2-historical-publisher-checkpoint-20261018",
+    "v1.8.3-publisher-sections-original-images-20261018",
+    "v1.8.4-public-publisher-images-20261019",
+    "v1.8.5-publisher-challenge-aware-20261019",
+    "v1.8.6-publisher-back-matter-20261019",
+    "v1.8.7-published-atom-draft-snapshots-20261019",
+    "v1.8.8-bounded-publisher-image-pipeline-20261019",
+  ].includes(buildId);
 }
 export const CTI_DIRECT_DATA_EXPORT_BYTES_V1 = 128 * 1024 * 1024;
 export const CTI_DIRECT_DATA_COMPRESSED_BYTES_V1 = 128 * 1024 * 1024;

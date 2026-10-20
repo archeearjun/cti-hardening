@@ -7,7 +7,7 @@ const hash=x=>createHash('sha256').update(directCanonicalSourceTextV1(x)).digest
 const ids=['R_f6cLTaEfGh5Qr_wfyFdQ','SIXig7TaEfG8Ow7_-knS0w','SQrJ9LTaEfG8Ow7_-knS0w','SZDC4bTaEfGc8xL_1-Q0Lw','ShHZwbTaEfGh5Qr_wfyFdQ','SowS1bTaEfGqVQ7_1MvWlQ','Swjj5rTaEfG8Ow7_-knS0w','S5gro7TaEfGh5Qr_wfyFdQ','TBgKBLTaEfGh5Qr_wfyFdQ','TKGsY7TaEfGc8xL_1-Q0Lw'];
 const bound={sourceState:'AUTHORING_DRAFT',atomId:'RwzXxrTaEfGOPAr_0ssJ-Q',draft:{content:{typeName:'staffGradedDraft',definition:{parts:ids.map(id=>({typeName:'storedManualGradedQuestionPart',definition:{id}}))}}}};
 test('the ten audited manual parts retain exact source order and owner IDs without inventing versions',()=>{
- const before=JSON.stringify(bound),targets=directManualPartTargetsV1(bound);assert.equal(targets.length,10);assert.deepEqual(targets.map(t=>t.localId),ids);assert(targets.every(t=>t.id===t.localId&&!t.id.includes('@')));assert.equal(JSON.stringify(bound),before);
+ const before=JSON.stringify(bound),targets=directManualPartTargetsV1(bound);assert.equal(targets.length,10);assert.deepEqual(targets.map(t=>t.localId),ids);assert(targets.every(t=>t.id===bound.atomId+"~"+t.localId&&!t.id.includes('@')));assert.equal(JSON.stringify(bound),before);
  const dup=structuredClone(bound);dup.draft.content.definition.parts.push(dup.draft.content.definition.parts[0]);assert.deepEqual(directManualPartTargetsV1(dup),[]);
 });
 test('manual source retention requires two matching owned observations and preserves all original grading fields',()=>{
@@ -43,4 +43,19 @@ test('manual targets never infer IDs from published, missing or malformed bindin
  for(const mutate of [b=>b.sourceState='PUBLISHED',b=>b.atomId='',b=>b.draft.content.definition.parts[0].definition.id='owner~question']){
  const b=structuredClone(bound);mutate(b);assert.deepEqual(directManualPartTargetsV1(b),[]);
  }
+});
+
+test('production local-ID 404 receipts and owner-observed composite request bind all ten parts',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const e=JSON.parse(await readFile(new URL('./fixtures/coursera/manual-composite-request-evidence.json',import.meta.url),'utf8'));
+ const targets=directManualPartTargetsV1({sourceState:'AUTHORING_DRAFT',atomId:e.atomId,draft:{content:{typeName:'staffGradedDraft',definition:{parts:e.parts}}}});
+ assert.equal(targets.length,10);assert.equal(targets[0].id,e.observedSuccessfulRequest.id);
+ for (const [index,target] of targets.entries()) {
+   assert.equal(target.localId,e.failedRequests[index].localId);
+   assert.equal(e.failedRequests[index].status,404);
+   assert.equal(e.failedRequests[index].requestPath,'/api/authoringAssignmentManualGradedQuestions.v1/'+target.localId);
+   assert.equal(target.id,e.atomId+'~'+target.localId);
+ }
+ const foreign=structuredClone(bound);foreign.atomId='X'.repeat(22);
+ assert.notEqual(directManualPartTargetsV1(foreign)[0].id,targets[0].id);
 });

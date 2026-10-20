@@ -139,7 +139,7 @@ test('ten manual parts acquire two exact mutable observations each without fabri
     relation={id:atomId,atomId,branchRelationMap:{[COURSE+'~'+itemId]:{courseId:COURSE,itemId,courseSlug:SLUG}}},
     node={...fp,published:false,content:{typeName:fp.typeName,definition:{assignmentId:atomId+'@1'}}},
     material={id:COURSE,conflictMetadata:{version:1,courseBranchVersion:1},material:{elements:[{id:'ModuleOne',name:'Manual module',elements:[node]}]}},
-    records=new Map(parts.map((part,i)=>{const id=part.definition.id;return [id,{id,graderType:'AI',submissionSchema:{typeName:'richText'},prompt:cml('Exact manual prompt '+i),rubrics:[{details:{typeName:'multiLineInput',definition:{points:2}},prompt:cml('Original criterion '+i)}],graderInstructions:'',options:[{display:''}]}];})),
+    records=new Map(parts.map((part,i)=>{const id=atomId+"~"+part.definition.id;return [id,{id,graderType:'AI',submissionSchema:{typeName:'richText'},prompt:cml('Exact manual prompt '+i),rubrics:[{details:{typeName:'multiLineInput',definition:{points:2}},prompt:cml('Original criterion '+i)}],graderInstructions:'',options:[{display:''}]}];})),
     resources={atom:'authoringAtoms.v2',relation:'authoringItemContentRelations.v1',materials:'authoringCourseMaterials.v1',course:'authoringCourses.v2',manual:'authoringAssignmentManualGradedQuestions.v1'},
     app=harness({ids:[itemId],fingerprints:{[itemId]:fp},materialNodes:{[itemId]:node},nativeCml:true,nativeAssessment:true,readResult(call){
       const value=call.resource==='atom'?atom:call.resource==='relation'?relation:call.resource==='materials'?material:call.resource==='course'?{id:COURSE}:call.resource==='manual'?records.get(call.id):null;
@@ -161,21 +161,46 @@ test('ten manual parts acquire two exact mutable observations each without fabri
 
 });
 
-test('published reading acquisition retains paired source-bound bodies and previous observation history without completeness uplift',async t=>{
+test('published reading acquisition retains paired source-bound bodies and previous observation history with independently verified text-only published content',async t=>{
  useNativeCml(t);
  const {publishedReadingFixture}=await import('./published-reading-fixture.mjs'),f=publishedReadingFixture(),c=f.context,
    fp={...c.item,type:'Reading',name:'Published reading',payload:{},sourceIdentity:{published:true}},
    node={...c.material,name:fp.name},material={id:COURSE,conflictMetadata:{version:1,courseBranchVersion:1},material:{elements:[{id:'ModuleOne',name:'Module',elements:[node]}]}},
    resources={atom:'authoringAtoms.v2',relation:'authoringItemContentRelations.v1',materials:'authoringCourseMaterials.v1',course:'authoringCourses.v2'};
- const app=harness({ids:[fp.id],fingerprints:{[fp.id]:fp},materialNodes:{[fp.id]:node},nativeCml:true,nativeAssessment:true,readResult(call){
+ const app=harness({ids:[fp.id],fingerprints:{[fp.id]:fp},materialNodes:{[fp.id]:node},nativeCml:true,nativeAssessment:true,nativeContracts:true,readResult(call){
    const data=call.resource==='publishedReading'?clone(f.response):{elements:[clone(call.resource==='atom'?c.atomData.elements[0]:call.resource==='relation'?c.relationData.elements[0]:call.resource==='materials'?material:{id:COURSE})]};
    return {ok:true,data,receipt:call.resource==='publishedReading'?{...f.receipt,observedAt:new Date(call.at).toISOString()}:{resource:resources[call.resource],id:call.id,status:200,requestPath:'/api/'+resources[call.resource]+'/'+call.id,bodyFormat:'PARSED_SANITIZED_JSON_MODEL',observedAt:new Date(call.at).toISOString(),originalResponseSha256:hash(data),bytes:64}};
  }});
  app.launch();await app.idle();let capture=(await exportedCapture(app.downloads.at(-1))).capture,item=byId(capture,fp.id),evidence=item.payload.directPublishedReadingEvidence;
  assert(evidence,JSON.stringify(item.captureContract));assert.equal(evidence.stable,true);assert.equal(evidence.initial.model.draftItemContent,null);
  assert.equal(evidence.initial.model.publishedItemContent.content.cmlValue,f.response[0].data.ItemAuthoring.queryAuthoringItemByAtomId.publishedItemContent.content.cmlValue);
- assert.equal(app.calls.filter(c=>c.resource==='publishedReading').length,2);assert.equal(item.captureContract.complete,false);
+ assert.equal(app.calls.filter(c=>c.resource==='publishedReading').length,2);assert.equal(item.captureContract.complete,true);
+ const {publishedReadingVerified}=await import('../src/domain/coursera-published-reading-verification.ts');
+ assert(publishedReadingVerified(item,node,COURSE,SLUG));
+ const {capturedContent}=await import('../src/domain/content-evidence.ts');
+ assert.equal(capturedContent(item.payload,{basis:'synthetic published fixture',itemId:item.id,nativeItem:item,nativeCourseId:COURSE}).textCoverage,'COMPLETE');
+ const {evaluateCourseraCapture}=await import('../src/domain/coursera-background-extraction.ts');
+ // The orchestration harness stubs course-level inventory/accounting. Supply
+ // their complete deterministic fixture to exercise the real import verifier.
+ Object.assign(capture.meta.directDataCapture,{initialMaterialHash:hash(material),finalMaterialHash:hash(material),
+   materialVersion:1,courseBranchVersion:1,materials:{elements:[material]},finalMaterials:{elements:[clone(material)]}});
+ Object.assign(capture.meta.captureAccounting,{inventoryCount:1,completeCount:1,unresolvedCount:0,unknownCount:0,unvisitedCount:0,allInventoryAccounted:true});
+ assert.equal(evaluateCourseraCapture(capture,COURSE).complete,true,JSON.stringify(evaluateCourseraCapture(capture,COURSE)));
+ const damaged=clone(capture);byId(damaged,fp.id).payload.directPublishedReadingEvidence.final.receipt.status=404;
+ assert(evaluateCourseraCapture(damaged,COURSE).reasons.includes('DIRECT_PUBLISHED_READING_SOURCE_INVALID:'+fp.id));
+ for(const mutate of [i=>i.payload.directPublishedReadingEvidence.final.model.atomId='X'.repeat(22),
+ i=>i.payload.directPublishedReadingEvidence.initial.receipt.status=404,
+ i=>i.payload.directPublishedReadingEvidence.final.receipt.method='GET',
+ i=>i.payload.directPublishedReadingEvidence.final.receipt.variables.atomId='X'.repeat(22),
+ i=>i.payload.directPublishedReadingEvidence.initial.receipt.requestDocument+=' mutation Forbidden { secret }',
+ i=>{const e=i.payload.directPublishedReadingEvidence;for(const o of [e.initial,e.final])o.model.publishedItemContent.content.cmlValue=o.model.publishedItemContent.content.cmlValue.replace('</co-content>','<image src="https://example.com/original.png"/></co-content>');},
+ i=>i.payload.directPublishedReadingEvidence.sources.atomFinal.elements[0].storedAtomVersion=100,
+ i=>i.payload.directPublishedReadingEvidence.initial.model.writeAccessToken='synthetic-secret',
+ i=>i.payload.directPublishedReadingEvidence.sources.material.id='Foreign',i=>i.payload.textSample='changed',
+ i=>i.payload.directPublishedReadingEvidence.initial.model.draftItemContent=i.payload.directPublishedReadingEvidence.initial.model.publishedItemContent]) {
+   const altered=clone(item);mutate(altered);assert.equal(publishedReadingVerified(altered,node,COURSE,SLUG),false);
+ }
  const original=clone(evidence);app.advance(1000);app.state().recheckNative();await app.idle();
  item=app.items.get(app.state().runId+'/'+fp.id).fingerprint;assert.deepEqual(item.payload.directPublishedReadingHistory,[original]);
- assert.equal(item.payload.directPublishedReadingEvidence.stable,true);assert.equal(item.captureContract.complete,false);
+ assert.equal(item.payload.directPublishedReadingEvidence.stable,true);assert.equal(item.captureContract.complete,true);
 });

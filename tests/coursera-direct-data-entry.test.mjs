@@ -15,7 +15,7 @@ import { directInlineWidgetBindingsV1, directWidgetProviderReceiptValidV1,
   directInlineWidgetEvidenceV1, directReceiptSourceValidV1, directAssessmentQuestionProjectionV1,
   directAssessmentContractV1 as nativeAssessmentContract, parseCourseraCheckboxDefinitionDirectV1, parseCourseraTextExactMatchDefinitionDirectV1,
   parseCourseraReflectionDefinitionDirectV1, directInstructionAssessmentModelV1,
-  directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
+  applyDirectContractV1 as nativeContract, directCmlTextV1 as parseNativeCml, directReadingPayloadV1 as nativeReadingPayload } from "../src/extractors/coursera/direct-data-contracts.js";
 import { bindDirectAuthoringDraftV1 as bindNativeDraft, directDraftReadingSourceV1 as nativeReadingSource,
   directDraftAssessmentInventoryV1 as nativeAssessmentInventory } from "../src/extractors/coursera/direct-data-models.js";
 import { parseCourseraMcqDefinitionV61524 } from "../src/extractors/coursera/assessment-api.js";
@@ -569,7 +569,7 @@ function harness(options = {}) {
       contract(fp, "DIRECT_READING", true);
       await options.readingPayload?.(fp);
     },
-    applyDirectContractV1: contract,
+    applyDirectContractV1: options.nativeContracts ? nativeContract : contract,
     directEmptyStructureContractV1: (fp) =>
       contract(fp, "DIRECT_STRUCTURE", true),
     directUnsupportedContractV1: (fp, reason) =>
@@ -2974,6 +2974,7 @@ for (const [version, originalBuild] of [
   ["v1.8.4", "v1.8.4-public-publisher-images-20261019"],
   ["v1.8.5", "v1.8.5-publisher-challenge-aware-20261019"],
   ["v1.8.6", "v1.8.6-publisher-back-matter-20261019"],
+  ["v1.9.2", "v1.9.2-manual-authoring-questions-20261020"],
 ]) test("exact " + version + " continuation preserves 80 bound originals and completed assessment history while acquiring fresh publisher JSON", async t => {
   useNativeCml(t);
   const f = publisherEntryFixture(), source = f.fixtures[0],

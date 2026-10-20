@@ -531,12 +531,12 @@ test('source-bound manual authoring content round trips exact AI fields without 
  const {readFile}=await import('node:fs/promises');
  const {CTI_DIRECT_MANUAL_FIELDS_V1}=await import('../src/extractors/coursera/direct-data-native-observations.js');
  const data=JSON.parse(await readFile(new URL('./fixtures/coursera/manual-authoring-observed.json',import.meta.url),'utf8'));
- const f=fixture(),p=f.item.payload,id=data.elements[0].id;
- f.atom.draft.content.definition.parts=[{typeName:'storedManualGradedQuestionPart',definition:{id}}];f.finalize();
+ const f=fixture(),p=f.item.payload,localId=data.elements[0].id.split("~")[1],id=f.atom.id+"~"+localId; data.elements[0].id=id;
+ f.atom.draft.content.definition.parts=[{typeName:'storedManualGradedQuestionPart',definition:{id:localId}}];f.finalize();
  const hash=value=>createHash('sha256').update(directCanonicalSourceTextV1(value)).digest('hex');
  const observation={data,modelSha256:hash(data),receipt:{...receipt('authoringAssignmentManualGradedQuestions.v1',id),observedAt:'2026-10-17T10:00:00.000Z',requestQuery:[['id',id],['fields',CTI_DIRECT_MANUAL_FIELDS_V1]]}};
  p.assessmentApiEvidence.rawParts=structuredClone(f.atom.draft.content.definition.parts);
- p.assessmentApiEvidence.manualDefinitions=[{id,localId:id,ordinal:1,initial:observation,final:structuredClone(observation),stable:true}];
+ p.assessmentApiEvidence.manualDefinitions=[{id,localId,ordinal:1,initial:observation,final:structuredClone(observation),stable:true}];
  const retained=retainedCourseraAuthoringContent(f.item,gradingCourseId);
  assert.equal(retained.blocks.length,1);const block=retained.blocks[0];
  assert.deepEqual(block.manualSubmission.fields,data.elements[0]);assert.equal(block.nativeValidation,'READY');
