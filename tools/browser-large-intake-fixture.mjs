@@ -356,6 +356,8 @@ function comparisonSaveApi(input, mode) {
     updatedAt: "2026-10-01T00:00:00.000Z",
     updatedBy: actor.email,
   };
+  if (mode === "lost-saved") course.data.transferPadding = "x".repeat(270000);
+  let downloadBusy = mode === "lost-saved";
   const records = new Map([[course.id, course]]);
   const uploads = new Map();
   const uploadBindings = new Map();
@@ -413,6 +415,11 @@ function comparisonSaveApi(input, mode) {
       const bytes = Buffer.from(JSON.stringify(saved.data));
       if (recordPath[2] === "chunks") {
         const part = Number(recordPath[3]);
+        if (id === course.id && part === 1 && downloadBusy) {
+          downloadBusy = false;
+          return route.fulfill({status:503,contentType:"application/json",
+            headers:{"Retry-After":"1"},body:JSON.stringify({error:"The workspace is processing other evidence."})});
+        }
         assert(part < Math.ceil(bytes.length / WORKSPACE_CHUNK_BYTES));
         return route.fulfill({
           contentType: "application/octet-stream",
@@ -582,9 +589,15 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
         .locator(`option[value="${api.course.id}"]`)
         .waitFor({ state: "attached" });
       await coursePicker.selectOption(api.course.id);
+      if (mode === "lost-saved")
+        await page.getByText(/chunk 2\/3: temporary failure.*HTTP 503.*retry 2\/6/).waitFor();
       await page
         .locator(".full-workspace .status")
         .waitFor({ state: "hidden" });
+      if (mode === "lost-saved") {
+        assert.equal(api.events.filter(e=>e.path===`records/${api.course.id}/chunks/0`).length,1);
+        assert.equal(api.events.filter(e=>e.path===`records/${api.course.id}/chunks/1`).length,2);
+      }
       await workspaceNav(page, "Source LMS");
       const sourceShare = page.getByRole("link", {
         name: "Share or split a large capture",
@@ -814,7 +827,8 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
         await page
           .getByRole("alert")
           .filter({ hasText: "Synthetic temporary read failure" })
-          .waitFor({ timeout: 15000 });
+          // Six attempts allow up to 28.75s backoff plus local request time.
+          .waitFor({ timeout: 40000 });
         assert.equal(
           api.uploads.size,
           1,
@@ -829,8 +843,8 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
                 event.method === "GET" &&
                 event.path === `records/${receipt.auditId}`,
             ).length,
-          3,
-          "Only the safe read follows the existing bounded retry policy",
+          6,
+          "Only the safe read follows the bounded saved-evidence retry policy",
         );
         const readDiagnostic = assertRecoveryEvidenceUnchanged(
           (await downloadBytes(page, exportJson)).bytes,
@@ -840,7 +854,7 @@ export async function checkUnconfirmedComparisonRecovery(browser, base, input) {
         assert.equal(readDiagnostic.code, "WORKSPACE_HTTP_ERROR");
         assert.equal(readDiagnostic.phase, "download");
         assert.equal(readDiagnostic.status, 503);
-        assert.equal(readDiagnostic.attempts, 3);
+        assert.equal(readDiagnostic.attempts, 6);
         assert(readDiagnostic.context.includes(receipt.auditId));
         assert.match(readDiagnostic.message, /Synthetic temporary read failure/);
       } else {

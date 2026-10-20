@@ -218,3 +218,17 @@ test("a failed image computation releases both permits before a successful repla
   const next=await f.object.fetch(request(imagePath));assert.equal(next.status,200);await next.body.cancel();
   assert.equal(calls,3);
 });
+
+test('workspace queue returns temporary 503 before execution and accepts the same read after capacity recovers',async()=>{
+  let release, calls=0;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const f=fixture(async()=>{calls++;await gate;return Response.json({original:'unchanged'});},{CTI_DB:{}});
+  const pending=Array.from({length:8},()=>f.object.fetch(request('/api/records/synthetic/chunks/1?revision=original')));
+  const busy=await f.object.fetch(request('/api/records/synthetic/chunks/1?revision=original'));
+  assert.equal(busy.status,503); assert.equal(busy.headers.get('retry-after'),'1');
+  assert.match((await busy.json()).error,/processing other evidence/);
+  assert.equal(calls,1,'Rejected request never reaches evidence handler');
+  release(); assert((await Promise.all(pending)).every(r=>r.status===200));
+  const recovered=await f.object.fetch(request('/api/records/synthetic/chunks/1?revision=original'));
+  assert.deepEqual(await recovered.json(),{original:'unchanged'}); assert.equal(calls,9);
+});

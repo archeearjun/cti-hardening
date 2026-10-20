@@ -73,7 +73,7 @@ export interface WorkspaceStore {
   role: "admin" | "editor" | "viewer";
   email: string;
   list(): Promise<WorkspaceRecord[]>;
-  get(id: string): Promise<WorkspaceRecord>;
+  get(id: string, options?: TransferOptions): Promise<WorkspaceRecord>;
   save(
     record: WorkspaceRecord,
     options?: SaveOptions,
@@ -509,9 +509,25 @@ export function localStore(): WorkspaceStore {
     },
   };
 }
-export async function teamStore(): Promise<WorkspaceStore> {
+export async function teamStore(
+  downloadOptions: TransferOptions = {},
+): Promise<WorkspaceStore> {
   const session = await request("session");
-  async function readSavedRecord(id: string, options: TransferOptions = {}) {
+  // Per authenticated store instance, memory only. Keep at most two interrupted
+  // records (32 MiB each); no persistent partial file or unverified import.
+  const downloads = new Map<
+    string,
+    { identity: string; buffers: Uint8Array[] }
+  >();
+  let downloadTail: Promise<unknown> = Promise.resolve();
+  function readSavedRecord(id: string, options: TransferOptions = {}) {
+    const current = downloadTail.then(() =>
+      performRead(id, { ...downloadOptions, ...options }),
+    );
+    downloadTail = current.catch(() => {});
+    return current;
+  }
+  async function performRead(id: string, options: TransferOptions) {
     const m = await request(
       `records/${encodeURIComponent(id)}`,
       {},
@@ -535,55 +551,87 @@ export async function teamStore(): Promise<WorkspaceStore> {
         "Saved evidence manifest is invalid.",
         "download",
       );
-    const buffers: Uint8Array[] = [];
-    for (let i = 0; i < m.parts; i++) {
-      const bytes = await workspaceBinaryRequest(
-        `records/${encodeURIComponent(id)}/chunks/${i}?revision=${encodeURIComponent(m.revision)}`,
-        {
-          ...options,
-          context: `Downloading saved evidence (${id}), chunk ${i + 1}/${m.parts}`,
-          phase: "download",
-          maxBytes: 128 * 1024,
-        },
+    const identity = JSON.stringify([m.revision, m.sha256, m.parts, m.record]);
+    let held = downloads.get(id);
+    if (!held || held.identity !== identity) {
+      downloads.delete(id);
+      while (downloads.size >= 2)
+        downloads.delete(downloads.keys().next().value!);
+      held = { identity, buffers: [] };
+      downloads.set(id, held);
+    }
+    const buffers = held.buffers;
+    try {
+      if (buffers.length)
+        options.onProgress?.(
+          `Resuming saved evidence (${id}) at chunk ${buffers.length + 1}/${m.parts}; earlier chunks retained for final checksum verification.`,
+        );
+      for (let i = buffers.length; i < m.parts; i++) {
+        options.onProgress?.(
+          `Downloading saved evidence (${id}), chunk ${i + 1}/${m.parts}`,
+        );
+        const bytes = await workspaceBinaryRequest(
+          `records/${encodeURIComponent(id)}/chunks/${i}?revision=${encodeURIComponent(m.revision)}`,
+          {
+            ...options,
+            context: `Downloading saved evidence (${id}), chunk ${i + 1}/${m.parts}`,
+            phase: "download",
+            maxBytes: 128 * 1024,
+          },
+        );
+        if (!bytes.length)
+          throw transferProtocolError(
+            "Saved evidence chunk is empty.",
+            "download",
+          );
+        buffers.push(bytes);
+      }
+      const bytes = new Uint8Array(buffers.reduce((n, b) => n + b.length, 0));
+      let offset = 0;
+      for (const buffer of buffers) {
+        bytes.set(buffer, offset);
+        offset += buffer.length;
+      }
+      options.onProgress?.(
+        `Verifying saved evidence (${id}): all ${m.parts} chunks downloaded.`,
       );
-      if (!bytes.length)
+      const hash = await digest(bytes);
+      if (hash !== m.sha256)
         throw transferProtocolError(
-          "Saved evidence chunk is empty.",
+          "Saved evidence checksum failed.",
           "download",
         );
-      buffers.push(bytes);
-    }
-    const bytes = new Uint8Array(buffers.reduce((n, b) => n + b.length, 0));
-    let offset = 0;
-    for (const buffer of buffers) {
-      bytes.set(buffer, offset);
-      offset += buffer.length;
-    }
-    const hash = await digest(bytes);
-    if (hash !== m.sha256)
-      throw transferProtocolError(
-        "Saved evidence checksum failed.",
-        "download",
-      );
-    let data: EvidenceObject;
-    try {
-      data = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-      );
-    } catch {
-      throw transferProtocolError(
-        "Saved evidence JSON is invalid.",
-        "download",
-      );
-    }
-    const record = { ...m.record, data } as WorkspaceRecord;
-    for (const [key, held] of uploadSessions)
+      let data: EvidenceObject;
+      try {
+        data = JSON.parse(
+          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        );
+      } catch {
+        throw transferProtocolError(
+          "Saved evidence JSON is invalid.",
+          "download",
+        );
+      }
+      const record = { ...m.record, data } as WorkspaceRecord;
+      for (const [key, held] of uploadSessions)
+        if (
+          held.email === session.email &&
+          sameSavedReceipt(held.record, record, hash, held.sha256)
+        )
+          uploadSessions.delete(key);
+      downloads.delete(id);
+      return { record, sha256: hash };
+    } catch (error) {
       if (
-        held.email === session.email &&
-        sameSavedReceipt(held.record, record, hash, held.sha256)
+        (error as { code?: string })?.code ===
+          "WORKSPACE_TRANSFER_PROTOCOL_INVALID" ||
+        (error as { code?: string })?.code === "WORKSPACE_BINARY_BOUND_EXCEEDED"
       )
-        uploadSessions.delete(key);
-    return { record, sha256: hash };
+        downloads.delete(id);
+      else if (error instanceof Error && buffers.length)
+        error.message += ` ${buffers.length}/${m.parts} chunks retained in this tab. Retry the same operation to resume after rechecking the saved revision. Closing or reloading this tab discards partial download progress, not saved evidence.`;
+      throw error;
+    }
   }
   return {
     mode: "team",
@@ -596,8 +644,8 @@ export async function teamStore(): Promise<WorkspaceStore> {
       return (await request(`records/${encodeURIComponent(id)}/versions`))
         .versions;
     },
-    async get(id) {
-      return (await readSavedRecord(id)).record;
+    async get(id, options) {
+      return (await readSavedRecord(id, options)).record;
     },
     async save(record, options = {}) {
       validateRecord(record);
