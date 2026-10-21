@@ -1,6 +1,7 @@
 import { questionIdentityCandidates } from "../engine/assessment/identity-candidates.js";
+import { assessmentRecoveryText } from "./assessment-recovery.js";
 /** Read-only presentation of saved decisions. Never recalculates or clears proof. */
-export function evidenceDecisionBrief(res = {}, snapshot = {}) {
+export function evidenceDecisionBrief(res = {}, snapshot = {}, contentComparisons = []) {
   res = res || {};
   snapshot = snapshot || {};
   const s = res.summary || {},
@@ -109,6 +110,8 @@ export function evidenceDecisionBrief(res = {}, snapshot = {}) {
       ),
     );
   const candidates = questionIdentityCandidates(snapshot);
+  const recovery=assessmentRecoveryText(res,snapshot,contentComparisons);
+  if(recovery) lines.push('',recovery);
   if (candidates.length) {
     lines.push(
       "",
@@ -116,7 +119,7 @@ export function evidenceDecisionBrief(res = {}, snapshot = {}) {
     );
     for (const c of candidates)
       lines.push(
-        `${c.status} | Brightspace topic ${c.source.itemId}, question ${c.source.questionId} → Coursera item ${c.destination.itemId}, question ${c.destination.questionId} | ${c.reason}`,
+        `${c.status} | Brightspace topic ${c.source.itemId}, question ${c.source.questionId} → Coursera item ${c.destination.itemId}, question ${c.destination.questionId} | ${c.reason}\n  Projection dimensions: ${Object.entries(c.parity.dimensions).map(([name,value])=>name+'='+value.status).join('; ')}. Overall parity: ${c.parity.status}; published and learner-visible parity unverified.`,
       );
   }
   lines.push(

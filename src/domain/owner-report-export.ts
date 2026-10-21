@@ -1,4 +1,5 @@
 import { evidenceDecisionBrief } from "../reporting/evidence-decision-brief.js";
+import { assessmentRecoveryPlans } from "../reporting/assessment-recovery.js";
 import { loadReportContent } from "./report-content-store.ts";
 import {
   validateCourseraLinkedCaptures,
@@ -31,7 +32,7 @@ import {
   normalizeOwnerContext,
   type OwnerReview,
 } from "./owner-actions.ts";
-import { validateItemCheck } from "./item-check.ts";
+import { validateItemCheck, itemCheckEvidenceRevision } from "./item-check.ts";
 import type { WorkspaceStore } from "./workspace-store.ts";
 import type { EvidenceObject, WorkspaceRecord } from "./workspace-types.ts";
 import { ownerScope } from "./owner-scope.ts";
@@ -160,6 +161,7 @@ export async function prepareOwnerReportExport(
           url: route.url,
           name: task.name,
           checks: c.expectations,
+          ...(c.evidenceRevision !== undefined ? {evidenceRevision:itemCheckEvidenceRevision(report) || 'UNAVAILABLE'} : {}),
         });
       }
       const pluginCaptures = (review.pluginCaptures || []).map((p) => {
@@ -453,9 +455,10 @@ export async function prepareOwnerReportExport(
       ? report.report
       : JSON.stringify(report.result, null, 2);
   lines.push("", "ORIGINAL AUDIT — UNCHANGED", original);
+  const recoveryPlans = assessmentRecoveryPlans(report.result, contentEvidence, followUp.contentComparisons);
   return {
-    text: evidenceDecisionBrief(report.result, contentEvidence) + "\n\n" + lines.join("\n"),
-    evidence: { ...report, followUp: { ...followUp, derivedAnswers } },
-    followUp: { ...followUp, derivedAnswers },
+    text: evidenceDecisionBrief(report.result, contentEvidence, followUp.contentComparisons) + "\n\n" + lines.join("\n"),
+    evidence: { ...report, followUp: { ...followUp, derivedAnswers, assessmentRecoveryPlans: recoveryPlans } },
+    followUp: { ...followUp, derivedAnswers, assessmentRecoveryPlans: recoveryPlans },
   };
 }

@@ -1,7 +1,7 @@
 import { validateItemCheck, type ItemCheckSpec } from "./item-check.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
 
-export const EXTENSION_VERSION = "1.0.22";
+export const EXTENSION_VERSION = "1.0.23";
 export interface RefreshResponse {
   ok: boolean;
   error?: string;

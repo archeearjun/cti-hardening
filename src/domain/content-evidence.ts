@@ -680,6 +680,14 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
   }
   if (options.length > 200)
     limitations.push("Only the first 200 captured choices are displayed.");
+  const sourceDefinition = contentObject(q.sourceTypeEvidence);
+  const retainedSettings = sourceDefinition.platform === 'BRIGHTSPACE'
+    ? {platform:'BRIGHTSPACE',nativeQuestionId:sourceDefinition.nativeQuestionId,quizId:sourceDefinition.quizId,definition:sourceDefinition.definition,points:q.points}
+    : sourceDefinition.method === 'QTI_RESPONSE_AND_CC_PROFILE'
+      ? {method:sourceDefinition.method,identity:sourceDefinition.identity,scoringDefinition:sourceDefinition.scoringDefinition,points:q.points}
+      : null;
+  const retainedSettingsText = retainedSettings ? JSON.stringify(retainedSettings) : '';
+  if(retainedSettingsText.length > 49000) limitations.push('Original question settings exceed the projection limit; consult the retained source definition.');
   return {
     id: string(q.courseraQuestionId) || String(q.id ?? index + 1),
     ordinal: String(
@@ -733,6 +741,7 @@ export function contentQuestion(value: unknown, index = 0): ContentQuestion {
     limitations,
     answerKeyReliable: q.answerTextReliable === true,
     mathTextChecked: true,
+    ...(retainedSettingsText && retainedSettingsText.length <= 49000 ? {settingsText:retainedSettingsText} : {}),
     ...(q.definitionVersion === 1
       ? {
           settingsText: string(q.settingsText),

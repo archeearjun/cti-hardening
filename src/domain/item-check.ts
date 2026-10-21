@@ -8,8 +8,16 @@ export interface ItemCheckSpec {
   url: string;
   name: string;
   checks: ItemExpectation[];
+  evidenceRevision?: string;
 }
 export const ITEM_CHECK_VERSION = 1;
+
+/** Stable input identity, not a claim that the underlying captures are complete. */
+export function itemCheckEvidenceRevision(report: EvidenceObject): string | undefined {
+  const values = [report.sourceScanSha256, report.hashes?.json, report.hashes?.brightspace];
+  if (!values.some(v => typeof v === 'string' && /^[a-f0-9]{64}$/i.test(v))) return undefined;
+  return JSON.stringify(values.map(v => typeof v === 'string' && /^[a-f0-9]{64}$/i.test(v) ? v.toLowerCase() : null));
+}
 
 // Self-contained: also embedded into the console script. Results describe only
 // observed references/prompts, never infer deletion or launch from absence.
@@ -103,6 +111,8 @@ export function validateItemCheck(value: EvidenceObject, spec: ItemCheckSpec) {
     throw new Error(
       "This check belongs to another report, course, or item. Copy this card’s script and use its Coursera link.",
     );
+  if (spec.evidenceRevision !== undefined && value.evidenceRevision !== spec.evidenceRevision)
+    throw Error('This check belongs to a different source/capture revision. Keep it with its original saved comparison.');
   if (JSON.stringify(value.expectations) !== JSON.stringify(spec.checks))
     throw new Error(
       "The check was generated for different findings. Copy the current card’s script.",
@@ -181,7 +191,7 @@ export function buildItemCheckScript(
   attachQuestionFailureEvidenceV61318(fp.payload);
   const diag = (crawl.targetDiagnostics || []).find(d => String(d.id) === expected.itemId);
   const check = {kind:'CTI_COURSERA_ITEM_CHECK',schemaVersion:1,notForCourseAudit:true,scope:'ONE_ITEM_FRESH_EVIDENCE',
-    auditId:expected.auditId,courseId:id,itemId:fp.id,openedUrl,expectations:expected.checks,
+    auditId:expected.auditId,courseId:id,itemId:fp.id,openedUrl,expectations:expected.checks,evidenceRevision:expected.evidenceRevision,
     extractorVersion:${JSON.stringify(delivery.version)},extractorBuild:${JSON.stringify(delivery.buildId)},
     startedAt:new Date(nowForLock).toISOString(),finishedAt:new Date().toISOString(),elapsedMs:Date.now()-nowForLock,
     editorObserved:Boolean(diag && diag.editorSurfaceCaptured),payload:fp.payload,crawl,

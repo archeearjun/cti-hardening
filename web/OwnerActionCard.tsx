@@ -79,10 +79,12 @@ export default function OwnerActionCard({
   courseLocation,
   onOpenExtraction,
   contentSnapshot,
+  evidenceRevision,
 }: {
   task: OwnerTask;
   label: string;
   auditId: string;
+  evidenceRevision?: string;
   course?: WorkspaceRecord | null;
   store?: WorkspaceStore | null;
   saved?: WorkspaceRecord;
@@ -160,6 +162,7 @@ export default function OwnerActionCard({
     itemUrl && auditId && courseLocation && task.id
       ? {
           auditId,
+          ...(evidenceRevision ? { evidenceRevision } : {}),
           itemId: task.id,
           courseId: courseLocation.courseId,
           url: itemUrl,

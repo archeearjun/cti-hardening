@@ -2203,8 +2203,8 @@
       "status": "adapted",
       "path": "src/engine/source/brightspace-assessment.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "4ba87ca614fe738a0d8417e5acf60292929f324dd4a74e48d2a955a42e2254e6",
-      "note": "Reviewed Brightspace v1.1.0/schema2: source-preserving bookmark, explicit on-page start/pause/recovery, scoped native inventories and identity anomalies, raw HTML/literal captions and hashed original bytes, independent bounded importer checks. Native banks, external/runtime content and whole-course completeness remain unverified. Brightspace JSON transport/engine bounds are128MiB. See docs/brightspace-bookmark-capture.md and Brightspace regression fixtures. Reviewed PR102 bound native-name candidates, duplicate ambiguity and literal Brightspace definition preservation. No name/count-only parity or bank-completeness inference. tests/bilateral-comparison-replay.test.mjs."
+      "reviewedCurrentHash": "b8f19e7ae9dd8f1b3588b01a0636e0365eb48a78f51f69113c4ae4d9d93c1927",
+      "note": "Reviewed Brightspace v1.1.0/schema2: source-preserving bookmark, explicit on-page start/pause/recovery, scoped native inventories and identity anomalies, raw HTML/literal captions and hashed original bytes, independent bounded importer checks. Native banks, external/runtime content and whole-course completeness remain unverified. Brightspace JSON transport/engine bounds are128MiB. See docs/brightspace-bookmark-capture.md and Brightspace regression fixtures. Reviewed PR102 bound native-name candidates, duplicate ambiguity and literal Brightspace definition preservation. No name/count-only parity or bank-completeness inference. tests/bilateral-comparison-replay.test.mjs. PR103 retains question HTML media references without asserting media acquisition or completeness."
     },
     {
       "name": "ctiDeclaredQuizCountFromText_",
@@ -2857,8 +2857,8 @@
       "status": "adapted",
       "path": "src/engine/reporting/actions.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "ed19695c23baf2c960272fe12fb56e0520ba6a41f180710715506097dda5095c",
-      "note": "Retain source-only guidance for proven complete destination fields; direct known-position unknown-type cases to focused field inspection without clearing failures or overlooking missing positions."
+      "reviewedCurrentHash": "918248c2f8a8dc2149f136916a8bd99dd19a645372e056f6eafd4c7d6d228e46",
+      "note": "Retain source-only guidance for proven complete destination fields; direct known-position unknown-type cases to focused field inspection without clearing failures or overlooking missing positions. PR103: render mappingAmbiguity item IDs and legacy reconciliation IDs as unconfirmed candidates; missing candidates get explicit unresolved guidance, never a false identity-match claim."
     },
     {
       "name": "workApplyPolicyAwareOperatorGuidance_",
@@ -3237,8 +3237,8 @@
       "status": "adapted-metadata",
       "path": "src/engine/matching/text.js",
       "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
-      "reviewedCurrentHash": "09e203ec8f60af1a1df1392bdde2ec946b6e7e58b54c74bec9579d43e975da26",
-      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Comparison rules v8.0.3 retain explicit bilateral evidence gaps; see the 2026-10-21 audit."
+      "reviewedCurrentHash": "cbdfd2b52194b1c66c09631eae44dff20b4e61336432b8af02315fb596024b4e",
+      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Comparison rules v8.0.3 retain explicit bilateral evidence gaps; see the 2026-10-21 audit. PR103 assessment recovery and source projection build; historical captures retain original build IDs."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",
@@ -4201,8 +4201,8 @@
       "name": "parseQtiAssessmentStructure_",
       "path": "src/source/qti.js",
       "status": "adapted",
-      "note": "Keep declared versus captured counts at the bounded 250-question limit, preserve source ordinal, reject XML declarations, and evaluate non-overlapping selection scopes without deduplicating equal draws. Ambiguous selection remains unknown. Reviewed PR102 local QTI selection membership and scoped owner summary before unchanged raw evidence. tests/bilateral-comparison-replay.test.mjs.",
-      "reviewedCurrentHash": "3c5e89c1a13457caf96db584f5bee11f29f5e434ed48112a9d2fb899a314201b"
+      "note": "Keep declared versus captured counts at the bounded 250-question limit, preserve source ordinal, reject XML declarations, and evaluate non-overlapping selection scopes without deduplicating equal draws. Ambiguous selection remains unknown. Reviewed PR102 local QTI selection membership and scoped owner summary before unchanged raw evidence. tests/bilateral-comparison-replay.test.mjs. PR103 preserves original scoring conditions, wildcard values and numeric bounds as an uninterpreted tree; answer semantics stay independently unverified. Wildcard-like text-entry alternatives stay retained but require verification of literal versus pattern semantics.",
+      "reviewedCurrentHash": "e6b069515cbd29b9dc814bf486ea1a64dd52ad0565c05ba11808693acf94906e"
     },
     {
       "name": "mergeStructuredAssessment_",

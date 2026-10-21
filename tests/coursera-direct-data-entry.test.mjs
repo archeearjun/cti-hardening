@@ -1316,8 +1316,11 @@ test("actual entry's two image reads retain the existing shared-reader byte budg
   f.app.launch();await until(()=>fetches.length===2,"The actual shared media pool did not overlap two bounded streams");
   gates[1].resolve();gates[0].resolve();await f.app.idle();
   const stats=media.snapshot();assert.equal(stats.limits.totalBytes,budget);assert.equal(stats.maxConcurrentRequests,2);
-  assert.equal(stats.active,0);assert.equal(stats.bodyBudgetExhausted,true);assert.deepEqual(fetches,[0,1]);
+  // Independent source-hash validations can settle in either order before GET.
+  // Both initial sources must be requested exactly once; archive order is separate.
+  assert.equal(stats.active,0);assert.equal(stats.bodyBudgetExhausted,true);assert.deepEqual([...fetches].sort((a,b)=>a-b),[0,1]);
   const {capture}=await exportedCapture(f.app.downloads[0]),page=capture.fingerprints[0].payload.directInlineWidgetProviderEvidence.providers[0].publisherPages[0];
+  assert.deepEqual(page.media.resources.map(resource=>resource.url),f.image.publisherImageUrls);
   assert.equal(page.media.resources.length,4);assert(page.media.resources.reduce((sum,resource)=>sum+(resource.body?.size||0),0)<=budget);
   assert(page.media.resources.some(resource=>resource.reason?.includes("BYTE_LIMIT")));
   assert.equal(capture.fingerprints[0].captureContract.complete,false);

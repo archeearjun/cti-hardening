@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadReportContent } from "../src/domain/report-content-store";
+import { itemCheckEvidenceRevision } from "../src/domain/item-check";
 import { sourceIdentityMessage } from "../src/domain/assignment-evidence";
 import OriginalContentImport from "./OriginalContentImport";
 import {
@@ -336,6 +337,7 @@ export default function OwnerEvidence({
             task={item}
             label={ownerScope(item, reviewFor(item.key)?.data.review).included ? labels[item.status] || item.status : "Reference only"}
             auditId={auditId}
+            evidenceRevision={itemCheckEvidenceRevision(report)}
             course={course}
             store={store}
             saved={reviewFor(item.key)}

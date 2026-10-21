@@ -2304,6 +2304,9 @@ try {
   assert(script.includes("owner-action-audit"));
   assert(script.includes("notForCourseAudit:true"));
   new Function(script);
+  const copiedSpec = JSON.parse(script.match(/const expected=(.*?);const u=new URL/s)[1]);
+  assert(copiedSpec.evidenceRevision, 'A saved comparison binds the copied check to its input revisions.');
+  capture.evidenceRevision = copiedSpec.evidenceRevision;
   await page.getByLabel("Upload this item’s check JSON").setInputFiles({
     name: "wrong.json",
     mimeType: "application/json",
@@ -2313,6 +2316,12 @@ try {
     .getByRole("alert")
     .filter({ hasText: "another report, course, or item" })
     .waitFor();
+  await page.getByLabel("Upload this item’s check JSON").setInputFiles({
+    name: "wrong-revision.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ ...capture, evidenceRevision: 'different-revision' })),
+  });
+  await page.getByRole('alert').filter({hasText:'different source/capture revision'}).waitFor();
   await page.getByLabel("Upload this item’s check JSON").setInputFiles({
     name: "item.json",
     mimeType: "application/json",

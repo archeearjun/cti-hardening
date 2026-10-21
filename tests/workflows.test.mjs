@@ -645,7 +645,7 @@ test("full engine equals the pre-migration GAS result", {}, () => {
   delete actual.workspaceWarnings;
   // This unchanged fixture must preserve every evidence decision. Explicitly
   // assert the distinct release identities before comparing its behavior.
-  assert.equal(actual.engineBuildId, "v8.0.4-bound-native-comparison-20261021");
+  assert.equal(actual.engineBuildId, "v8.0.5-assessment-recovery-20261021");
   assert.equal(expected.engineBuildId, "v8.0.0-source-item-evidence-20260930");
   delete actual.engineBuildId;
   delete expected.engineBuildId;

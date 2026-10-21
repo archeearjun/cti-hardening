@@ -1,4 +1,5 @@
 // Maintained source: explicit dependencies; no ordered concatenation.
+import { questionHtmlMediaReferences } from "../assessment/media-recovery.js";
 import { qaLearnerMarkupText_, qaNormalizeAssessment_ } from "../assessment/questions.js";
 import { qaAssetDescriptor_ } from "../matching/assets.js";
 import { qaCleanText_, qaPathSimilarity_ } from "../matching/text.js";
@@ -240,6 +241,7 @@ export function qaBrightspaceQuizQuestion_(q, index) {
     number:index+1,
     type:type,
     prompt:qaBrightspaceText_(q.QuestionText || q.questionText || q.Name || q.name || ''),
+    mediaRefs:questionHtmlMediaReferences(q.QuestionText ?? q.questionText),
     options:options,
     correctAnswers:correct,
     feedback:qaBrightspaceText_(q.Feedback || q.feedback || ''),

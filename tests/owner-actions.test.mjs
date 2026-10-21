@@ -217,6 +217,14 @@ test("reject wrong report, course, item, expected finding and diagnostic format"
     /item-check/,
   );
 });
+test('focused checks bind source/capture revision while historical receipts remain readable',()=>{
+  const c=receipt(),bound={...spec,evidenceRevision:JSON.stringify(['a'.repeat(64),'b'.repeat(64),null])};
+  assert.throws(()=>validateItemCheck(c,bound),/different source\/capture revision/);
+  c.evidenceRevision=bound.evidenceRevision;
+  assert.equal(validateItemCheck(c,bound).evaluation.automatedResolution,false);
+  assert.throws(()=>validateItemCheck(c,{...bound,evidenceRevision:'other'}),/different source\/capture revision/);
+  assert.doesNotThrow(()=>validateItemCheck(receipt(),spec));
+});
 test("item script reuses canonical parsers with one fresh target and cannot be used as a course audit", () => {
   const script = buildItemCheckScript(ctiExtractorDelivery_("coursera"), spec);
   new vm.Script(script);

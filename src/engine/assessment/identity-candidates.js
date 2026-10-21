@@ -1,5 +1,6 @@
 // Exact observed instructional text nominates question pairs, never full parity.
 // IDs remain in their original platform namespaces; no quiz/bank total inferred.
+import { questionEvidenceDimensions } from "./question-dimensions.js";
 export function questionIdentityCandidates(snapshot = {}) {
   const normalize = (v) =>
     typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
@@ -28,6 +29,7 @@ export function questionIdentityCandidates(snapshot = {}) {
             itemName: item.name,
             path: item.path,
             key: JSON.stringify([prompt, options]),
+            question: q,
           },
         ];
       }),
@@ -48,8 +50,8 @@ export function questionIdentityCandidates(snapshot = {}) {
     const to = destByKey.get(key) || [];
     for (const s of from)
       for (const d of to) {
-        const { key: ignoredSource, ...src } = s,
-          { key: ignoredDestination, ...dst } = d;
+        const { key: ignoredSource, question: sourceQuestion, ...src } = s,
+          { key: ignoredDestination, question: destinationQuestion, ...dst } = d;
         result.push({
           source: src,
           destination: dst,
@@ -59,6 +61,7 @@ export function questionIdentityCandidates(snapshot = {}) {
               : "AMBIGUOUS_TEXT_CANDIDATE",
           scope: "PROMPT_AND_ORDERED_OPTION_TEXT_ONLY",
           completeContent: false,
+          parity: questionEvidenceDimensions(sourceQuestion, destinationQuestion),
           reason:
             "Exact retained prompt/options only. Verify media, answers, rubrics, scoring, source inventory and draft/published state independently.",
         });

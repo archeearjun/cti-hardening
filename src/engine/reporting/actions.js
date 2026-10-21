@@ -34,8 +34,11 @@ export function qaOwnerActionForResult_(result) {
     }
 
     if (result.verdict==='UNVERIFIED' && issues.indexOf('SOURCE_DESTINATION_MATCH_UNCONFIRMED')!==-1) {
-        var candidates=checks.reconciliationDiagnostic&&checks.reconciliationDiagnostic.candidates||[];
-        return {severity:'EVIDENCE',label:'Confirm existing discussion match',action:'Compare the source prompt and attachments with '+candidates.map(function(c){return c.name+' ['+c.id+']';}).join(', ')+'. The destination identity matches, but captured prompt evidence is inconclusive. Refresh or capture the missing source/destination evidence before deciding what to repair. No missing activity or verified equivalence is established by this finding.'};
+        var diagnostic=checks.mappingAmbiguity||checks.reconciliationDiagnostic||{};
+        var candidates=Array.isArray(diagnostic.candidates)?diagnostic.candidates:[];
+        var candidateLabels=candidates.filter(function(c){return c&&(c.itemId||c.id);}).map(function(c){return (c.name||'Untitled')+' ['+(c.itemId||c.id)+']';});
+        var candidateAction=candidateLabels.length?'Compare the source prompt and attachments with these unconfirmed destination candidates: '+candidateLabels.join(', ')+'. ':'No destination candidate with a recorded item ID is available. Inspect the source identity and retained destination inventory to establish a candidate before comparing prompts and attachments. ';
+        return {severity:'EVIDENCE',label:'Resolve source-to-destination mapping',action:candidateAction+'A unique destination match and instructional equivalence are not established. Refresh or capture the missing source/destination evidence before deciding what to repair. No missing activity or verified equivalence is established by this finding.'};
     }
 
     if (result.verdict === 'HIDDEN_DEPENDENCY_REVIEW') {

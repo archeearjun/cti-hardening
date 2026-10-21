@@ -35,6 +35,16 @@ export function qtiLocalName_(el) {
     return String((el && (el.localName || el.nodeName)) || '').toLowerCase().replace(/^.*:/, '');
  }
 
+// Preserve the original scoring tree without interpreting wildcard/tolerance semantics.
+export function qtiScoringDefinition_(item) {
+    function node(el) {
+        if(el.nodeType===3 || el.nodeType===4)return {text:el.nodeValue || ''};
+        if(el.nodeType!==1)return null;
+        return {name:el.nodeName,attributes:Array.from(el.attributes || []).map(function(a){return [a.name,a.value];}),children:Array.from(el.childNodes || []).map(node).filter(Boolean)};
+    }
+    return qtiDesc_(item,'resprocessing').concat(qtiDesc_(item,'responseprocessing'),qtiDesc_(item,'responsedeclaration')).map(node);
+}
+
 export function qtiDesc_(root, localName) {
     if (!root) return [];
     return Array.from(root.getElementsByTagName('*')).filter(function(el) { return qtiLocalName_(el) === String(localName || '').toLowerCase(); });
@@ -297,13 +307,19 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
         qtiDesc_(item, tag).forEach(function(el) { var t = qtiClean_(el.textContent || ''); if (t) feedbackParts.push(t); });
       });
 
+      var questionType=qtiQuestionType_(item,options);
+      if(questionType==='text-entry' && correctAnswers.some(function(answer){return answer==='*' || answer==='?';})) {
+        answerTextReliable=false;
+        warnings.push('Question '+itemId+': wildcard-like answer alternatives are retained, but literal versus pattern semantics require source verification.');
+      }
+
       questions.push({
         id: String(itemId),
         sourceOrdinal: idx + 1,
         title: qtiClean_(itemTitle),
-        type: qtiQuestionType_(item, options),
+        type: questionType,
         mediaRefs:qtiQuestionMediaRefs_(item),
-        sourceTypeEvidence:{identity:qtiItemIdentity_(item,fileName),method:'QTI_RESPONSE_AND_CC_PROFILE',profiles:qtiDesc_(item,'qtimetadatafield').filter(function(f){var n=qtiDesc_(f,'fieldlabel')[0];return n&&qtiClean_(n.textContent||'').toLowerCase()==='cc_profile';}).map(function(f){var n=qtiDesc_(f,'fieldentry')[0];return n?qtiClean_(n.textContent||''):'';})},
+        sourceTypeEvidence:{identity:qtiItemIdentity_(item,fileName),method:'QTI_RESPONSE_AND_CC_PROFILE',scoringDefinition:qtiScoringDefinition_(item),profiles:qtiDesc_(item,'qtimetadatafield').filter(function(f){var n=qtiDesc_(f,'fieldlabel')[0];return n&&qtiClean_(n.textContent||'').toLowerCase()==='cc_profile';}).map(function(f){var n=qtiDesc_(f,'fieldentry')[0];return n?qtiClean_(n.textContent||''):'';})},
         prompt: prompt,
         options: options,
         correctAnswers: Array.from(new Set(correctAnswers.filter(Boolean))),
