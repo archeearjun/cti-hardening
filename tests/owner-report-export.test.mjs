@@ -154,6 +154,9 @@ test("export retains captured inherited source hiding separately from owner revi
   });
   const original=structuredClone(report);
   const exported=await prepareOwnerReportExport(report,'audit-a',course,{list:async()=>[],get:async()=>{throw Error('No review should be loaded');}});
+  assert(exported.text.startsWith('ASSIGNMENT DECISION BRIEF'));
+  assert(exported.text.indexOf('ASSIGNMENT DECISION BRIEF') < exported.text.indexOf('ORIGINAL AUDIT — UNCHANGED'));
+  assert(exported.text.endsWith(report.report));
   assert.match(exported.text,/CAPTURED SOURCE PLACEMENT AND VISIBILITY/);
   assert.match(exported.text,/Archive \[5293619\]/);
   assert.equal(exported.followUp.sourcePlacement[0].sourceVisibility.ownHidden,false);

@@ -13,6 +13,7 @@ export function qaOwnerTasksText(res) {
       if(sourceLabel && task.sources.indexOf(sourceLabel)===-1) task.sources.push(sourceLabel);
     }
     (res.itemResults||[]).forEach(function(r){
+      if(r.operationalPolicy?.inDecisionGate===false)return;
       var a=r.ownerAction||{},check=r.checks&&r.checks.structuredAssessment;
       if(check&&check.sourceAnswerRefreshRequired && refresh.indexOf(r.sourceName)===-1) refresh.push(r.sourceName);
       if(check&&check.sourceAnswerRefreshRequired && r.verdict==='UNVERIFIED' && !(r.checks.destinationReadiness||[]).length && (r.issues||[]).every(function(x){return x==='PAYLOAD_UNVERIFIED';})) return;

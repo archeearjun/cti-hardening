@@ -1,3 +1,4 @@
+import { evidenceDecisionBrief } from "./evidence-decision-brief.js";
 import { qaCaptureInputsText_, qaMissingScopeText_ } from "./capture-summary.js";
 import { qaOwnerTasksText } from "./owner-tasks.js";
 import { qaAssessmentScoreLabel_, qaAssessmentAnswerEvidenceText_, qaAssessmentEvidenceText_, qaQuestionDifferenceText_ } from "./assessment-evidence.js";
@@ -9,7 +10,8 @@ export function buildPostQaText_(res) {
      var s = res.summary || {};
      var text = "CTI SOURCE → COURSERA QA REPORT\n";
      var technicalAppendix = "";
-     text += qaCaptureInputsText_(res);
+     text += evidenceDecisionBrief(res) + "\n\n";
+     technicalAppendix += qaCaptureInputsText_(res);
      if(res.operationalPolicy){ var topOp=res.operationalPolicy; text += "ASSIGNMENT OWNER SUMMARY\n"; text += "NEXT ACTION: " + (topOp.recommendationCode||'REVIEW') + " — " + (topOp.recommendationLabel||'') + "\nWHY: " + (topOp.recommendationReason||'') + "\n"; if(topOp.diagnosticRecommendationCode && topOp.diagnosticRecommendationCode !== topOp.recommendationCode) text += "TECHNICAL DIAGNOSIS: " + topOp.diagnosticRecommendationCode + " — " + (topOp.diagnosticRecommendationReason||'') + "\n"; text += "\n"; }
 
      if (res.summary) {
