@@ -560,6 +560,8 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                     files: item.files,
                     links: item.links,
                     sourceAssetProvenance: item.sourceAssetProvenance || null,
+                    ...(item.nativeCoachEvidence ? {nativeCoachEvidence:item.nativeCoachEvidence} : {}),
+                    ...(item.type==='Coach' && item.directCaptureLimitation ? {evidenceAvailability:item.directCaptureLimitation} : {}),
                     classification: extraInfo.classification,
                     extraLabel: extraInfo.label,
                     severity: extraInfo.severity,

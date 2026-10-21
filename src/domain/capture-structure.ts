@@ -4,6 +4,7 @@ import { verifiedCourseraCaptureInventory } from "./coursera-background-extracti
 // Native item kinds must be explicit. A future/unsupported type is not evidence
 // of a reading and must not acquire a fabricated type through this adapter.
 const nativeTypeLabels: Readonly<Record<string, string>> = {
+  coach: "Coach",
   supplement: "Reading",
   reading: "Reading",
   lecture: "Reading",

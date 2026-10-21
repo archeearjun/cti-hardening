@@ -75,6 +75,8 @@ export function qaMergeCourseraPayload_(excelItem, liveItem) {
     if(sameEvidenceItem && liveItem.directCaptureLimitation)
         excelItem.directCaptureLimitation=JSON.parse(JSON.stringify(liveItem.directCaptureLimitation));
     else delete excelItem.directCaptureLimitation;
+    if(sameEvidenceItem && liveItem.nativeCoachEvidence) excelItem.nativeCoachEvidence=JSON.parse(JSON.stringify(liveItem.nativeCoachEvidence));
+    else delete excelItem.nativeCoachEvidence;
     if(excelItem.directCaptureLimitation) { excelItem.assetEvidenceConfidence=0; excelItem.linkEvidenceConfidence=0; }
     // Keep the independently rebound setting through canonical XLSX enrichment.
     // This is a zero-copy internal source subset, not a replacement original or

@@ -90,7 +90,7 @@ test('verified native shell evidence retains unsupported source types without as
  }
 });
 test('native type projection uses explicit supported kinds and rejects unknown content instead of inventing readings',()=>{
- for(const [type,label] of [['supplement','Reading'],['staffGraded','Assignment'],['peerGraded','Assignment'],['ungradedAssignment','Assignment'],['discussionPrompt','Discussion Prompt'],['quiz','Quiz'],['exam','Quiz'],['video','Video'],['ungradedWidget','Plugin'],['gradedWidget','Plugin']]) {
+ for(const [type,label] of [['coach','Coach'],['supplement','Reading'],['staffGraded','Assignment'],['peerGraded','Assignment'],['ungradedAssignment','Assignment'],['discussionPrompt','Discussion Prompt'],['quiz','Quiz'],['exam','Quiz'],['video','Video'],['ungradedWidget','Plugin'],['gradedWidget','Plugin']]) {
   const workbook=captureStructureWorkbook(captureFixture(type));
   const rows=readWorkbook(workbook.bytes,workbook.name).sheets.Inventory.values;
   assert.equal(rows.at(-1)[0],label,type);assert.equal(rows.at(-1)[7],'reading_1');

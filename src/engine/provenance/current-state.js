@@ -267,7 +267,7 @@ export function qaApplyCurrentStateResolutionsToResults_(itemResults,resolutionR
 }
 
 export function qaCourseraExcelItemTypes_() {
-    return ['reading','video','assignment','practice assignment','discussion prompt','graded discussion prompt','quiz','peer review','programming','app item','ungraded lab','teammate review','plugin','lti','ungraded plugin','graded plugin','graded assignment'];
+    return ['coach','role play','dialogue','reading','video','assignment','practice assignment','discussion prompt','graded discussion prompt','quiz','peer review','programming','app item','ungraded lab','teammate review','plugin','lti','ungraded plugin','graded plugin','graded assignment'];
 }
 
 export function qaXlsxTraversalInventory_(rows, jsonItems, page, excelName, jsonName) {
