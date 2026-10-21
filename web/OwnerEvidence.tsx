@@ -3,6 +3,7 @@ import { loadReportContent } from "../src/domain/report-content-store";
 import { itemCheckEvidenceRevision } from "../src/domain/item-check";
 import { sourceIdentityMessage } from "../src/domain/assignment-evidence";
 import OriginalContentImport from "./OriginalContentImport";
+import SourceAssetRecovery from "./SourceAssetRecovery";
 import {
   validateContentSnapshot,
   type ContentSnapshot,
@@ -245,6 +246,7 @@ export default function OwnerEvidence({
         store={store}
         onSaved={onSaved}
       />
+      <SourceAssetRecovery key={auditId + (itemCheckEvidenceRevision(report) || "")} report={{...report,result}} auditId={auditId} destination={contentState.snapshot?.coursera} scan={sourceMatches ? course?.data.scan : undefined} />
       {!sourceMatches && (
         <p className="scope">
           {sourceIdentityMessage(

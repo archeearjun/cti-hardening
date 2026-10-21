@@ -90,6 +90,9 @@ const sourceBytes = new TextEncoder().encode(
 );
 const zip = new JSZip();
 zip.file("files/guide.txt", sourceBytes);
+const recoveryOriginal = fs.readFileSync(root + "/tests/fixtures/source-assets/publisher-original.png");
+zip.file("course-media/diagram.png", recoveryOriginal);
+input.course.data.scan.sourceEvidence = {manifestOnly:false,resources:{reading:{files:[],structuredAssessment:{questions:[{id:"source-media-question",sourceFile:"quiz.xml",mediaRefs:["diagram.png"]}]}}}};
 const archiveBytes = await zip.generateAsync({ type: "uint8array" });
 input.course.data.scan.fileSha256 = await digest(archiveBytes);
 input.course.data.scan.courseTree[0].children[0].sourcePayload.files = [
@@ -2136,6 +2139,27 @@ try {
   await page.getByRole("button", { name: "Import prepared records" }).click();
   await page.getByText("Imported 3 records;", { exact: false }).waitFor();
   await openAudit();
+  const recovery = page.locator('details').filter({has:page.getByText('Check source assessment assets in the original package',{exact:true})});
+  await recovery.locator('summary').click();
+  await recovery.getByLabel('Source assessment',{exact:true}).selectOption('reading|reading');
+  await recovery.getByLabel('Original source package',{exact:true}).setInputFiles({name:'matching.imscc',mimeType:'application/zip',buffer:Buffer.from(archiveBytes)});
+  await recovery.getByText('Package check complete.',{exact:false}).waitFor();
+  await recovery.getByText('source-media-question — CANDIDATE_FOUND_IDENTITY_UNVERIFIED',{exact:true}).waitFor();
+  const receiptEvent=page.waitForEvent('download');
+  await recovery.getByRole('button',{name:'Download recovery receipt',exact:true}).click();
+  const recoveryReceipt=JSON.parse(fs.readFileSync(await (await receiptEvent).path(),'utf8'));
+  assert.equal(recoveryReceipt.binding.auditId,audit.id);
+  assert.equal(recoveryReceipt.assets[0].sha256,await digest(recoveryOriginal));
+  assert.equal(recoveryReceipt.rows[0].association,'UNVERIFIED');
+  assert.equal(recoveryReceipt.questionParityVerified,false);
+  const originalEvent=page.waitForEvent('download');
+  await recovery.getByRole('button',{name:'Save original bytes',exact:true}).click();
+  assert.deepEqual(fs.readFileSync(await (await originalEvent).path()),recoveryOriginal);
+  await recovery.getByLabel('Inspect a previous recovery receipt',{exact:true}).setInputFiles({name:'wrong.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({...recoveryReceipt,binding:{...recoveryReceipt.binding,evidenceRevision:'wrong'}}))});
+  await recovery.getByRole('alert').filter({hasText:'different course, item or comparison revision'}).waitFor();
+  await recovery.getByLabel('Inspect a previous recovery receipt',{exact:true}).setInputFiles({name:'correct.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(recoveryReceipt))});
+  await recovery.getByText('Receipt matches this comparison',{exact:false}).waitFor();
+  await recovery.locator('summary').click();
   await page
     .getByText("Load original extraction content into an older report", {
       exact: true,

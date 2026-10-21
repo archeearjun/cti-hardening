@@ -2725,8 +2725,8 @@
       "status": "adapted",
       "path": "src/engine/assessment/comparison.js",
       "effectiveOverride": false,
-      "reviewedCurrentHash": "1f085223d7b6f7675d0940779e0425111421629f5afda67c2f02388147599ebe",
-      "note": "Answer coverage is unknown (null), not a fabricated 0/0 percentage, when any question type is unknown or unsupported. Reviewed v1.9.0: native ungraded reflections receive side-specific key applicability only after original source-bound contract replay; contradictory original completeness or source evidence cannot be repaired into N/A. Zero applicable keys remain null/N/A, while mixed and unsupported cases remain conservative. Existing keyed and written-response verdicts are retained. See docs/audits/native-models-and-first-party-publisher-recovery-2026-10-19.md. The legacy all-written-response numeric sentinel remains1 with its existing N/A display; native-reflection zero-key applicability remains null and does not borrow that sentinel."
+      "reviewedCurrentHash": "86e3ca5151e0f2fac488de8c08c80ee52642bc2ee74aa4043b817e70bfc8ad7a",
+      "note": "Answer coverage is unknown (null), not a fabricated 0/0 percentage, when any question type is unknown or unsupported. Reviewed v1.9.0: native ungraded reflections receive side-specific key applicability only after original source-bound contract replay; contradictory original completeness or source evidence cannot be repaired into N/A. Zero applicable keys remain null/N/A, while mixed and unsupported cases remain conservative. Existing keyed and written-response verdicts are retained. See docs/audits/native-models-and-first-party-publisher-recovery-2026-10-19.md. The legacy all-written-response numeric sentinel remains1 with its existing N/A display; native-reflection zero-key applicability remains null and does not borrow that sentinel. PR104 retains source question IDs/files on media gaps without changing assessment parity."
     },
     {
       "name": "qaBestSemanticSourceField_",
@@ -3237,8 +3237,8 @@
       "status": "adapted-metadata",
       "path": "src/engine/matching/text.js",
       "archivedHash": "46dbdd535bf0fcd8d9e8f4a46744a9663152343a04dc07fb1214c531aff57b16",
-      "reviewedCurrentHash": "cbdfd2b52194b1c66c09631eae44dff20b4e61336432b8af02315fb596024b4e",
-      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Comparison rules v8.0.3 retain explicit bilateral evidence gaps; see the 2026-10-21 audit. PR103 assessment recovery and source projection build; historical captures retain original build IDs."
+      "reviewedCurrentHash": "34127b982ae0312387b3c9a80f07323f05b11b30f4dfe81c537f26bd95218249",
+      "note": "Release identity for source wording and syllabus template-readiness review. Rules and regression scope are documented in docs/audits/syllabus-visibility-2026-10-05.md. Release retains labelled learner time/unknown versus zero, adds exact activity ancestry and bounded PDF originals; docs/audits/activity-evidence-repair-2026-10-08.md. Comparison rules v8.0.3 retain explicit bilateral evidence gaps; see the 2026-10-21 audit. PR103 assessment recovery and source projection build; historical captures retain original build IDs. PR104 source asset recovery build; no historical capture version changes."
     },
     {
       "name": "CTI_MACMILLAN_BUILD_ID_",
