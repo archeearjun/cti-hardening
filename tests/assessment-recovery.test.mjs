@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import {assessmentRecoveryPlans} from '../src/reporting/assessment-recovery.js';
 import {assessmentMediaResolution} from '../src/engine/assessment/media-recovery.js';
 import {questionIdentityCandidates} from '../src/engine/assessment/identity-candidates.js';
@@ -41,13 +42,15 @@ test('same prompts cannot conceal different answers or missing scoring semantics
   assert.equal(questionEvidenceDimensions(q,{...q}).status,'UNVERIFIED');
 });
 test('media relocation requires exact content identity; filenames alone and conflicting bytes never resolve',()=>{
-  const a='a'.repeat(64),b='b'.repeat(64),assets=[{path:'other/image.png',sha256:a,integrity:'VERIFIED_RETAINED_ORIGINAL',originalRef:'files/'+a}];
+  const originalBytes=new TextEncoder().encode('original fixture bytes'),a=createHash('sha256').update(originalBytes).digest('hex'),b='b'.repeat(64),assets=[{path:'other/image.png',sha256:a,integrity:'VERIFIED_RETAINED_ORIGINAL',originalRef:'files/'+a,originalBytes}];
   assert.equal(assessmentMediaResolution({ref:'image.png'},assets,true).status,'FILENAME_CANDIDATES_ONLY');
   assert.equal(assessmentMediaResolution({ref:'image.png',sha256:a},assets,true).status,'CONTENT_HASH_RELOCATION');
   assert.equal(assessmentMediaResolution({ref:'other/image.png',sha256:b},assets,true).status,'CONTENT_IDENTITY_CONFLICT');
   assert.equal(assessmentMediaResolution({ref:'missing.png'},assets,true).status,'NOT_IN_SUPPLIED_PACKAGE');
   assert.equal(assessmentMediaResolution({ref:'missing.png'},[],false).status,'ASSET_INVENTORY_UNVERIFIED');
   assert.equal(assessmentMediaResolution({ref:'other/image.png'},assets,true).learnerRenderingVerified,false);
+  assert.equal(assessmentMediaResolution({ref:'other/image.png'},[{...assets[0],originalBytes:undefined}],true).status,'ORIGINAL_INTEGRITY_UNVERIFIED');
+  assert.equal(assessmentMediaResolution({ref:'other/image.png'},[{...assets[0],originalBytes:new Uint8Array([0])}],true).status,'ORIGINAL_INTEGRITY_UNVERIFIED');
 });
 test('Brightspace question HTML exposes original media references without fetching or discarding definitions',()=>{
   const raw={QuestionId:'native-q',QuestionTypeId:7,QuestionText:{Html:'<p>Draw this.</p><img src="Content/wall.png?x=1&amp;y=2">'},QuestionInfo:{},Points:2};

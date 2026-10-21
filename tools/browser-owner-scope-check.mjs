@@ -5,6 +5,7 @@ import { comparisonFixture } from '../tests/workflow-fixtures.mjs';
 import { createWorkflows } from '../src/domain/workflows.ts';
 import { workerXml } from '../src/adapters/worker-xml.ts';
 import { buildOwnerTasks } from '../src/domain/owner-actions.ts';
+import { itemCheckEvidenceRevision } from '../src/domain/item-check.ts';
 
 export async function checkOwnerScope(page, tab, shots) {
   page.setDefaultTimeout(20000);
@@ -76,6 +77,7 @@ export async function checkOwnerScope(page, tab, shots) {
   await openCard(reading);
   const task=buildOwnerTasks(output.result,input.course.data.scan.courseTree)[0];
   const capture={kind:'CTI_COURSERA_ITEM_CHECK',schemaVersion:1,notForCourseAudit:true,auditId:audit.id,itemId:task.id,courseId:'course',openedUrl:task.url,expectations:task.checks,finishedAt:'2026-10-05T12:00:00Z',editorObserved:true,payload:{timeEstimateMinutes:25,timeEstimateEvidence:'labeled-editor-time-estimate'}};
+  capture.evidenceRevision=itemCheckEvidenceRevision(output);
   await reading.getByText('Import the downloaded item-check JSON',{exact:true}).click();
   await reading.getByLabel('Upload this item’s check JSON',{exact:true}).setInputFiles({name:'fresh-time.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(capture))});
   await reading.getByText('Fresh item evidence saved. Review the observations below; no finding was automatically cleared.',{exact:true}).waitFor();

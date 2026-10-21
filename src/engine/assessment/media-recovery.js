@@ -1,4 +1,6 @@
 /** Resolve references against a supplied inventory; never fetch or mutate originals. */
+import {sha256} from '@noble/hashes/sha2.js';
+import {bytesToHex} from '@noble/hashes/utils.js';
 export function assessmentMediaResolution(reference, assets = [], inventoryComplete = false) {
   const path = (value) => {
     let s = String(value || '').split(/[?#]/)[0];
@@ -8,11 +10,11 @@ export function assessmentMediaResolution(reference, assets = [], inventoryCompl
   const expected = path(reference.expectedPath || reference.ref);
   const hash = /^[a-f0-9]{64}$/i.test(reference.sha256 || '') ? reference.sha256.toLowerCase() : null;
   const exact = assets.filter(a => path(a.path) === expected);
-  const verified = assets.filter(a => a.integrity === 'VERIFIED_RETAINED_ORIGINAL' && /^[a-f0-9]{64}$/i.test(a.sha256 || ''));
+  const verified = assets.filter(a => a.integrity === 'VERIFIED_RETAINED_ORIGINAL' && /^[a-f0-9]{64}$/i.test(a.sha256 || '') && a.originalBytes instanceof Uint8Array && bytesToHex(sha256(a.originalBytes)) === a.sha256.toLowerCase());
   const identical = hash ? verified.filter(a => a.sha256.toLowerCase() === hash) : [];
   const names = assets.filter(a => path(a.path).split('/').pop() === expected.split('/').pop());
   const matches = exact.length ? exact : identical;
-  const conflicting = hash && exact.some(a => a.integrity === 'VERIFIED_RETAINED_ORIGINAL' && a.sha256?.toLowerCase() !== hash);
+  const conflicting = hash && exact.some(a => verified.includes(a) && a.sha256.toLowerCase() !== hash);
   const proven = !conflicting && matches.length > 0 && matches.every(a => verified.includes(a)) && new Set(matches.map(a => a.sha256.toLowerCase())).size === 1;
   return {
     originalRef: reference.ref, expectedPath: reference.expectedPath || reference.ref,

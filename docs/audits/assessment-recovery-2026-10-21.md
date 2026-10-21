@@ -65,6 +65,13 @@ missing mapping guidance, exclusions and focused-check revision rejection.
 The unchanged capture-entry test passes on rerun; its initial suite failure was
 not used to justify weakening an assertion. The parity ledger explicitly records
 the reviewed source normalization/scoring projection and release metadata changes.
+The hosted owner browser regression exposed revision-validation error precedence
+and old synthetic receipts without revision metadata. Identity checks now precede
+revision diagnostics; browser fixtures carry the actual copied-script revision,
+retain wrong-item rejection and add wrong-revision rejection. The complete owner
+browser test passes locally, including successful import/export and scope persistence.
+Media identity resolution rehashes supplied original bytes; a saved integrity flag
+or matching filename alone cannot resolve an original.
 
 Replay on the exact saved comparison yields nine exact text candidate pairs:
 nine matching prompt projections and three matching ordered-option/answer-key

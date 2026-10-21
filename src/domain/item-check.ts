@@ -95,8 +95,6 @@ export function evaluateItemEvidence(
 }
 
 export function validateItemCheck(value: EvidenceObject, spec: ItemCheckSpec) {
-  if (spec.evidenceRevision !== undefined && value.evidenceRevision !== spec.evidenceRevision)
-    throw Error('This check belongs to a different source/capture revision. Keep it with its original saved comparison.');
   if (
     value?.kind !== "CTI_COURSERA_ITEM_CHECK" ||
     value.schemaVersion !== ITEM_CHECK_VERSION ||
@@ -113,6 +111,8 @@ export function validateItemCheck(value: EvidenceObject, spec: ItemCheckSpec) {
     throw new Error(
       "This check belongs to another report, course, or item. Copy this card’s script and use its Coursera link.",
     );
+  if (spec.evidenceRevision !== undefined && value.evidenceRevision !== spec.evidenceRevision)
+    throw Error('This check belongs to a different source/capture revision. Keep it with its original saved comparison.');
   if (JSON.stringify(value.expectations) !== JSON.stringify(spec.checks))
     throw new Error(
       "The check was generated for different findings. Copy the current card’s script.",
