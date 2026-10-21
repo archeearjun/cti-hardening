@@ -1,3 +1,4 @@
+import { createPerformanceTrace } from "../../diagnostics/performance.js";
 import { CTI_DIRECT_READING_QUERY_V1, directReadingResponseV1 } from "./direct-data-published-reading.js";
 import { CTI_DIRECT_MANUAL_FIELDS_V1 } from "./direct-data-native-observations.js";
 import { sanitizeCourseraCourseDataModel } from './direct-data-privacy.js';
@@ -63,6 +64,7 @@ export async function directProviderTransportErrorV1(response) {
  * never guesses a resource, enumerates a collection, or renders an editor.
  */
 export function createDirectDataReaderV1(options = {}) {
+  const performanceDiagnostic = options.performanceDiagnostic || createPerformanceTrace();
   const origin = 'https://www.coursera.org';
   const defaults = {concurrentRequests:4, bodyBytes:2*1024*1024, totalBytes:64*1024*1024,
     requests:20000, requestMs:30000, durationMs:60*60*1000};
@@ -476,11 +478,18 @@ export function createDirectDataReaderV1(options = {}) {
     if (job.descriptor.all) headers['X-Coursera-Naptime-Fields']='ALL';
     if (job.descriptor.graphql) headers['Content-Type']='application/json';
     let response;
+    const endRequest = performanceDiagnostic.begin("request");
+    performanceDiagnostic.count("requests");
+    performanceDiagnostic.repeated(job.descriptor.url.href);
     try {
       response=await fetchImpl(job.descriptor.url.href,{method:job.descriptor.graphql?'POST':'GET',...(job.descriptor.graphql?{body:job.descriptor.body}:{}),credentials:'same-origin',
         redirect:'error',headers,signal:controller.signal});
       if (!current()) {await discard(response);return failure(job,stopReason);}
       job.receipt.status=Number(response.status || 0);
+      if(!response.ok) performanceDiagnostic.count("failed");
+      if([401,403].includes(response.status)) performanceDiagnostic.count("authentication_failed");
+      if(response.status===429) performanceDiagnostic.count("rate_limited");
+      if(response.status===503) performanceDiagnostic.count("unavailable");
       if ([401,403].includes(response.status)) {
         authenticationFailed=true;abort('AUTHORING_API_AUTHENTICATION_FAILED');
         await discard(response);return failure(job,stopReason);
@@ -541,7 +550,7 @@ export function createDirectDataReaderV1(options = {}) {
       return result;
     } catch {
       return failure(job,stopReason || (controller.signal.aborted?'API_REQUEST_ABORTED':'API_REQUEST_FAILED'));
-    } finally {controllers.delete(controller);}
+    } finally {if(!response)performanceDiagnostic.count("failed");endRequest(response?.ok ? "observed" : "failed");controllers.delete(controller);}
   }
   async function retries(job) {
     for (let retry=0;retry<2;retry++) {
@@ -554,7 +563,8 @@ export function createDirectDataReaderV1(options = {}) {
         if (retry || wait>10000 || Date.now()+wait>=job.deadline) {
           abort('AUTHORING_API_RATE_LIMITED');return failure(job,stopReason);
         }
-        stats.retries++;stats.rateLimitRetries++;notify();
+        stats.retries++;stats.rateLimitRetries++;notify();performanceDiagnostic.count("retries");
+        const endBackoff = performanceDiagnostic.begin("backoff");
         await new Promise(resolve=>{
           let timer;
           const done=()=>{clearTimeout(timer);cancellation.signal.removeEventListener('abort',done);resolve();};
@@ -562,12 +572,13 @@ export function createDirectDataReaderV1(options = {}) {
           timer=setTimeout(done,wait);
           if (cancellation.signal.aborted) done();
         });
+        endBackoff();
         if (!current()) return failure(job,stopReason);
         continue;
       }
       const status=result.receipt?.status || 0;
       if (!retry && (result.reason==='API_REQUEST_FAILED' || status>=500 && status<=599) && Date.now()<job.deadline) {
-        stats.retries++;notify();continue;
+        stats.retries++;notify();performanceDiagnostic.count("retries");continue;
       }
       return result;
     }

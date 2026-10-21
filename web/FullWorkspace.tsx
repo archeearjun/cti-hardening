@@ -1,3 +1,4 @@
+import { performanceTrace } from "../src/diagnostics/runtime.ts";
 import SearchableSelect, { matchesSearch } from "./SearchableSelect";
 import OwnerEvidence from "./OwnerEvidence";
 import AssignmentPlanView from "./AssignmentPlan";
@@ -210,6 +211,7 @@ export default function FullWorkspace({
   const [legacyPolicyDetails, setLegacyPolicyDetails] =
     useState<EvidenceObject | null>(null);
   useEffect(() => setPortfolio(null), [records]);
+  const performancePresentation = useRef<{first: (outcome?: string)=>void; render?: (outcome?: string)=>void} | null>(null);
   const [reportId, setReportId] = useState("");
   const [pendingAudit, setPendingAudit] = useState<PendingComparison | null>(
     null,
@@ -582,6 +584,12 @@ export default function FullWorkspace({
       );
     });
   }
+  useEffect(() => {
+    if (!report || !performancePresentation.current?.render) return;
+    const pending = performancePresentation.current;
+    const frame = requestAnimationFrame(() => { pending.render?.(); pending.first(); if(performancePresentation.current===pending)performancePresentation.current=null; });
+    return () => { cancelAnimationFrame(frame); pending.render?.('partial'); pending.first('partial'); };
+  }, [report]);
   async function act(label: string, fn: () => Promise<void>) {
     setError("");
     setNotice("");
@@ -813,6 +821,11 @@ export default function FullWorkspace({
       );
       return;
     }
+    if(performanceTrace().enabled) {
+      performancePresentation.current?.first('partial');
+      performancePresentation.current = {first:performanceTrace().begin('first_report')};
+      performanceTrace().count('operator_actions');
+    }
     const epoch = courseSelectionEpoch.current;
     const declaration = pendingIngestion;
     await act("Comparing full source and Coursera evidence", async () => {
@@ -955,6 +968,7 @@ export default function FullWorkspace({
       rememberPendingComparison(pending);
       setPendingAudit(pending);
       setReportId("");
+      if(performancePresentation.current)performancePresentation.current.render=performanceTrace().begin('render');
       setReport(output);
       setTab("Compare");
       setComparedFiles(comparisonFiles);

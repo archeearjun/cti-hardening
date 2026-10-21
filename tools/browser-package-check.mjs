@@ -89,6 +89,20 @@ try{
 await page.goto('http://127.0.0.1:4173');await ownerTool(page, 'Inspect a package');
 async function scan(input){await page.locator('#package-file').setInputFiles(input);await page.getByRole('button',{name:'Inspect package',exact:false}).click();await Promise.race([page.getByText('Package inspection complete',{exact:true}).waitFor({timeout:120000}),page.getByRole('alert').waitFor({timeout:120000}).then(async()=>{throw Error(await page.getByRole('alert').innerText());})]);const promise=page.waitForEvent('download');await page.getByRole('button',{name:'Download package evidence'}).click();return JSON.parse(fs.readFileSync(await (await promise).path(),'utf8'));}
 const r=await scan({name:'synthetic.imscc',mimeType:'application/zip',buffer:fixture});assert.equal(r.kind,'CTI_PACKAGE_SCAN');assert.equal(r.stats.totalResources,4);assert.equal(r.moduleCount,1);assert.equal(r.sourceEvidence.resources.q1.structuredAssessment.questionCount,2);assert.deepEqual(r.sourceEvidence.resources.q1.structuredAssessment.questions.map(q=>q.id),['q1','q2']);assert.equal(r.sourceEvidence.resources.r1.textSample,'Verified reading text.');assert(r.sourceEvidence.resources.r1.files[0].sha256);const pf=r.sourceEvidence.resources.pdf.files[0];assert.equal(pf.pdfParser,'pdfjs-6.3.289');assert.equal(pf.pdfPagesRead,1);assert(pf.textSample.includes('submit a written response'));assert(r.sourceEvidence.resources.a1.files.some(f=>f.dependencyResourceId==='pdf'&&f.sha256));assert.equal(r.sourceEvidence.manifestPath,'imsmanifest.xml');
+// Opt-in diagnostic export stays separate from source evidence and has no body text.
+await page.getByText('Performance diagnostics',{exact:true}).click();
+await page.getByLabel('Enable local diagnostics for subsequent operations').check();
+const instrumented=await scan({name:'synthetic.imscc',mimeType:'application/zip',buffer:fixture});
+assert.deepEqual(instrumented.sourceEvidence,r.sourceEvidence);
+const perfDownload=page.waitForEvent('download');
+await page.getByRole('button',{name:'Download performance diagnostics',exact:true}).click();
+const performanceBundle=JSON.parse(fs.readFileSync(await (await perfDownload).path(),'utf8'));
+const scanPerformance=performanceBundle.reports.find(report=>report.stages.some(stage=>stage.stage==='scan'));
+assert(scanPerformance);assert.equal(scanPerformance.measurementStatus,'complete');
+for(const stage of ['package_hash','archive_index','archive_read','manifest_parse','qti_parse','content_inventory','structure_analysis'])assert(scanPerformance.stages.some(row=>row.stage===stage),stage);
+assert(!JSON.stringify(performanceBundle).includes('Verified reading text'));
+await page.getByLabel('Enable local diagnostics for subsequent operations').uncheck();
+
 await page.getByLabel('Find an item').fill('Quiz');
 assert.equal(await page.locator('.package-items li > details').count(),3,'Course and module ancestors stay with the matching quiz');
 await page.locator('.package-items li > details > summary').filter({hasText:'Quiz'}).click();

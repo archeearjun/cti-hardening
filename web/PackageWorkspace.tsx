@@ -1,3 +1,4 @@
+import { performanceTrace, retainPerformance } from "../src/diagnostics/runtime.ts";
 import { useEffect, useRef, useState } from "react";
 import SourceTree from "./SourceTree";
 import {
@@ -94,12 +95,13 @@ export default function PackageWorkspace({
       )
         return;
       const data = event.data;
+      if((data as any).kind === "package-performance") {retainPerformance((data as any).report);return;}
       if (data.kind === "package-ready") {
         if (ready) return;
         ready = true;
         clearTimeout(startup);
         runner.contentWindow?.postMessage(
-          { kind: "scan-package", file },
+          { kind: "scan-package", file, ...(performanceTrace().enabled ? {performanceDiagnostics:true} : {}) },
           location.origin,
         );
       } else if (data.kind === "package-progress") setProgress(data.progress);

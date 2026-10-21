@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import {
   validateRecord,
   validateWorkspaceTransition,
@@ -528,6 +529,10 @@ export async function teamStore(
     return current;
   }
   async function performRead(id: string, options: TransferOptions) {
+const diagnosticEnd = performanceTrace().begin('evidence_load');
+let diagnosticOutcome = 'observed';
+try {
+
     const m = await request(
       `records/${encodeURIComponent(id)}`,
       {},
@@ -561,6 +566,7 @@ export async function teamStore(
       downloads.set(id, held);
     }
     const buffers = held.buffers;
+    performanceTrace().count("cache_hits", buffers.length);
     try {
       if (buffers.length)
         options.onProgress?.(
@@ -632,7 +638,9 @@ export async function teamStore(
         error.message += ` ${buffers.length}/${m.parts} chunks retained in this tab. Retry the same operation to resume after rechecking the saved revision. Closing or reloading this tab discards partial download progress, not saved evidence.`;
       throw error;
     }
-  }
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
+}
   return {
     mode: "team",
     role: session.role,

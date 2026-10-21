@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { openSourcePackageZip } from "../adapters/source-package-zip.ts";
@@ -141,6 +142,10 @@ export function boundSourceUrl(url: string, courseRoot: string): string | null {
 }
 /** Binary structural checks do not certify rendering, instructional meaning or association. */
 export function inspectSourceBinary(bytes: Uint8Array) {
+const diagnosticEnd = performanceTrace().begin('binary_verify');
+let diagnosticOutcome = 'observed';
+try {
+
   if (!bytes.length || bytes.length > SOURCE_ASSET_LIMITS.fileBytes)
     throw Error("ASSET_BYTE_LIMIT");
   const ascii = (a: number, b: number) =>
@@ -236,6 +241,8 @@ export function inspectSourceBinary(bytes: Uint8Array) {
     height,
     validationScope: "BINARY_STRUCTURE_NOT_RENDERING",
   };
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }
 export function sourceAssetBinding(
   report: EvidenceObject,
@@ -313,6 +320,10 @@ export function validateRecoveryReceipt(
   value: EvidenceObject,
   binding: SourceAssetBinding,
 ) {
+const diagnosticEnd = performanceTrace().begin('receipt_validation');
+let diagnosticOutcome = 'observed';
+try {
+
   if (
     value.kind !== "CTI_SOURCE_ASSET_RECOVERY" ||
     value.version !== 1 ||
@@ -334,6 +345,8 @@ export function validateRecoveryReceipt(
     assetCount: value.assets.length,
     status: "ORIGINAL_PACKAGE_REVALIDATION_REQUIRED",
   };
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }
 /** One serial local reader, bounded work, no network. Retry reuses rehashed bytes from this session. */
 export async function recoverSourceAssets(
@@ -342,6 +355,10 @@ export async function recoverSourceAssets(
   session: SourceAssetSession,
   options: { signal?: AbortSignal; progress?: (s: string) => void } = {},
 ) {
+const diagnosticEnd = performanceTrace().begin('source_recovery');
+let diagnosticOutcome = 'observed';
+try {
+
   session.complete = false;
   const started = Date.now(),
     check = () => {
@@ -416,6 +433,7 @@ export async function recoverSourceAssets(
         let retained = session.assets.get(c.path);
         if (retained && hash(retained.bytes) !== retained.receipt.sha256)
           throw Error("Retained original checksum mismatch.");
+        if (retained) performanceTrace().count("cache_hits");
         if (!retained) {
           if (session.assets.size >= 128) {
             assets.push({ ...c, status: "FILE_COUNT_LIMIT" });
@@ -537,6 +555,8 @@ export async function recoverSourceAssets(
   } finally {
     await zip.close();
   }
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }
 
 /** Independent destination observations: never bind questions by position. */

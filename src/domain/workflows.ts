@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import { questionComparisonsText } from "./question-counts.ts";
 import { buildContentSnapshot } from "./content-evidence.ts";
 import { createEngine } from "../engine/index.js";
@@ -202,6 +203,10 @@ export function createWorkflows(xmlService: unknown) {
     input: ComparisonInput,
     parsedBrightspaceCapture?: EvidenceObject,
   ): ComparisonOutput {
+const diagnosticEnd = performanceTrace().begin('comparison');
+let diagnosticOutcome = 'observed';
+try {
+
     if (input.course.kind !== "package" || !input.course.data.scan?.courseTree)
       throw new Error("Choose a scanned source package.");
     let brightspaceEvidence;
@@ -213,9 +218,9 @@ export function createWorkflows(xmlService: unknown) {
           input.brightspace.bytes,
         ),
       );
-      brightspaceEvidence = assertBrightspaceCaptureIntegrity(
+      brightspaceEvidence = performanceTrace().measure('input_validation', () => assertBrightspaceCaptureIntegrity(
         parsedBrightspaceCapture,
-      );
+      ));
     }
     if (
       !Number.isInteger(input.generation) ||
@@ -267,7 +272,7 @@ export function createWorkflows(xmlService: unknown) {
         structuredClone(course.externalRuntimeEvidence);
     const derivedStructure =
       !input.excel && input.json
-        ? captureStructureWorkbook(io.readCourseraCapture(input.json.bytes))
+        ? performanceTrace().measure('normalization', () => captureStructureWorkbook(io.readCourseraCapture(input.json!.bytes)))
         : undefined;
     let nativeCourseOutlineEvidence = derivedStructure?.proof;
     let nativeCourseOutlineWarning = "";
@@ -290,7 +295,8 @@ export function createWorkflows(xmlService: unknown) {
       );
     if (derivedStructure)
       Object.assign(io, { structuralInventoryBasis: derivedStructure.proof });
-    const result = engine.runPostIngestionQaCore_(
+    if (performanceTrace().enabled) Object.assign(io, { performanceDiagnostic: performanceTrace() });
+    const result = performanceTrace().measure('reconciliation', () => engine.runPostIngestionQaCore_(
       base64(structuralInput.bytes),
       structuralInput.name,
       input.json?.bytes || "",
@@ -307,7 +313,7 @@ export function createWorkflows(xmlService: unknown) {
       base64(input.recovery?.bytes),
       input.recovery?.name || "",
       io,
-    );
+    ));
     if (!result.success) throw new Error(result.error || "Comparison failed.");
     if (nativeCourseOutlineEvidence)
       result.nativeCourseOutlineEvidence = nativeCourseOutlineEvidence;
@@ -370,17 +376,17 @@ export function createWorkflows(xmlService: unknown) {
         "The external SCORM/Rise inventory is not loaded for this course. Source-package and Brightspace runtime evidence are still evaluated.",
       );
     result.workspaceWarnings = warnings;
-    const questionCountText = questionComparisonsText(
+    const questionCountText = performanceTrace().measure('owner_report', () => questionComparisonsText(
       buildOwnerTasks(result, course.scan.courseTree),
-    );
+    ));
     return {
       result,
-      contentEvidence: buildContentSnapshot(
+      contentEvidence: performanceTrace().measure('normalization', () => buildContentSnapshot(
         input.json?.bytes,
         input.brightspace?.bytes,
         parsedCourseraCapture,
         parsedBrightspaceCapture,
-      ),
+      )),
       ownerContext: buildOwnerContext(
         input.brightspace?.bytes,
         result.liveSourceGroundTruth?.sourceTopicMappings || [],
@@ -392,7 +398,7 @@ export function createWorkflows(xmlService: unknown) {
           : "") +
         nativeCourseOutlineText(result) +
         questionCountText +
-        (documentComparisonText(result) || buildPostQaText_(result)),
+        (documentComparisonText(result) || performanceTrace().measure('owner_report', () => buildPostQaText_(result))),
       hashes: {
         excel: hash(input.excel?.bytes),
         ...(derivedStructure
@@ -437,7 +443,9 @@ export function createWorkflows(xmlService: unknown) {
       packageId: input.course.id,
       sourceScanSha256: course.scan.fileSha256 || "",
     };
-  }
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
+}
   function execute(job: WorkflowJob): EvidenceObject {
     if (job.kind === "compare") return compare(job.input);
     if (job.kind === "lifecycle") {

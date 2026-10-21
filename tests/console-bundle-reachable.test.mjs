@@ -204,3 +204,6 @@ test("unreachable module side effects and nonliteral state remain forbidden", ()
           ),
       );
 });
+test('the shared diagnostic helper does not permit arbitrary parent-directory imports',()=>{
+ fixture({'entry.js':'import {bad} from "../../diagnostics/private.js";\n'+program('bad();')},entry=>assert.throws(()=>bundleConsole(entry),/feature directory/));
+});

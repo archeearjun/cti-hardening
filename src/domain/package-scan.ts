@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import { readSourceHierarchy } from "./source-hierarchy.ts";
 import {
   openSourcePackageZip,
@@ -32,6 +33,10 @@ export async function scanPackage(
   file: File,
   progress: (p: PackageProgress) => void,
 ): Promise<PackageScan> {
+const diagnosticEnd = performanceTrace().begin('scan');
+let diagnosticOutcome = 'observed';
+try {
+
   validateSourcePackageFile(file);
   progress({
     phase: "Open package",
@@ -83,21 +88,22 @@ export async function scanPackage(
         throw new Error("The manifest exceeds the 12 MB limit.");
       if (/<!DOCTYPE|<!ENTITY/i.test(xml))
         throw new Error("Manifest XML declarations are unsupported.");
-      const preflight = scanner.parseXmlCompat_(xml);
+      const preflight = performanceTrace().measure('manifest_parse', () => scanner.parseXmlCompat_(xml));
       if (!preflight.doc)
         throw Error("The manifest hierarchy could not be parsed.");
-      readSourceHierarchy(preflight.doc);
+      performanceTrace().measure('manifest_parse', () => readSourceHierarchy(preflight.doc));
       progress({
         phase: "Read content",
         detail:
           "Reading source files, questions, attachments and dependencies.",
       });
-      sourceEvidence = await scanner.buildSourceEvidenceFromZip_(
+      sourceEvidence = await performanceTrace().measure('content_inventory', () => scanner.buildSourceEvidenceFromZip_(
         zip,
         xml,
         candidates[0],
         progress,
-      );
+        performanceTrace().enabled ? performanceTrace() : undefined,
+      ));
       sourceEvidence.environment = {
         host: "CTI browser package inspector",
         pdfParser: `pdfjs-${pdfjsLib.version}`,
@@ -112,12 +118,12 @@ export async function scanPackage(
   }
   if (/<!DOCTYPE|<!ENTITY/i.test(xml))
     throw new Error("Manifest XML declarations are unsupported.");
-  const parsed = scanner.parseXmlCompat_(xml);
+  const parsed = performanceTrace().measure('manifest_parse', () => scanner.parseXmlCompat_(xml));
   if (!parsed.doc)
     throw new Error(
       "The manifest hierarchy could not be parsed. No complete package scan was produced.",
     );
-  const sourceHierarchy = readSourceHierarchy(parsed.doc);
+  const sourceHierarchy = performanceTrace().measure('manifest_parse', () => readSourceHierarchy(parsed.doc));
   if (parsed.repaired)
     warnings.push(
       "The manifest needed the existing compatibility repair pass; its parser diagnostics are retained in the source evidence.",
@@ -127,11 +133,11 @@ export async function scanPackage(
     detail: "Building the source tree and calculating CTI structural metrics.",
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  const analysis = engine.analyzeImsccCore_(
+  const analysis = performanceTrace().measure('structure_analysis', () => engine.analyzeImsccCore_(
     parsed.repairedText || xml,
     file.name,
     sourceEvidence,
-  );
+  ));
   if (!analysis.success || !analysis.courseTree || !analysis.stats)
     throw new Error(analysis.error || "Package analysis failed.");
   const resources = Object.values(sourceEvidence.resources);
@@ -177,6 +183,8 @@ export async function scanPackage(
     warnings.push(
       `${hashGaps} present file evidence record(s) have no SHA-256 fingerprint, including files beyond scanner budgets.`,
     );
+  performanceTrace().count('unresolved', missing + unresolved + reads + hashGaps);
+  performanceTrace().count('items_observed', resources.length);
   return {
     fileName: analysis.fileName!,
     moduleCount: analysis.moduleCount!,
@@ -194,4 +202,6 @@ export async function scanPackage(
     sourceEvidence,
     warnings,
   };
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }

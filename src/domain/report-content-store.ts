@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import {
   buildContentSnapshot,
   validateContentSnapshot,
@@ -189,6 +190,10 @@ export async function loadReportContent(
   store: Pick<WorkspaceStore, "list" | "get">,
   records?: WorkspaceRecord[],
 ): Promise<ContentSnapshot> {
+const diagnosticEnd = performanceTrace().begin('evidence_load');
+let diagnosticOutcome = 'observed';
+try {
+
   const base = report.contentEvidence || {
     schemaVersion: 1,
     coursera: [],
@@ -233,4 +238,6 @@ export async function loadReportContent(
     else output.brightspace = r.data.contentEvidence.brightspace;
   }
   return output;
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }

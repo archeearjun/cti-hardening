@@ -65,6 +65,7 @@ const normalizeSourceItem_ = function(...args) { return bindServices(create_norm
 const qaParseBrightspaceGroundTruthCapture_ = function(...args) { return bindServices(create_qaParseBrightspaceGroundTruthCapture_, services).apply(this, args); };
 const qaSha256Base64_ = function(...args) { return bindServices(create_qaSha256Base64_, services).apply(this, args); };
 return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, jsonName, targetUuid, snapshotMode, persistResult, lineageMeta, sourceLiveBase64, sourceLiveName, readingRecoveryBase64, readingRecoveryName, io) {
+    const measure = io?.performanceDiagnostic?.measure || ((stage, fn) => fn());
     var tempFileId = null;
     var nativeStructure = io && io.structuralInventoryBasis && io.structuralInventoryBasis.kind === 'VERIFIED_NATIVE_CAPTURE_INVENTORY';
     if (persistResult === undefined || persistResult === null) persistResult = true;
@@ -94,7 +95,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
         var coreItems = [], bundledAssets = [];
         originalItems.forEach(function(item) {
             if (item.isRawAsset) bundledAssets.push(item);
-            else coreItems.push(normalizeSourceItem_(item));
+            else coreItems.push(measure('normalization', () => normalizeSourceItem_(item)));
         });
 
         var liveSourceCapture = null;
@@ -148,7 +149,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             extractorMeta.page = parsedPageMeta;
 
             if (parsed.fingerprints && parsed.fingerprints.length > 0) {
-                parsed.fingerprints.forEach(function(item) { courseraItems.push(normalizeCourseraItem_(item, parsedPageMeta.courseId)); });
+                parsed.fingerprints.forEach(function(item) { courseraItems.push(measure('normalization', () => normalizeCourseraItem_(item, parsedPageMeta.courseId))); });
                 liveEvidenceItems = courseraItems.slice();
                 jsonItemsForCoherence = courseraItems.slice();
                 sourceInfo.push('Coursera Item Fingerprint JSON v' + String(parsed.schemaVersion || '2'));
@@ -162,20 +163,20 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                         cItems.forEach(function(item) {
                             var itemName = item.originalName || item.name || 'Untitled Item';
                             var typeName = (item.content && item.content.typeName) ? item.content.typeName : 'Reading';
-                            courseraItems.push(normalizeCourseraItem_({
+                            courseraItems.push(measure('normalization', () => normalizeCourseraItem_({
                                 id: item.id || item.itemId || '',
                                 type: typeName,
                                 name: itemName,
                                 path: '',
                                 payload: { files: [], links: [], images: [], textSample: '', textLength: 0, published: null },
                                 evidenceLevel: 'structure-only'
-                            }));
+                            })));
                         });
                     });
                 });
                 sourceInfo.push('Legacy Coursera Backend API JSON');
             } else if (parsed.items && parsed.items.length > 0) {
-                parsed.items.forEach(function(item) { courseraItems.push(normalizeCourseraItem_(item, parsedPageMeta.courseId)); });
+                parsed.items.forEach(function(item) { courseraItems.push(measure('normalization', () => normalizeCourseraItem_(item, parsedPageMeta.courseId))); });
                 sourceInfo.push(excelBase64 ? 'Legacy Live DOM JSON (Assets)' : 'Legacy Live DOM JSON (Structure + Assets)');
             }
         }
@@ -229,7 +230,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 }
 
                 if (validTypes.indexOf(lower0) > -1 && v1) {
-                    excelItems.push(normalizeCourseraItem_({
+                    excelItems.push(measure('normalization', () => normalizeCourseraItem_({
                         id: String(data[i][7] || '').trim(),
                         type: v0,
                         name: v1,
@@ -240,7 +241,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                         payload: {},
                         evidenceLevel: nativeStructure ? 'native-capture-structure' : 'excel-structure',
                         evidenceSources: [nativeStructure ? 'Verified native material inventory' : 'Coursera Excel Export']
-                    }));
+                    })));
                 }
             }
 
@@ -365,7 +366,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             }
         });
         var matchingCourseraItems = courseraItems.concat(oneToManyAggregates);
-        var matchPlan = qaBuildGlobalMatchPlan_(coreItems, matchingCourseraItems);
+        var matchPlan = measure('matching', () => qaBuildGlobalMatchPlan_(coreItems, matchingCourseraItems));
         for (var s = 0; s < coreItems.length; s++) {
             var source = coreItems[s];
 
@@ -482,7 +483,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
             var coursera = matchingCourseraItems[bestIdx];
             coursera.matched = true;
             if(coursera.syntheticOneToMany===true){ (coursera.oneToMany && coursera.oneToMany.childIds || []).forEach(function(cid){ courseraItems.forEach(function(real){ if(String(real.id||'')===String(cid||'')) real.matched=true; }); }); }
-            var result = compareItemFidelity_(source, coursera, bestScore, courseraEvidenceItems, snapshotContext, ingestionIntelligence);
+            var result = measure('item_parity', () => compareItemFidelity_(source, coursera, bestScore, courseraEvidenceItems, snapshotContext, ingestionIntelligence, io?.performanceDiagnostic));
             if(coursera.syntheticOneToMany===true) result = qaDecorateOneToManyResult_(source,coursera,result);
             result = qaApplySmartIngestionProvenanceToResult_(source,result,ingestionIntelligence,courseraItems);
             result.matchMethod = plannedMatch ? plannedMatch.method : 'UNPLANNED';

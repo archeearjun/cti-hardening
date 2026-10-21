@@ -1,3 +1,4 @@
+import { createPerformanceTrace, mountPerformanceControls } from "../src/diagnostics/performance.js";
 import * as publishedReading from "../src/extractors/coursera/direct-data-published-reading.js";
 import * as nativeObservations from "../src/extractors/coursera/direct-data-native-observations.js";
 import * as manualDraft from "../src/extractors/coursera/direct-data-manual-draft.js";
@@ -502,6 +503,7 @@ function harness(options = {}) {
     clearTimeout() {},
     directSavedCaptureFailuresV1,
     createDirectDataCheckpointStoreV1: async () => { metrics.storeOpens++; return store; },
+    createPerformanceTrace, mountPerformanceControls,
     createDirectDataReaderV1: createReader,
     directPublisherFirstPartyPlanV1, directPublisherFirstPartyPlanHashV1, directPublisherFirstPartyContextV1,
     runDirectPublisherFirstPartyV1,

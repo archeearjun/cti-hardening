@@ -1,3 +1,4 @@
+import { enablePerformance } from "../src/diagnostics/runtime.ts";
 import { scanPackage } from "../src/domain/package-scan.ts";
 import type { PackageMessage } from "../src/domain/package-types.ts";
 
@@ -13,12 +14,28 @@ addEventListener("message", async (event) => {
   if (event.data?.kind !== "scan-package" || !(event.data.file instanceof File))
     return;
   started = true;
+  const trace = enablePerformance(event.data.performanceDiagnostics === true);
+  let lastTrace = 0;
+  const sendTrace = (force = false) => {
+    if (trace.enabled && (force || performance.now() - lastTrace > 1000)) {
+      lastTrace = performance.now();
+      parent.postMessage(
+        { kind: "package-performance", report: trace.snapshot() },
+        location.origin,
+      );
+    }
+  };
   try {
-    const result = await scanPackage(event.data.file, (progress) =>
-      send({ kind: "package-progress", progress }),
-    );
+    const result = await scanPackage(event.data.file, (progress) => {
+      send({ kind: "package-progress", progress });
+      sendTrace();
+    });
+    trace.finish();
+    sendTrace(true);
     send({ kind: "package-result", result });
   } catch (error) {
+    trace.finish("partial");
+    sendTrace(true);
     send({
       kind: "package-error",
       message: error instanceof Error ? error.message : String(error),

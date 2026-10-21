@@ -1,3 +1,4 @@
+import { performanceTrace } from "../diagnostics/runtime.ts";
 export interface TransferOptions {
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
@@ -115,6 +116,11 @@ async function transfer(
     const backoff = Math.min(8000, 1000 * 2 ** (attempt - 1));
     let delay = backoff + Math.floor(Math.random() * backoff * 0.25);
     let retryAfter: number | undefined;
+    const diagnostic = performanceTrace();
+    const endRequest = diagnostic.begin("transfer_request");
+    diagnostic.count("requests");
+    diagnostic.repeated(path);
+    let diagnosticOutcome = "failed", diagnosticReceived = false;
     try {
       const timeout = AbortSignal.timeout(45000);
       const headers = new Headers(init.headers);
@@ -126,6 +132,12 @@ async function transfer(
         headers,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
+      diagnosticReceived = true;
+      diagnosticOutcome = res.ok ? "observed" : "failed";
+      if(!res.ok) diagnostic.count("failed");
+      if([401,403].includes(res.status)) diagnostic.count("authentication_failed");
+      if(res.status===429) diagnostic.count("rate_limited");
+      if(res.status===503) diagnostic.count("unavailable");
       if (
         binaryMaxBytes !== undefined &&
         res.ok &&
@@ -248,7 +260,8 @@ async function transfer(
           code: timedOut ? "WORKSPACE_TIMEOUT" : "WORKSPACE_NETWORK_FAILED",
         },
       );
-    }
+    } finally { if(!diagnosticReceived) diagnostic.count("failed"); endRequest(diagnosticOutcome); }
+
     failure.attempts = attempt;
     if (!retrySafe || !retryable || attempt >= maxAttempts || delay > 30000) {
       if (retryAfter !== undefined && retryAfter > 0)
@@ -264,7 +277,8 @@ async function transfer(
     options.onProgress?.(
       `${label}: temporary failure${failure.status ? ` (HTTP ${failure.status})` : ""}; retry ${attempt + 1}/${maxAttempts} in ${Math.ceil(delay / 1000)} seconds.`,
     );
-    await pause(delay, signal);
+    diagnostic.count("retries");
+    await diagnostic.measure("backoff", () => pause(delay, signal));
   }
 }
 

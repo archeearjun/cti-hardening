@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -41,6 +42,10 @@ export async function hashSourcePackageFile(
   file: Blob,
   progress: (completed: number, total: number) => void = () => {},
 ): Promise<string> {
+const diagnosticEnd = performanceTrace().begin('package_hash');
+let diagnosticOutcome = 'observed';
+try {
+
   const hash = sha256.create();
   progress(0, file.size);
   for (
@@ -69,4 +74,6 @@ export async function hashSourcePackageFile(
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
   return bytesToHex(hash.digest());
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }

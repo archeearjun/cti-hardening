@@ -1,3 +1,4 @@
+import { createPerformanceTrace, mountPerformanceControls } from "../../diagnostics/performance.js";
 import { directReadingContentV1 } from "./direct-data-published-reading.js";
 import { directManualDraftContractV1 } from "./direct-data-manual-draft.js";
 import { directManualPartTargetsV1, directManualQuestionV1 } from "./direct-data-native-observations.js";
@@ -223,6 +224,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       downloadAccessButton,
       accessFallback,
     );
+    const performanceControls = mountPerformanceControls(card, "destination_capture", CTI_DIRECT_DATA_BUILD_V1);
+    let performanceDiagnostic = createPerformanceTrace(), diagnosticItem = 0;
     document.body.append(card);
     const state = {
       running: false,
@@ -506,6 +509,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return remaining;
     }
     async function saveRun(status, includeMeta = false) {
+const endDiagnosticStage = performanceDiagnostic.begin('checkpoint');
+let diagnosticOutcome='observed';try {
+
       if (!store?.available || !state.runId) return;
       const budget = budgetSnapshot(),
         value = {
@@ -532,7 +538,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         .then(() => store.saveRun(value));
       budgetSaveTail = pending;
       await pending;
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     function checkpointBudget() {
       if (
         !state.running ||
@@ -842,6 +850,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return encoder.encode(JSON.stringify(result)).byteLength <= 16 * 1024 ? result : null;
     }
     async function hydrateSavedItems() {
+const endDiagnosticStage = performanceDiagnostic.begin('evidence_load');
+let diagnosticOutcome='observed';try {
+
       // Do not list/load a whole question bank into the renderer. Hydrate one
       // row at a time and retain only its counters and serialized byte size.
       for (const fp of items) {
@@ -919,7 +930,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       render(
         "Saved progress loaded. Current drafts and question references are checked before reuse.",
       );
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     function itemBodyEntries(fp) {
       const bodies = [], add = (body, kind, maxBytes) => {
         if (body) bodies.push({body, kind, maxBytes});
@@ -973,6 +986,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
               }
     }
     async function hydrateItemBodies(fp, tolerateMissing = false) {
+const endDiagnosticStage = performanceDiagnostic.begin('evidence_load');
+let diagnosticOutcome='observed';try {
+
       let available = true;
       for (const body of itemBodies(fp)) {
         if (!body.archivePath || body.bytes instanceof Uint8Array) continue;
@@ -988,7 +1004,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         Object.defineProperty(body, "bytes", {value: bytes, configurable: true});
       }
       return available;
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function archiveItemBodies(fp, temporaryBodies = null) {
       let changed = false;
       for (const {body, kind, maxBytes} of itemBodyEntries(fp)) {
@@ -1026,6 +1044,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return changed;
     }
     async function persist(fp, processed) {
+const endDiagnosticStage = performanceDiagnostic.begin('checkpoint');
+let diagnosticOutcome='observed';try {
+
       await archiveItemBodies(fp);
       const json = JSON.stringify(fp),
         size = encoder.encode(json).byteLength;
@@ -1044,8 +1065,13 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       summarizeItem(fp, processed, size);
       await saveRun("RUNNING");
       render();
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function captureAssessment(fp, bound, previous) {
+const endDiagnosticStage = performanceDiagnostic.begin('question');
+let diagnosticOutcome='observed';try {
+
       const parts = directDraftAssessmentInventoryV1(bound),
         groups = [],
         definitions = new Map(),
@@ -1160,6 +1186,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           (await hash(cached.value.data)) === cached.value.modelHash
         )
           definitionRead = { ...cached.value, ok: true };
+        if (definitionRead) performanceDiagnostic.count("cache_hits");
         if (!definitionRead) {
           definitionRead = await reader.readDefinition(definitionId);
           if (!definitionRead.ok) {
@@ -1325,7 +1352,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         parts,
         bound,
       );
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function verifyManualDraft(fp,bound) {
       const hashes=new Map();
       for(const r of fp.payload.assessmentApiEvidence?.manualDefinitions || [])
@@ -1334,6 +1363,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       return directManualDraftContractV1(fp,bound,v=>hashes.get(directCanonicalSourceTextV1(v)));
     }
     async function capturePublishedDraftSnapshot(fp, binding, atomRead, relationRead, previous) {
+const endDiagnosticStage = performanceDiagnostic.begin('question');
+let diagnosticOutcome='observed';try {
+
       const parts = directPublishedDraftSnapshotInventoryV1(binding);
       const observe = async (read, id) => read.ok ? {
         data: read.data,
@@ -1445,7 +1477,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           } catch (_) { failure("SOURCE", fp.atomId, "DIRECT_AUTHORING_SNAPSHOT_SOURCE_CHANGED"); }
         } else failure("SOURCE", fp.atomId, finalRead.reason);
       } else failure("SOURCE", fp.atomId, "DIRECT_AUTHORING_SNAPSHOT_RECHECK_NOT_ATTEMPTED");
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     function boundCmlSource(bound) {
       return bound.draft.content.typeName === "supplementDraft"
         ? directDraftReadingSourceV1(bound)
@@ -2084,6 +2118,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       } else directUnsupportedContractV1(fp,stable ? "DIRECT_PUBLISHED_CML_UNRESOLVED" : "DIRECT_PUBLISHED_READING_SOURCE_UNVERIFIED");
     }
     async function captureItem(fp) {
+const endDiagnosticStage = performanceDiagnostic.begin('item', ++diagnosticItem);
+let diagnosticOutcome='observed';try {
+
       const source = inventory.leaves.get(fp.id);
       if (source.structural) {
         fp.payload.directDataSources = {
@@ -2389,7 +2426,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         mediaReader?.release?.(asset.assetId);
       for (const delivery of fp.payload.directPanoptoEvidence?.deliveries || [])
         for (const podcast of delivery.podcasts || []) mediaReader?.release?.(podcast.assetId);
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function prepareResult(partial = false, saved = null) {
       if (!meta && !saved) throw Error("DIRECT_INVENTORY_NOT_AVAILABLE");
       const captureItems = saved ? (await directCourseInventoryV1(saved.captureMeta.directDataCapture.materials, courseId)).fingerprints : items,
@@ -2538,6 +2577,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
       catch (error) { request.reject(error); }
     }
     async function download() {
+const endDiagnosticStage = performanceDiagnostic.begin('evidence_export');
+let diagnosticOutcome='observed';try {
+
       if (exporting || state.diagnosing || state.recovering || (state.running && !checkpointReady)) return;
       const partial = state.running, requestedRunId = state.runId;
       exporting = true;
@@ -2622,7 +2664,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         finishExport();
         render();
       }
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function checkProviderAccess() {
       if (state.running || state.diagnosing || state.recovering || exporting ||
           location.origin !== "https://www.coursera.org" || location.pathname !== initialPath) return;
@@ -2639,6 +2683,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         requests = new Map();
       let stopReason = "";
       accessReader = createDirectDataReaderV1({
+            performanceDiagnostic,
         providerTransport,
         assertCurrent: assertContext,
         sanitize: sanitizeCourseraCourseDataModel,
@@ -2895,7 +2940,8 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           if (target) { report.source = target; break; }
         }
         if (!report.source) throw Error("PUBLISHER_CHECK_NO_RECORDED_SOURCE");
-        accessReader = createDirectDataReaderV1({ sanitize: sanitizeCourseraCourseDataModel, assertCurrent: assertContext,
+        accessReader = createDirectDataReaderV1({
+            performanceDiagnostic, sanitize: sanitizeCourseraCourseDataModel, assertCurrent: assertContext,
           limits: { concurrentRequests: 1, requests: 3, totalBytes: 2 * 1024 * 1024, bodyBytes: 1024 * 1024,
             requestMs: 10000, durationMs: 25000 } });
         const target = report.source, read = await accessReader.readPublisherPage(target.targetUrl, { itemId: target.itemId, providerId: target.providerId });
@@ -2969,6 +3015,9 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         location.pathname !== initialPath
       )
         return;
+      performanceDiagnostic = performanceControls.start();
+      diagnosticItem = 0;
+      const endPerformanceRun = performanceDiagnostic.begin("destination_capture");
       state.running = true;
       activeRecovery = recovery;
       state.terminal = false;
@@ -3020,6 +3069,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         if (!store.available)
           throw Error("DIRECT_CHECKPOINT_STORAGE_UNAVAILABLE");
         const policyReader = createDirectDataReaderV1({
+            performanceDiagnostic,
           limits: window.__CTI_COURSERA_DIRECT_DATA_LIMITS__,
         });
         const policy = policyReader.snapshot().limits;
@@ -3118,6 +3168,7 @@ import { captureAccountingItemsV61531 } from "./completion.js";
         }
         const createReader = () =>
           createDirectDataReaderV1({
+            performanceDiagnostic,
             providerTransport,
             sanitize: sanitizeCourseraCourseDataModel,
             assertCurrent: assertContext,
@@ -3472,10 +3523,21 @@ import { captureAccountingItemsV61531 } from "./completion.js";
           state.state = "PAUSED";
           state.phase = "Capture paused";
         }
+        if (performanceDiagnostic.enabled) {
+        const measuredCoverage = coverageSummary();
+        performanceDiagnostic.count("items_expected", measuredCoverage.content.total);
+        performanceDiagnostic.count("items_verified", measuredCoverage.content.verified);
+        performanceDiagnostic.count("unresolved", measuredCoverage.content.total-measuredCoverage.content.verified);
+        }
         state.running = false;
         render();
-        await exportFinished;
-        if (meta && !operatorStopped) await download();
+        try {
+          await exportFinished;
+          if (meta && !operatorStopped) await download();
+        } finally {
+          endPerformanceRun(fatalReason || operatorStopped ? "partial" : "observed");
+          performanceControls.finish(fatalReason || operatorStopped ? "partial" : "complete");
+        }
       }
     }
     state.focus = () => card.scrollIntoView({ block: "nearest" });
