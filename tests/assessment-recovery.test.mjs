@@ -7,7 +7,7 @@ import {questionIdentityCandidates} from '../src/engine/assessment/identity-cand
 import {questionEvidenceDimensions} from '../src/engine/assessment/question-dimensions.js';
 import {qaBrightspaceQuizQuestion_} from '../src/engine/source/brightspace-assessment.js';
 import {DOMParser} from '@xmldom/xmldom';
-import {qtiScoringDefinition_} from '../src/source/qti.js';
+import {qtiScoringDefinition_,parseQtiAssessmentStructure_} from '../src/source/qti.js';
 import {contentQuestion} from '../src/domain/content-evidence.ts';
 const f=JSON.parse(fs.readFileSync(new URL('./fixtures/coursera/trde120-assessment-recovery.json',import.meta.url)));
 
@@ -74,4 +74,13 @@ test('QTI numeric boundaries and wildcard processing survive projection without 
   assert.deepEqual(JSON.parse(q.settingsText).scoringDefinition,tree);
   assert.match(q.settingsText,/88.580/);assert.match(q.settingsText,/vargte/);
   assert.equal(q.answerKeyReliable,false);
+});
+test('QTI wildcard-like alternatives remain retained but cannot certify literal answer semantics',()=>{
+  const previous=globalThis.DOMParser;globalThis.DOMParser=DOMParser;
+  try {
+    const make=value=>parseQtiAssessmentStructure_(`<questestinterop><item ident="q"><presentation><material><mattext>Enter the calculated result.</mattext></material><response_str ident="r"/></presentation><responseDeclaration identifier="r"><correctResponse><value>${value}</value></correctResponse></responseDeclaration></item></questestinterop>`,'questions.xml');
+    const wildcard=make('*');assert.deepEqual(wildcard.questions[0].correctAnswers,['*']);assert.equal(wildcard.questions[0].answerTextReliable,false);
+    assert.equal(make('27').questions[0].answerTextReliable,true);
+    assert.ok(JSON.stringify(wildcard).includes('literal versus pattern semantics'));
+  }finally{globalThis.DOMParser=previous;}
 });

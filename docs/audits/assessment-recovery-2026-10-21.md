@@ -29,7 +29,7 @@ course verdict calculation is claimed. This change leaves saved results immutabl
 | Weekly authoring editors contain zero recorded positions | 06PMM/aKtOx/vY3GP/vwFDB/Kd5up have EMPTY coverage and expected zero; paired source definition counts 2/8/3/8/12 | Produce item-specific inspection plans distinguishing empty editors from missing material across the course. No speculative acquisition or question creation. |
 | Source bank scope remains unknown | Native quizzes 324438, 347076–347081; 47 definitions | Preserve existing limits. Pagination and descriptive counts do not establish banks or draw policies. |
 | Brightspace question HTML loses media references in normalization | Raw QuestionText retained separately; reference projection omitted | Extract media references from HTML into question mediaRefs without fetching or certifying originals. Preserve original HTML and question IDs. |
-| QTI scoring conditions lost in owner projection | QTI wildcard and numeric-bound structures are richer than flattened answer arrays | Preserve response-processing/declaration trees and exact attribute/text values in sourceTypeEvidence; expose bounded original settings in owner content. Oversized settings remain explicitly unavailable in the projection. No wildcard/tolerance interpretation is invented. |
+| QTI scoring conditions lost in owner projection | QTI wildcard and numeric-bound structures are richer than flattened answer arrays | Preserve response-processing/declaration trees and exact attribute/text values in sourceTypeEvidence; expose bounded original settings in owner content. Oversized settings remain explicitly unavailable in the projection. No wildcard/tolerance interpretation is invented. Wildcard-like text-entry alternatives remain retained with answer reliability unverified. |
 | Exact text candidates have unresolved parity dimensions | Nine unique pairs, three practice and six final | Report prompt/options/answer text/type/feedback dimensions separately. Scoring, structured math, rubric, attempts, media and version remain UNVERIFIED without independent contracts. Different native taxonomies are not automatically type mutations. |
 | Final assessment image failure | Exact native question IDs at destination positions 2 and 4 contain image-creation error placeholders | Repair manifest retains destination failure IDs independently of source media positions; no ordinal-based source binding. Four absent-package references and one alternate-path filename candidate remain distinct. |
 | Media identity uncertainty | Existing source package path receipts | Resolver accepts exact paths with verified originals or an explicitly supplied matching SHA-256; rejects hash conflicts, never resolves by filename alone. Existing saved report candidates lack hashes and remain unresolved. This does not recover bytes absent from the supplied files. |
@@ -59,7 +59,7 @@ or paid service is used. No server queue, chunk transfer or original media is ch
 ## Verification
 
 All 189 local test files and seven activity suites pass; production build and
-129-module binding checks pass. Thirteen new regression cases cover the actual
+129-module binding checks pass. Fourteen new regression cases cover the actual
 weekly/final evidence, candidate dimensions, source media/scoring retention,
 missing mapping guidance, exclusions and focused-check revision rejection.
 The unchanged capture-entry test passes on rerun; its initial suite failure was

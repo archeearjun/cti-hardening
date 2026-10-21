@@ -4201,8 +4201,8 @@
       "name": "parseQtiAssessmentStructure_",
       "path": "src/source/qti.js",
       "status": "adapted",
-      "note": "Keep declared versus captured counts at the bounded 250-question limit, preserve source ordinal, reject XML declarations, and evaluate non-overlapping selection scopes without deduplicating equal draws. Ambiguous selection remains unknown. Reviewed PR102 local QTI selection membership and scoped owner summary before unchanged raw evidence. tests/bilateral-comparison-replay.test.mjs. PR103 preserves original scoring conditions, wildcard values and numeric bounds as an uninterpreted tree; answer semantics stay independently unverified.",
-      "reviewedCurrentHash": "ab7a77013eea842aaf55ba3e35a8a5fe3afdbeda32848c9ddef5def678ac5a78"
+      "note": "Keep declared versus captured counts at the bounded 250-question limit, preserve source ordinal, reject XML declarations, and evaluate non-overlapping selection scopes without deduplicating equal draws. Ambiguous selection remains unknown. Reviewed PR102 local QTI selection membership and scoped owner summary before unchanged raw evidence. tests/bilateral-comparison-replay.test.mjs. PR103 preserves original scoring conditions, wildcard values and numeric bounds as an uninterpreted tree; answer semantics stay independently unverified. Wildcard-like text-entry alternatives stay retained but require verification of literal versus pattern semantics.",
+      "reviewedCurrentHash": "e6b069515cbd29b9dc814bf486ea1a64dd52ad0565c05ba11808693acf94906e"
     },
     {
       "name": "mergeStructuredAssessment_",

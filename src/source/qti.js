@@ -307,11 +307,17 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
         qtiDesc_(item, tag).forEach(function(el) { var t = qtiClean_(el.textContent || ''); if (t) feedbackParts.push(t); });
       });
 
+      var questionType=qtiQuestionType_(item,options);
+      if(questionType==='text-entry' && correctAnswers.some(function(answer){return answer==='*' || answer==='?';})) {
+        answerTextReliable=false;
+        warnings.push('Question '+itemId+': wildcard-like answer alternatives are retained, but literal versus pattern semantics require source verification.');
+      }
+
       questions.push({
         id: String(itemId),
         sourceOrdinal: idx + 1,
         title: qtiClean_(itemTitle),
-        type: qtiQuestionType_(item, options),
+        type: questionType,
         mediaRefs:qtiQuestionMediaRefs_(item),
         sourceTypeEvidence:{identity:qtiItemIdentity_(item,fileName),method:'QTI_RESPONSE_AND_CC_PROFILE',scoringDefinition:qtiScoringDefinition_(item),profiles:qtiDesc_(item,'qtimetadatafield').filter(function(f){var n=qtiDesc_(f,'fieldlabel')[0];return n&&qtiClean_(n.textContent||'').toLowerCase()==='cc_profile';}).map(function(f){var n=qtiDesc_(f,'fieldentry')[0];return n?qtiClean_(n.textContent||''):'';})},
         prompt: prompt,
