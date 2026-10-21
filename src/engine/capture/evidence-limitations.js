@@ -15,6 +15,12 @@ export function qaSourceTextLimitation_(source) {
 
 export function qaDirectCaptureLimitation_(item) {
     var p = item && item.payload || {}, contract = p.captureContract || item && item.captureContract;
+    if (String(item && (item.typeName || item.type) || '').toLowerCase() === 'coach')
+        return {schemaVersion:1,platform:'COURSERA',status:'INSUFFICIENT_EVIDENCE',itemId:String(item.id || ''),
+            captureStatus:contract && contract.itemId===String(item.id || '') ? String(contract.status || '') : '',
+            reasonCode:'COACH_CONTENT_VERIFICATION_UNSUPPORTED',
+            reasons:contract && contract.itemId===String(item.id || '') && Array.isArray(contract.reasons) ? contract.reasons.filter(function(r){return typeof r==='string';}) : [],
+            reason:'Coach item is present. Retained Role Play or Dialogue configuration and published activity references do not verify the current instructional body or learner interaction.'};
     if (!contract || contract.itemId !== String(item.id || '') ||
         !(p.directDataSources || p.directPublishedReadingEvidence || p.directNativeRecheckAttempt)) return null;
     if (contract.complete !== false) return null;

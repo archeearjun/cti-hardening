@@ -154,6 +154,7 @@ export function qaPathSimilarity_(left, right) {
 export function normalizeCourseraType_(typeName) {
     var t = String(typeName || '').trim().toLowerCase();
     if (!t) return 'Reading';
+    if (t === 'coach') return 'Coach';
     if (t === 'supplement' || t === 'reading' || t.indexOf('lecture') > -1) return 'Reading';
     if (t === 'staffgraded' || t === 'ungradedassignment' || t.indexOf('assignment') > -1 || t.indexOf('peer') > -1) return 'Assignment';
     if (t === 'discussionprompt' || t.indexOf('discussion') > -1) return 'Discussion';

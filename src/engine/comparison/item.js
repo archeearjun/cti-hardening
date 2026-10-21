@@ -318,6 +318,7 @@ export function base_compareItemFidelity_(source, coursera, matchScore, allCours
 export function compareItemFidelity_(source,coursera,matchScore,allCourseraItems,snapshotContext,ingestionIntelligence){
   var result=base_compareItemFidelity_.apply(this,arguments);
   result=qaApplyDimensionalVerdictGateV8_(source,coursera,result);
+  if(coursera.nativeCoachEvidence)result.checks.nativeCoachEvidence=coursera.nativeCoachEvidence;
   var sourceLimitation=qaSourceTextLimitation_(source), destinationLimitation=coursera.directCaptureLimitation;
   if(sourceLimitation || destinationLimitation) {
     if(result.issues.indexOf('PAYLOAD_UNVERIFIED')<0)result.issues.push('PAYLOAD_UNVERIFIED');

@@ -353,6 +353,8 @@ export function qaClassifyExtraItem_(item) {
         };
     }
 
+    if(item.type==='Coach' && item.directCaptureLimitation) return {classification:'PRESENT_UNVERIFIED',label:'Coach present; content unverified',severity:'REVIEW',action:item.directCaptureLimitation.reason+' Reasons: '+item.directCaptureLimitation.reasons.join(', ')+'. No source absence or removal is established.'};
+
     if(item.sourceAssetProvenance && item.sourceAssetProvenance.status==='SOURCE_ASSETS_OBSERVED'){
         var partialProvenance=(item.sourceAssetProvenance.unmatchedHashedFiles||[]).length || (item.sourceAssetProvenance.unresolvedDownloadFiles||[]).length;
         return {classification:partialProvenance?'PARTIAL_SOURCE_ASSET_CARRIER':'SOURCE_ASSET_CARRIER',label:partialProvenance?'Some attachments have source provenance':'Source-backed attachment item',severity:'REVIEW',action:qaSourceAssetCarrierAction_(item.sourceAssetProvenance)};

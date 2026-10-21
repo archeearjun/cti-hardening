@@ -1,3 +1,4 @@
+import { retainedNativeCoachEvidence } from "./coach.js";
 // Maintained source: explicit dependencies; no ordered concatenation.
 import { qaNormalizeIngestionFailure_, qaNormalizeNativeAssignment_, qaObservedEmptyAssessmentReceipt_, qaPayloadField_, qaReadingEvidenceGap_ } from "../assessment/assignment.js";
 import { qaNormalizeAssessment_, qaParseCourseraAssignmentText_ } from "../assessment/questions.js";
@@ -16,6 +17,7 @@ import { qaDirectCaptureLimitation_ } from "./evidence-limitations.js";
 export function normalizeCourseraItem_(item, expectedCourseId) {
     item = item || {};
     var payload = item.payload || {};
+    var nativeCoachEvidence = retainedNativeCoachEvidence(item, expectedCourseId);
     var fileCandidates = [];
     (qaPayloadField_(payload,item,'assetDetails',[]) || []).forEach(function(value) { fileCandidates.push(value); });
     (qaPayloadField_(payload,item,'files',[]) || []).forEach(function(value) { fileCandidates.push(value); });
@@ -127,6 +129,7 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
         published: published,
         evidenceLevel: qaCleanText_(item.evidenceLevel || payload.evidenceLevel || ''),
         evidenceSources: Array.isArray(item.evidenceSources) ? item.evidenceSources : (Array.isArray(payload.evidenceSources) ? payload.evidenceSources : []),
+        ...(nativeCoachEvidence ? {nativeCoachEvidence:nativeCoachEvidence} : {}),
         original: item,
         matched: false
     };
