@@ -303,7 +303,7 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
         title: qtiClean_(itemTitle),
         type: qtiQuestionType_(item, options),
         mediaRefs:qtiQuestionMediaRefs_(item),
-        sourceTypeEvidence:{method:'QTI_RESPONSE_AND_CC_PROFILE',profiles:qtiDesc_(item,'qtimetadatafield').filter(function(f){var n=qtiDesc_(f,'fieldlabel')[0];return n&&qtiClean_(n.textContent||'').toLowerCase()==='cc_profile';}).map(function(f){var n=qtiDesc_(f,'fieldentry')[0];return n?qtiClean_(n.textContent||''):'';})},
+        sourceTypeEvidence:{identity:qtiItemIdentity_(item,fileName),method:'QTI_RESPONSE_AND_CC_PROFILE',profiles:qtiDesc_(item,'qtimetadatafield').filter(function(f){var n=qtiDesc_(f,'fieldlabel')[0];return n&&qtiClean_(n.textContent||'').toLowerCase()==='cc_profile';}).map(function(f){var n=qtiDesc_(f,'fieldentry')[0];return n?qtiClean_(n.textContent||''):'';})},
         prompt: prompt,
         options: options,
         correctAnswers: Array.from(new Set(correctAnswers.filter(Boolean))),
@@ -325,7 +325,7 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
       var scope = el.parentElement;
       while (scope && !/^(section|assessmentsection|assessment|assessmenttest)$/.test(qtiLocalName_(scope))) scope = scope.parentElement;
       var pool = scope ? items.filter(function(item) { return scope.contains(item); }) : [];
-      rules.push({ count:n, pool:pool });
+      rules.push({ count:n, pool:pool, scopeId:scope ? String(scope.getAttribute('ident') || scope.getAttribute('identifier') || '') : '' });
     }
     qtiDesc_(doc, 'selection_number').concat(qtiDesc_(doc, 'selectionnumber')).forEach(function(el) {
       selectionRule(el, qtiClean_(el.textContent || ''));
@@ -352,11 +352,18 @@ export function parseQtiAssessmentStructure_(xmlText, fileName) {
       poolSize: items.length,
       randomSelection: selectCount != null ? selectCount < items.length : null,
       rawSelectionCounts: selectionNumbers.slice(0,20),
+      // These are document-local QTI identities, never native LMS IDs.
+      scopes: rules.map(function(rule) { return { scopeId:rule.scopeId, selectedPerAttempt:rule.count,
+        questionIds:rule.pool.map(function(item) { return String(item.getAttribute('ident') || item.getAttribute('identifier') || ''); }) }; }),
+      fixedQuestionIds: items.filter(function(item) { return !selectedPool.has(item); }).map(function(item) { return String(item.getAttribute('ident') || item.getAttribute('identifier') || ''); }),
+      membershipScope: 'DOCUMENT_LOCAL_QTI',
+      sourceFile: String(fileName || ''),
+      membershipVerified: !invalidSelection && new Set(items.map(function(item) { return item.getAttribute('ident') || item.getAttribute('identifier'); })).size===items.length && items.every(function(item) { return !!(item.getAttribute('ident') || item.getAttribute('identifier')); }),
       source: 'IMS_QTI_SELECTION_RULE'
     };
     return {
       schemaVersion: 3,
-      parser: 'ims-qti-dom-v6-coverage-scopes',
+      parser: 'ims-qti-dom-v7-membership-scopes',
       origin: 'source-imscc',
       declaredQuestionCount: items.length,
       sourceCounts: [{ sourceFile:String(fileName || ""), declared:items.length, captured:questions.length }],
@@ -388,9 +395,20 @@ export function mergeStructuredAssessment_(base, incoming) {
     merged.captureCompleteness = { questionCoverageComplete: merged.declaredQuestionCount === merged.questionCount && base.captureCompleteness?.questionCoverageComplete !== false && incoming.captureCompleteness?.questionCoverageComplete !== false };
     // A merged dependency bank is not evidence of how many a learner is assigned.
     if (merged.sourceCounts.length > 1 || JSON.stringify(base.selectionPolicy) !== JSON.stringify(incoming.selectionPolicy)) {
-      merged.selectionPolicy = { observed:!!(base.selectionPolicy?.observed || incoming.selectionPolicy?.observed), selectCount:null, poolSize:merged.declaredQuestionCount, randomSelection:null, source:'MULTIPLE_QTI_FILES_REQUIRES_REVIEW' };
+      merged.selectionPolicy = { observed:!!(base.selectionPolicy?.observed || incoming.selectionPolicy?.observed), selectCount:null, poolSize:merged.declaredQuestionCount, randomSelection:null, source:'MULTIPLE_QTI_FILES_REQUIRES_REVIEW', sourcePolicies:[...(base.selectionPolicy?.sourcePolicies || [base.selectionPolicy]),...(incoming.selectionPolicy?.sourcePolicies || [incoming.selectionPolicy])].filter(Boolean).map(function(policy){return structuredClone(policy);}) };
     }
     merged.parserConfidence = Math.min(Number(base.parserConfidence ?? 0.9), Number(incoming.parserConfidence ?? 0.9));
     merged.warnings = uniqueStrings_([...(base.warnings || []), ...(incoming.warnings || [])], 20);
     return merged;
  }
+
+// Preserve observed QTI namespaces; ordinal fallbacks never become native IDs.
+export function qtiItemIdentity_(item, fileName) {
+  const itemId=item.getAttribute('identifier') || item.getAttribute('ident') || null;
+  const ancestors=[];
+  for(let n=item.parentElement;n;n=n.parentElement) {
+    if(['assessment','assessmenttest','section','assessmentsection'].includes(qtiLocalName_(n)))
+      ancestors.unshift({kind:qtiLocalName_(n),id:n.getAttribute('identifier') || n.getAttribute('ident') || null});
+  }
+  return {namespace:'QTI_DOCUMENT',sourceFile:String(fileName || ''),itemId,ancestors,syntheticProjectionIdentity:!itemId,nativeLmsIdentityVerified:false};
+}

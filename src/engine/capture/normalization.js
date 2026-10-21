@@ -1,3 +1,5 @@
+import { publishedReadingVerified } from "./published-reading-verification.js";
+import { retainedNativeNameEvidence } from "./native-name.js";
 import { retainedNativeCoachEvidence } from "./coach.js";
 // Maintained source: explicit dependencies; no ordered concatenation.
 import { qaNormalizeIngestionFailure_, qaNormalizeNativeAssignment_, qaObservedEmptyAssessmentReceipt_, qaPayloadField_, qaReadingEvidenceGap_ } from "../assessment/assignment.js";
@@ -18,6 +20,7 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
     item = item || {};
     var payload = item.payload || {};
     var nativeCoachEvidence = retainedNativeCoachEvidence(item, expectedCourseId);
+    var nativeNameEvidence = retainedNativeNameEvidence(item, expectedCourseId);
     var fileCandidates = [];
     (qaPayloadField_(payload,item,'assetDetails',[]) || []).forEach(function(value) { fileCandidates.push(value); });
     (qaPayloadField_(payload,item,'files',[]) || []).forEach(function(value) { fileCandidates.push(value); });
@@ -46,6 +49,10 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
     var textEvidenceCompleteness = Number(qaPayloadField_(payload,item,'textEvidenceCompleteness',0));
     if (!Number.isFinite(textEvidenceCompleteness) || textEvidenceCompleteness < 0) textEvidenceCompleteness = 0;
     if (textEvidenceCompleteness > 1) textEvidenceCompleteness = 1;
+    var readingSources=payload.directPublishedReadingEvidence?.sources;
+    var readingBranch=readingSources?.relation?.elements?.[0]?.branchRelationMap?.[expectedCourseId+'~'+item.id];
+    var boundPublishedTextVerified=!!expectedCourseId && publishedReadingVerified(item,readingSources?.material,expectedCourseId,readingBranch?.courseSlug);
+    if(boundPublishedTextVerified) textEvidenceCompleteness=1;
 
     var rawStructuredAssessment = qaPayloadField_(payload,item,'structuredAssessment',null);
     var normalizedTextForAssessment = qaCleanText_(qaPayloadField_(payload,item,'textSample',''));
@@ -109,7 +116,7 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
         textLength: nonNegativeInteger_(qaPayloadField_(payload,item,'textLength',0)),
         textConfidence: qaCleanText_(qaPayloadField_(payload,item,'textConfidence','')),
         textEvidenceCompleteness: textEvidenceCompleteness,
-        textEvidenceCompletenessObserved: !!readingGap || Object.prototype.hasOwnProperty.call(payload,'textEvidenceCompleteness') || Object.prototype.hasOwnProperty.call(item,'textEvidenceCompleteness'),
+        textEvidenceCompletenessObserved: boundPublishedTextVerified || !!readingGap || Object.prototype.hasOwnProperty.call(payload,'textEvidenceCompleteness') || Object.prototype.hasOwnProperty.call(item,'textEvidenceCompleteness'),
         textScopeKind: qaCleanText_(qaPayloadField_(payload,item,'textScopeKind','')),
         timeEstimateMinutes: (typeof rawTimeEstimate === "number" || (typeof rawTimeEstimate === "string" && /^\d+(?:\.\d+)?$/.test(rawTimeEstimate.trim()))) && Number.isFinite(Number(rawTimeEstimate)) && Number(rawTimeEstimate)>=0 && Number(rawTimeEstimate)<=1000000?Number(rawTimeEstimate):null,
         timeEstimateEvidence: qaCleanText_(payload.timeEstimateEvidence || item.timeEstimateEvidence || ''),
@@ -129,6 +136,7 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
         published: published,
         evidenceLevel: qaCleanText_(item.evidenceLevel || payload.evidenceLevel || ''),
         evidenceSources: Array.isArray(item.evidenceSources) ? item.evidenceSources : (Array.isArray(payload.evidenceSources) ? payload.evidenceSources : []),
+        ...(nativeNameEvidence ? {nativeNameEvidence:nativeNameEvidence} : {}),
         ...(nativeCoachEvidence ? {nativeCoachEvidence:nativeCoachEvidence} : {}),
         original: item,
         matched: false
@@ -136,6 +144,10 @@ export function normalizeCourseraItem_(item, expectedCourseId) {
 }
 
 export function qaMatchScore_(source, coursera) {
+    // Authored names recovered from a placeholder inventory may nominate an
+    // exact, placed candidate; do not expand fuzzy matches into unrelated items.
+    if (coursera.materialInventoryName && coursera.materialInventoryName !== coursera.name &&
+        (qaMatchTitleKey_(source.name)!==qaMatchTitleKey_(coursera.name) || Number(qaPathSimilarity_(source.path,coursera.path))<0.7)) return 0;
     var titleScore = fuzzyMatchScore_(source.name, coursera.name);
     if (titleScore < 0.50) return 0;
 
@@ -177,13 +189,25 @@ export function qaBuildGlobalMatchPlan_(sourceItems, courseraItems) {
         if (a.sourceIndex !== b.sourceIndex) return a.sourceIndex-b.sourceIndex;
         return a.courseraIndex-b.courseraIndex;
     });
+    // Equal best candidates do not acquire identity from array order. Keep the
+    // competing source/destination evidence for review instead of forcing parity.
+    var ranks=new Map(), ambiguousSources=new Set(), ambiguousDestinations=new Set();
+    edges.forEach(function(edge) {
+        var rank=JSON.stringify([edge.exactTitle,edge.typeCompatible,edge.score.toFixed(9),edge.pathScore.toFixed(9)]);
+        ['s:'+edge.sourceIndex,'d:'+edge.courseraIndex].forEach(function(key) {
+            var group=key+':'+rank, prior=ranks.get(group);
+            if(prior) { ambiguousSources.add(prior.sourceIndex);ambiguousSources.add(edge.sourceIndex);ambiguousDestinations.add(prior.courseraIndex);ambiguousDestinations.add(edge.courseraIndex); }
+            else ranks.set(group,edge);
+        });
+    });
     var sourceUsed = Object.create(null), destUsed = Object.create(null), plan = Object.create(null);
     edges.forEach(function(edge) {
-        if (sourceUsed[edge.sourceIndex] || destUsed[edge.courseraIndex]) return;
+        if (ambiguousSources.has(edge.sourceIndex) || ambiguousDestinations.has(edge.courseraIndex) || sourceUsed[edge.sourceIndex] || destUsed[edge.courseraIndex]) return;
         sourceUsed[edge.sourceIndex] = true; destUsed[edge.courseraIndex] = true;
         edge.method = edge.exactTitle ? 'EXACT_TITLE_RESERVED' : (edge.typeCompatible ? 'GLOBAL_TYPE_COMPATIBLE' : 'GLOBAL_FUZZY');
         plan[edge.sourceIndex] = edge;
     });
+    Object.defineProperty(plan,'ambiguities',{value:Object.fromEntries([...ambiguousSources].map(function(index){return [index,edges.filter(function(e){return e.sourceIndex===index;}).map(function(e){return {itemId:courseraItems[e.courseraIndex].id,name:courseraItems[e.courseraIndex].name,score:e.score};})];}))});
     return plan;
 }
 

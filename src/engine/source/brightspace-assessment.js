@@ -213,8 +213,8 @@ export function qaBrightspaceQuizQuestion_(q, index) {
       if(type==='multiple-select'&&flag===null) answerReliable=false;
       if(type==='single-select'&&(weight==null||!Number.isFinite(weight)||[0,100].indexOf(weight)===-1)) answerReliable=false;
       var isCorrect=flag!==null?flag:weight===100;
-      return {id:String(a.PartId || a.partId || i+1),text:txt,correct:isCorrect};
-    }).filter(function(o){ return !!o.text; });
+      return {id:String(a.PartId || a.partId || i+1),text:txt,correct:isCorrect,sourceEmpty:txt===''};
+    }); // Explicitly empty source options remain positions, not absent choices.
     if(type==='single-select' && options.filter(function(o){return o.correct;}).length!==1) answerReliable=false;
   } else if (type === 'text-entry' && Array.isArray(info.Blanks)) {
     if(info.Blanks.length!==1) answerReliable=false;
@@ -235,7 +235,8 @@ export function qaBrightspaceQuizQuestion_(q, index) {
     syntheticProjectionIdentity:!nativeQuestionId,
     sourceTypeEvidence:{platform:'BRIGHTSPACE',nativeQuestionId:nativeQuestionId || null,
       identityStatus:conflictingNativeIds?'CONFLICTING_NATIVE_ID':nativeQuestionId?'NATIVE_ID':'MISSING_NATIVE_ID',
-      syntheticProjectionIdentity:!nativeQuestionId,projectionId:!nativeQuestionId?projectionId:null},
+      syntheticProjectionIdentity:!nativeQuestionId,projectionId:!nativeQuestionId?projectionId:null,
+      definition:Object.fromEntries(['QuestionText','questionText','QuestionInfo','questionInfo','Feedback','feedback','Points','QuestionTypeId','questionTypeId'].filter(function(key){return Object.prototype.hasOwnProperty.call(q,key);}).map(function(key){return [key,JSON.parse(JSON.stringify(q[key]))];}))},
     number:index+1,
     type:type,
     prompt:qaBrightspaceText_(q.QuestionText || q.questionText || q.Name || q.name || ''),
@@ -281,7 +282,7 @@ export function qaBrightspaceDeclaredQuizCount_(quiz) {
 
 export function qaBrightspaceQuizToAssessment_(quiz) {
   if (!quiz || !Array.isArray(quiz.questions) || !quiz.questions.length) return null;
-  var questions = quiz.questions.map(qaBrightspaceQuizQuestion_).filter(function(q){ return !!q.prompt || q.options.length || q.correctAnswers.length; });
+  var questions = quiz.questions.map(function(q,index){var parsed=qaBrightspaceQuizQuestion_(q,index);parsed.sourceTypeEvidence.quizId=String(quiz.id || '');return parsed;}).filter(function(q){ return !!q.prompt || q.options.length || q.correctAnswers.length; });
   if (!questions.length) return null;
   var declared = qaBrightspaceDeclaredQuizCount_(quiz) || questions.length;
   var observedDeclared = qaBrightspaceDeclaredQuizCount_(quiz);

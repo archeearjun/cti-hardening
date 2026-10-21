@@ -181,6 +181,12 @@ export function qaNormalizeQuestion_(q,index){
   var out=base_qaNormalizeQuestion_(q,index);
   if(out){
     q=q||{};
+    if(q.sourceTypeEvidence?.platform==='BRIGHTSPACE' && Array.isArray(q.options) && q.options.some(o=>o.sourceEmpty===true)) {
+      out.options=q.options.map(function(o,i){
+        if(o.sourceEmpty===true && o.text==='') return {id:String(o.id ?? i+1),label:'',description:'',text:'',aliases:[],correct:o.correct===true?true:o.correct===false?false:null,sourceEmpty:true};
+        return base_qaNormalizeQuestion_({options:[o]},0).options[0];
+      }).filter(Boolean);
+    }
     if(Object.prototype.hasOwnProperty.call(q,'sourceDefinitionId'))out.sourceDefinitionId=String(q.sourceDefinitionId||'');
     if(Object.prototype.hasOwnProperty.call(q,'observationMethod'))out.observationMethod=String(q.observationMethod||'');
     if(Object.prototype.hasOwnProperty.call(q,'answerKeyApplicable'))out.answerKeyApplicable=typeof q.answerKeyApplicable==='boolean'?q.answerKeyApplicable:null;
@@ -260,7 +266,14 @@ export function qaNormalizeAssessment_(assessment, origin) {
             selectCount: assessment.selectionPolicy.selectCount!=null && Number.isFinite(Number(assessment.selectionPolicy.selectCount)) ? Number(assessment.selectionPolicy.selectCount) : null,
             poolSize: assessment.selectionPolicy.poolSize!=null && Number.isFinite(Number(assessment.selectionPolicy.poolSize)) ? Number(assessment.selectionPolicy.poolSize) : null,
             randomSelection: assessment.selectionPolicy.randomSelection === true ? true : (assessment.selectionPolicy.randomSelection === false ? false : null),
-            source: String(assessment.selectionPolicy.source || '')
+            source: String(assessment.selectionPolicy.source || ''),
+            ...(assessment.selectionPolicy.membershipScope==='DOCUMENT_LOCAL_QTI' ? {
+              membershipScope:'DOCUMENT_LOCAL_QTI', sourceFile:String(assessment.selectionPolicy.sourceFile || ''),
+              scopes:JSON.parse(JSON.stringify(assessment.selectionPolicy.scopes || [])),
+              fixedQuestionIds:(assessment.selectionPolicy.fixedQuestionIds || []).slice(),
+              membershipVerified:assessment.selectionPolicy.membershipVerified===true
+            } : {}),
+            ...(Array.isArray(assessment.selectionPolicy.sourcePolicies) ? {sourcePolicies:JSON.parse(JSON.stringify(assessment.selectionPolicy.sourcePolicies))} : {})
         } : { observed:false, selectCount:null, poolSize:null, randomSelection:null, source:'' },
         questions: qs,
         captureCompleteness: assessment.captureCompleteness ? JSON.parse(JSON.stringify(assessment.captureCompleteness)) : null,

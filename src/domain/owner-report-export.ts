@@ -1,3 +1,4 @@
+import { evidenceDecisionBrief } from "../reporting/evidence-decision-brief.js";
 import { loadReportContent } from "./report-content-store.ts";
 import {
   validateCourseraLinkedCaptures,
@@ -453,7 +454,7 @@ export async function prepareOwnerReportExport(
       : JSON.stringify(report.result, null, 2);
   lines.push("", "ORIGINAL AUDIT — UNCHANGED", original);
   return {
-    text: lines.join("\n"),
+    text: evidenceDecisionBrief(report.result, contentEvidence) + "\n\n" + lines.join("\n"),
     evidence: { ...report, followUp: { ...followUp, derivedAnswers } },
     followUp: { ...followUp, derivedAnswers },
   };

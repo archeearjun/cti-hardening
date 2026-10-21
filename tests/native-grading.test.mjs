@@ -565,6 +565,13 @@ test("actual workbook comparison cannot borrow grading by title, case-folded ID 
     const item = output.result.itemResults.find(
       (row) => row.sourceId === "sourcePractice",
     );
+    if (options.duplicateWorkbook) {
+      assert.equal(item.verdict, 'UNVERIFIED');
+      assert.equal(item.courseraId, '');
+      assert.equal(item.checks.mappingAmbiguity.status, 'AMBIGUOUS');
+      assert.equal(item.checks.behavior, undefined); // No arbitrary item may lend grading evidence.
+      continue;
+    }
     assert.equal(item.checks.behavior.status, "UNVERIFIED");
     assert.deepEqual(item.checks.behavior.mismatches, []);
     assert(

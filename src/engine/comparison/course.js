@@ -374,6 +374,19 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                 continue;
             }
 
+            if (matchPlan.ambiguities?.[s]) {
+                var ambiguousResult={sourceId:source.id,sourceName:source.name,sourceType:source.type,sourcePath:source.path,
+                    courseraId:'',courseraName:'',courseraType:'',courseraPath:'',matchScore:0,fidelityPercent:0,evidenceCoverage:0,
+                    earnedPoints:0,possiblePoints:100,verdict:'UNVERIFIED',issues:['SOURCE_DESTINATION_MATCH_UNCONFIRMED'],
+                    checks:{structure:{status:'UNVERIFIED',weight:0},mappingAmbiguity:{status:'AMBIGUOUS',candidates:matchPlan.ambiguities[s],reason:'Equal structural candidates cannot establish a unique source-to-destination identity.'}},
+                    snapshotContext:snapshotContext,evidenceSources:[]};
+                ambiguousResult.ownerAction=qaOwnerActionForResult_(ambiguousResult);
+                ambiguousResult.evidenceStrength=qaEvidenceStrength_(ambiguousResult);
+                itemResults.push(ambiguousResult);
+                payloadUnverified.push({name:source.name,type:source.type,path:source.path,expectedAssets:source.assetDetails||[],fidelityPercent:0,evidenceCoverage:0,reason:ambiguousResult.ownerAction.action});
+                continue;
+            }
+
             var plannedMatch = matchPlan[s] || null;
             var bestIdx = plannedMatch ? plannedMatch.courseraIndex : -1;
             var bestScore = plannedMatch ? plannedMatch.score : 0;
@@ -560,6 +573,7 @@ return function runPostIngestionQaCore_(excelBase64, excelName, jsonBase64, json
                     files: item.files,
                     links: item.links,
                     sourceAssetProvenance: item.sourceAssetProvenance || null,
+                    ...(item.nativeNameEvidence ? {nativeNameEvidence:item.nativeNameEvidence} : {}),
                     ...(item.nativeCoachEvidence ? {nativeCoachEvidence:item.nativeCoachEvidence} : {}),
                     ...(item.type==='Coach' && item.directCaptureLimitation ? {evidenceAvailability:item.directCaptureLimitation} : {}),
                     classification: extraInfo.classification,
