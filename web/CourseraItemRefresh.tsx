@@ -32,7 +32,7 @@ export default function CourseraItemRefresh({
       null,
     ),
     alive = useRef(true);
-  const identity = `${spec.auditId}:${spec.courseId}:${spec.itemId}`;
+  const identity = `${spec.auditId}:${spec.courseId}:${spec.itemId}:${spec.evidenceRevision || ''}`;
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();

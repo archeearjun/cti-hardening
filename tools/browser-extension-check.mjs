@@ -120,7 +120,7 @@ try {
     (await context.waitForEvent("serviceworker"));
   assert(worker.url().startsWith("chrome-extension://"));
   await page.goto(origin);
-  assert.equal((await request(page, { type: "PING" })).version, "1.0.22");
+  assert.equal((await request(page, { type: "PING" })).version, "1.0.23");
   await workflow("Setup");
   await page.getByLabel("Workspace migration or backup JSON").setInputFiles({
     name: "test.json",
