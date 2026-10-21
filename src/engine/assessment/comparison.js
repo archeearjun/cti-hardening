@@ -66,7 +66,7 @@ export function qaStructuredAssessmentComparison_(source, coursera) {
     base.answerEvidenceApplicable=base.sourceAnswerEvidenceApplicable || base.courseraAnswerEvidenceApplicable;
     base.sourceMediaQuestionNumbers=sAssessment?sAssessment.questions.map(function(q,i){return q.mediaRefs&&q.mediaRefs.length?i+1:null;}).filter(Boolean):[];
     base.questionMediaStatus=base.sourceMediaQuestionNumbers.length?'UNVERIFIED':'NOT_RECORDED_OR_NOT_REQUIRED';
-    base.sourcePackageMediaGaps=[];if(sAssessment)sAssessment.questions.forEach(function(q,i){(q.mediaPresence||[]).forEach(function(m){if(m.status==='NOT_IN_PACKAGE'||m.status==='PRESENT_DIFFERENT_PATH')base.sourcePackageMediaGaps.push({question:i+1,status:m.status,ref:m.ref,expectedPath:m.expectedPath,candidates:m.candidates||[]});});});
+    base.sourcePackageMediaGaps=[];if(sAssessment)sAssessment.questions.forEach(function(q,i){(q.mediaPresence||[]).forEach(function(m){if(m.status==='NOT_IN_PACKAGE'||m.status==='PRESENT_DIFFERENT_PATH')base.sourcePackageMediaGaps.push({question:i+1,sourceQuestionId:q.id||null,sourceFile:q.sourceFile||null,status:m.status,ref:m.ref,expectedPath:m.expectedPath,candidates:m.candidates||[]});});});
     if (!sAssessment) {
         base.reason = 'Source QTI question structure is not stored in this package fingerprint. Re-process/update the source IMSCC once with v6.5.3; the existing Coursera fingerprint can be reused.';
         return base;
