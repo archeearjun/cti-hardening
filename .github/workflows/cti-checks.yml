@@ -48,6 +48,8 @@ jobs:
         run: npm run test:browser:activities
       - name: Verify package scanning in Chromium
         run: npm run test:browser:package
+      - name: Verify bounded saved-evidence download and resume in Chromium
+        run: node tools/browser-workspace-download-check.mjs
       - name: Verify workspace workflow in Chromium
         run: npm run test:browser:workspace
       - name: Verify full responsive UX in Chromium

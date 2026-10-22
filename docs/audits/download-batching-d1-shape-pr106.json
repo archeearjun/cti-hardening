@@ -1,0 +1,330 @@
+{
+  "kind": "CTI_SYNTHETIC_DOWNLOAD_BENCHMARK",
+  "node": "v24.19.0",
+  "platform": "linux",
+  "measuredAt": "2026-10-22T09:57:28.768Z",
+  "scope": "Actual client and server handler with in-process SQLite; D1 BLOB-as-number-array result representation simulated for individual reads; no HTTP socket latency, Cloudflare CPU or production quota measured. Diagnostics enabled in both paths. Alternating modes, identical records. No artificial latency.",
+  "records": 25,
+  "bytes": 125172835,
+  "chunks": 955,
+  "individual": {
+    "requests": 980,
+    "medianMs": 7037.488294000001,
+    "d1Queries": 2915
+  },
+  "batch": {
+    "requests": 150,
+    "medianMs": 3902.836104,
+    "d1Queries": 425
+  },
+  "requestReductionPercent": 84.6938775510204,
+  "memoryCaveat": "Process samples include the fixture database and retained output objects; not an isolated client or Worker peak. Five-millisecond sampling can miss peaks. Modes share one process; GC is requested when available.",
+  "trials": [
+    {
+      "mode": "individual",
+      "trial": 0,
+      "elapsedMs": 7037.488294000001,
+      "recordRequests": 980,
+      "sessionRequests": 1,
+      "d1Queries": 2915,
+      "boundedRangeQueries": 0,
+      "maxD1Rows": 0,
+      "baselineMemory": {
+        "rss": 266096640,
+        "heapTotal": 151265280,
+        "heapUsed": 15487224,
+        "external": 35082321,
+        "arrayBuffers": 210943
+      },
+      "sampledPeakMemory": {
+        "rss": 647163904,
+        "heapTotal": 346443776,
+        "heapUsed": 247050408,
+        "external": 84620694,
+        "arrayBuffers": 33703753
+      },
+      "counts": {
+        "requests": 981,
+        "cache_hits": 0,
+        "reused_chunks": 0,
+        "download_bytes": 125172835,
+        "chunks_acquired": 955
+      },
+      "stages": [
+        {
+          "stage": "evidence_load",
+          "calls": 25,
+          "activeWallMs": 7033.349483999999,
+          "summedSpanMs": 7033.349484000002
+        },
+        {
+          "stage": "transfer_request",
+          "calls": 981,
+          "activeWallMs": 6611.68915699998,
+          "summedSpanMs": 6611.689156999992
+        }
+      ],
+      "hashEquality": true
+    },
+    {
+      "mode": "batch8",
+      "trial": 1,
+      "elapsedMs": 3902.836104,
+      "recordRequests": 150,
+      "sessionRequests": 1,
+      "d1Queries": 425,
+      "boundedRangeQueries": 125,
+      "maxD1Rows": 8,
+      "baselineMemory": {
+        "rss": 555913216,
+        "heapTotal": 287866880,
+        "heapUsed": 148909480,
+        "external": 40057938,
+        "arrayBuffers": 148355
+      },
+      "sampledPeakMemory": {
+        "rss": 555913216,
+        "heapTotal": 294256640,
+        "heapUsed": 156611040,
+        "external": 57633167,
+        "arrayBuffers": 36073670
+      },
+      "counts": {
+        "requests": 151,
+        "cache_hits": 0,
+        "reused_chunks": 0,
+        "batch_requests": 125,
+        "download_bytes": 125235635,
+        "chunks_acquired": 955,
+        "batches_8": 100,
+        "batches_7": 5,
+        "batches_6": 20
+      },
+      "stages": [
+        {
+          "stage": "evidence_load",
+          "calls": 25,
+          "activeWallMs": 3901.0141280000007,
+          "summedSpanMs": 3901.0141280000007
+        },
+        {
+          "stage": "transfer_request",
+          "calls": 151,
+          "activeWallMs": 3018.4823050000214,
+          "summedSpanMs": 3018.4823050000214
+        },
+        {
+          "stage": "batch_validate",
+          "calls": 125,
+          "activeWallMs": 549.1450950000017,
+          "summedSpanMs": 549.1450950000017
+        }
+      ],
+      "hashEquality": true
+    },
+    {
+      "mode": "individual",
+      "trial": 2,
+      "elapsedMs": 7181.5037520000005,
+      "recordRequests": 980,
+      "sessionRequests": 1,
+      "d1Queries": 2915,
+      "boundedRangeQueries": 0,
+      "maxD1Rows": 0,
+      "baselineMemory": {
+        "rss": 575082496,
+        "heapTotal": 285769728,
+        "heapUsed": 148818744,
+        "external": 47659354,
+        "arrayBuffers": 6178147
+      },
+      "sampledPeakMemory": {
+        "rss": 612732928,
+        "heapTotal": 330797056,
+        "heapUsed": 239524368,
+        "external": 64502707,
+        "arrayBuffers": 28723046
+      },
+      "counts": {
+        "requests": 981,
+        "cache_hits": 0,
+        "reused_chunks": 0,
+        "download_bytes": 125172835,
+        "chunks_acquired": 955
+      },
+      "stages": [
+        {
+          "stage": "evidence_load",
+          "calls": 25,
+          "activeWallMs": 7179.397928000002,
+          "summedSpanMs": 7179.397928000002
+        },
+        {
+          "stage": "transfer_request",
+          "calls": 981,
+          "activeWallMs": 6741.40635499995,
+          "summedSpanMs": 6741.40635499995
+        }
+      ],
+      "hashEquality": true
+    },
+    {
+      "mode": "batch8",
+      "trial": 3,
+      "elapsedMs": 3945.889847999999,
+      "recordRequests": 150,
+      "sessionRequests": 1,
+      "d1Queries": 425,
+      "boundedRangeQueries": 125,
+      "maxD1Rows": 8,
+      "baselineMemory": {
+        "rss": 575348736,
+        "heapTotal": 286294016,
+        "heapUsed": 149334168,
+        "external": 36976415,
+        "arrayBuffers": 213891
+      },
+      "sampledPeakMemory": {
+        "rss": 575348736,
+        "heapTotal": 294813696,
+        "heapUsed": 159472568,
+        "external": 44060062,
+        "arrayBuffers": 25126610
+      },
+      "counts": {
+        "requests": 151,
+        "cache_hits": 0,
+        "reused_chunks": 0,
+        "batch_requests": 125,
+        "download_bytes": 125235635,
+        "chunks_acquired": 955,
+        "batches_8": 100,
+        "batches_7": 5,
+        "batches_6": 20
+      },
+      "stages": [
+        {
+          "stage": "evidence_load",
+          "calls": 25,
+          "activeWallMs": 3944.2574790000035,
+          "summedSpanMs": 3944.2574790000035
+        },
+        {
+          "stage": "transfer_request",
+          "calls": 151,
+          "activeWallMs": 3059.462904999975,
+          "summedSpanMs": 3059.462904999975
+        },
+        {
+          "stage": "batch_validate",
+          "calls": 125,
+          "activeWallMs": 570.6329909999658,
+          "summedSpanMs": 570.6329909999658
+        }
+      ],
+      "hashEquality": true
+    },
+    {
+      "mode": "individual",
+      "trial": 4,
+      "elapsedMs": 6841.848019000001,
+      "recordRequests": 980,
+      "sessionRequests": 1,
+      "d1Queries": 2915,
+      "boundedRangeQueries": 0,
+      "maxD1Rows": 0,
+      "baselineMemory": {
+        "rss": 571031552,
+        "heapTotal": 286294016,
+        "heapUsed": 149061552,
+        "external": 42481931,
+        "arrayBuffers": 5981423
+      },
+      "sampledPeakMemory": {
+        "rss": 631947264,
+        "heapTotal": 349622272,
+        "heapUsed": 261828824,
+        "external": 70269727,
+        "arrayBuffers": 28788590
+      },
+      "counts": {
+        "requests": 981,
+        "cache_hits": 0,
+        "reused_chunks": 0,
+        "download_bytes": 125172835,
+        "chunks_acquired": 955
+      },
+      "stages": [
+        {
+          "stage": "evidence_load",
+          "calls": 25,
+          "activeWallMs": 6840.249034999986,
+          "summedSpanMs": 6840.249034999986
+        },
+        {
+          "stage": "transfer_request",
+          "calls": 981,
+          "activeWallMs": 6386.597851999952,
+          "summedSpanMs": 6386.597851999952
+        }
+      ],
+      "hashEquality": true
+    },
+    {
+      "mode": "batch8",
+      "trial": 5,
+      "elapsedMs": 3863.4252169999963,
+      "recordRequests": 150,
+      "sessionRequests": 1,
+      "d1Queries": 425,
+      "boundedRangeQueries": 125,
+      "maxD1Rows": 8,
+      "baselineMemory": {
+        "rss": 553234432,
+        "heapTotal": 288391168,
+        "heapUsed": 149390744,
+        "external": 35142775,
+        "arrayBuffers": 213891
+      },
+      "sampledPeakMemory": {
+        "rss": 561754112,
+        "heapTotal": 296910848,
+        "heapUsed": 159500224,
+        "external": 57303390,
+        "arrayBuffers": 35481973
+      },
+      "counts": {
+        "requests": 151,
+        "cache_hits": 0,
+        "reused_chunks": 0,
+        "batch_requests": 125,
+        "download_bytes": 125235635,
+        "chunks_acquired": 955,
+        "batches_8": 100,
+        "batches_7": 5,
+        "batches_6": 20
+      },
+      "stages": [
+        {
+          "stage": "evidence_load",
+          "calls": 25,
+          "activeWallMs": 3861.9946550000022,
+          "summedSpanMs": 3861.9946550000022
+        },
+        {
+          "stage": "transfer_request",
+          "calls": 151,
+          "activeWallMs": 3020.9809479999894,
+          "summedSpanMs": 3020.9809479999894
+        },
+        {
+          "stage": "batch_validate",
+          "calls": 125,
+          "activeWallMs": 522.2212610000497,
+          "summedSpanMs": 522.2212610000497
+        }
+      ],
+      "hashEquality": true
+    }
+  ]
+}

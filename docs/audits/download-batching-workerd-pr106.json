@@ -1,0 +1,55 @@
+{
+  "scope": "One paired local HTTP/workerd/Durable Object/SQLite D1 run, individual first. Timed interval includes manifest, full body transfer, assembly and final SHA-256; batch also includes per-chunk hashes. Not production quota or live TRDE120 evidence.",
+  "results": [
+    {
+      "check": "CTI_WORKERD_INDIVIDUAL_PASS",
+      "bytes": 10489856,
+      "chunks": 81,
+      "requests": 82,
+      "elapsedMs": 1525.8525390000004
+    },
+    {
+      "check": "CTI_WORKERD_BATCH_PASS",
+      "bytes": 10489856,
+      "chunks": 81,
+      "batches": 11,
+      "requests": 12,
+      "maxFrameBytes": 1049163,
+      "elapsedMs": 406.28562300000067,
+      "productionQuotaAttested": false
+    },
+    {
+      "check": "CTI_WORKERD_INDIVIDUAL_PASS",
+      "bytes": 33554432,
+      "chunks": 256,
+      "requests": 257,
+      "elapsedMs": 4913.682907000002
+    },
+    {
+      "check": "CTI_WORKERD_BATCH_PASS",
+      "bytes": 33554432,
+      "chunks": 256,
+      "batches": 32,
+      "requests": 33,
+      "maxFrameBytes": 1049158,
+      "elapsedMs": 1243.3391940000001,
+      "productionQuotaAttested": false
+    },
+    {
+      "check": "CTI_WORKERD_WORKSPACE_PASS",
+      "synthetic": true,
+      "actualWorkersRuntime": true,
+      "actualSqliteD1": true,
+      "actualDurableObject": true,
+      "reportBytes": 10489856,
+      "reportParts": 81,
+      "capturedSyntheticQuestionDefinitions": 4000,
+      "invalidContentRejected": true,
+      "immutableAudit": true,
+      "optimisticConflict": true,
+      "staleBasisRejected": true,
+      "serviceBindingEnvelopeChecked": true,
+      "productionAccessOrQuotaAttested": false
+    }
+  ]
+}

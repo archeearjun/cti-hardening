@@ -23,6 +23,7 @@ export function createPerformanceTrace(options = {}) {
     "owner_report",
     "evidence_load",
     "transfer_request",
+    "batch_validate",
     "backoff",
     "source_recovery",
     "binary_verify",
@@ -39,6 +40,11 @@ export function createPerformanceTrace(options = {}) {
     "render",
   ];
   const PERFORMANCE_COUNTS = [
+    "batch_requests",
+    "chunks_acquired",
+    "download_bytes",
+    "reused_chunks",
+    "batches_1", "batches_2", "batches_3", "batches_4", "batches_5", "batches_6", "batches_7", "batches_8",
     "requests",
     "failed",
     "authentication_failed",

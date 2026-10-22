@@ -1,3 +1,5 @@
+import { readWorkspaceDownloadBatch } from "./workspace-download.ts";
+import { DOWNLOAD_BATCH_PARTS } from "../src/domain/workspace-download-batch.ts";
 import { fetchSourceQuestions } from "./source-questions.ts";
 import {
   readPanoptoProviderMetadata,
@@ -571,6 +573,22 @@ export async function handleAuthorized(
       .bind(revision, p[1])
       .first();
     if (!upload) fail("Saved revision not found.", 404);
+    if (p[2] === "chunk-batch") {
+      // Require explicit immutable identity; never default a batch to the latest revision.
+      const first = url.searchParams.get("first"), count = url.searchParams.get("count");
+      if (p.length !== 3 || url.searchParams.getAll("revision").length !== 1 || !url.searchParams.get("revision") ||
+          url.searchParams.getAll("first").length !== 1 || url.searchParams.getAll("count").length !== 1 ||
+          !/^(0|[1-9][0-9]{0,2})$/.test(first || "") || !/^[1-8]$/.test(count || "") ||
+          Number(first) + Number(count) > upload.parts)
+        fail("Invalid evidence batch range or revision.");
+      const bytes = await readWorkspaceDownloadBatch(db, {
+        recordId: p[1], revision, sha256: upload.sha256, bytes: upload.bytes,
+        parts: upload.parts, first: Number(first), count: Number(count),
+      });
+      return new Response(bytes, {headers: {
+        "Content-Type": "application/octet-stream", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+      }});
+    }
     if (p[2] === "chunks") {
       const n = Number(p[3]);
       if (!Number.isInteger(n) || n < 0 || n >= upload.parts)
@@ -596,6 +614,8 @@ export async function handleAuthorized(
         updatedBy: upload.actor,
       },
       parts: upload.parts,
+      bytes: upload.bytes,
+      downloadBatch: { version: 1, maxParts: DOWNLOAD_BATCH_PARTS },
       sha256: upload.sha256,
       revision,
     });

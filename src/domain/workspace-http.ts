@@ -1,3 +1,4 @@
+import { DOWNLOAD_BATCH_MAX_BYTES } from "./workspace-download-batch.ts";
 import { performanceTrace } from "../diagnostics/runtime.ts";
 export interface TransferOptions {
   signal?: AbortSignal;
@@ -119,6 +120,8 @@ async function transfer(
     const diagnostic = performanceTrace();
     const endRequest = diagnostic.begin("transfer_request");
     diagnostic.count("requests");
+    const isBatch = /^records\/[^/]+\/chunk-batch\?/.test(path);
+    if (isBatch) diagnostic.count("batch_requests");
     diagnostic.repeated(path);
     let diagnosticOutcome = "failed", diagnosticReceived = false;
     try {
@@ -153,6 +156,8 @@ async function transfer(
           while (true) {
             const part = await reader.read();
             if (part.done) break;
+            diagnostic.count("download_bytes", part.value.length);
+            if (signal?.aborted) { await reader.cancel(); throw new Error("Transfer stopped by you."); }
             length += part.value.length;
             if (length > binaryMaxBytes) {
               await reader.cancel();
@@ -301,4 +306,10 @@ export async function workspaceBinaryRequest(
   )
     throw Error("Invalid saved evidence chunk bound.");
   return transfer(path, {}, options, options.maxBytes);
+}
+
+/** Same read/retry/auth policy, with a separate fixed bound for framed batches. */
+export async function workspaceBatchRequest(path: string, options: RequestOptions = {}): Promise<Uint8Array> {
+  if (!/^records\/[^/]+\/chunk-batch\?/.test(path)) throw Error("Invalid saved evidence batch route.");
+  return transfer(path, {}, options, DOWNLOAD_BATCH_MAX_BYTES);
 }
