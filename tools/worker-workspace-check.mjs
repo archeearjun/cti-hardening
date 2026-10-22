@@ -1,3 +1,4 @@
+import { decodeDownloadBatch } from "../src/domain/workspace-download-batch.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -242,6 +243,7 @@ try {
     };
   }
   async function read(id) {
+    const started = performance.now();
     const manifest = await (await request(`records/${id}`)).json();
     const parts = [];
     for (let part = 0; part < manifest.parts; part++) {
@@ -260,12 +262,78 @@ try {
       manifest.sha256,
       "Downloaded bytes match the original persisted SHA-256.",
     );
+    console.log(
+      "CTI_WORKERD_INDIVIDUAL_PASS " +
+        JSON.stringify({
+          bytes: bytes.length,
+          chunks: manifest.parts,
+          requests: 1 + manifest.parts,
+          elapsedMs: performance.now() - started,
+        }),
+    );
     return {
       ...manifest.record,
       data: JSON.parse(bytes.toString()),
       raw: bytes,
       sha256: manifest.sha256,
     };
+  }
+  async function readBatches(id, expectedBytes) {
+    const started = performance.now();
+    const manifest = await (await request(`records/${id}`)).json();
+    assert.deepEqual(manifest.downloadBatch, { version: 1, maxParts: 8 });
+    const parts = [];
+    let batches = 0,
+      maxFrameBytes = 0;
+    for (let first = 0; first < manifest.parts; first += 8) {
+      const count = Math.min(8, manifest.parts - first);
+      const response = await request(
+        `records/${id}/chunk-batch?revision=${manifest.revision}&first=${first}&count=${count}`,
+      );
+      const frame = new Uint8Array(await response.arrayBuffer());
+      maxFrameBytes = Math.max(maxFrameBytes, frame.length);
+      parts.push(
+        ...(await decodeDownloadBatch(frame, {
+          recordId: id,
+          revision: manifest.revision,
+          sha256: manifest.sha256,
+          bytes: manifest.bytes,
+          parts: manifest.parts,
+          first,
+          count,
+        })),
+      );
+      batches++;
+    }
+    const bytes = Buffer.concat(parts);
+    assert.deepEqual(bytes, expectedBytes);
+    assert.equal(sha(bytes), manifest.sha256);
+    console.log(
+      "CTI_WORKERD_BATCH_PASS " +
+        JSON.stringify({
+          bytes: bytes.length,
+          chunks: manifest.parts,
+          batches,
+          requests: 1 + batches,
+          maxFrameBytes,
+          elapsedMs: performance.now() - started,
+          productionQuotaAttested: false,
+        }),
+    );
+    await request(
+      `records/${id}/chunk-batch?revision=${manifest.revision}&first=0&count=9`,
+      "GET",
+      undefined,
+      {},
+      400,
+    );
+    await request(
+      `records/${id}/chunk-batch?revision=${manifest.revision}&first=0&count=1`,
+      "GET",
+      undefined,
+      { "x-cti-user": "other@example.test" },
+      403,
+    );
   }
   // The private service binding is the trust boundary, not a fabricated JWT.
   await request(
@@ -320,6 +388,7 @@ try {
   assert.equal(roundTrip.raw.length, runtimeFixtureBytes);
   assert.equal(roundTrip.sha256, stagedAudit.manifest.sha256);
   assert.deepEqual(roundTrip.data, audit.data);
+  await readBatches(audit.id, stagedAudit.bytes);
   assert.equal(roundTrip.updatedBy, CTI_OWNER_EMAIL);
   const immutable = await prepare({ ...audit, version: 1 }, 409);
   assert.match(immutable.prepared.error, /immutable|overwritten/i);
@@ -397,6 +466,26 @@ try {
     /Invalid saved content evidence/,
   );
   await request(`records/${invalid.id}`, "GET", undefined, {}, 404);
+  // Maximum supported original, saved through the unchanged validator/upload path.
+  const maxData = { syntheticOriginal: true, padding: "" };
+  maxData.padding = "x".repeat(
+    32 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(maxData)),
+  );
+  const maximum = {
+    id: "synthetic-max-download",
+    kind: "legacy-backup",
+    title: "Synthetic maximum original",
+    packageId: "",
+    version: 0,
+    updatedAt: "",
+    updatedBy: "",
+    data: maxData,
+  };
+  headers["x-cti-role"] = "admin";
+  const maxSaved = await save(maximum);
+  headers["x-cti-role"] = "editor";
+  await read(maximum.id);
+  await readBatches(maximum.id, maxSaved.staged.bytes);
   const viewer = await (
     await request("records", "GET", undefined, { "x-cti-role": "viewer" })
   ).json();

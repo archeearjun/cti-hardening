@@ -1,3 +1,4 @@
+import { decodeDownloadBatch, DOWNLOAD_BATCH_PARTS, DOWNLOAD_MAX_BYTES } from "./workspace-download-batch.ts";
 import { performanceTrace } from '../diagnostics/runtime.ts';
 import {
   validateRecord,
@@ -10,6 +11,7 @@ import { normalizePartnerName, packageSemanticKey } from "./operations.ts";
 import {
   workspaceRequest as request,
   workspaceBinaryRequest,
+  workspaceBatchRequest,
   type TransferOptions,
 } from "./workspace-http.ts";
 import type {
@@ -556,7 +558,11 @@ try {
         "Saved evidence manifest is invalid.",
         "download",
       );
-    const identity = JSON.stringify([m.revision, m.sha256, m.parts, m.record]);
+    const batch = m.downloadBatch;
+    if (batch !== undefined && (batch?.version !== 1 || batch.maxParts !== DOWNLOAD_BATCH_PARTS ||
+        !Number.isInteger(m.bytes) || m.bytes < 1 || m.bytes > DOWNLOAD_MAX_BYTES || m.parts !== Math.ceil(m.bytes / (128 * 1024))))
+      throw transferProtocolError("Saved evidence batch capability is invalid.", "download");
+    const identity = JSON.stringify([m.revision, m.sha256, m.parts, m.record, m.bytes]);
     let held = downloads.get(id);
     if (!held || held.identity !== identity) {
       downloads.delete(id);
@@ -567,12 +573,32 @@ try {
     }
     const buffers = held.buffers;
     performanceTrace().count("cache_hits", buffers.length);
+    performanceTrace().count("reused_chunks", buffers.length);
     try {
       if (buffers.length)
         options.onProgress?.(
           `Resuming saved evidence (${id}) at chunk ${buffers.length + 1}/${m.parts}; earlier chunks retained for final checksum verification.`,
         );
-      for (let i = buffers.length; i < m.parts; i++) {
+      for (let i = buffers.length; i < m.parts;) {
+        if (options.signal?.aborted) throw Error("Transfer stopped by you.");
+        if (batch) {
+          const count = Math.min(DOWNLOAD_BATCH_PARTS, m.parts - i);
+          const context = `Downloading saved evidence (${id}), chunks ${i + 1}–${i + count}/${m.parts}`;
+          options.onProgress?.(context);
+          const frame = await workspaceBatchRequest(
+            `records/${encodeURIComponent(id)}/chunk-batch?revision=${encodeURIComponent(m.revision)}&first=${i}&count=${count}`,
+            {...options, context, phase: "download"},
+          );
+          const chunks = await performanceTrace().measure("batch_validate", () => decodeDownloadBatch(frame, {
+            recordId: id, revision: m.revision, sha256: m.sha256, bytes: m.bytes, parts: m.parts, first: i, count,
+          }));
+          if (options.signal?.aborted) throw Error("Transfer stopped by you.");
+          buffers.push(...chunks);
+          performanceTrace().count("chunks_acquired", count);
+          performanceTrace().count(`batches_${count}`);
+          i += count;
+          continue;
+        }
         options.onProgress?.(
           `Downloading saved evidence (${id}), chunk ${i + 1}/${m.parts}`,
         );
@@ -591,6 +617,8 @@ try {
             "download",
           );
         buffers.push(bytes);
+        performanceTrace().count("chunks_acquired");
+        i++;
       }
       const bytes = new Uint8Array(buffers.reduce((n, b) => n + b.length, 0));
       let offset = 0;

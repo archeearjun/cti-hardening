@@ -5283,7 +5283,8 @@
         },
         {
           "name": "createPerformanceTrace",
-          "reviewedCurrentHash": "18690194d3723143abf84719de9c0de6b5de093d7080729bddaa0b4599cac41f"
+          "reviewedCurrentHash": "ede1e313f00b16df07f9f5ca394f5558f73d2cd367144e9798a42051d6d1c433",
+          "note": "PR106: reviewed diagnostic vocabulary only: batch validation stage and fixed request/chunk/byte/reuse/batch-size counters. No extractor execution, evidence or acquisition contract changed."
         },
         {
           "name": "mountPerformanceControls",

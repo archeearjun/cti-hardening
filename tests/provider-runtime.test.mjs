@@ -219,16 +219,17 @@ test("a failed image computation releases both permits before a successful repla
   assert.equal(calls,3);
 });
 
-test('workspace queue returns temporary 503 before execution and accepts the same read after capacity recovers',async()=>{
+for (const route of ['/api/records/synthetic/chunks/1?revision=original', '/api/records/synthetic/chunk-batch?revision=original&first=8&count=8'])
+test('workspace queue preserves eight-request backpressure: '+route,async()=>{
   let release, calls=0;
   const gate=new Promise(resolve=>{release=resolve;});
   const f=fixture(async()=>{calls++;await gate;return Response.json({original:'unchanged'});},{CTI_DB:{}});
-  const pending=Array.from({length:8},()=>f.object.fetch(request('/api/records/synthetic/chunks/1?revision=original')));
-  const busy=await f.object.fetch(request('/api/records/synthetic/chunks/1?revision=original'));
+  const pending=Array.from({length:8},()=>f.object.fetch(request(route)));
+  const busy=await f.object.fetch(request(route));
   assert.equal(busy.status,503); assert.equal(busy.headers.get('retry-after'),'1');
   assert.match((await busy.json()).error,/processing other evidence/);
   assert.equal(calls,1,'Rejected request never reaches evidence handler');
   release(); assert((await Promise.all(pending)).every(r=>r.status===200));
-  const recovered=await f.object.fetch(request('/api/records/synthetic/chunks/1?revision=original'));
+  const recovered=await f.object.fetch(request(route));
   assert.deepEqual(await recovered.json(),{original:'unchanged'}); assert.equal(calls,9);
 });
