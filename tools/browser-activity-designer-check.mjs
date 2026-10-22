@@ -431,6 +431,11 @@ try {
     await page.locator("#module-decisions .module-decision").count(),
     2,
   );
+  // Changing the preparation view must not export old results against new evidence.
+  await page.locator("#nav-prepare").click();
+  await page.locator("#title").fill("Different preparation title");
+  await page.locator("#title").dispatchEvent("change");
+  await page.locator("#nav-activities").click();
   await page.locator("#save-results").click();
   const workLink = page.getByRole("link", {
     name: "Save Course_Activity_Designer_Work.zip",
@@ -443,6 +448,14 @@ try {
   const bytes = fs.readFileSync(await download.path()),
     zip = await JSZip.loadAsync(bytes);
   assert(zip.file("SESSION.json"));
+  assert.equal(
+    JSON.parse(await zip.file("SESSION.json").async("string")).title,
+    snapshot.title,
+  );
+  await page.locator("#nav-prepare").click();
+  await page.locator("#title").fill(snapshot.title);
+  await page.locator("#title").dispatchEvent("change");
+  await page.locator("#nav-activities").click();
   assert.equal(
     JSON.parse(await zip.file("ACTIVITY_RESULTS.json").async("string"))
       .module_decisions.length,
@@ -487,13 +500,11 @@ try {
       .count(),
     0,
   );
-  await restored
-    .locator("#result-file")
-    .setInputFiles({
-      name: "work.zip",
-      mimeType: "application/zip",
-      buffer: bytes,
-    });
+  await restored.locator("#result-file").setInputFiles({
+    name: "work.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
   await restored
     .getByRole("button", { name: "Copy all fields", exact: true })
     .waitFor();

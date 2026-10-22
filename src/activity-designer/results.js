@@ -5,6 +5,7 @@
     UI = globalThis.CoursePrepUI;
   let plan = null,
     recommendations = null;
+  let resultSession = null;
   let result = null,
     importing = false;
   function el(tag, text, cls) {
@@ -653,6 +654,7 @@
       recommendations = combined;
     }
     result = nextResult;
+    resultSession = s;
     warn("");
     render();
     UI.showView("activities");
@@ -808,7 +810,7 @@
   $("save-results").onclick = () => {
     if (!result) return;
     const files = {
-      ...(UI.getOutput() || {}),
+      ...(resultSession ? CoursePrep.bundleFiles(resultSession, UI.setup) : {}),
       "ACTIVITY_RESULTS.json": JSON.stringify(result, null, 2),
       "READ_ME.txt": UI.setup.readme,
       ...(plan
