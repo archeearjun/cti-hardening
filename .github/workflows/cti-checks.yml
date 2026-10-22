@@ -117,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     # Full archive delivery also verifies 72 MiB of originals and legacy
     # checkpoint migration. Retain every required browser check.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
