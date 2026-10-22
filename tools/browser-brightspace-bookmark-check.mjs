@@ -855,6 +855,9 @@ try {
   await page.reload();
   const recoveryRequestCount = requests.length;
   session = await invoke(page);
+  // Panel creation precedes asynchronous checkpoint hydration; wait for the
+  // actual enabled download state before exercising the user control.
+  await page.waitForFunction(() => window.__CTI_BRIGHTSPACE_PROGRESS__.snapshot().downloadAvailable === true);
   const recoveredDownload = page.waitForEvent("download");
   await clickControl(page, session, "Download saved capture");
   const recovered = await recoveredDownload;

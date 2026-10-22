@@ -123,3 +123,12 @@ and unchanged comparison verdicts/hashes/owner reports. Browser package tests
 exercise the operator switch, separate JSON download, stage timings and identical
 source evidence. Existing source recovery, native extraction, focused checks,
 activity checks and mandatory hosted gates remain required.
+
+Measured receipt: [11 alternating warm trials](audits/performance-overhead-pr105.json)
+on Node v24.19.0/Linux: disabled median **54.997 ms**, enabled **62.852 ms**,
+difference **+7.855 ms (+14.28%)**. Diagnostic snapshot/JSON export median was
+**0.541 ms**, measured separately. The workload processed 32 compressed entries
+(2,293,760 expanded bytes), 100 original-binary inspections and 100 mocked native
+responses. No other test workload was launched during this measurement. This
+short local workload has scheduling/JIT variance; the result is not a claim of
+negligible overhead or a measured overhead percentage for a live LMS capture.
