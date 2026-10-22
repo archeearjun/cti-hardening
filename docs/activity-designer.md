@@ -87,7 +87,9 @@ flags do not become decisions. An approval reference binds the exact plan,
 snapshot, proposal and decision revisions. Final imports with approval references
 are rejected atomically when any reference, type, placement, objective, evidence
 or recommendation differs. New field wording and its design brief still undergo
-the existing checks. Revoking approval immediately disables copy/export fields.
+the existing checks. Revoking approval immediately disables copy/export fields. Work ZIP restoration
+retains an older generated draft after revision or revocation as review-only; it
+never reinstates that draft’s approval. New final-result imports remain strict.
 
 Legacy sessions and results still parse. Legacy final results without approval
 references are **review-only**, with an explicit missing-human-approval message;

@@ -508,6 +508,73 @@ try {
   await restored
     .getByRole("button", { name: "Copy all fields", exact: true })
     .waitFor();
+  // A saved plan remains restorable after holding an already generated draft.
+  const revocation = await context.newPage();
+  await revocation.goto(page.url());
+  await revocation.waitForFunction(() => !!globalThis.CoursePrepUI);
+  await revocation.locator("#nav-activities").click();
+  await revocation.locator("#restore-human-decisions").check();
+  await revocation.locator("#result-file").setInputFiles({
+    name: "work.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
+  await revocation
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
+  await revocation.locator("#reviewer-name").fill("Second reviewer");
+  await revocation
+    .locator('[data-proposal-id="A01"]')
+    .getByRole("button", { name: "Hold for evidence", exact: true })
+    .click();
+  await revocation.locator("#save-results").click();
+  const heldLink = revocation.getByRole("link", {
+    name: "Save Course_Activity_Designer_Work.zip",
+    exact: true,
+  });
+  await heldLink.waitFor();
+  const heldWait = revocation.waitForEvent("download");
+  await heldLink.click();
+  const heldBytes = fs.readFileSync(await (await heldWait).path());
+  const heldZip = await JSZip.loadAsync(heldBytes);
+  assert.equal(
+    heldZip.file("A01_Coursera_fields.txt"),
+    null,
+    "Held drafts do not export copy-ready field files",
+  );
+  await revocation.locator("#result-file").setInputFiles({
+    name: "held-work.zip",
+    mimeType: "application/zip",
+    buffer: heldBytes,
+  });
+  await revocation.waitForFunction(
+    () => !document.getElementById("choose-result").disabled,
+  );
+  assert.equal(await revocation.locator("#result-error").isVisible(), false);
+  assert.match(
+    await revocation.locator("#approval-status").innerText(),
+    /0 approved/,
+  );
+  assert.equal(
+    await revocation
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  assert.match(
+    await revocation.locator("#activity-cards").innerText(),
+    /no current human approval/,
+  );
+  await revocation.close();
+  // Explicitly restore the original reviewed plan for the remaining fixture cases.
+  await restored.locator("#result-file").setInputFiles({
+    name: "work.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
+  await restored
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
   // A well-formed ZIP with invalid module decisions must not replace either state.
   const badSession = structuredClone(snapshot);
   badSession.title = "Another saved course";

@@ -618,7 +618,7 @@
         $("generate-approved"),
       );
     });
-  function importText(text, replace = false) {
+  function importText(text, replace = false, restoredReview = false) {
     const parsed = A.parse(text);
     const s = UI.getSession();
     if (
@@ -631,6 +631,7 @@
     if (s && s.courses.length) ActivityReadiness.resolveDecisions(parsed, s);
     if (
       parsed.mode === "final" &&
+      !restoredReview &&
       parsed.activities.some((a) => a.approval_ref)
     ) {
       ActivityApproval.assertSaved(plan);
@@ -751,19 +752,9 @@
           throw Error(
             "Saved recommendations conflict with the approval record.",
           );
-        if (
-          parsed.mode === "final" &&
-          parsed.activities.some((a) => a.approval_ref)
-        )
-          for (const a of parsed.activities) {
-            const problems = ActivityApproval.problems(
-              parsed,
-              saved,
-              a,
-              savedPlan,
-            );
-            if (problems.length) throw Error(problems.join(" "));
-          }
+        // A saved work ZIP may retain an older final draft after a human revises
+        // or revokes its proposal. Restore it for review; readiness still blocks
+        // every stale/unapproved field. Ordinary final imports remain strict.
       }
       if (saved) {
         await CourseCtiDocuments.verify(saved.visual_assets || []);
@@ -772,7 +763,7 @@
         plan = savedPlan;
         recommendations = savedRecommendations;
       }
-      importText(text, !!saved);
+      importText(text, !!saved, !!(saved && savedPlan));
     } catch (e) {
       warn(
         "Could not import: " +
