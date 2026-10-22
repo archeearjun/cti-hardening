@@ -316,7 +316,8 @@ export function base_compareItemFidelity_(source, coursera, matchScore, allCours
 }
 
 export function compareItemFidelity_(source,coursera,matchScore,allCourseraItems,snapshotContext,ingestionIntelligence){
-  var result=base_compareItemFidelity_.apply(this,arguments);
+  const diagnostic = arguments[6];
+  var result=diagnostic && source.isStructuredAssessment ? diagnostic.measure('assessment', () => base_compareItemFidelity_.apply(this,arguments)) : base_compareItemFidelity_.apply(this,arguments);
   result=qaApplyDimensionalVerdictGateV8_(source,coursera,result);
   if(coursera.nativeNameEvidence)result.checks.nativeNameEvidence=coursera.nativeNameEvidence;
   if(coursera.nativeCoachEvidence)result.checks.nativeCoachEvidence=coursera.nativeCoachEvidence;

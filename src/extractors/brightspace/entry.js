@@ -1,3 +1,4 @@
+import { createPerformanceTrace, mountPerformanceControls } from "../../diagnostics/performance.js";
 import { createBrightspaceProgressPanelV110 } from "./progress.js";
 import { createBrightspaceBodyStoreV120 } from "./body-store.js";
 import { createBrightspaceArchiveV120 } from "./archive.js";
@@ -71,7 +72,7 @@ import {
       .replace(/\u0000/g, "")
       .trim();
   const now = () => new Date().toISOString();
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms) => performanceDiagnostic.measure("browser_wait", () => new Promise((resolve) => setTimeout(resolve, ms)));
   function courseTitleV110() {
     const pageH1 = clean(document.querySelector("h1")?.textContent || "");
     let documentTitle = clean(document.title)
@@ -95,6 +96,7 @@ import {
     clean(value)
       .replace(/[^a-z0-9._-]+/gi, "_")
       .slice(0, 100) || "course";
+  let performanceControls, performanceDiagnostic = createPerformanceTrace(), diagnosticItem = 0, performanceAttemptComplete = false;
   let progress,
     activeController = null,
     lastCapture = null,
@@ -122,6 +124,9 @@ import {
       finishedOnly,
     });
   async function exportCapture(capture) {
+const endDiagnosticStage = performanceDiagnostic.begin('evidence_export');
+let diagnosticOutcome='observed';try {
+
     if (!capture) throw Error("There is no retained capture to download yet.");
     const json = JSON.stringify(capture), manifest = new Blob([json], {
       type: "application/json;charset=utf-8",
@@ -170,7 +175,9 @@ import {
       json,
       "application/json;charset=utf-8",
     );
-  }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
   async function savedDownload() {
     if (!lastCapture && !previousFinishedCapture) {
       const finished =
@@ -185,7 +192,12 @@ import {
     courseId,
     buildId: BUILD_ID,
     runningKey: "__CTI_BRIGHTSPACE_SOURCE_CAPTURE_RUNNING__",
+    performanceControls: parent => { performanceControls = mountPerformanceControls(parent, "source_capture", BUILD_ID); },
     onStart: async () => {
+      performanceDiagnostic = performanceControls?.start() || createPerformanceTrace();
+      diagnosticItem = 0;performanceAttemptComplete = false;
+      const endPerformanceRun = performanceDiagnostic.begin("source_capture");
+      try {
       await checkpointReady;
       if (storageError)
         throw Error(
@@ -199,6 +211,7 @@ import {
         activeController = null;
         window.__CTI_BRIGHTSPACE_SOURCE_CAPTURE_RUNNING__ = false;
       }
+      } finally { endPerformanceRun(performanceAttemptComplete ? "observed" : "partial"); performanceControls?.finish(performanceAttemptComplete ? "complete" : "partial"); }
     },
     onPause: () => activeController?.abort(Error("PAUSED_BY_OWNER")),
     onDownload: savedDownload,
@@ -349,7 +362,11 @@ import {
         detail: options.label || target.pathname,
         count: requestCount + " requests started",
       });
-      return fetch(target.href, {
+      performanceDiagnostic.count("requests");
+      performanceDiagnostic.repeated(target.href);
+      const endRequest = performanceDiagnostic.begin("request");
+      let response;
+      try { response = await fetch(target.href, {
         method: "GET",
         credentials: "same-origin",
         mode: "same-origin",
@@ -366,8 +383,18 @@ import {
         ]),
         headers: { Accept: options.accept || "*/*" },
       });
+      if(!response.ok) performanceDiagnostic.count("failed");
+      if([401,403].includes(response.status)) performanceDiagnostic.count("authentication_failed");
+      if(response.status===429) performanceDiagnostic.count("rate_limited");
+      if(response.status===503) performanceDiagnostic.count("unavailable");
+      return response;
+      } finally {if(!response)performanceDiagnostic.count("failed");endRequest(response?.ok ? "observed" : "failed");}
+
     }
     async function fetchJson(url, label) {
+const endDiagnosticStage = performanceDiagnostic.begin(/\/quizzes\/[^/]+\/questions(?:\/|$)/.test(new URL(url, origin).pathname) ? 'question' : 'inventory');
+let diagnosticOutcome='observed';try {
+
       const target = new URL(url, origin).href,
         observedAt = now();
       let response;
@@ -425,7 +452,9 @@ import {
         });
         throw error;
       }
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     const reader = createBrightspaceContentReader({
       origin,
       courseId,
@@ -434,6 +463,7 @@ import {
       maxAssetBytes: 64 * 1024 * 1024,
       maxTotalBytes: 768 * 1024 * 1024,
       maxRetainedBytes: 512 * 1024 * 1024,
+      performanceDiagnostic,
       retainOriginal: (bytes, hash) => bodyStore.put(bytes, hash),
       sha256: async (bytes) => {
         const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -480,6 +510,9 @@ import {
       return rich;
     }
     async function nativeDefinitionReferences(value, kind, id, path, parentId) {
+const endDiagnosticStage = performanceDiagnostic.begin('content_inventory');
+let diagnosticOutcome='observed';try {
+
       if (!id) return;
       let visited = 0;
       const sourceBinding = {
@@ -535,7 +568,9 @@ import {
           }
       };
       await walk(value, 0, "");
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     function snapshot(status, reason = "") {
       const flat = flattenTree(contentTree, []),
         modules = flat.filter((node) => node.kind === "MODULE"),
@@ -796,6 +831,9 @@ import {
       status = "PARTIAL",
       reason = "",
     ) {
+const endDiagnosticStage = performanceDiagnostic.begin('checkpoint');
+let diagnosticOutcome='observed';try {
+
       const time = Date.now();
       if (
         !force &&
@@ -825,8 +863,13 @@ import {
         progress.update({ storageError, downloadAvailable: true });
         throw error;
       }
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function normalizeTopic(topic, path, target) {
+const endDiagnosticStage = performanceDiagnostic.begin('item', ++diagnosticItem);
+let diagnosticOutcome='observed';try {
+
       active();
       if (traversal.topicsDiscovered >= MAX_TOPICS) {
         gap("TOPIC_LIMIT", { path });
@@ -948,7 +991,9 @@ import {
         count: traversal.topicsDiscovered + " topics read",
       });
       return out;
-    }
+
+} catch(error){diagnosticOutcome='failed';throw error;} finally {endDiagnosticStage(diagnosticOutcome);}
+}
     async function normalizeModule(
       module,
       parentPath,
@@ -1462,7 +1507,11 @@ import {
         : signal.aborted
           ? "PAUSED"
           : "PARTIAL";
+      performanceAttemptComplete = complete;
       const capture = snapshot(status);
+      performanceDiagnostic.count("items_observed", capture.summary.topics);
+      performanceDiagnostic.count("questions_observed", capture.summary.quizQuestions);
+      performanceDiagnostic.count("unresolved", capture.contentAcquisition.gaps.length);
       lastCapture = capture;
       window.__CTI_BRIGHTSPACE_SOURCE_CAPTURE_LAST__ = capture;
       progress.update({ downloadAvailable: true });

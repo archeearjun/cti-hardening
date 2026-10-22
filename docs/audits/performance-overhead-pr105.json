@@ -1,0 +1,157 @@
+{
+  "kind": "CTI_DIAGNOSTIC_OVERHEAD_BENCHMARK",
+  "node": "v24.19.0",
+  "platform": "linux",
+  "workload": {
+    "packageCompressedBytes": 11934,
+    "expandedFiles": 32,
+    "expandedBytes": 2293760,
+    "binaryChecks": 100,
+    "nativeResponses": 100,
+    "pairs": 11
+  },
+  "disabledMedianMs": 54.997366000000056,
+  "enabledMedianMs": 62.852018000000044,
+  "medianDifferenceMs": 7.854651999999987,
+  "medianDifferencePercent": 14.281869426255758,
+  "enabledExportMedianMs": 0.5413369999996576,
+  "pairs": [
+    {
+      "disabled": {
+        "elapsedMs": 123.56748200000004,
+        "exportMs": 0.0021020000000362415,
+        "spans": 0
+      },
+      "enabled": {
+        "elapsedMs": 67.67826300000002,
+        "exportMs": 0.5799150000000282,
+        "spans": 234
+      }
+    },
+    {
+      "enabled": {
+        "elapsedMs": 99.35511199999996,
+        "exportMs": 0.8538710000000265,
+        "spans": 234
+      },
+      "disabled": {
+        "elapsedMs": 66.24799399999984,
+        "exportMs": 0.0015649999998004205,
+        "spans": 0
+      }
+    },
+    {
+      "disabled": {
+        "elapsedMs": 48.00124400000004,
+        "exportMs": 0.0016439999999420252,
+        "spans": 0
+      },
+      "enabled": {
+        "elapsedMs": 62.852018000000044,
+        "exportMs": 0.46342200000003686,
+        "spans": 234
+      }
+    },
+    {
+      "enabled": {
+        "elapsedMs": 58.99100099999987,
+        "exportMs": 0.6694029999998747,
+        "spans": 234
+      },
+      "disabled": {
+        "elapsedMs": 163.15763800000013,
+        "exportMs": 0.0010499999998501153,
+        "spans": 0
+      }
+    },
+    {
+      "disabled": {
+        "elapsedMs": 132.67183999999997,
+        "exportMs": 0.001033000000006723,
+        "spans": 0
+      },
+      "enabled": {
+        "elapsedMs": 90.60157700000013,
+        "exportMs": 0.31104000000004817,
+        "spans": 234
+      }
+    },
+    {
+      "enabled": {
+        "elapsedMs": 114.10721900000021,
+        "exportMs": 0.3225350000000162,
+        "spans": 234
+      },
+      "disabled": {
+        "elapsedMs": 80.3390280000001,
+        "exportMs": 0.0007350000000769796,
+        "spans": 0
+      }
+    },
+    {
+      "disabled": {
+        "elapsedMs": 49.97389799999996,
+        "exportMs": 0.0007020000000466098,
+        "spans": 0
+      },
+      "enabled": {
+        "elapsedMs": 49.89509500000008,
+        "exportMs": 0.6824830000000475,
+        "spans": 234
+      }
+    },
+    {
+      "enabled": {
+        "elapsedMs": 58.76282900000024,
+        "exportMs": 0.5929190000001654,
+        "spans": 234
+      },
+      "disabled": {
+        "elapsedMs": 49.75357800000029,
+        "exportMs": 0.0008090000001175213,
+        "spans": 0
+      }
+    },
+    {
+      "disabled": {
+        "elapsedMs": 48.28500800000029,
+        "exportMs": 0.0008339999999407155,
+        "spans": 0
+      },
+      "enabled": {
+        "elapsedMs": 42.14872100000002,
+        "exportMs": 0.37092400000028647,
+        "spans": 234
+      }
+    },
+    {
+      "enabled": {
+        "elapsedMs": 53.83753099999967,
+        "exportMs": 0.32902400000011767,
+        "spans": 234
+      },
+      "disabled": {
+        "elapsedMs": 53.93439699999999,
+        "exportMs": 0.0006370000000970322,
+        "spans": 0
+      }
+    },
+    {
+      "disabled": {
+        "elapsedMs": 54.997366000000056,
+        "exportMs": 0.0007370000002993038,
+        "spans": 0
+      },
+      "enabled": {
+        "elapsedMs": 84.0574230000002,
+        "exportMs": 0.5413369999996576,
+        "spans": 234
+      }
+    }
+  ],
+  "limitations": [
+    "Synthetic local workload, not live LMS or server CPU.",
+    "Alternating warm trials; scheduler/JIT noise remains.",
+    "Includes real hashing, ZIP validation/decompression, binary inspection and mocked native responses."
+  ]
+}

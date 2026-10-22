@@ -1,3 +1,7 @@
+import {
+  performanceTrace,
+  retainPerformance,
+} from "../src/diagnostics/runtime.ts";
 import type {
   EvidenceObject,
   WorkflowJob,
@@ -6,8 +10,11 @@ export function runWorkflow(
   job: WorkflowJob,
   signal: AbortSignal,
 ): Promise<EvidenceObject> {
+  const trace = performanceTrace();
+  const end = trace.begin("comparison");
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
+      end("partial");
       reject(new Error("Cancelled. No report was saved."));
       return;
     }
@@ -16,6 +23,7 @@ export function runWorkflow(
       { type: "module" },
     );
     function finish(error?: Error, result?: EvidenceObject) {
+      end(error ? "partial" : "observed");
       signal.removeEventListener("abort", abort);
       worker.terminate();
       if (error) reject(error);
@@ -31,10 +39,15 @@ export function runWorkflow(
           event.message || "The workflow could not run. Refresh and retry.",
         ),
       );
-    worker.onmessage = (event) =>
+    worker.onmessage = (event) => {
+      if (event.data.kind === "performance") {
+        retainPerformance(event.data.report);
+        return;
+      }
       event.data.kind === "error"
         ? finish(new Error(event.data.message))
         : finish(undefined, event.data.result);
+    };
     // Comparison inputFile() buffers belong to this one dispatched job. Move
     // capture metadata and originals into the worker instead of cloning a large
     // archive. The selected File and saved history remain owned by the UI.
@@ -53,7 +66,10 @@ export function runWorkflow(
       }
     }
     try {
-      worker.postMessage(job, transfers);
+      worker.postMessage(
+        trace.enabled ? { ...job, performanceDiagnostics: true } : job,
+        transfers,
+      );
     } catch (error) {
       finish(error instanceof Error ? error : new Error(String(error)));
     }

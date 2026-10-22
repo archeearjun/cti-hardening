@@ -9,7 +9,8 @@ export function notifyPackageProgress_(callback, update) {
    if (typeof callback === 'function') { try { callback(update); } catch (_) {} }
  }
 
-export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, manifestPath, onProgress) {
+export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, manifestPath, onProgress, performanceDiagnostic) {
+    const measure = performanceDiagnostic?.measure || ((stage, fn) => fn());
     var evidence = {
       // v6.6.1 source-evidence schema 6 makes PDF semantic capability explicit.
       // Schema 4 existed both before and after the first PDF-text patch, which made
@@ -176,7 +177,7 @@ export async function buildSourceEvidenceFromZip_(pdfServices, zip, xmlString, m
               if (normalized && (resourceType.indexOf('assignment') > -1 || /(?:file\s+(?:upload|submission)|text\s+submission|grade\s+out\s+of|attempts?)/i.test(normalized))) behaviorFragments.push(normalized.slice(0,12000));
 
               if (extension === 'xml' && (isQtiResource || /<(?:\w+:)?(?:assessmentItem|item)\b/i.test(rawText) && /<(?:\w+:)?(?:response_lid|responseDeclaration|choiceInteraction|response_str|textEntryInteraction)\b/i.test(rawText))) {
-                var parsedAssessment = parseQtiAssessmentStructure_(rawText, exactPath || href);
+                var parsedAssessment = measure('qti_parse', () => parseQtiAssessmentStructure_(rawText, exactPath || href));
                 if(parsedAssessment)(parsedAssessment.questions||[]).forEach(function(q){q.mediaPresence=qtiMediaPresence_(q.mediaRefs,q.sourceFile||exactPath||href,zipLookup);});
                 if (parsedAssessment) resourceEvidence.structuredAssessment = mergeStructuredAssessment_(resourceEvidence.structuredAssessment, parsedAssessment);
               }

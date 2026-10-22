@@ -26,6 +26,10 @@ export function bundleConsole(entryPath, options = {}) {
     return ast;
   };
   const resolve = (file, specifier) => {
+    // One shared, effect-free diagnostic helper uses the same restricted parser.
+    const diagnosticHelper = new URL("../src/diagnostics/performance.js", import.meta.url).pathname;
+    const candidate = path.resolve(path.dirname(file), specifier);
+    if (specifier === "../../diagnostics/performance.js" && candidate === diagnosticHelper) return candidate;
     if (!specifier.startsWith("./"))
       throw Error(
         `Console import must stay in its feature directory: ${specifier}`,

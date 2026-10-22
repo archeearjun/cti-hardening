@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import {
   BlobReader,
   Reader,
@@ -97,6 +98,10 @@ const readOptions = {
 export async function openSourcePackageZip(
   file: Blob,
 ): Promise<SourcePackageZip> {
+const diagnosticEnd = performanceTrace().begin('archive_index');
+let diagnosticOutcome = 'observed';
+try {
+
   if (
     !file ||
     !Number.isSafeInteger(file.size) ||
@@ -122,6 +127,10 @@ export async function openSourcePackageZip(
     await reader.close();
   };
   async function body(entry: FileEntry): Promise<Uint8Array> {
+const diagnosticEnd = performanceTrace().begin('archive_read');
+let diagnosticOutcome = 'observed';
+try {
+
     if (closed) throw Error("The source ZIP has been closed.");
     if (
       !Number.isSafeInteger(entry.uncompressedSize) ||
@@ -177,7 +186,9 @@ export async function openSourcePackageZip(
     } finally {
       chunks.length = 0;
     }
-  }
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
+}
   try {
     for await (const entry of reader.getEntriesGenerator()) {
       if (++count > MAX_SOURCE_PACKAGE_ZIP_ENTRIES)
@@ -200,7 +211,10 @@ export async function openSourcePackageZip(
             (entry.compressedSize || entry.uncompressedSize)
           )
             throw Error("A source ZIP directory contains an unexpected body.");
+          performanceTrace().repeated(entry.filename);
           const bytes = entry.directory ? new Uint8Array() : await body(entry);
+          performanceTrace().count('files');
+          performanceTrace().count('bytes', bytes.byteLength);
           return type === "string"
             ? new TextDecoder().decode(bytes)
             : type === "arraybuffer"
@@ -215,4 +229,6 @@ export async function openSourcePackageZip(
     await close();
     throw error;
   }
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }

@@ -1,3 +1,4 @@
+import { clickPerformanceControl } from "./browser-performance-controls.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -695,6 +696,7 @@ try {
     "Repeated bookmark activation must reveal the same launcher",
   );
   assert.equal(requests.length, 0);
+  await clickPerformanceControl(page,"Performance diagnostics (local)");
   slowNextReading = true;
   await clickControl(page, session, "Capture/resume");
   await poll(
@@ -715,6 +717,14 @@ try {
     ),
     "Paused",
   );
+  const performanceDownload=page.waitForEvent('download');
+  await clickPerformanceControl(page,'Download diagnostics');
+  const performanceReport=JSON.parse(fs.readFileSync(await (await performanceDownload).path(),'utf8'));
+  assert.equal(performanceReport.kind,'CTI_PERFORMANCE_DIAGNOSTICS');
+  assert.equal(performanceReport.measurementStatus,'partial');
+  assert(performanceReport.counts.requests>0);
+  assert(performanceReport.stages.some(s=>s.stage==='source_capture'));
+  assert(!JSON.stringify(performanceReport).includes('/content/long.html'));
   const checkpoint = await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const request = indexedDB.open("cti-brightspace-source-v110", 1);
@@ -845,6 +855,9 @@ try {
   await page.reload();
   const recoveryRequestCount = requests.length;
   session = await invoke(page);
+  // Panel creation precedes asynchronous checkpoint hydration; wait for the
+  // actual enabled download state before exercising the user control.
+  await page.waitForFunction(() => window.__CTI_BRIGHTSPACE_PROGRESS__.snapshot().downloadAvailable === true);
   const recoveredDownload = page.waitForEvent("download");
   await clickControl(page, session, "Download saved capture");
   const recovered = await recoveredDownload;

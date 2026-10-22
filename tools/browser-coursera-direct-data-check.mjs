@@ -1,3 +1,4 @@
+import { clickPerformanceControl } from "./browser-performance-controls.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import https from 'node:https';
@@ -1163,7 +1164,9 @@ try{
   async function runFileCase(config){
     const target=await open(config),downloads=[];target.page.on('download',download=>downloads.push(download));
     const downloading=target.page.waitForEvent('download',{timeout:180000});void downloading.catch(()=>{});
-    const start=requests.length;await launch(target.page,target.context);const state=await terminal(target.page);
+    const start=requests.length;await launch(target.page,target.context,config!==baseline);
+    if(config===baseline){await clickPerformanceControl(target.page,'Performance diagnostics (local)');await target.page.getByRole('button',{name:'Capture/resume course',exact:true}).click();}
+    const state=await terminal(target.page);
     assert(state.counts.total>0,'No fixture inventory was established: '+JSON.stringify({state,requests:requests.slice(start).map(request=>({resource:request.resource,reference:request.reference}))}));
     const download=await Promise.race([downloading,target.page.waitForFunction(()=>{
       const state=window.__CTI_COURSERA_DIRECT_DATA_CAPTURE__;return state?.exportError&&state.exporting===false;
@@ -1250,6 +1253,15 @@ try{
   assert.deepEqual(scrollCalibration,{controls:1,course:2},'Owned-panel scrolling cannot conceal course or window traversal');
   await scrollGuard.context.close();
   const main=await runFileCase(baseline);
+  const performanceDownload=main.page.waitForEvent('download');
+  await clickPerformanceControl(main.page,'Download diagnostics');
+  const performanceReport=JSON.parse(fs.readFileSync(await (await performanceDownload).path(),'utf8'));
+  assert.equal(performanceReport.kind,'CTI_PERFORMANCE_DIAGNOSTICS');
+  assert(performanceReport.counts.requests>0);
+  assert(performanceReport.stages.some(s=>s.stage==='item'));
+  assert(performanceReport.stages.some(s=>s.stage==='evidence_export'));
+  for(const secret of secrets)assert(!JSON.stringify(performanceReport).includes(secret));
+
   assert.equal(main.capture.page.courseId,baseline.id);assert.equal(main.capture.fingerprints.length,185);
   assert.equal(main.state.state,'INCOMPLETE');
   assert.equal(main.capture.meta.directDataCapture.stats.maxConcurrentRequests,4,'The assessment workers fill the bounded four-read pool');

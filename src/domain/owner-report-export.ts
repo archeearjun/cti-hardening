@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import { evidenceDecisionBrief } from "../reporting/evidence-decision-brief.js";
 import { assessmentRecoveryPlans } from "../reporting/assessment-recovery.js";
 import { loadReportContent } from "./report-content-store.ts";
@@ -70,6 +71,10 @@ export async function prepareOwnerReportExport(
   store: Pick<WorkspaceStore, "list" | "get">,
   signal?: AbortSignal,
 ) {
+const diagnosticEnd = performanceTrace().begin('owner_report');
+let diagnosticOutcome = 'observed';
+try {
+
   signal?.throwIfAborted();
   if (
     !auditId ||
@@ -461,4 +466,6 @@ export async function prepareOwnerReportExport(
     evidence: { ...report, followUp: { ...followUp, derivedAnswers, assessmentRecoveryPlans: recoveryPlans } },
     followUp: { ...followUp, derivedAnswers, assessmentRecoveryPlans: recoveryPlans },
   };
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }

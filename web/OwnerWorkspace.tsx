@@ -1,3 +1,4 @@
+import PerformanceDiagnostics from "./PerformanceDiagnostics";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import PackageWorkspace from "./PackageWorkspace";
 import FullWorkspace from "./FullWorkspace";
@@ -184,6 +185,7 @@ export default function App() {
         <span className="badge">Source → ingestion → review</span>
       </header>
       <main id="main" tabIndex={-1}>
+        <PerformanceDiagnostics />
         <section
           className="owner-workspace-intro"
           aria-labelledby="gateway-title"

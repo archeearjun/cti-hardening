@@ -1,3 +1,4 @@
+import { createPerformanceTrace } from "../src/diagnostics/performance.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -138,6 +139,8 @@ function fixture({ assignmentFlags = false, originalCount = 0 } = {}) {
     counts: {},
   };
   const ctx = vm.createContext({
+    performanceDiagnostic: createPerformanceTrace(), diagnosticItem: 0,
+    performanceControls: {start: () => createPerformanceTrace(), finish() {}},
     console,
     Map,
     Set,
@@ -521,7 +524,7 @@ test("retained hydration preserves unchanged checkpoint rows but persists real v
         structuredAssessment: { questions: [{ sourceDefinitionId: "original-definition", prompt: "Exact retained question" }] },
         directAssetEvidence: { assets: [{ body: { sha256: "b".repeat(64), size: 1 } }] },
       } } }, before = structuredClone(row), writes = [], summaries = [];
-    const ctx = vm.createContext({ directCanonicalSourceTextV1: value => {
+    const ctx = vm.createContext({ performanceDiagnostic: createPerformanceTrace(), directCanonicalSourceTextV1: value => {
       if (mode === "comparison-fallback") throw Error("DIRECT_DATA_CANONICAL_BYTE_LIMIT");
       return directCanonicalSourceTextV1(value);
     }, items: [{ id: "quiz" }], state: { runId: "same-run" }, meta: null, courseId: "same-course", slug: "same-slug",

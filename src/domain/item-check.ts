@@ -1,3 +1,5 @@
+import { createPerformanceTrace } from "../diagnostics/performance.js";
+import { performanceTrace } from '../diagnostics/runtime.ts';
 import { courseraLocation, type ItemExpectation } from "./owner-actions.ts";
 import type { EvidenceObject } from "./workspace-types.ts";
 
@@ -25,6 +27,7 @@ export function evaluateItemEvidence(
   spec: ItemCheckSpec,
   capture: EvidenceObject,
 ) {
+
   const p = capture.payload || {};
   const urls: string[] = [];
   for (const values of [p.links, p.files, p.images, p.embeddedRefs])
@@ -95,6 +98,10 @@ export function evaluateItemEvidence(
 }
 
 export function validateItemCheck(value: EvidenceObject, spec: ItemCheckSpec) {
+const diagnosticEnd = performanceTrace().begin('receipt_validation');
+let diagnosticOutcome = 'observed';
+try {
+
   if (
     value?.kind !== "CTI_COURSERA_ITEM_CHECK" ||
     value.schemaVersion !== ITEM_CHECK_VERSION ||
@@ -140,6 +147,8 @@ export function validateItemCheck(value: EvidenceObject, spec: ItemCheckSpec) {
     if (value.payload[k] != null && !Array.isArray(value.payload[k]))
       throw new Error("Invalid captured item evidence.");
   return { ...value, evaluation: evaluateItemEvidence(spec, value) };
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }
 
 /** Reuses the full extractor's parsers, waits, question cycle and scoping. Only
@@ -178,6 +187,10 @@ export function buildItemCheckScript(
   return (
     prefix +
     `
+  const itemPerformance = (${createPerformanceTrace.toString()})({enabled:${performanceTrace().enabled},operation:'focused_check',build:${JSON.stringify(delivery.buildId)}});
+  const itemPerformanceEnd = itemPerformance.begin('focused_check');
+  let itemPerformanceFinished = false;
+  try {
   const id = courseId(), openedUrl = location.href;
   ctiProgressUpdateV1({phase:'Check one item',detail:expected.name});
   const material = await getJson('/api/authoringCourseMaterials.v1/'+encodeURIComponent(id)+'/?fields=material,conflictMetadata,authoringAtomRelations.v1(embeddedContentSourceCourseId)&includes=embeddedContentMapping');
@@ -202,6 +215,12 @@ export function buildItemCheckScript(
   console.log('CTI item check — observed references are not a publication sign-off',check);
   downloadJson('CTI_ITEM_CHECK_'+fp.id+'_'+Date.now()+'.json',check);
   ctiProgress.finish('review','Item check downloaded. Upload it to the same action card in CTI.',check.evaluation.questionCount+' question records; '+check.evaluation.findings.filter(x=>x.status==='OBSERVED').length+'/'+expected.checks.length+' expected references/prompts observed');
+  itemPerformanceFinished = true;
+  } finally {
+    itemPerformanceEnd(itemPerformanceFinished ? 'observed' : 'partial');
+    itemPerformance.finish(itemPerformanceFinished ? 'complete' : 'partial');
+    if(itemPerformance.enabled)downloadJson('CTI-performance-focused-check.json',itemPerformance.snapshot());
+  }
   } finally {
     if(ctiProgress && ctiProgress.snapshot().outcome==='running')ctiProgress.finish('error','Item check interrupted. See the console error; no completed check is implied.');
     releaseCtiRunLock();

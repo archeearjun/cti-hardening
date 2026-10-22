@@ -497,7 +497,7 @@ export function createBrightspaceContentReader(options = {}) {
     const source = binding(sourceValue),
       existing = assets.get(url);
     if (existing) addBinding(existing, source);
-    if (cache.has(url)) return cache.get(url);
+    if (cache.has(url)) { options.performanceDiagnostic?.count("cache_hits"); return cache.get(url); }
     const asset = { url, status: "NOT_FETCHED", sourceBindings: [source] };
     assets.set(url, asset);
     const pending = (async () => {

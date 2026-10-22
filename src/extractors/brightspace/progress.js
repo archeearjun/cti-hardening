@@ -230,5 +230,6 @@ export function createBrightspaceProgressPanelV110(title, options) {
   root.getElementById('download').onclick=()=>{void downloadSaved().catch(()=>{});};
   root.getElementById('toggle').onclick=()=>{minimized=!minimized;draw();};
   root.getElementById('close').onclick=()=>controller.dispose();
-  document.documentElement.appendChild(host);window[key]=controller;draw();return controller;
+  if (options.performanceControls) options.performanceControls(root.getElementById("body"));
+    document.documentElement.appendChild(host);window[key]=controller;draw();return controller;
 }

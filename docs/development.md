@@ -593,3 +593,12 @@ host feature is currently available.
 The normal zero-cost Coursera path is local Chrome. Browser Run code remains
 optional infrastructure and must never become a prerequisite for local capture
 or comparison.
+
+## Opt-in performance baseline
+
+See [Performance diagnostics](performance-diagnostics.md) for local-only timing,
+operator collection steps and explicit measurement limits. The shared helper in
+`src/diagnostics/performance.js` has a fixed vocabulary, bounded spans and no
+module side effects; only this exact shared file is allowed outside an extractor
+feature directory by the restricted console linker. Diagnostic records never
+enter capture, comparison or checkpoint payloads.

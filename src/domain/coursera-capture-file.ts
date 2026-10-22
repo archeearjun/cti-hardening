@@ -1,3 +1,4 @@
+import { performanceTrace } from '../diagnostics/runtime.ts';
 /** File transport limits are separate from capture fidelity. A gzip download
  * expands to the original JSON bytes before any identity or completion check. */
 import {
@@ -42,6 +43,10 @@ export async function readCourseraCaptureFileBytes(
     originalBytes?: number;
   } = {},
 ): Promise<CourseraCaptureFileBytes> {
+const diagnosticEnd = performanceTrace().begin('evidence_load');
+let diagnosticOutcome = 'observed';
+try {
+
   const reducedLimit = (value: number | undefined, maximum: number) =>
     value === undefined
       ? maximum
@@ -173,6 +178,8 @@ export async function readCourseraCaptureFileBytes(
       expandedBytes,
     },
   };
+
+} catch (error) { diagnosticOutcome = 'failed'; throw error; } finally { diagnosticEnd(diagnosticOutcome); }
 }
 
 export async function readCourseraCaptureFileJson(
