@@ -224,6 +224,55 @@ try {
   );
   const packet = await page.evaluate(() => CoursePackets.getModel().packets[0]);
   assert.equal(packet.data.structure.length, 2);
+  assert(
+    packet.data.scope.excluded_references.some(
+      (r) => r.source_path === "instructions.pdf",
+    ),
+  );
+  assert(
+    !packet.data.references.some((r) => r.source_path === "instructions.pdf"),
+  );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        ActivityQuality.source(CoursePrepUI.getSession(), "instructions.pdf")
+          .teaching,
+    ),
+    false,
+  );
+  // Explicit shared selection changes only the handoff, not the evidence snapshot.
+  const evidenceHash = await page.evaluate(
+    () => ActivityApproval.identity(CoursePrepUI.getSession()).sha256,
+  );
+  await page
+    .getByText("Choose modules to review", { exact: true })
+    .click();
+  await page
+    .getByText("Shared references and cross-module prerequisites", {
+      exact: true,
+    })
+    .click();
+  await page.locator('#packet-shared input[value="instructions.pdf"]').check();
+  await page
+    .getByText("Choose modules to review", { exact: true })
+    .click();
+  const shared = await page.evaluate(
+    () => CoursePackets.getModel().packets[0].data,
+  );
+  assert(
+    shared.references.some(
+      (r) =>
+        r.source_path === "instructions.pdf" &&
+        r.evidence_role === "unclassified_context",
+    ),
+  );
+  assert.equal(
+    await page.evaluate(
+      () => ActivityApproval.identity(CoursePrepUI.getSession()).sha256,
+    ),
+    evidenceHash,
+  );
+
   assert.equal(packet.data.coverage_audit[0].assessment_items, 1);
   assert.equal(packet.data.coverage_audit[0].assessment_items_with_text, 1);
   assert.match(
@@ -243,7 +292,7 @@ try {
   await page
     .locator("#packet-modules")
     .locator("..")
-    .locator("summary")
+    .locator(":scope > summary")
     .click();
   await page.locator("#module-search").fill("second");
   assert.equal(await page.locator("#packet-modules label:visible").count(), 1);
@@ -795,7 +844,7 @@ try {
   await pdfPage
     .locator("#activity-cards details")
     .filter({ hasText: "Evidence notes and AI checks" })
-    .locator("summary")
+    .locator(":scope > summary")
     .click();
   const noteItems = await pdfPage
     .locator("#activity-cards details li")
@@ -959,6 +1008,62 @@ try {
       },
     ],
   };
+  universal.fingerprints.push({
+    id: "emptyNative",
+    name: "Native empty editor",
+    typeName: "ungradedAssignment",
+    ancestors: universal.fingerprints[0].ancestors,
+    payload: {
+      captureContract: {
+        itemId: "emptyNative",
+        complete: true,
+        status: "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT",
+      },
+      directDataEvidence: {
+        method: "BOUND_AUTHORING_DRAFT_API",
+        courseId: "syntheticBranch",
+        itemId: "emptyNative",
+        atomId: "emptyAtom",
+        sourceState: "AUTHORING_DRAFT",
+        stableSource: true,
+        draftHash: "a".repeat(64),
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      explicitEmptyAssessmentEvidence: {
+        method: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+        courseId: "syntheticBranch",
+        itemId: "emptyNative",
+        atomId: "emptyAtom",
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      directDataSources: {
+        atom: {
+          elements: [
+            {
+              id: "emptyAtom",
+              draft: {
+                content: {
+                  typeName: "staffGradedDraft",
+                  definition: { parts: [] },
+                },
+              },
+            },
+          ],
+        },
+      },
+      structuredAssessment: {
+        declaredQuestionCount: 0,
+        questionCount: 0,
+        questions: [],
+        captureCompleteness: {
+          sourceEmpty: true,
+          questionCoverageComplete: true,
+        },
+      },
+    },
+  });
   const universalZip = new JSZip();
   universalZip.file(
     "capture.json.gz",
@@ -983,6 +1088,26 @@ try {
     CoursePrepUI.getSession(),
   );
   assert.equal(universalSession.courses[0].branch_id, "syntheticBranch");
+  assert.equal(
+    universalSession.sources[0].unread.find((x) =>
+      x.path.endsWith("emptyNative"),
+    ).capture_state,
+    "observed_empty",
+  );
+  assert(
+    (await archivePage.locator("#tree").textContent()).includes(
+      "Coursera editor observed empty",
+    ),
+  );
+  const nativePacket = await archivePage.evaluate(
+    () => CoursePackets.getModel().packets[0].data,
+  );
+  assert(
+    nativePacket.coverage_audit[0].observed_empty_practice_ids.includes(
+      "emptyNative",
+    ),
+  );
+
   assert(
     universalSession.sources[0].documents.some((d) =>
       d.text.includes("original source explains"),

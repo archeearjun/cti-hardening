@@ -51,18 +51,10 @@
     const readable = docs
       .concat(refs)
       .some((d) => root.CourseShell.textQuality(d.text).readable);
+    // Readability establishes available text, never its instructional role.
     const teaching =
-      docs.some(
-        (d) =>
-          root.CourseShell.textQuality(d.text).readable &&
-          (!/\[(?:TEACHING|ASSESSMENT|GAP) \|/.test(d.text) ||
-            /\[TEACHING \|/.test(d.text)),
-      ) ||
-      refs.some(
-        (r) =>
-          !/^Shell_capture_receipt_/.test(r.filename) &&
-          root.CourseShell.textQuality(r.text).readable,
-      );
+      docs.some((d) => eligibleDocument(session, d)) ||
+      refs.some((r) => reviewedTeaching(session, r.filename, r));
     return {
       known: !!(docs.length || refs.length || gaps.length || item),
       readable,
@@ -72,6 +64,63 @@
       gaps,
       item,
     };
+  }
+  function reviewedTeaching(session, path, doc) {
+    if (
+      (doc.associations || []).some((a) =>
+        /qti|assessment|question/i.test(a.resource_type || ""),
+      )
+    )
+      return false;
+    const review = (session.evidence_reviews || []).find(
+      (r) => r.path === path,
+    );
+    if (
+      /\[(?:ASSESSMENT|GAP) \||"format"\s*:\s*"course-activity-design"|<assessment|<questestinterop|<item\b[^>]*ident=/i.test(
+        doc.text,
+      )
+    )
+      return false;
+    return !!(
+      review?.role === "instructional" &&
+      review.reviewer?.trim() &&
+      review.locator?.trim() &&
+      typeof review.excerpt === "string" &&
+      review.excerpt.trim().length >= 80 &&
+      doc.text.includes(review.excerpt) &&
+      review.text_sha256 === root.CourseCtiUnifiedCapture?.hashText(doc.text) &&
+      !/\[(?:ASSESSMENT|GAP) \||"format"\s*:\s*"course-activity-design"|\b(?:answer key|correct answer|worked solution)\s*:/i.test(
+        review.excerpt,
+      )
+    );
+  }
+  function eligibleDocument(session, doc) {
+    if (!root.CourseShell.textQuality(doc.text).readable) return false;
+    const src = (session.sources || []).find((s) => s.documents?.includes(doc));
+    if (src?.kind === "captured_shell") {
+      const item = (session.courses || [])
+        .filter((c) => c.branch_id === src.course_id)
+        .flatMap((c) =>
+          c.modules.flatMap((m) => m.lessons.flatMap((l) => l.items)),
+        )
+        .find(
+          (i) =>
+            i.id === doc.id && doc.path === `coursera/${src.course_id}/${i.id}`,
+        );
+      return !!item && !practice(item) && /\[TEACHING \|/.test(doc.text);
+    }
+    return reviewedTeaching(session, doc.path, doc);
+  }
+  function role(session, path) {
+    const resolved = source(session, path);
+    if (resolved.teaching) return "instructional";
+    if (resolved.item && practice(resolved.item)) return "learner_practice";
+    const review = (session.evidence_reviews || []).find(
+      (r) => r.path === path,
+    );
+    if (["planning", "feedback", "learner_practice"].includes(review?.role))
+      return review.role;
+    return resolved.readable ? "unclassified_context" : "unresolved";
   }
   function coverage(session, placement) {
     const c = session?.courses.find((c) =>
@@ -94,7 +143,13 @@
     );
     const unread = assessments.filter(
       (i) =>
-        i.capture_coverage !== "observed_empty" &&
+        ![
+          "observed_empty",
+          "unsupported",
+          "unresolved_mapping",
+          "external_body_unread",
+          "not_inspected",
+        ].includes(i.capture_coverage) &&
         !failed.includes(i) &&
         !source(session, `coursera/${c.branch_id}/${i.id}`).readable &&
         !i.body_available,
@@ -103,6 +158,7 @@
       const q = i.assessment_capture;
       return (
         q &&
+        !empty.includes(i) &&
         !failed.includes(i) &&
         (q.has_unresolved_capture_issues === true ||
           (q.declared_questions != null &&
@@ -149,6 +205,19 @@
           names(cv.unread) +
           ". Open the exact items to inspect their learner content. Capture again after resolving the recorded loading/content issue, or supply the original resource. Unread is not absent.",
       );
+    for (const [state, action] of Object.entries({
+      unsupported:
+        "Unsupported practice projection: inspect its retained native configuration; do not infer missing content or repeat an unchanged capture.",
+      unresolved_mapping:
+        "Unresolved practice identity: reconcile the recorded source binding before claiming coverage.",
+      external_body_unread:
+        "Inaccessible external practice: inspect the recorded external resource through authorized access; repeating the shell capture does not read it.",
+      not_inspected:
+        "Read existing practice (not inspected): inspect the exact item before claiming non-duplication.",
+    })) {
+      const items = cv.assessments.filter((i) => i.capture_coverage === state);
+      if (items.length) messages.push(action + " " + names(items));
+    }
     const placeholders = cv.incomplete.filter(
       (i) => i.assessment_capture?.placeholder_options > 0,
     );
@@ -274,5 +343,13 @@
       );
     return [...new Set(issues)];
   }
-  root.ActivityQuality = { source, coverage, recovery, problems, practice };
+  root.ActivityQuality = {
+    source,
+    coverage,
+    recovery,
+    problems,
+    practice,
+    role,
+    reviewedTeaching,
+  };
 })(globalThis);

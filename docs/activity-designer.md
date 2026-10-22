@@ -237,3 +237,58 @@ course coverage as established; preview availability does not imply that claim.
 Latest implementation findings and checks: [Activity evidence repair, 2026-10-08](audits/activity-evidence-repair-2026-10-08.md).
 
 Latest capture-state follow-up: [Activity capture semantics, 2026-10-08](audits/activity-capture-semantics-2026-10-08.md). Observed-empty destination practice needs source reconciliation; a learner-text receipt is separate from answer/configuration and source-equivalence checks.
+
+## RC1 evidence-quality corrections (PR #108)
+
+Activity Studio keeps three separate layers: the original CTI/source files, the
+validated activity projection, and a scoped AI handoff. These changes affect only
+the last two. A successful capture is not proof that its authored content is
+instructionally valid or equivalent to the source LMS.
+
+Readable reference text no longer establishes teaching. Exact-item teaching
+blocks and integrity-checked original teaching PDFs remain eligible. Other
+references and package documents start as unclassified context. In the prepared
+evidence tree, **Classify reference evidence before final drafting** records an
+explicit reviewer, role, exact source locator, substantive verbatim excerpt and
+text hash. Planning, feedback, practice, detectable assessment/QTI material and
+prior ACTIVITY_RESULTS are not teaching. A review is a local human declaration,
+not an authenticated organizational signature or automated semantic certification.
+Changing a review changes the evidence basis and requires renewed approvals.
+Saved sessions retain these reviews; changed text invalidates their teaching
+eligibility. Legacy sessions without them remain readable, with unclassified
+references ineligible for the teaching gate. Import identity-bound teaching or
+review an actual instructional source to migrate; do not relabel an outline.
+
+The adapter now projects canonical native empty-assessment receipts, supported
+instruction blocks and stable current-published reading text. Empty authored parts
+remain **observed_empty**, with source-reconciliation guidance, rather than a
+request to repeatedly extract the unchanged editor. Ingestion failures,
+unsupported types, inaccessible external resources, unresolved identities and
+not-inspected items retain separate states. Projection provenance retains exact
+item/course/atom IDs, recorded timestamps, hashes, source state and contract
+reasons. Published observation is not interchangeable with a draft or historical
+version. Keys, feedback and grading solutions remain excluded from this smaller
+projection; originals retain the full supported evidence.
+
+Focused packets include selected module bodies and explicitly selected shared or
+cross-module prerequisite documents. **Shared references and cross-module
+prerequisites** is under **Choose modules to review**. Inspect this catalogue
+before sending: an unmapped document is not necessarily irrelevant. Exclusions
+carry original paths, available hashes, sizes and association reasons; recover
+any required body from the selector, SESSION.json or original input. Nothing
+excluded is represented as AI-reviewed. References alone cannot settle whether
+teaching or practice is complete. A title-based match remains provisional.
+
+Approved generation automatically includes the proposals' cited documents and
+PDF source paths, in addition to their module evidence. No other proposal becomes
+a generation target. Necessary dependencies must be cited in the recommendation
+before approval. If associations remain unresolved, the AI must hold the proposal
+and request the missing evidence. CTI cannot infer all semantic prerequisites.
+Targets remain advisory: whole modules may split across packets, but a single
+oversized module is flagged without truncating text. The final-generation ZIP's
+README flags handoffs exceeding the 12,000-token advisory estimate. Original PDFs
+and their exact hash names remain intact. Do not send the complete backup ZIP as
+the default AI packet.
+
+For reproducible measurements and retained TRDE120 findings, see
+[RC1 evidence corrections](audits/activity-studio-rc1-evidence-quality.md).

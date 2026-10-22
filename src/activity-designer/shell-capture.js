@@ -215,9 +215,17 @@
         throw Error("Captured item IDs are invalid or duplicated.");
       ids.add(it.id);
       if (
-        !["unread", "partial", "text_captured", "observed_empty"].includes(
-          it.coverage,
-        )
+        ![
+          "unread",
+          "partial",
+          "text_captured",
+          "observed_empty",
+          "ingestion_failure",
+          "external_body_unread",
+          "unsupported",
+          "unresolved_mapping",
+          "not_inspected",
+        ].includes(it.coverage)
       )
         throw Error("Invalid item coverage.");
       if (
@@ -265,6 +273,21 @@
     if (!m || typeof m !== "object") return null;
     const result = {
       completeness: "partial_unverified",
+      question_evidence: Array.isArray(m.question_evidence)
+        ? m.question_evidence.map((q) => ({
+            id: str(q.id),
+            local_id: str(q.local_id),
+            type: str(q.type),
+            prompt_reliable:
+              typeof q.prompt_reliable === "boolean" ? q.prompt_reliable : null,
+            options_reliable:
+              typeof q.options_reliable === "boolean"
+                ? q.options_reliable
+                : null,
+            option_capture_issue: str(q.option_capture_issue),
+            ingestion_failure: q.ingestion_failure === true,
+          }))
+        : [],
       has_unresolved_capture_issues: m.has_unresolved_capture_issues === true,
       has_ingestion_failure: m.has_ingestion_failure === true,
     };
@@ -297,6 +320,10 @@
       i.blocks.some((b) => b.kind !== "gap" && textQuality(b.text).readable);
     return {
       items: c.items.length,
+      states: c.items.reduce((counts, i) => {
+        counts[i.coverage] = (counts[i.coverage] || 0) + 1;
+        return counts;
+      }, {}),
       with_text: c.items.filter(read).length,
       unread: c.items.filter((i) => !read(i) && i.coverage !== "observed_empty")
         .length,
@@ -401,6 +428,7 @@
         time_seconds: null,
         body_available: body.length > 0,
         capture_coverage: it.coverage,
+        provenance: it.provenance || null,
         assessment_capture: assessmentMetrics(it.assessment_capture),
         external_resources: it.external_resources || [],
         link: root.CourseCtiAdapter?.route(it.route, c.course.id, it.id) || "",
@@ -412,7 +440,10 @@
           id: it.id,
           path,
           title: it.title,
-          coverage: "partial_text",
+          coverage:
+            it.coverage === "text_captured" ? "text_captured" : "partial_text",
+          capture_state: it.coverage,
+          provenance: it.provenance || null,
           sha256: null,
           note:
             (it.assessment_capture?.completeness === "learner_text_captured"
@@ -445,6 +476,7 @@
           kind: it.type,
           capture_state: it.coverage,
           external_resources: it.external_resources || [],
+          provenance: it.provenance || null,
           reason:
             (it.blocks.some((b) => textQuality(b.text).placeholder_only)
               ? "Only loading/viewer controls were captured; no readable teaching content. "

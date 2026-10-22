@@ -1,0 +1,111 @@
+{
+  "kind": "local_synthetic_wall_clock",
+  "baseline": "611a692e8ce2e2475cc8089a0bbeb61a14e6d118",
+  "iterations": 30,
+  "notes": [
+    "No production speed claim. Token estimates are characters / 4. Stages are independent, not additive.",
+    "Heap samples are process-wide occupied heap, not isolated browser peak memory. Operator actions are prescribed, not observed."
+  ],
+  "before": {
+    "input_bytes": 260287,
+    "packet_bytes": 275531,
+    "estimated_tokens": 68882,
+    "documents": 47,
+    "excluded_documents": 0,
+    "median_ms": 8.137171000000023,
+    "p95_ms": 16.46173299999998,
+    "heap_delta_bytes": 638512,
+    "cached_identity_median_ms": 0.0003070000000207074
+  },
+  "after": {
+    "input_bytes": 260287,
+    "packet_bytes": 45663,
+    "estimated_tokens": 11415,
+    "documents": 3,
+    "excluded_documents": 44,
+    "median_ms": 0.46147399999995287,
+    "p95_ms": 1.517910000000029,
+    "heap_delta_bytes": 3811376,
+    "cached_identity_median_ms": 0.0001630000000432119
+  },
+  "retained_capture": {
+    "input_sha256": "6d7120892fb5d197b6ed75d264e1d365d095a8be56bd1eb87dea5950e0603952",
+    "input_bytes": 1098521,
+    "items": 96,
+    "before": {
+      "projection_median_ms": 18.362729000000172,
+      "projection_p95_ms": 94.19930399999998,
+      "documents": 36,
+      "states": {
+        "partial": 36,
+        "unread": 60
+      },
+      "items": [
+        {
+          "id": "SekFW",
+          "state": "unread",
+          "blocks": 0,
+          "characters": 0
+        },
+        {
+          "id": "mtHnH",
+          "state": "unread",
+          "blocks": 0,
+          "characters": 0
+        },
+        {
+          "id": "zBBdG",
+          "state": "unread",
+          "blocks": 0,
+          "characters": 0
+        },
+        {
+          "id": "LFrHs",
+          "state": "partial",
+          "blocks": 10,
+          "characters": 1638
+        }
+      ]
+    },
+    "after": {
+      "projection_median_ms": 19.466387999999824,
+      "projection_p95_ms": 41.45934699999998,
+      "documents": 39,
+      "states": {
+        "partial": 36,
+        "text_captured": 2,
+        "unread": 33,
+        "observed_empty": 17,
+        "unsupported": 7,
+        "ingestion_failure": 1
+      },
+      "items": [
+        {
+          "id": "SekFW",
+          "state": "text_captured",
+          "blocks": 1,
+          "characters": 551
+        },
+        {
+          "id": "mtHnH",
+          "state": "partial",
+          "blocks": 1,
+          "characters": 429
+        },
+        {
+          "id": "zBBdG",
+          "state": "observed_empty",
+          "blocks": 0,
+          "characters": 0
+        },
+        {
+          "id": "LFrHs",
+          "state": "ingestion_failure",
+          "blocks": 10,
+          "characters": 1638
+        }
+      ]
+    },
+    "original_unchanged": true
+  }
+}

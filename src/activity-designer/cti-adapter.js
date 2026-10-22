@@ -110,6 +110,15 @@
         (q) => !q.options?.length || q.optionTextReliable === true,
       );
     return {
+      question_evidence: questions.map((q) => ({
+        id: text(q.courseraQuestionId) || text(q.id),
+        local_id: text(q.sourceLocalId),
+        type: text(q.type),
+        prompt_reliable: q.promptTextReliable ?? null,
+        options_reliable: q.optionTextReliable ?? null,
+        option_capture_issue: text(q.optionCaptureIssue),
+        ingestion_failure: failedImagePrompt(q.prompt),
+      })),
       prompts_captured: prompts,
       options_captured: options,
       placeholder_options: placeholderOptions,
@@ -123,6 +132,75 @@
           ? "learner_text_captured"
           : "partial_unverified",
     };
+  }
+  function boundDraft(p, item, branch) {
+    const e = p.directDataEvidence;
+    return (
+      e?.method === "BOUND_AUTHORING_DRAFT_API" &&
+      e.courseId === branch &&
+      e.itemId === item &&
+      e.stableSource === true &&
+      e.sourceState === "AUTHORING_DRAFT" &&
+      idPattern.test(e.atomId || "") &&
+      /^[a-f0-9]{64}$/.test(e.draftHash || "") &&
+      p.captureContract?.itemId === item
+    );
+  }
+  function nativeEmpty(p, item, branch) {
+    const e = p.explicitEmptyAssessmentEvidence,
+      a = p.structuredAssessment,
+      atom = p.directDataSources?.atom?.elements?.[0];
+    return (
+      boundDraft(p, item, branch) &&
+      p.captureContract.complete === true &&
+      p.captureContract.status === "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT" &&
+      e?.method === "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS" &&
+      e.courseId === branch &&
+      e.itemId === item &&
+      e.atomId === p.directDataEvidence.atomId &&
+      atom?.id === e.atomId &&
+      atom.draft?.content?.typeName === "staffGradedDraft" &&
+      Array.isArray(atom.draft.content.definition?.parts) &&
+      atom.draft.content.definition.parts.length === 0 &&
+      e.sourceEmpty === true &&
+      e.declaredContentParts === 0 &&
+      a?.declaredQuestionCount === 0 &&
+      a.questionCount === 0 &&
+      Array.isArray(a.questions) &&
+      a.questions.length === 0 &&
+      a.captureCompleteness?.sourceEmpty === true &&
+      a.captureCompleteness.questionCoverageComplete === true &&
+      p.directDataEvidence.sourceEmpty === true &&
+      p.directDataEvidence.declaredContentParts === 0
+    );
+  }
+  function publishedReading(p, item, branch, atomId) {
+    const e = p.directPublishedReadingEvidence,
+      a = e?.initial?.model,
+      b = e?.final?.model;
+    return (
+      p.captureContract?.itemId === item &&
+      p.captureContract.complete === true &&
+      p.captureContract.status === "COMPLETE_BOUND_PUBLISHED_READING" &&
+      e?.method === "BOUND_PUBLISHED_READING_GRAPHQL" &&
+      e.stable === true &&
+      e.wholeItemVerified === true &&
+      (!atomId || a?.atomId === atomId) &&
+      a?.courseId === branch &&
+      a.itemId === item &&
+      a.atomId === a.id &&
+      b?.courseId === branch &&
+      b.itemId === item &&
+      b.atomId === a.atomId &&
+      a.parentBranch?.courseId === branch &&
+      a.parentBranch.isAtomAtLatestVersion === true &&
+      p.textSha256 ===
+        root.CourseCtiUnifiedCapture?.hashText(text(p.textSample)) &&
+      a.itemType === "READING" &&
+      a.publishedItemContent?.content?.dtdId === "assess/1" &&
+      JSON.stringify(a) === JSON.stringify(b) &&
+      p.textCaptureTruncated === false
+    );
   }
   function observedEmpty(p, item, branch, blocks) {
     const e = p.emptyEditorEvidence,
@@ -164,7 +242,7 @@
       format: "coursera-activity-capture",
       schema_version: 1,
       created_at: raw.extractedAt,
-      extractor_version: "CTI adapter 3 / " + text(raw.meta?.extractor),
+      extractor_version: "CTI adapter 4 / " + text(raw.meta?.extractor),
       course: {
         id: branch,
         title:
@@ -191,7 +269,8 @@
       )
         throw Error("Malformed CTI item identity or payload.");
       const p = f.payload,
-        assessment = p.structuredAssessment;
+        assessment = p.structuredAssessment,
+        published = publishedReading(p, f.id, branch, f.atomId);
       const kind = text(f.typeName) || text(f.type) || "unknown";
       const assessed =
         root.CourseShell.isAssessmentType(kind) ||
@@ -243,6 +322,46 @@
             );
           }
         }
+        if (
+          boundDraft(p, f.id, branch) &&
+          assessment?.introduction?.typeName === "cml" &&
+          JSON.stringify(assessment.introduction) ===
+            JSON.stringify(
+              p.directDataSources?.atom?.elements?.[0]?.draft?.content
+                ?.definition?.introduction,
+            ) &&
+          /^(assess|staffGraded)\/1$/.test(
+            assessment.introduction.definition?.dtdId || "",
+          )
+        )
+          add(
+            "Authored learner introduction",
+            root.CoursePrep.cleanHTML(
+              text(assessment.introduction.definition.value),
+            ),
+            "assessment",
+          );
+        if (
+          boundDraft(p, f.id, branch) &&
+          p.captureContract.status ===
+            "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT" &&
+          p.captureContract.complete === true &&
+          p.directInstructionAssessmentEvidence?.itemId === f.id &&
+          p.directInstructionAssessmentEvidence?.courseId === branch &&
+          p.directInstructionAssessmentEvidence?.atomId ===
+            p.directDataEvidence.atomId
+        ) {
+          for (const b of assessment?.contentBlocks || [])
+            if (
+              typeof b.text === "string" &&
+              b.textSha256 === root.CourseCtiUnifiedCapture?.hashText(b.text)
+            )
+              add(
+                "Authored instructions / " + b.nativeId,
+                b.text,
+                "assessment",
+              );
+        }
         for (const key of [
           "learnerPrompt",
           "learnerDirections",
@@ -256,6 +375,7 @@
             "assessment",
           );
       } else if (
+        (p.textScopeKind === "bound-current-published-cml" && published) ||
         p.textScopeKind === "reading-content-field" ||
         [
           "bound-authoring-draft-cml",
@@ -349,7 +469,30 @@
                 key: trail.slice(0, i + 1).join(" > "),
               })),
         blocks,
-        coverage: blocks.length ? "partial" : "unread",
+        coverage: blocks.length ? "partial" : "not_inspected",
+        provenance: {
+          course_id: branch,
+          item_id: f.id,
+          atom_id: text(f.atomId) || text(p.directDataEvidence?.atomId),
+          observed_at: raw.extractedAt,
+          status: text(p.captureContract?.status),
+          reasons: (p.captureContract?.reasons || []).filter(
+            (r) => typeof r === "string",
+          ),
+          text_scope: text(p.textScopeKind),
+          text_sha256: text(p.textSha256),
+          text_truncated: p.textCaptureTruncated === true,
+          source_state:
+            p.textScopeKind === "bound-current-published-cml"
+              ? "CURRENT_PUBLISHED"
+              : text(p.directDataEvidence?.sourceState),
+          draft_sha256: text(p.directDataEvidence?.draftHash),
+          stored_atom_version: p.directDataEvidence?.storedAtomVersion ?? null,
+          source_updated_at: p.directDataEvidence?.updatedAt ?? null,
+          whole_item_verified: p.captureContract?.complete === true,
+          // Capture contract scope stays separate from this smaller projection.
+          published_body_verified: published === true,
+        },
         external_resources: externalResources,
         notes,
         route:
@@ -376,19 +519,37 @@
             p.captureContract?.status === "INGESTION_FAILURE_CAPTURED",
         );
       if (item.assessment_capture?.has_ingestion_failure)
+        item.coverage = "ingestion_failure";
+      else if (p.captureContract?.status === "UNRESOLVED_DIRECT_TYPE")
+        item.coverage = "unsupported";
+      else if (
+        p.captureContract?.reasons?.some((r) =>
+          /IDENTITY|BINDING|SOURCE_NOT_ESTABLISHED/.test(r),
+        )
+      )
+        item.coverage = "unresolved_mapping";
+      else if (!blocks.length && externalResources.length)
+        item.coverage = "external_body_unread";
+      else if (!blocks.length && p.captureContract) item.coverage = "unread";
+      if (item.assessment_capture?.has_ingestion_failure)
         notes.push(
           "An ingestion failure is recorded in this item. Error placeholders are gap evidence, not learner prompts. Restore missing source content/media in Coursera and capture the repaired item before verifying practice coverage.",
         );
-      if (assessed && observedEmpty(p, f.id, branch, blocks)) {
+      if (
+        assessed &&
+        (observedEmpty(p, f.id, branch, blocks) ||
+          (!blocks.length && nativeEmpty(p, f.id, branch)))
+      ) {
         item.coverage = "observed_empty";
         notes.push(
-          "Coursera's exact assignment editor was observed empty in two stable samples. Compare this item with the source LMS/IMSCC and restore intended practice or resolve its scope. Do not repeat extraction just to recover text from an empty editor. Source practice is not established absent.",
+          "Coursera's exact authored assessment was observed empty by the retained editor or bound native zero-part receipt. Compare this item with the source LMS/IMSCC and restore intended practice or resolve its scope. Do not repeat extraction just to recover text from an empty editor. Source practice is not established absent.",
         );
       }
       if (item.assessment_capture?.completeness === "learner_text_captured")
         notes.push(
           "All declared question prompts and applicable choice text were captured in this snapshot. Text-entry and file-upload questions need no choice options. This receipt covers learner text only, not source equivalence, media, grading configuration or approval. Answer keys are deliberately excluded from activity design.",
         );
+      if (published) item.coverage = "text_captured";
       if (p.textScopeKind === "document-viewer")
         notes.push(
           "Rendered viewer excerpt only; full PDF pages, diagrams and formulas need review. Captured PDF originals are processed separately when available.",

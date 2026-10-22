@@ -863,6 +863,33 @@
         }
       }
     }
+    if (s.evidence_reviews !== undefined) {
+      array(s.evidence_reviews, "evidence reviews", 5000);
+      const paths = new Set();
+      for (const r of s.evidence_reviews) {
+        for (const key of [
+          "path",
+          "role",
+          "reviewer",
+          "locator",
+          "excerpt",
+          "text_sha256",
+        ])
+          str(r?.[key], "evidence review " + key);
+        if (
+          paths.has(r.path) ||
+          ![
+            "instructional",
+            "planning",
+            "feedback",
+            "learner_practice",
+          ].includes(r.role) ||
+          !/^[a-f0-9]{64}$/.test(r.text_sha256)
+        )
+          throw Error("Invalid or conflicting evidence review.");
+        paths.add(r.path);
+      }
+    }
     root.CourseCtiDocuments?.validate(s.visual_assets || [], true);
     let chars = 0;
     for (const src of s.sources) {
@@ -912,6 +939,24 @@
         ]) || [];
       s.sources.push(...old.sources);
       s.references.push(...old.references);
+      if (old.evidence_reviews?.length) {
+        const reviews = new Map(
+          (s.evidence_reviews || []).map((r) => [r.path, r]),
+        );
+        for (const review of old.evidence_reviews) {
+          if (
+            reviews.has(review.path) &&
+            JSON.stringify(reviews.get(review.path)) !== JSON.stringify(review)
+          )
+            throw Error(
+              "Conflicting saved evidence reviews for " +
+                review.path +
+                ". Restore one coherent work snapshot.",
+            );
+          reviews.set(review.path, review);
+        }
+        s.evidence_reviews = [...reviews.values()];
+      }
       s.courses.push(...old.courses);
       s.input_files.push(...(old.input_files || []));
       s.issues.push(
@@ -1112,6 +1157,7 @@
                     Object.assign(i, {
                       body_available: evidence?.body_available || false,
                       capture_coverage: evidence?.capture_coverage || "unread",
+                      provenance: evidence?.provenance || null,
                       assessment_capture: evidence?.assessment_capture || null,
                       external_resources: evidence?.external_resources || [],
                       notes: evidence?.notes || [
@@ -1278,12 +1324,12 @@ Return concise placement/content cards and ACTIVITY_RESULTS.json using the suppl
         );
       for (const d of source.documents)
         blocks.push(
-          `### SOURCE DOCUMENT ${source.filename} :: ${d.id}\nPath: ${d.path}\nTitle: ${d.title}\nSHA-256: ${d.sha256 || "unavailable"}\nCoverage: ${d.coverage}. ${d.note || ""}\nAssociations: ${JSON.stringify(d.associations || [])}\nBEGIN COURSE DATA\n${d.text}\nEND COURSE DATA\n`,
+          `### SOURCE DOCUMENT ${source.filename} :: ${d.id}\nPath: ${d.path}\nTitle: ${d.title}\nSHA-256: ${d.sha256 || "unavailable"}\nCoverage: ${d.coverage}. ${d.note || ""}\nEvidence role: ${root.ActivityQuality?.role(s, d.path) || "unclassified_context"}. Review: ${JSON.stringify((s.evidence_reviews || []).find((x) => x.path === d.path) || null)}\nAssociations: ${JSON.stringify(d.associations || [])}\nBEGIN COURSE DATA\n${d.text}\nEND COURSE DATA\n`,
         );
     }
     for (const r of s.references)
       blocks.push(
-        `## REFERENCE DOCUMENT ${r.filename}\nCoverage: ${r.coverage}. ${r.note || ""}\nExternal links (not fetched): ${(r.links || []).join(" | ")}\nThis may be a transformed map/outline or feedback, not original teaching.\nBEGIN REFERENCE DATA\n${r.text}\nEND REFERENCE DATA\n`,
+        `## REFERENCE DOCUMENT ${r.filename}\nCoverage: ${r.coverage}. ${r.note || ""}\nExternal links (not fetched): ${(r.links || []).join(" | ")}\nEvidence role: ${root.ActivityQuality?.role(s, r.filename) || "unclassified_context"}. Review: ${JSON.stringify((s.evidence_reviews || []).find((x) => x.path === r.filename) || null)}. Planning and prior AI output cannot establish teaching.\nBEGIN REFERENCE DATA\n${r.text}\nEND REFERENCE DATA\n`,
       );
     blocks.push(
       "## TITLE-MATCH CANDIDATES (NOT VERIFIED)\n" +

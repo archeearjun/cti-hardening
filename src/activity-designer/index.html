@@ -382,7 +382,9 @@
                     <p class="small">
                       All modules are selected by default. Unchecked modules are
                       explicitly excluded; their teaching is not reviewed.
-                      Shared references remain included.
+                      Shared or prerequisite documents can be selected below.
+                      Unselected bodies remain in your saved evidence; their
+                      relevance is unresolved, not dismissed.
                     </p>
                     <label for="module-search">Search courses and modules</label
                     ><input
@@ -391,6 +393,18 @@
                       placeholder="Course or module name"
                     />
                     <div id="packet-modules"></div>
+                    <details>
+                      <summary>
+                        Shared references and cross-module prerequisites
+                      </summary>
+                      <p>
+                        Select necessary source documents by exact path. A
+                        selected document is evidence context, not automatically
+                        verified teaching. Excluded documents remain recoverable
+                        from the saved session.
+                      </p>
+                      <div id="packet-shared"></div>
+                    </details>
                   </details>
                   <details class="detail-box">
                     <summary>View packet / copy manually</summary>

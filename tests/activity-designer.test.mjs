@@ -1353,7 +1353,7 @@ test("unread external resources retain safe exact links without signed URLs or f
   ];
   const capture = c.CourseCtiAdapter.adapt(raw),
     s = c.CourseShell.toSession(capture, "capture.json", c.CoursePrep);
-  assert.equal(capture.items[0].coverage, "unread");
+  assert.equal(capture.items[0].coverage, "external_body_unread");
   assert.equal(s.sources[0].documents.length, 0);
   const packet = c.CourseCompact.build(s).packets[0].data;
   const refs =
@@ -1805,4 +1805,322 @@ test("RC1 outline placement stays provisional alongside an existing shell withou
     () => c.ActivityReadiness.resolveDecisions(invalid, s),
     /unresolved/,
   );
+});
+
+test("RC1 evidence roles: outlines and prior AI are not teaching; explicit instructional review is content-bound", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const outline = {
+    filename: "outline.txt",
+    coverage: "text",
+    text: "Module one will cover measurement and learners will practise discussing units. This outline describes intended structure, not an instructional explanation.",
+  };
+  s.references.push(outline);
+  a.evidence = [
+    {
+      source_path: outline.filename,
+      purpose: "teaching",
+      locator: "Module one",
+    },
+  ];
+  approveFixture(c, s, r);
+  assert.equal(c.ActivityQuality.source(s, outline.filename).teaching, false);
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, false);
+  assert(
+    c.ActivityReadiness.check(r, s, a).blocking.some((x) =>
+      x.includes("No readable teaching support"),
+    ),
+  );
+  assert.equal(
+    c.CourseCompact.build({ ...s, courses: [] }).packets[0].data.references[0]
+      .evidence_role,
+    "unclassified_context",
+  );
+  const teaching = {
+    filename: "lesson.txt",
+    coverage: "text",
+    text: "Convert metres to centimetres by multiplying the measured length by one hundred. The unit factor preserves the physical length while changing the numerical representation.",
+  };
+  s.references.push(teaching);
+  const review = {
+    path: teaching.filename,
+    role: "instructional",
+    reviewer: "Reviewer",
+    locator: "Paragraph 1",
+    excerpt: teaching.text,
+    text_sha256: c.CourseCtiUnifiedCapture.hashText(teaching.text),
+  };
+  s.evidence_reviews = [review];
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, true);
+  teaching.text += " changed";
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
+  teaching.text = JSON.stringify({
+    format: "course-activity-design",
+    summary: review.excerpt,
+  });
+  review.text_sha256 = c.CourseCtiUnifiedCapture.hashText(teaching.text);
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
+  a.evidence = [
+    { source_path: "coursera/b1/i1", purpose: "teaching", locator: "i1" },
+  ];
+  approveFixture(c, s, r);
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
+});
+
+function nativeEmptyFixture() {
+  const raw = ctiRaw(),
+    atom = "native_atom";
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "zBBdG",
+    typeName: "ungradedAssignment",
+    name: "Empty authored assessment",
+    payload: {
+      captureContract: {
+        itemId: "zBBdG",
+        complete: true,
+        status: "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT",
+        reasons: [],
+      },
+      directDataEvidence: {
+        method: "BOUND_AUTHORING_DRAFT_API",
+        itemId: "zBBdG",
+        courseId: "b1",
+        atomId: atom,
+        sourceState: "AUTHORING_DRAFT",
+        draftHash: "a".repeat(64),
+        stableSource: true,
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      directDataSources: {
+        atom: {
+          elements: [
+            {
+              id: atom,
+              draft: {
+                content: {
+                  typeName: "staffGradedDraft",
+                  definition: { parts: [] },
+                },
+              },
+            },
+          ],
+        },
+      },
+      explicitEmptyAssessmentEvidence: {
+        method: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+        courseId: "b1",
+        itemId: "zBBdG",
+        atomId: atom,
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      structuredAssessment: {
+        declaredQuestionCount: 0,
+        questionCount: 0,
+        questions: [],
+        captureCompleteness: {
+          sourceEmpty: true,
+          questionCoverageComplete: true,
+        },
+      },
+    },
+  });
+  return raw;
+}
+test("RC1 native zero-part contract preserves observed-empty across session and packet without mutating the source", () => {
+  const c = context(),
+    raw = nativeEmptyFixture(),
+    before = JSON.stringify(raw);
+  const cap = c.CourseCtiAdapter.adapt(raw),
+    item = cap.items[1];
+  assert.equal(item.coverage, "observed_empty");
+  assert.equal(item.provenance.source_state, "AUTHORING_DRAFT");
+  const s = c.CourseShell.toSession(cap, "original.json", c.CoursePrep);
+  c.CoursePrep.validateSession(s);
+  const packet = c.CourseCompact.build(s).packets[0].data;
+  assert.equal(
+    packet.gaps.find((x) => x.path.endsWith("zBBdG")).capture_state,
+    "observed_empty",
+  );
+  assert.equal(
+    packet.structure[0].module.lessons[0].items[1].provenance.atom_id,
+    "native_atom",
+  );
+  const recovery = c.ActivityQuality.recovery(s, {
+    branch_id: "b1",
+    module_id: "m1",
+  }).join(" ");
+  assert.match(recovery, /Source reconciliation/);
+  assert.match(
+    recovery,
+    /Repeating capture on the unchanged empty editors will not recover/,
+  );
+  assert(!recovery.includes("Read existing practice"));
+  assert.equal(JSON.stringify(raw), before);
+  for (const mutate of [
+    (p) => (p.explicitEmptyAssessmentEvidence.itemId = "wrong"),
+    (p) => (p.directDataEvidence.stableSource = false),
+    (p) =>
+      p.directDataSources.atom.elements[0].draft.content.definition.parts.push(
+        {},
+      ),
+    (p) => (p.structuredAssessment.declaredQuestionCount = 1),
+  ]) {
+    const next = structuredClone(raw);
+    mutate(next.fingerprints[1].payload);
+    assert.notEqual(
+      c.CourseCtiAdapter.adapt(next).items[1].coverage,
+      "observed_empty",
+    );
+  }
+});
+
+test("RC1 supported bound instructions and published reading retain text and distinct provenance, never keys", () => {
+  const c = context(),
+    raw = nativeEmptyFixture(),
+    p = raw.fingerprints[1].payload;
+  delete p.explicitEmptyAssessmentEvidence;
+  p.captureContract.status = "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT";
+  p.directInstructionAssessmentEvidence = {
+    itemId: "zBBdG",
+    courseId: "b1",
+    atomId: "native_atom",
+  };
+  p.structuredAssessment.contentBlocks = [
+    {
+      nativeId: "textBlock~1",
+      text: "Submit a written explanation of the chosen units.",
+      textSha256: c.CourseCtiUnifiedCapture.hashText(
+        "Submit a written explanation of the chosen units.",
+      ),
+    },
+  ];
+  p.structuredAssessment.introduction = {
+    typeName: "cml",
+    definition: {
+      dtdId: "assess/1",
+      value:
+        "<co-content><text>Explain your reasoning before submitting.</text></co-content>",
+    },
+  };
+  p.directDataSources.atom.elements[0].draft.content.definition.introduction =
+    structuredClone(p.structuredAssessment.introduction);
+  p.structuredAssessment.correctAnswers = ["PRIVATE_KEY"];
+  const r = raw.fingerprints[0].payload;
+  const model = {
+    id: "reading_atom",
+    atomId: "reading_atom",
+    courseId: "b1",
+    itemId: "i1",
+    itemType: "READING",
+    draftItemContent: null,
+    parentBranch: { courseId: "b1", isAtomAtLatestVersion: true },
+    publishedItemContent: {
+      content: {
+        dtdId: "assess/1",
+        cmlValue:
+          "<co-content><text>Measure lengths in metres.</text></co-content>",
+      },
+    },
+  };
+  Object.assign(r, {
+    textSample: "Measure lengths in metres.",
+    textSha256: c.CourseCtiUnifiedCapture.hashText(
+      "Measure lengths in metres.",
+    ),
+    textScopeKind: "bound-current-published-cml",
+    textCaptureTruncated: false,
+    captureContract: {
+      itemId: "i1",
+      complete: true,
+      status: "COMPLETE_BOUND_PUBLISHED_READING",
+    },
+    directPublishedReadingEvidence: {
+      method: "BOUND_PUBLISHED_READING_GRAPHQL",
+      stable: true,
+      wholeItemVerified: true,
+      initial: { model },
+      final: { model: structuredClone(model) },
+    },
+  });
+  const cap = c.CourseCtiAdapter.adapt(raw);
+  assert.equal(cap.items[0].coverage, "text_captured");
+  assert.equal(cap.items[0].provenance.source_state, "CURRENT_PUBLISHED");
+  assert(cap.items[1].blocks.some((b) => b.text.includes("Submit a written")));
+  assert(!JSON.stringify(cap).includes("PRIVATE_KEY"));
+  assert(
+    cap.items[1].blocks.some(
+      (b) =>
+        b.field === "Authored learner introduction" &&
+        b.text === "Explain your reasoning before submitting.",
+    ),
+  );
+  raw.fingerprints[0].atomId = "wrong_atom";
+  assert(
+    !c.CourseCtiAdapter.adapt(raw).items[0].blocks.some((b) =>
+      b.text.includes("Measure lengths"),
+    ),
+  );
+  raw.fingerprints[0].atomId = "reading_atom";
+  r.directPublishedReadingEvidence.final.model.itemId = "wrong";
+  assert(
+    !c.CourseCtiAdapter.adapt(raw).items[0].blocks.some((b) =>
+      b.text.includes("Measure lengths"),
+    ),
+  );
+});
+
+test("RC1 focused scope catalogues omissions and includes explicit prerequisites without truncation", () => {
+  const c = context(),
+    { s } = fixture(c);
+  const text = "Shared instruction about unit conversions. ".repeat(1000);
+  s.sources.push({
+    filename: "source.imscc",
+    kind: "source_package",
+    documents: Array.from({ length: 45 }, (_, i) => ({
+      id: "D" + i,
+      path: "doc" + i + ".html",
+      title: "Document " + i,
+      text,
+      coverage: "text",
+      sha256: String(i).padStart(64, "0"),
+    })),
+    unread: [],
+    warnings: [],
+    external_links: [],
+    manifests: [],
+  });
+  s.references.push({
+    filename: "outline.txt",
+    text: "Proposed future module",
+    coverage: "text",
+  });
+  const before = JSON.stringify(s);
+  c.ActivityApproval.freezeSession(s);
+  const index = c.CourseCompact.buildIndex(s);
+  assert.equal(c.CourseCompact.buildIndex(s), index);
+  const result = c.CourseCompact.build(s, {
+    keys: ["C1M1"],
+    includePaths: ["doc3.html", "outline.txt"],
+    target: 100,
+  });
+  const p = result.packets[0];
+  assert(p.oversize);
+  assert.equal(
+    p.data.documents.filter((x) => x.source_file === "source.imscc").length,
+    1,
+  );
+  assert(p.data.references.some((x) => x.source_path === "outline.txt"));
+  assert.equal(p.data.scope.unresolved_associations.length, 44);
+  assert.equal(
+    p.data.blocks[
+      p.data.documents.find((x) => x.source_path === "doc3.html").blocks[0]
+    ],
+    text.trim(),
+  );
+  assert.match(p.data.scope.recovery, /not.*AI-reviewed/);
+  assert.equal(JSON.stringify(s), before);
+  assert.equal(c.ActivityApproval.identity(s), c.ActivityApproval.identity(s));
 });

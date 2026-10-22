@@ -612,6 +612,9 @@
           "APPROVED_CONTENT_HANDOFF.txt": packet.text,
           ...packet.assets,
           "READ_ME.txt":
+            (packet.oversize
+              ? `Above advisory target: approximately ${packet.estimated_tokens} input tokens. No required text was truncated. Use a chat with sufficient capacity or generate a smaller approved plan; do not silently omit dependencies.\n\n`
+              : "") +
             "Unzip and send APPROVED_CONTENT_HANDOFF.txt plus any Teaching_PDFs to your work-approved AI chat. Request ACTIVITY_RESULTS.json. Only approved proposals may be drafted. Bring the result back to this unchanged work session. Save work ZIP before closing. Review semantic accuracy before Coursera authoring.",
         },
         "Approved_Activity_Handoff.zip",
