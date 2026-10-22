@@ -1,41 +1,22 @@
 name: Deploy private workspace and extractor runtime
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "workers/coursera-extractor/**"
-      - "src/extractors/coursera/**"
-      # Both evidence pipelines and their comparison rules are production-critical.
-      - "src/extractors/brightspace/**"
-      - "src/source/**"
-      - "src/engine/**"
-      - "src/domain/brightspace-capture-evidence.ts"
-      - "src/domain/workflows.ts"
-      - "src/domain/coursera-background-extraction.ts"
-      - "src/domain/coursera-extraction-http.ts"
-      # Assignment UI/API releases must verify the final Pages service binding too.
-      - "src/domain/assignment-*.ts"
-      - "web/**"
-      - "server/**"
-      - "functions/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-coursera-extractor.yml"
-      - ".github/workflows/cti-checks.yml"
-      - "tools/browser-*-check.mjs"
-      - "tools/browser-item-refresh-ui.mjs"
-      - "tools/configure-workspace-runtime.mjs"
-  workflow_dispatch:
+  # Called only after all mandatory checks and production-mirror forwarding.
+  # Roll back by rerunning the deployment job of a known-good successful main
+  # run: checkout and GITHUB_SHA retain that run's exact commit. No force push.
+  workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
   group: cti-coursera-extractor-production
-  # A superseded commit can never reach the production mirror after its
-  # browser checks fail. Let the latest verified release replace that wait.
+  # Only gated main runs reach deployment. Keep production updates serialized.
   cancel-in-progress: true
 
 jobs:
@@ -169,9 +150,10 @@ jobs:
           API="https://api.cloudflare.com/client/v4"
           AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
           DEPLOYMENT_ID=""
-          # Browser verification may use 25 minutes before forwarding this SHA.
-          # Allow 30 minutes for that gate and the first Pages deployment.
-          for attempt in $(seq 1 180); do
+          # CI and forwarding have already succeeded for this exact GITHUB_SHA.
+          # Wait only for Cloudflare's build, using the same 12-minute bound as
+          # the bound redeployment below; failed/skipped CI never starts this job.
+          for attempt in $(seq 1 72); do
             DEPLOYMENTS="$(
               curl --fail-with-body --silent --show-error "${AUTH[@]}"                 "${API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}/deployments?env=production&per_page=25"
             )"
