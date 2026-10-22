@@ -1852,6 +1852,20 @@ test("RC1 evidence roles: outlines and prior AI are not teaching; explicit instr
   };
   s.evidence_reviews = [review];
   assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, true);
+  s.sources.push({
+    filename: "ambiguous.imscc",
+    kind: "source_package",
+    documents: [
+      {
+        path: teaching.filename,
+        text: "Another source with the same path",
+        associations: [],
+      },
+    ],
+    unread: [],
+  });
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
+  s.sources.pop();
   teaching.text += " changed";
   assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
   teaching.text = JSON.stringify({

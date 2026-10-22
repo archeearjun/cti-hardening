@@ -53,8 +53,9 @@
       .some((d) => root.CourseShell.textQuality(d.text).readable);
     // Readability establishes available text, never its instructional role.
     const teaching =
-      docs.some((d) => eligibleDocument(session, d)) ||
-      refs.some((r) => reviewedTeaching(session, r.filename, r));
+      docs.length + refs.length === 1 &&
+      (docs.some((d) => eligibleDocument(session, d)) ||
+        refs.some((r) => reviewedTeaching(session, r.filename, r)));
     return {
       known: !!(docs.length || refs.length || gaps.length || item),
       readable,
