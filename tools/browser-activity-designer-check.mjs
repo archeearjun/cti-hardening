@@ -15,6 +15,88 @@ import {
   twoPageTeachingPdfFixture,
 } from "../tests/activity-designer-fixtures.mjs";
 
+async function approveResult(page, result, exercisePartial = false) {
+  const rec = structuredClone(result);
+  rec.mode = "opportunity";
+  for (const a of rec.activities) {
+    a.status = "idea";
+    a.fields = [];
+    a.context = { text: "" };
+    delete a.approval_ref;
+    a.recommendation = {
+      confidence: "medium",
+      limitations: "Text-only fixture; human semantic review required.",
+      placement_status: "exact",
+      placement_source: "",
+      existing_practice: a.design.comparison,
+    };
+  }
+  if (exercisePartial)
+    for (const id of ["Held", "Rejected", "Pending"])
+      rec.activities.push({ ...structuredClone(rec.activities[0]), id });
+  await page.locator("#result-merge-mode").selectOption("replace");
+  await page.locator("#result-json").fill(JSON.stringify(rec));
+  await page.locator("#import-result").click();
+  assert.equal(await page.locator("#result-error").isVisible(), false);
+  await page.locator("#reviewer-name").fill("Browser fixture reviewer");
+  const card = page.locator(
+    '[data-proposal-id="' + rec.activities[0].id + '"]',
+  );
+  if (exercisePartial) {
+    await page
+      .locator('[data-proposal-id="Held"]')
+      .getByRole("button", { name: "Hold for evidence", exact: true })
+      .click();
+    await page
+      .locator('[data-proposal-id="Rejected"]')
+      .getByRole("button", { name: "Reject", exact: true })
+      .click();
+    await card.getByText("Revise recommendation", { exact: true }).click();
+    await card
+      .getByLabel("Incremental instructional value", { exact: true })
+      .fill(rec.activities[0].why + " Reviewed by a human.");
+    await card
+      .getByRole("button", { name: "Save revision for review", exact: true })
+      .click();
+    assert.match(await card.innerText(), /Decision: pending/);
+  }
+  await card.getByRole("button", { name: "Approve", exact: true }).click();
+  assert.match(await card.innerText(), /Decision: approved/);
+  const originalDate = await page.evaluate(
+    () => CoursePrepUI.getSession().created_at,
+  );
+  await page.locator("#nav-prepare").click();
+  await page.locator("#phase").selectOption("final");
+  assert.equal(
+    await page.evaluate(() => CoursePrepUI.getSession().created_at),
+    originalDate,
+  );
+  await page.locator("#nav-activities").click();
+  await page.locator("#generate-approved").click();
+  const link = page.getByRole("link", {
+    name: "Save Approved_Activity_Handoff.zip",
+    exact: true,
+  });
+  await link.waitFor();
+  const downloadWait = page.waitForEvent("download");
+  await link.click();
+  const zip = await JSZip.loadAsync(
+    fs.readFileSync(await (await downloadWait).path()),
+  );
+  const handoff = await zip
+    .file("APPROVED_CONTENT_HANDOFF.txt")
+    .async("string");
+  const data = JSON.parse(handoff.slice(handoff.lastIndexOf("\n") + 1));
+  assert.equal(data.approved_proposals.length, result.activities.length);
+  for (const a of result.activities)
+    Object.assign(
+      a,
+      data.approved_proposals.find((p) => p.id === a.id),
+    );
+  result.mode = "final";
+  await page.locator("#result-merge-mode").selectOption("merge");
+}
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 const policy = fs
   .readFileSync(path.join(root, "public/_headers"), "utf8")
@@ -188,7 +270,7 @@ try {
     Object.assign(r, {
       title: s.title,
       bundle_created_at: s.created_at,
-      mode: s.phase,
+      mode: "final",
     });
     a.type = "dialogue";
     a.title = "Explain the units";
@@ -261,6 +343,20 @@ try {
   });
   await page.locator("#nav-activities").click();
   await page.locator("#paste-result summary").click();
+  // Legacy drafts remain visible but cannot be copied before explicit human review.
+  await page.locator("#result-json").fill(JSON.stringify(result));
+  await page.locator("#import-result").click();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  assert.match(
+    await page.locator("#activity-cards").innerText(),
+    /Human approval is missing/,
+  );
+  await approveResult(page, result, true);
   await page.locator("#result-json").fill(JSON.stringify(result));
   await page.locator("#import-result").click();
   await page
@@ -357,6 +453,7 @@ try {
   await restored.goto(page.url());
   await restored.waitForFunction(() => !!globalThis.CoursePrepUI);
   await restored.locator("#nav-activities").click();
+  await restored.locator("#restore-human-decisions").check();
   await restored.locator("#result-file").setInputFiles({
     name: "work.zip",
     mimeType: "application/zip",
@@ -369,6 +466,37 @@ try {
     (await restored.evaluate(() => CoursePrepUI.getSession())).created_at,
     snapshot.created_at,
   );
+  assert.match(
+    await restored.locator("#approval-status").innerText(),
+    /1 approved/,
+  );
+  // Another tab losing/changing the local approval must revoke copy controls.
+  await page.evaluate(() =>
+    localStorage.removeItem(
+      "cti.activity.approval.v1:" + CourseResults.getPlan().plan_id,
+    ),
+  );
+  await restored.waitForFunction(() =>
+    document
+      .getElementById("approval-status")
+      .textContent.includes("unavailable"),
+  );
+  assert.equal(
+    await restored
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  await restored
+    .locator("#result-file")
+    .setInputFiles({
+      name: "work.zip",
+      mimeType: "application/zip",
+      buffer: bytes,
+    });
+  await restored
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
   // A well-formed ZIP with invalid module decisions must not replace either state.
   const badSession = structuredClone(snapshot);
   badSession.title = "Another saved course";
@@ -404,6 +532,20 @@ try {
   // Incorrect placement is visible, with copy disabled; literal HTML stays text.
   const bad = structuredClone(result);
   bad.activities[0].placement.before_item_id = "wrong";
+  await page.locator("#result-json").fill(JSON.stringify(bad));
+  await page.locator("#import-result").click();
+  assert.match(
+    await page.locator("#result-error").innerText(),
+    /changed after approval/,
+  );
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    1,
+    "Invalid approved placement does not replace valid cards",
+  );
+  delete bad.activities[0].approval_ref; // Legacy review-only path still renders literal text safely.
   bad.activities[0].fields[1].text =
     "<img src=x onerror=alert(1)> Literal evidence";
   await page.locator("#result-json").fill(JSON.stringify(bad));
@@ -526,7 +668,7 @@ try {
   const pdfResult = structuredClone(result);
   pdfResult.bundle_created_at = docSession.created_at;
   pdfResult.title = docSession.title;
-  pdfResult.mode = docSession.phase;
+  pdfResult.mode = "final";
   const pdfActivity = pdfResult.activities[0];
   pdfActivity.placement.after = "Teaching PDF";
   pdfActivity.placement.before = "End of lesson";
@@ -541,6 +683,7 @@ try {
   ];
   await pdfPage.locator("#nav-activities").click();
   await pdfPage.locator("#paste-result summary").click();
+  await approveResult(pdfPage, pdfResult);
   await pdfPage.locator("#result-json").fill(JSON.stringify(pdfResult));
   await pdfPage.locator("#import-result").click();
   assert.equal(await pdfPage.locator("#result-error").isVisible(), false);
@@ -644,7 +787,8 @@ try {
   await heldPage.locator("#paste-result summary").click();
   const preparedHold = await heldPage.evaluate(() => CoursePrepUI.getSession());
   heldResult.bundle_created_at = preparedHold.created_at;
-  heldResult.mode = preparedHold.phase;
+  heldResult.mode = "opportunity";
+  delete heldResult.activities[0].approval_ref;
   heldResult.title = preparedHold.title;
   await heldPage.locator("#result-json").fill(JSON.stringify(heldResult));
   await heldPage.locator("#import-result").click();
@@ -743,16 +887,14 @@ try {
     gzipSync(Buffer.from(JSON.stringify(universal))),
     { createFolders: false },
   );
-  await archivePage
-    .locator("#file-input")
-    .setInputFiles({
-      name: "same-bookmark.cti.zip",
-      mimeType: "application/zip",
-      buffer: await universalZip.generateAsync({
-        type: "nodebuffer",
-        compression: "STORE",
-      }),
-    });
+  await archivePage.locator("#file-input").setInputFiles({
+    name: "same-bookmark.cti.zip",
+    mimeType: "application/zip",
+    buffer: await universalZip.generateAsync({
+      type: "nodebuffer",
+      compression: "STORE",
+    }),
+  });
   await archivePage.locator("#process").click();
   await archivePage.waitForFunction(
     () =>

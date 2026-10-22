@@ -22,7 +22,7 @@ existing lockfile, including their licenses. A bounded native XML adapter replac
 the standalone XML dependency. Scripts and workers are same-origin external files;
 the existing Content Security Policy is unchanged.
 
-There are no new API routes, database tables, paid services or automatic course
+There are no new API routes, server database tables, paid services or automatic course
 edits. Files are processed in the operator's browser and saved by download. The
 operator deliberately submits packets to their own work-approved AI chat. No
 partner examples, captures, credentials or saved projects are included in the build.
@@ -31,39 +31,87 @@ does not provision or expand that policy. On 2026-10-08, a signed-out browser
 reached the existing Cloudflare Access login screen at the production hostname.
 An authenticated production journey remains unverified.
 
-## Operator flow
+## Activity Studio RC1 operator flow
 
-1. Open **Role Play & Dialogue** from CTI. Select Content Map opportunities or
-   final drafting/revalidation. Opportunity mode offers concepts, not paste-ready
-   authoring fields or implied partner approval.
-2. Add a current bulk capture, source package, current Coursera XLSX and useful
-   reference documents. Save **CTI course capture** once by dragging its link
-   to Chrome's bookmarks bar or using **Copy bookmark address**. Open the course
-   Content page and click that bookmark, then **Capture/resume course**. Its
-   original capture works in inspection and here; a second extraction is not
-   needed. The advanced console fallback runs the exact same program. The
-   one-item test is diagnostic, not a whole
-   course scan. Loading a diagnostic cannot replace a saved full-course capture.
-3. Prepare evidence. Inspect the nested course/module/lesson/item tree, source
-   paths, unread material, prompt counts and associated option counts. A finished
-   run or a readable excerpt does not mean complete coverage. Files added or
-   removed from the queue do not discard already prepared evidence.
-4. Search/select modules, then download compact packets and copy the separate
-   chat message. The approximately 12,000-token target is characters divided by
-   four, not a tokenizer or remaining-context meter. Oversized modules stay whole
-   and are flagged. Scope exclusions remain explicit. If a packet includes teaching
-   PDFs, download and unzip its packet ZIP, then attach the listed originals with
-   the text packet; copying text alone does not transmit the diagrams. If the chat
-   limits attachments, upload smaller batches in the same chat, ask the AI to wait,
-   and send the review request only after the final batch.
-5. Import `ACTIVITY_RESULTS.json`. Cards show exact placement, authoring fields,
-   estimated minutes and review checks. Decisions may be Role Play, Dialogue,
-   no addition or hold. Unreviewed modules are not implicitly approved.
-6. Review learner text, then copy the supported fields into Coursera yourself.
-   Only a captured, identity-matched item route is offered as a deep link.
-   Save the work ZIP to retain evidence and accumulated module results. After
-   shell changes, prepare fresh evidence and revalidate; old results cannot be
-   silently applied to a new snapshot.
+1. **Prepare evidence.** Reuse the current CTI capture, source package, Coursera
+   XLSX and available outline/map. No new capture is needed just for approval.
+2. **Review recommendations.** Send the existing compact packet to an approved
+   external AI chat. All ordinary packets now request `mode: opportunity`, even
+   if the UI stage says final. Each proposal describes one ungraded Role Play or
+   Dialogue, its learning goal, placement, source evidence, existing-practice
+   comparison, incremental value, learner time, confidence and limitations. Zero
+   activities is valid; module decisions can recommend neither.
+3. **Approve plan.** Import `ACTIVITY_RESULTS.json`, enter your reviewer name and
+   explicitly Approve, Reject or Hold each proposal. Revise changes the proposal
+   and resets only its approval; unchanged decisions survive packet merges.
+   Provisional map/outline placements retain missing IDs and their reference path.
+   They can receive concept approval but cannot generate final fields yet.
+4. **Generate content.** Select **Prepare approved content handoff**. The ZIP
+   contains only approved activity proposals and their module evidence, existing
+   practice, relevant PDFs and shared references. Unmapped source documents remain
+   shared to avoid hiding evidence; this is not a guarantee of minimal token size.
+   Send this packet to the external AI. It must copy proposal metadata and
+   `approval_ref` unchanged, add complete fields and the detailed design brief,
+   and return final `ACTIVITY_RESULTS.json`. A blocked approved proposal requires
+   evidence/revision or an explicit Hold decision before the remaining plan can
+   be handed off. Held/rejected/unreviewed proposals are never generation targets.
+5. **Review fields.** Import the final result. Approval gates are additional to
+   placement, source, duplication, design and detectable answer-leakage checks.
+   Review semantic correctness and interaction quality yourself. Copy supported
+   fields into Coursera manually; no publishing occurs.
+6. **Save work ZIP before closing.** It includes the unchanged prepared evidence,
+   result, recommendations and approval record. To resume, use **Choose result
+   file** and explicitly check **Restore my saved human decisions**. Never treat
+   an AI-generated ZIP as your own human approval. The smaller **Download approval
+   record** is a review receipt; restore uses the full work ZIP, not that receipt
+   alone. For changed evidence, keep the old work ZIP and start a new review in a
+   fresh tab. Adding a saved ZIP to Prepare files creates a new evidence basis;
+   it is not the same operation as restoring unchanged work.
+
+## RC1 approval and compatibility contract
+
+`ACTIVITY_APPROVAL.json` is a separate `cti-activity-approval`, schema 1 artifact
+(maximum 8 MiB; 1,200 entries; 2,000 decision-history events). It binds the plan
+ID, course title, original session timestamp and SHA-256 of canonical prepared
+session data to exact normalized proposals, their hashes/revisions, and explicit
+reviewer decisions. History retains earlier human decisions after revisions or
+removal. No source body or original file is changed to attach approval. Snapshot
+hashing excludes only the UI phase and app version; changing phase no longer
+rewrites `created_at`. Changed source text, hierarchy, references or timestamps
+invalidate approval. Frozen prepared sessions cache their hash; mutable imports
+are rehashed. Hashing uses the already bundled SHA-256 implementation.
+
+The result schema remains `course-activity-design`, version 1, with two validated
+optional extensions: `recommendation` and `approval_ref`. Unknown AI approval
+flags do not become decisions. An approval reference binds the exact plan,
+snapshot, proposal and decision revisions. Final imports with approval references
+are rejected atomically when any reference, type, placement, objective, evidence
+or recommendation differs. New field wording and its design brief still undergo
+the existing checks. Revoking approval immediately disables copy/export fields.
+
+Legacy sessions and results still parse. Legacy final results without approval
+references are **review-only**, with an explicit missing-human-approval message;
+no copy-ready field files are exported. Migration: restore the old evidence,
+request recommendations with the current packet, review each one, then generate
+new finals through the approved handoff. Do not relabel an old AI draft approved.
+Older app versions do not enforce this boundary; use RC1 to resume approved work.
+
+Decisions are saved synchronously in local browser storage under a dedicated
+`cti.activity.approval.v1:` key before they can authorize a handoff. No original
+course bodies are added to that store. Quota/disabled-storage failures do not
+apply a new decision. Generation, final import and copy controls check that the
+saved plan still matches; a change from another tab blocks the stale plan. Work
+ZIPs remain the portable restore path, including the evidence itself. Clearing
+site storage removes local decisions, so keep work ZIPs.
+
+This is a local human workflow record, **not a signed approval or authorization
+system**. A checksum detects mismatches, not a maliciously rewritten artifact.
+The app requires explicit confirmation before restoring declared human decisions;
+it cannot independently identify the person who edited a local file. Access and
+the owner-only full workspace remain unchanged. Generated semantic claims,
+source visual interpretation and originality still require human review. Existing
+answer-key patterns detect some leakage, not all paraphrased protected answers.
+Graded Role Play is unsupported.
 
 The supplied map and outline examples informed the distinction between proposed
 structure, revised structure and current linked shell evidence. They are design
@@ -127,15 +175,15 @@ references, not proof of current constituent course content or partner approval.
 
 Confirmed issues addressed in this integration:
 
-| Location | Evidence and impact | Severity | Correction and verification |
-| --- | --- | --- | --- |
-| `app.js`, `core.js` | Starting new preparation discarded useful prior state; capture merging could depend on file order. | High: lost work/stale evidence | Build a candidate before committing; replace captures by branch; failed-input and replacement tests. |
-| `results.js`, `readiness.js` | A parseable result could expose copy controls despite stale/wrong placement; saved ZIP validation could occur after state replacement. | High: wrong course edits | Snapshot/boundary gates and pre-restore decision validation; stale-ID and invalid-ZIP browser tests. |
-| `cti-adapter.js`, `readiness.js` | Rich CTI assessment data and whole internal documents are unsuitable learner context. | High: assessment disclosure | Explicit allowlist plus separate learner-result fields and copy gates; sentinel-key/raw-context tests. Semantic review remains manual. |
-| `designer.js`, `compact.js` | Module names alone are ambiguous across repeated titles. | Medium: overwritten decisions | Optional exact IDs, ambiguity rejection and identity-based replacement; duplicate-name/packet-merge tests. |
-| `app.js`, build tool | Real PDF import failed with `toHex` and document-cleanup API errors under the installed PDF.js version. | High: missing teaching | Existing CTI compatibility build and loading-task cleanup; actual PDF worker/text-layer browser test. |
-| `shell-capture.js`, `compact.js`, evidence UI | Prompt/option metrics were lost during projection and packaging. | Medium: misleading coverage | Retain structural metrics and source dates through import, packets and saved work; round-trip tests. |
-| `results.js` | Empty activities on hold implied no activity was needed. | Medium: misleading next action | Separate hold empty state; no-addition and held-result suites. |
+| Location                                      | Evidence and impact                                                                                                                    | Severity                       | Correction and verification                                                                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.js`, `core.js`                           | Starting new preparation discarded useful prior state; capture merging could depend on file order.                                     | High: lost work/stale evidence | Build a candidate before committing; replace captures by branch; failed-input and replacement tests.                                   |
+| `results.js`, `readiness.js`                  | A parseable result could expose copy controls despite stale/wrong placement; saved ZIP validation could occur after state replacement. | High: wrong course edits       | Snapshot/boundary gates and pre-restore decision validation; stale-ID and invalid-ZIP browser tests.                                   |
+| `cti-adapter.js`, `readiness.js`              | Rich CTI assessment data and whole internal documents are unsuitable learner context.                                                  | High: assessment disclosure    | Explicit allowlist plus separate learner-result fields and copy gates; sentinel-key/raw-context tests. Semantic review remains manual. |
+| `designer.js`, `compact.js`                   | Module names alone are ambiguous across repeated titles.                                                                               | Medium: overwritten decisions  | Optional exact IDs, ambiguity rejection and identity-based replacement; duplicate-name/packet-merge tests.                             |
+| `app.js`, build tool                          | Real PDF import failed with `toHex` and document-cleanup API errors under the installed PDF.js version.                                | High: missing teaching         | Existing CTI compatibility build and loading-task cleanup; actual PDF worker/text-layer browser test.                                  |
+| `shell-capture.js`, `compact.js`, evidence UI | Prompt/option metrics were lost during projection and packaging.                                                                       | Medium: misleading coverage    | Retain structural metrics and source dates through import, packets and saved work; round-trip tests.                                   |
+| `results.js`                                  | Empty activities on hold implied no activity was needed.                                                                               | Medium: misleading next action | Separate hold empty state; no-addition and held-result suites.                                                                         |
 
 All new first-party activity modules, retained standalone tests, build boundary,
 gateway changes and relevant existing capture/package/authentication code were

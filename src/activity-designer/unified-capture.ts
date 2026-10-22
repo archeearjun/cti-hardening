@@ -128,3 +128,8 @@ export function pdfs(raw: any) {
   }
   return result;
 }
+
+/** Local approval fingerprints; no network, source mutation or evidence promotion. */
+export function hashText(text: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(text)));
+}

@@ -474,7 +474,7 @@
     $("step-label").textContent = "02 / USE YOUR AI CHAT";
     $("result-title").textContent = s.title;
     $("result-subtitle").textContent =
-      `${s.phase === "final" ? "Final drafting evidence" : "Early opportunity evidence"} · ready for your AI chat`;
+      `Recommendations first · human approval required before content generation`;
     $("stats").replaceChildren();
     for (const [value, label] of [
       [st.courses, "course snapshots"],
@@ -657,7 +657,7 @@
       if (controller.signal.aborted)
         throw new DOMException("Processing cancelled", "AbortError");
       const preparedOutput = C.bundleFiles(prepared, setup);
-      session = prepared;
+      session = ActivityApproval.freezeSession(prepared);
       output = preparedOutput;
       $("cancel").hidden = true;
       render(session);
@@ -730,7 +730,7 @@
       if (!["opportunity", "final"].includes(saved.phase))
         throw Error("Saved work has an unsupported stage.");
       const restoredOutput = C.bundleFiles(saved, setup);
-      session = saved;
+      session = ActivityApproval.freezeSession(saved);
       $("title").value = saved.title;
       $("phase").value = saved.phase;
       phaseHelp();
@@ -776,15 +776,16 @@
   function phaseHelp() {
     $("phase-help").textContent =
       $("phase").value === "final"
-        ? "Use a shell capture, or exports with source teaching content. Add an existing outline or feedback if available. The AI returns exact placement and final fields."
+        ? "Use a shell capture, or exports with source teaching content. Add an existing outline or feedback if available. Review recommendations first. Generate fields only from your saved approvals."
         : "Use the original source and initial shell export. Add the Content Map if available. The AI proposes opportunities for partner review.";
   }
   $("title").onchange = $("phase").onchange = () => {
     phaseHelp();
     if (session) {
-      session = { ...session, created_at: new Date().toISOString() };
+      session = { ...session };
       session.title = $("title").value.trim() || session.title;
       session.phase = $("phase").value;
+      session = ActivityApproval.freezeSession(session);
       output = C.bundleFiles(session, setup);
       render(session);
       void updateExports();

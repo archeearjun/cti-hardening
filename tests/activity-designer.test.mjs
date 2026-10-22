@@ -3,11 +3,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 
 function context() {
   const ctx = vm.createContext({
+    CourseCtiUnifiedCapture: {
+      pdfs: () => [],
+      hashText: (text) => createHash("sha256").update(text).digest("hex"),
+    },
     console,
     URL,
     TextEncoder,
@@ -32,6 +37,7 @@ function context() {
     "activity-quality",
     "core",
     "designer",
+    "approval",
     "readiness",
     "compact",
   ])
@@ -42,6 +48,9 @@ function context() {
       ),
       ctx,
     );
+  const originalCheck = ctx.ActivityReadiness.check;
+  ctx.ActivityReadiness.check = (r, s, a, plan = ctx.testApprovalPlan) =>
+    originalCheck(r, s, a, plan);
   return ctx;
 }
 const file = (name, data) => {
@@ -131,7 +140,45 @@ function fixture(ctx) {
       reason: "Explain the choice.",
     },
   ];
+  approveFixture(ctx, s, r);
   return { s, r, a };
+}
+function approveFixture(c, s, r) {
+  for (const a of r.activities) {
+    a.recommendation ||= {
+      confidence: "medium",
+      limitations: "Text-only fixture; semantic review required.",
+      placement_status: "exact",
+      placement_source: "",
+      existing_practice: a.design?.comparison || [],
+    };
+  }
+  const proposalResult = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: r.activities.map((a) => ({ ...a, status: "idea", fields: [] })),
+  });
+  // Canonical parsed metadata is what the AI handoff preserves.
+  for (let i = 0; i < r.activities.length; i++)
+    Object.assign(
+      r.activities[i],
+      c.ActivityApproval.proposal(proposalResult.activities[i]),
+    );
+  let plan = c.ActivityApproval.sync(proposalResult, s);
+  for (const a of r.activities)
+    plan = c.ActivityApproval.decide(
+      plan,
+      s,
+      a.id,
+      "approved",
+      "Fixture reviewer",
+    );
+  for (const a of r.activities)
+    a.approval_ref = c.ActivityApproval.reference(
+      plan,
+      plan.entries.find((e) => e.proposal.id === a.id),
+    );
+  c.testApprovalPlan = plan;
 }
 test("CTI adapter allowlists prompt/option text and retains uncertainty without keys or unrelated metadata", () => {
   const c = context(),
@@ -555,6 +602,7 @@ test("self-contained original cases are permitted, missing facts and unlabelled 
   a.fields.find((f) => f.label === "Tasks").text = a.design.learner_task;
   a.fields.find((f) => f.label === "Advanced").text =
     a.design.success_criteria.join(" ");
+  approveFixture(c, s, r);
   assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
   a.fields.find((f) => f.label === "Scenario definition").text =
     "Calculate the truckloads using the site plan.";
@@ -730,6 +778,7 @@ test("PDF evidence cannot borrow readable text from a sibling attachment or item
   assert.equal(resolved.readable, true);
   assert.equal(resolved.docs[0].text, "Use all three dimensions for volume.");
   a.evidence = [{ source_path: path, purpose: "teaching", locator: "page 1" }];
+  approveFixture(c, s, r);
   assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
   a.design.case_facts = [
     {
@@ -1437,5 +1486,323 @@ test("captured ingestion failures cannot certify learner text or clear practice 
   assert.equal(
     c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture.completeness,
     "ingestion_failure",
+  );
+});
+
+test("RC1 decisions are per proposal; revision removes only its approval and retains history", () => {
+  const c = context(),
+    { s, r } = fixture(c);
+  const recommendations = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: ["A01", "A02", "A03", "A04"].map((id) => ({
+      ...r.activities[0],
+      id,
+      status: "idea",
+      fields: [],
+    })),
+  });
+  let plan = c.ActivityApproval.sync(recommendations, s);
+  assert(plan.entries.every((e) => e.decision === "pending"));
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "approved",
+    "Human reviewer",
+  );
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A02",
+    "held",
+    "Human reviewer",
+    "Need visual evidence",
+  );
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A03",
+    "rejected",
+    "Human reviewer",
+    "No added value",
+  );
+  assert.deepEqual(
+    Array.from(plan.entries, (e) => e.decision),
+    ["approved", "held", "rejected", "pending"],
+  );
+  const handoff = c.ActivityApproval.handoff(plan, s, "Field guide");
+  const data = JSON.parse(
+    handoff.text.slice(handoff.text.lastIndexOf("\n") + 1),
+  );
+  assert.deepEqual(
+    Array.from(data.approved_proposals, (p) => p.id),
+    ["A01"],
+  );
+  assert.equal(data.mode, "final");
+  recommendations.activities[0].minutes = 12;
+  const revised = c.ActivityApproval.sync(recommendations, s, plan);
+  assert.equal(revised.entries[0].decision, "pending");
+  assert.equal(revised.entries[0].proposal_revision, 2);
+  assert.equal(revised.entries[1].decision, "held");
+  assert.equal(revised.history.length, 3);
+  assert.throws(
+    () => c.ActivityApproval.handoff(revised, s, ""),
+    /Approve at least/,
+  );
+});
+
+test("RC1 rejects unapproved, forged, changed and revoked final approvals", () => {
+  const c = context(),
+    { s, r, a } = fixture(c),
+    plan = c.testApprovalPlan;
+  assert.equal(c.ActivityReadiness.check(r, s, a, null).canCopy, false);
+  for (const patch of [
+    { id: "new" },
+    { type: "role_play" },
+    { objective: "Different purpose" },
+    { placement: { ...a.placement, after_item_id: "elsewhere" } },
+    { approval_ref: { ...a.approval_ref, decision_revision: 99 } },
+  ])
+    assert(c.ActivityApproval.problems(r, s, { ...a, ...patch }, plan).length);
+  const revoked = c.ActivityApproval.decide(
+    plan,
+    s,
+    a.id,
+    "held",
+    "Human reviewer",
+  );
+  assert(c.ActivityApproval.problems(r, s, a, revoked).length);
+  const forged = structuredClone(plan);
+  forged.history = [];
+  assert.throws(() => c.ActivityApproval.validate(forged, s), /human decision/);
+  const injected = c.ActivityDesigner.parse({
+    ...r,
+    approved: true,
+    approval: plan,
+  });
+  assert.equal(
+    injected.approval,
+    undefined,
+    "AI result cannot import human decisions",
+  );
+});
+
+test("RC1 snapshot identity is stage-independent but detects changed source, hierarchy and course", () => {
+  const c = context(),
+    { s, r, a } = fixture(c),
+    plan = c.testApprovalPlan;
+  assert.equal(
+    c.ActivityApproval.identity({ ...s, phase: "opportunity" }).sha256,
+    plan.snapshot.sha256,
+  );
+  assert.equal(
+    c.ActivityReadiness.check(r, { ...s, phase: "opportunity" }, a).canCopy,
+    true,
+  );
+  for (const change of [
+    (x) => (x.title = "Other course"),
+    (x) => (x.created_at = "2026-10-01T00:00:00Z"),
+    (x) => (x.sources[0].documents[0].text += " changed"),
+    (x) => x.courses[0].modules[0].lessons.reverse(),
+  ]) {
+    const altered = structuredClone(s);
+    change(altered);
+    if (JSON.stringify(altered) === JSON.stringify(s))
+      altered.courses[0].modules[0].lessons[0].items.reverse();
+    assert.throws(
+      () => c.ActivityApproval.validate(plan, altered),
+      /stale|different/,
+    );
+  }
+});
+
+test("RC1 save/restore preserves decisions and exact final binding without changing source snapshots", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const before = JSON.stringify(s);
+  const plan = JSON.parse(JSON.stringify(c.testApprovalPlan));
+  const restored = c.ActivityDesigner.parse(JSON.stringify(r));
+  assert.equal(
+    c.ActivityReadiness.check(
+      restored,
+      JSON.parse(before),
+      restored.activities[0],
+      plan,
+    ).canCopy,
+    true,
+  );
+  assert.equal(JSON.stringify(s), before);
+  a.fields[1].text += " Correct answer: B";
+  assert.equal(
+    c.ActivityReadiness.check(r, s, a, plan).canCopy,
+    false,
+    "Approval does not bypass key protection",
+  );
+});
+
+test("RC1 provisional outline concepts can be approved but cannot generate exact authoring fields", () => {
+  const c = context(),
+    { s, r } = fixture(c);
+  s.references.push({
+    filename: "outline.txt",
+    text: "Proposed Module A after the introduction.",
+    coverage: "text",
+  });
+  const rec = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: r.activities.map((a) => ({
+      ...a,
+      status: "idea",
+      fields: [],
+      placement: {
+        ...a.placement,
+        branch_id: "",
+        module_id: "",
+        lesson_id: "",
+        after_item_id: "",
+        before_item_id: "",
+      },
+      recommendation: {
+        ...a.recommendation,
+        placement_status: "provisional",
+        placement_source: "outline.txt",
+      },
+    })),
+  });
+  let plan = c.ActivityApproval.sync(rec, s);
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "approved",
+    "Human reviewer",
+  );
+  assert.equal(plan.entries[0].decision, "approved");
+  assert.throws(
+    () => c.ActivityApproval.handoff(plan, s, ""),
+    /Provisional|unresolved/,
+  );
+});
+
+test("RC1 generation preserves evidence gates and legacy results remain explicit review-only", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const legacy = c.ActivityDesigner.parse(r);
+  delete legacy.activities[0].approval_ref;
+  assert(
+    c.ActivityReadiness.check(
+      legacy,
+      s,
+      legacy.activities[0],
+      null,
+    ).blocking.some((x) => /Legacy results/.test(x)),
+  );
+  const packet = c.CourseCompact.build(s).packets[0];
+  assert.equal(
+    packet.data.mode,
+    "opportunity",
+    "Selecting final stage is not approval",
+  );
+  assert.match(packet.text, /RECOMMENDATION STAGE ONLY/);
+  const rec = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: [{ ...a, status: "idea", fields: [] }],
+  });
+  s.courses[0].modules[0].lessons[0].items[1].assessment_capture.has_unresolved_capture_issues = true;
+  let plan = c.ActivityApproval.sync(rec, s);
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "approved",
+    "Human reviewer",
+  );
+  assert.throws(
+    () => c.ActivityApproval.handoff(plan, s, ""),
+    /coverage is incomplete/,
+  );
+});
+
+test("RC1 durable decision saves fail closed on quota failure and cross-tab revisions", () => {
+  const c = context(),
+    { s } = fixture(c),
+    plan = c.testApprovalPlan;
+  const records = new Map();
+  const storage = {
+    getItem: (key) => records.get(key) || null,
+    setItem: (key, value) => records.set(key, value),
+  };
+  assert.throws(
+    () => c.ActivityApproval.assertSaved(plan, storage),
+    /unavailable/,
+  );
+  c.ActivityApproval.save(plan, s, storage);
+  assert.doesNotThrow(() => c.ActivityApproval.assertSaved(plan, storage));
+  const held = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "held",
+    "Other reviewer",
+  );
+  c.ActivityApproval.save(held, s, storage);
+  assert.throws(
+    () => c.ActivityApproval.assertSaved(plan, storage),
+    /another tab/,
+  );
+  assert.throws(
+    () =>
+      c.ActivityApproval.save(plan, s, {
+        setItem() {
+          throw Error("QuotaExceededError");
+        },
+      }),
+    /No new decision was applied/,
+  );
+  assert.doesNotThrow(() => c.ActivityApproval.assertSaved(held, storage));
+});
+
+test("RC1 outline placement stays provisional alongside an existing shell without inventing IDs", () => {
+  const c = context(),
+    { s, r } = fixture(c);
+  s.references.push({
+    filename: "map.txt",
+    text: "Future course, Proposed module.",
+    coverage: "text",
+  });
+  const rec = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    module_decisions: [
+      {
+        course: "Future course",
+        module: "Proposed module",
+        decision: "dialogue",
+        reason: "Proposed split",
+      },
+    ],
+    activities: r.activities.map((a) => ({
+      ...a,
+      status: "idea",
+      fields: [],
+      placement: { course: "Future course", module: "Proposed module" },
+      recommendation: {
+        ...a.recommendation,
+        placement_status: "provisional",
+        placement_source: "map.txt",
+      },
+    })),
+  });
+  c.ActivityReadiness.resolveDecisions(rec, s);
+  assert.equal(rec.module_decisions[0].branch_id, "");
+  assert.equal(rec.activities[0].placement.module_id, "");
+  const invalid = structuredClone(rec);
+  invalid.activities[0].recommendation.placement_source = "missing.txt";
+  assert.throws(
+    () => c.ActivityReadiness.resolveDecisions(invalid, s),
+    /unresolved/,
   );
 });

@@ -35,7 +35,7 @@
       }
     return [...new Set(problems)];
   }
-  function check(result, session, activity) {
+  function check(result, session, activity, approval = null) {
     const blocking = [],
       warnings = [];
     if (!session)
@@ -45,11 +45,10 @@
     else {
       if (
         result.bundle_created_at !== session.created_at ||
-        result.title !== session.title ||
-        result.mode !== session.phase
+        result.title !== session.title
       )
         blocking.push(
-          "This proposal belongs to a different course snapshot or workflow stage. Revalidate against the loaded evidence.",
+          "This proposal belongs to a different course snapshot. Revalidate against the loaded evidence.",
         );
       const p = activity.placement,
         cs = session.courses.filter(
@@ -158,6 +157,12 @@
       blocking.push(
         "Content Map mode produces concepts; final authoring fields need final-stage review.",
       );
+    if (activity.status === "draft")
+      blocking.push(
+        ...(root.ActivityApproval
+          ? root.ActivityApproval.problems(result, session, activity, approval)
+          : ["Human approval record is unavailable. Refresh Activity Studio."]),
+      );
     blocking.push(...safetyProblems(activity, session));
     return {
       blocking: [...new Set(blocking)],
@@ -179,6 +184,33 @@
   function resolveDecisions(result, session) {
     const seen = new Set();
     for (const d of result.module_decisions) {
+      const concepts = result.activities.filter(
+        (a) =>
+          a.placement.course === d.course && a.placement.module === d.module,
+      );
+      if (
+        result.mode === "opportunity" &&
+        !d.branch_id &&
+        !d.module_id &&
+        concepts.length &&
+        concepts.every(
+          (a) =>
+            a.recommendation?.placement_status === "provisional" &&
+            !a.placement.branch_id &&
+            !a.placement.module_id &&
+            a.recommendation.placement_source &&
+            root.ActivityQuality.source(
+              session,
+              a.recommendation.placement_source,
+            ).known,
+        )
+      ) {
+        const key = JSON.stringify(["provisional", d.course, d.module]);
+        if (seen.has(key))
+          throw Error("Duplicate provisional module decision.");
+        seen.add(key);
+        continue; // An outline reference is not permission to synthesize shell IDs.
+      }
       const found = session.courses
         .filter((c) =>
           d.branch_id ? c.branch_id === d.branch_id : c.title === d.course,
