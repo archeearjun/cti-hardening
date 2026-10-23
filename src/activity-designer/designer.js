@@ -254,6 +254,52 @@
         if (a.fields.find((f) => f.label === "Title").text !== a.title)
           throw Error(a.id + ": Title field must match the activity title.");
       }
+      if (x.recommendation !== undefined) {
+        const d = x.recommendation;
+        if (
+          !d ||
+          !["high", "medium", "low"].includes(d.confidence) ||
+          !["exact", "provisional"].includes(d.placement_status) ||
+          !Array.isArray(d.existing_practice) ||
+          d.existing_practice.length > 500
+        )
+          throw Error(a.id + ": invalid recommendation details.");
+        a.recommendation = {
+          confidence: d.confidence,
+          limitations: string(d.limitations, "Evidence limitations", 5000),
+          placement_status: d.placement_status,
+          placement_source: string(
+            d.placement_source || "",
+            "Placement source",
+            2000,
+          ),
+          existing_practice: d.existing_practice.map((p) => ({
+            item_id: string(p.item_id, "Practice identity", 200),
+            difference: string(p.difference, "Duplication analysis", 5000),
+          })),
+        };
+      }
+      if (x.approval_ref !== undefined) {
+        const d = x.approval_ref;
+        if (
+          !d ||
+          !Number.isSafeInteger(d.proposal_revision) ||
+          d.proposal_revision < 1 ||
+          !Number.isSafeInteger(d.decision_revision) ||
+          d.decision_revision < 1
+        )
+          throw Error(a.id + ": invalid approval reference.");
+        a.approval_ref = {};
+        for (const k of [
+          "plan_id",
+          "snapshot_sha256",
+          "proposal_id",
+          "proposal_sha256",
+        ])
+          a.approval_ref[k] = string(d[k], "Approval " + k, 100);
+        a.approval_ref.proposal_revision = d.proposal_revision;
+        a.approval_ref.decision_revision = d.decision_revision;
+      }
       if (x.design !== undefined) {
         const d = x.design;
         if (

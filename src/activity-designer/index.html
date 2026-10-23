@@ -30,9 +30,9 @@
         <p class="eyebrow">ROLE PLAY & DIALOGUE</p>
         <nav aria-label="Main">
           <button id="nav-prepare" class="nav active" aria-current="page">
-            1–2. Files & AI handoff</button
+            1. Evidence & recommendations</button
           ><button id="nav-activities" class="nav">
-            3. Placement & content</button
+            2–5. Review & approved content</button
           ><button id="nav-setup" class="nav">Help & instructions</button>
         </nav>
         <div class="sidebar-note">
@@ -43,7 +43,7 @@
           </p>
         </div>
         <div class="sidebar-bottom">
-          <span>CTI activity preview · v2.2.2</span>
+          <span>CTI Activity Studio · RC1</span>
         </div>
       </aside>
       <main>
@@ -59,24 +59,31 @@
               <p class="eyebrow">ROLE PLAY & DIALOGUE</p>
               <h1>Where it belongs. What to paste.</h1>
               <p>
-                Capture a Coursera shell, send a compact packet to your AI chat,
-                then copy the activity fields.
+                Prepare evidence, review recommendations, approve a plan, then
+                generate and review authoring fields.
               </p>
             </div>
             <span class="step-count" id="step-label">01 / ADD FILES</span>
           </div>
           <ol class="workflow-strip" aria-label="Your workflow">
             <li>
-              <strong>1. Add course files</strong
-              ><span>Shell capture or existing bulk files</span>
+              <strong>1. Prepare evidence</strong
+              ><span>Retain sources and gaps</span>
             </li>
             <li>
-              <strong>2. Use your AI chat</strong
-              ><span>Size-labelled module packets</span>
+              <strong>2. Review recommendations</strong
+              ><span>No activity quota</span>
             </li>
             <li>
-              <strong>3. Copy into Coursera</strong
-              ><span>Import the result to see activity cards</span>
+              <strong>3. Approve plan</strong><span>Decide each proposal</span>
+            </li>
+            <li>
+              <strong>4. Generate content</strong
+              ><span>Approved proposals only</span>
+            </li>
+            <li>
+              <strong>5. Review fields</strong
+              ><span>Human content review before authoring</span>
             </li>
           </ol>
           <div class="workspace">
@@ -195,11 +202,11 @@
               />
               <label class="label" for="phase">What are you preparing?</label
               ><select id="phase">
-                <option value="final" selected>
-                  Placement & paste-ready fields
+                <option value="final">
+                  Final content · approved plan required
                 </option>
-                <option value="opportunity">
-                  Content Map stage · propose opportunities
+                <option value="opportunity" selected>
+                  Recommend activities · exact or provisional placement
                 </option>
               </select>
               <p class="stage-note" id="phase-help">
@@ -285,7 +292,9 @@
                 <ul class="supported">
                   <li>Role Play, Dialogue, or no addition</li>
                   <li>Exact course, module, lesson and placement</li>
-                  <li>Complete content for each Coursera field</li>
+                  <li>
+                    Recommendations for your approval before generating fields
+                  </li>
                 </ul>
                 <p class="small">
                   This site does not call an AI model. It prepares evidence for
@@ -373,7 +382,9 @@
                     <p class="small">
                       All modules are selected by default. Unchecked modules are
                       explicitly excluded; their teaching is not reviewed.
-                      Shared references remain included.
+                      Shared or prerequisite documents can be selected below.
+                      Unselected bodies remain in your saved evidence; their
+                      relevance is unresolved, not dismissed.
                     </p>
                     <label for="module-search">Search courses and modules</label
                     ><input
@@ -382,6 +393,18 @@
                       placeholder="Course or module name"
                     />
                     <div id="packet-modules"></div>
+                    <details>
+                      <summary>
+                        Shared references and cross-module prerequisites
+                      </summary>
+                      <p>
+                        Select necessary source documents by exact path. A
+                        selected document is evidence context, not automatically
+                        verified teaching. Excluded documents remain recoverable
+                        from the saved session.
+                      </p>
+                      <div id="packet-shared"></div>
+                    </details>
                   </details>
                   <details class="detail-box">
                     <summary>View packet / copy manually</summary>
@@ -500,11 +523,11 @@
         <section id="activities-view" hidden>
           <div class="page-title">
             <div>
-              <p class="eyebrow">STEP 3 / PLACEMENT & CONTENT</p>
+              <p class="eyebrow">REVIEW → APPROVE → GENERATE → REVIEW FIELDS</p>
               <h1>Your Coursera activity cards.</h1>
               <p>
-                Bring back the result from your AI chat. Copy each field into
-                the indicated activity.
+                Import recommendations, record your decisions, and generate only
+                approved activities. Final fields still require content review.
               </p>
             </div>
           </div>
@@ -521,6 +544,11 @@
               accept=".json,.txt,.zip"
               hidden
             />
+            <label
+              ><input id="restore-human-decisions" type="checkbox" /> Restore my
+              saved human decisions from a work ZIP (never an AI-created
+              approval)</label
+            >
             <p class="small">
               Choose ACTIVITY_RESULTS.json or a saved work ZIP. You can also
               paste the JSON code block from the chat below.
@@ -555,6 +583,43 @@
             <button id="repair-result" class="secondary" hidden>
               Copy correction request for the chat
             </button>
+          </section>
+          <section
+            id="approval-panel"
+            class="panel"
+            hidden
+            aria-label="Human recommendation review"
+          >
+            <h2>Approve your activity plan</h2>
+            <p>
+              Each proposal is one activity. Approving one never approves the
+              others. Provisional concepts can be approved for planning; exact
+              placement is required before generating content. Approval does not
+              certify semantic accuracy or publication readiness.
+            </p>
+            <label for="reviewer-name">Your reviewer name</label>
+            <input
+              id="reviewer-name"
+              type="text"
+              maxlength="200"
+              autocomplete="off"
+            />
+            <p id="approval-status" role="status" aria-live="polite"></p>
+            <div id="approval-cards"></div>
+            <div class="action-row">
+              <button id="generate-approved" class="primary">
+                Prepare approved content handoff
+              </button>
+              <button id="save-approval" class="secondary">
+                Download approval record
+              </button>
+            </div>
+            <p class="small">
+              Decisions are saved locally in this browser. Save a work ZIP to
+              restore evidence and decisions together. Download the approval
+              record for a small review receipt; use the work ZIP to restore
+              evidence, recommendations and decisions together.
+            </p>
           </section>
           <div id="activities-empty" class="panel result-empty">
             <h2>No activity results yet</h2>
@@ -686,6 +751,7 @@
     <script src="core.js"></script>
     <script src="designer.js"></script>
     <script src="activity-quality.js"></script>
+    <script src="approval.js"></script>
     <script src="readiness.js"></script>
     <script src="compact.js"></script>
     <script src="app.js"></script>

@@ -15,6 +15,88 @@ import {
   twoPageTeachingPdfFixture,
 } from "../tests/activity-designer-fixtures.mjs";
 
+async function approveResult(page, result, exercisePartial = false) {
+  const rec = structuredClone(result);
+  rec.mode = "opportunity";
+  for (const a of rec.activities) {
+    a.status = "idea";
+    a.fields = [];
+    a.context = { text: "" };
+    delete a.approval_ref;
+    a.recommendation = {
+      confidence: "medium",
+      limitations: "Text-only fixture; human semantic review required.",
+      placement_status: "exact",
+      placement_source: "",
+      existing_practice: a.design.comparison,
+    };
+  }
+  if (exercisePartial)
+    for (const id of ["Held", "Rejected", "Pending"])
+      rec.activities.push({ ...structuredClone(rec.activities[0]), id });
+  await page.locator("#result-merge-mode").selectOption("replace");
+  await page.locator("#result-json").fill(JSON.stringify(rec));
+  await page.locator("#import-result").click();
+  assert.equal(await page.locator("#result-error").isVisible(), false);
+  await page.locator("#reviewer-name").fill("Browser fixture reviewer");
+  const card = page.locator(
+    '[data-proposal-id="' + rec.activities[0].id + '"]',
+  );
+  if (exercisePartial) {
+    await page
+      .locator('[data-proposal-id="Held"]')
+      .getByRole("button", { name: "Hold for evidence", exact: true })
+      .click();
+    await page
+      .locator('[data-proposal-id="Rejected"]')
+      .getByRole("button", { name: "Reject", exact: true })
+      .click();
+    await card.getByText("Revise recommendation", { exact: true }).click();
+    await card
+      .getByLabel("Incremental instructional value", { exact: true })
+      .fill(rec.activities[0].why + " Reviewed by a human.");
+    await card
+      .getByRole("button", { name: "Save revision for review", exact: true })
+      .click();
+    assert.match(await card.innerText(), /Decision: pending/);
+  }
+  await card.getByRole("button", { name: "Approve", exact: true }).click();
+  assert.match(await card.innerText(), /Decision: approved/);
+  const originalDate = await page.evaluate(
+    () => CoursePrepUI.getSession().created_at,
+  );
+  await page.locator("#nav-prepare").click();
+  await page.locator("#phase").selectOption("final");
+  assert.equal(
+    await page.evaluate(() => CoursePrepUI.getSession().created_at),
+    originalDate,
+  );
+  await page.locator("#nav-activities").click();
+  await page.locator("#generate-approved").click();
+  const link = page.getByRole("link", {
+    name: "Save Approved_Activity_Handoff.zip",
+    exact: true,
+  });
+  await link.waitFor();
+  const downloadWait = page.waitForEvent("download");
+  await link.click();
+  const zip = await JSZip.loadAsync(
+    fs.readFileSync(await (await downloadWait).path()),
+  );
+  const handoff = await zip
+    .file("APPROVED_CONTENT_HANDOFF.txt")
+    .async("string");
+  const data = JSON.parse(handoff.slice(handoff.lastIndexOf("\n") + 1));
+  assert.equal(data.approved_proposals.length, result.activities.length);
+  for (const a of result.activities)
+    Object.assign(
+      a,
+      data.approved_proposals.find((p) => p.id === a.id),
+    );
+  result.mode = "final";
+  await page.locator("#result-merge-mode").selectOption("merge");
+}
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 const policy = fs
   .readFileSync(path.join(root, "public/_headers"), "utf8")
@@ -142,6 +224,55 @@ try {
   );
   const packet = await page.evaluate(() => CoursePackets.getModel().packets[0]);
   assert.equal(packet.data.structure.length, 2);
+  assert(
+    packet.data.scope.excluded_references.some(
+      (r) => r.source_path === "instructions.pdf",
+    ),
+  );
+  assert(
+    !packet.data.references.some((r) => r.source_path === "instructions.pdf"),
+  );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        ActivityQuality.source(CoursePrepUI.getSession(), "instructions.pdf")
+          .teaching,
+    ),
+    false,
+  );
+  // Explicit shared selection changes only the handoff, not the evidence snapshot.
+  const evidenceHash = await page.evaluate(
+    () => ActivityApproval.identity(CoursePrepUI.getSession()).sha256,
+  );
+  await page
+    .getByText("Choose modules to review", { exact: true })
+    .click();
+  await page
+    .getByText("Shared references and cross-module prerequisites", {
+      exact: true,
+    })
+    .click();
+  await page.locator('#packet-shared input[value="instructions.pdf"]').check();
+  await page
+    .getByText("Choose modules to review", { exact: true })
+    .click();
+  const shared = await page.evaluate(
+    () => CoursePackets.getModel().packets[0].data,
+  );
+  assert(
+    shared.references.some(
+      (r) =>
+        r.source_path === "instructions.pdf" &&
+        r.evidence_role === "unclassified_context",
+    ),
+  );
+  assert.equal(
+    await page.evaluate(
+      () => ActivityApproval.identity(CoursePrepUI.getSession()).sha256,
+    ),
+    evidenceHash,
+  );
+
   assert.equal(packet.data.coverage_audit[0].assessment_items, 1);
   assert.equal(packet.data.coverage_audit[0].assessment_items_with_text, 1);
   assert.match(
@@ -161,7 +292,7 @@ try {
   await page
     .locator("#packet-modules")
     .locator("..")
-    .locator("summary")
+    .locator(":scope > summary")
     .click();
   await page.locator("#module-search").fill("second");
   assert.equal(await page.locator("#packet-modules label:visible").count(), 1);
@@ -188,7 +319,7 @@ try {
     Object.assign(r, {
       title: s.title,
       bundle_created_at: s.created_at,
-      mode: s.phase,
+      mode: "final",
     });
     a.type = "dialogue";
     a.title = "Explain the units";
@@ -261,6 +392,20 @@ try {
   });
   await page.locator("#nav-activities").click();
   await page.locator("#paste-result summary").click();
+  // Legacy drafts remain visible but cannot be copied before explicit human review.
+  await page.locator("#result-json").fill(JSON.stringify(result));
+  await page.locator("#import-result").click();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  assert.match(
+    await page.locator("#activity-cards").innerText(),
+    /Human approval is missing/,
+  );
+  await approveResult(page, result, true);
   await page.locator("#result-json").fill(JSON.stringify(result));
   await page.locator("#import-result").click();
   await page
@@ -335,6 +480,11 @@ try {
     await page.locator("#module-decisions .module-decision").count(),
     2,
   );
+  // Changing the preparation view must not export old results against new evidence.
+  await page.locator("#nav-prepare").click();
+  await page.locator("#title").fill("Different preparation title");
+  await page.locator("#title").dispatchEvent("change");
+  await page.locator("#nav-activities").click();
   await page.locator("#save-results").click();
   const workLink = page.getByRole("link", {
     name: "Save Course_Activity_Designer_Work.zip",
@@ -348,6 +498,14 @@ try {
     zip = await JSZip.loadAsync(bytes);
   assert(zip.file("SESSION.json"));
   assert.equal(
+    JSON.parse(await zip.file("SESSION.json").async("string")).title,
+    snapshot.title,
+  );
+  await page.locator("#nav-prepare").click();
+  await page.locator("#title").fill(snapshot.title);
+  await page.locator("#title").dispatchEvent("change");
+  await page.locator("#nav-activities").click();
+  assert.equal(
     JSON.parse(await zip.file("ACTIVITY_RESULTS.json").async("string"))
       .module_decisions.length,
     2,
@@ -357,6 +515,7 @@ try {
   await restored.goto(page.url());
   await restored.waitForFunction(() => !!globalThis.CoursePrepUI);
   await restored.locator("#nav-activities").click();
+  await restored.locator("#restore-human-decisions").check();
   await restored.locator("#result-file").setInputFiles({
     name: "work.zip",
     mimeType: "application/zip",
@@ -369,6 +528,102 @@ try {
     (await restored.evaluate(() => CoursePrepUI.getSession())).created_at,
     snapshot.created_at,
   );
+  assert.match(
+    await restored.locator("#approval-status").innerText(),
+    /1 approved/,
+  );
+  // Another tab losing/changing the local approval must revoke copy controls.
+  await page.evaluate(() =>
+    localStorage.removeItem(
+      "cti.activity.approval.v1:" + CourseResults.getPlan().plan_id,
+    ),
+  );
+  await restored.waitForFunction(() =>
+    document
+      .getElementById("approval-status")
+      .textContent.includes("unavailable"),
+  );
+  assert.equal(
+    await restored
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  await restored.locator("#result-file").setInputFiles({
+    name: "work.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
+  await restored
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
+  // A saved plan remains restorable after holding an already generated draft.
+  const revocation = await context.newPage();
+  await revocation.goto(page.url());
+  await revocation.waitForFunction(() => !!globalThis.CoursePrepUI);
+  await revocation.locator("#nav-activities").click();
+  await revocation.locator("#restore-human-decisions").check();
+  await revocation.locator("#result-file").setInputFiles({
+    name: "work.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
+  await revocation
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
+  await revocation.locator("#reviewer-name").fill("Second reviewer");
+  await revocation
+    .locator('[data-proposal-id="A01"]')
+    .getByRole("button", { name: "Hold for evidence", exact: true })
+    .click();
+  await revocation.locator("#save-results").click();
+  const heldLink = revocation.getByRole("link", {
+    name: "Save Course_Activity_Designer_Work.zip",
+    exact: true,
+  });
+  await heldLink.waitFor();
+  const heldWait = revocation.waitForEvent("download");
+  await heldLink.click();
+  const heldBytes = fs.readFileSync(await (await heldWait).path());
+  const heldZip = await JSZip.loadAsync(heldBytes);
+  assert.equal(
+    heldZip.file("A01_Coursera_fields.txt"),
+    null,
+    "Held drafts do not export copy-ready field files",
+  );
+  await revocation.locator("#result-file").setInputFiles({
+    name: "held-work.zip",
+    mimeType: "application/zip",
+    buffer: heldBytes,
+  });
+  await revocation.waitForFunction(
+    () => !document.getElementById("choose-result").disabled,
+  );
+  assert.equal(await revocation.locator("#result-error").isVisible(), false);
+  assert.match(
+    await revocation.locator("#approval-status").innerText(),
+    /0 approved/,
+  );
+  assert.equal(
+    await revocation
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    0,
+  );
+  assert.match(
+    await revocation.locator("#activity-cards").innerText(),
+    /no current human approval/,
+  );
+  await revocation.close();
+  // Explicitly restore the original reviewed plan for the remaining fixture cases.
+  await restored.locator("#result-file").setInputFiles({
+    name: "work.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
+  await restored
+    .getByRole("button", { name: "Copy all fields", exact: true })
+    .waitFor();
   // A well-formed ZIP with invalid module decisions must not replace either state.
   const badSession = structuredClone(snapshot);
   badSession.title = "Another saved course";
@@ -404,6 +659,20 @@ try {
   // Incorrect placement is visible, with copy disabled; literal HTML stays text.
   const bad = structuredClone(result);
   bad.activities[0].placement.before_item_id = "wrong";
+  await page.locator("#result-json").fill(JSON.stringify(bad));
+  await page.locator("#import-result").click();
+  assert.match(
+    await page.locator("#result-error").innerText(),
+    /changed after approval/,
+  );
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    1,
+    "Invalid approved placement does not replace valid cards",
+  );
+  delete bad.activities[0].approval_ref; // Legacy review-only path still renders literal text safely.
   bad.activities[0].fields[1].text =
     "<img src=x onerror=alert(1)> Literal evidence";
   await page.locator("#result-json").fill(JSON.stringify(bad));
@@ -526,7 +795,7 @@ try {
   const pdfResult = structuredClone(result);
   pdfResult.bundle_created_at = docSession.created_at;
   pdfResult.title = docSession.title;
-  pdfResult.mode = docSession.phase;
+  pdfResult.mode = "final";
   const pdfActivity = pdfResult.activities[0];
   pdfActivity.placement.after = "Teaching PDF";
   pdfActivity.placement.before = "End of lesson";
@@ -541,6 +810,7 @@ try {
   ];
   await pdfPage.locator("#nav-activities").click();
   await pdfPage.locator("#paste-result summary").click();
+  await approveResult(pdfPage, pdfResult);
   await pdfPage.locator("#result-json").fill(JSON.stringify(pdfResult));
   await pdfPage.locator("#import-result").click();
   assert.equal(await pdfPage.locator("#result-error").isVisible(), false);
@@ -574,7 +844,7 @@ try {
   await pdfPage
     .locator("#activity-cards details")
     .filter({ hasText: "Evidence notes and AI checks" })
-    .locator("summary")
+    .locator(":scope > summary")
     .click();
   const noteItems = await pdfPage
     .locator("#activity-cards details li")
@@ -644,7 +914,8 @@ try {
   await heldPage.locator("#paste-result summary").click();
   const preparedHold = await heldPage.evaluate(() => CoursePrepUI.getSession());
   heldResult.bundle_created_at = preparedHold.created_at;
-  heldResult.mode = preparedHold.phase;
+  heldResult.mode = "opportunity";
+  delete heldResult.activities[0].approval_ref;
   heldResult.title = preparedHold.title;
   await heldPage.locator("#result-json").fill(JSON.stringify(heldResult));
   await heldPage.locator("#import-result").click();
@@ -737,22 +1008,76 @@ try {
       },
     ],
   };
+  universal.fingerprints.push({
+    id: "emptyNative",
+    name: "Native empty editor",
+    typeName: "ungradedAssignment",
+    ancestors: universal.fingerprints[0].ancestors,
+    payload: {
+      captureContract: {
+        itemId: "emptyNative",
+        complete: true,
+        status: "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT",
+      },
+      directDataEvidence: {
+        method: "BOUND_AUTHORING_DRAFT_API",
+        courseId: "syntheticBranch",
+        itemId: "emptyNative",
+        atomId: "emptyAtom",
+        sourceState: "AUTHORING_DRAFT",
+        stableSource: true,
+        draftHash: "a".repeat(64),
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      explicitEmptyAssessmentEvidence: {
+        method: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+        courseId: "syntheticBranch",
+        itemId: "emptyNative",
+        atomId: "emptyAtom",
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      directDataSources: {
+        atom: {
+          elements: [
+            {
+              id: "emptyAtom",
+              draft: {
+                content: {
+                  typeName: "staffGradedDraft",
+                  definition: { parts: [] },
+                },
+              },
+            },
+          ],
+        },
+      },
+      structuredAssessment: {
+        declaredQuestionCount: 0,
+        questionCount: 0,
+        questions: [],
+        captureCompleteness: {
+          sourceEmpty: true,
+          questionCoverageComplete: true,
+        },
+      },
+    },
+  });
   const universalZip = new JSZip();
   universalZip.file(
     "capture.json.gz",
     gzipSync(Buffer.from(JSON.stringify(universal))),
     { createFolders: false },
   );
-  await archivePage
-    .locator("#file-input")
-    .setInputFiles({
-      name: "same-bookmark.cti.zip",
-      mimeType: "application/zip",
-      buffer: await universalZip.generateAsync({
-        type: "nodebuffer",
-        compression: "STORE",
-      }),
-    });
+  await archivePage.locator("#file-input").setInputFiles({
+    name: "same-bookmark.cti.zip",
+    mimeType: "application/zip",
+    buffer: await universalZip.generateAsync({
+      type: "nodebuffer",
+      compression: "STORE",
+    }),
+  });
   await archivePage.locator("#process").click();
   await archivePage.waitForFunction(
     () =>
@@ -763,6 +1088,26 @@ try {
     CoursePrepUI.getSession(),
   );
   assert.equal(universalSession.courses[0].branch_id, "syntheticBranch");
+  assert.equal(
+    universalSession.sources[0].unread.find((x) =>
+      x.path.endsWith("emptyNative"),
+    ).capture_state,
+    "observed_empty",
+  );
+  assert(
+    (await archivePage.locator("#tree").textContent()).includes(
+      "Coursera editor observed empty",
+    ),
+  );
+  const nativePacket = await archivePage.evaluate(
+    () => CoursePackets.getModel().packets[0].data,
+  );
+  assert(
+    nativePacket.coverage_audit[0].observed_empty_practice_ids.includes(
+      "emptyNative",
+    ),
+  );
+
   assert(
     universalSession.sources[0].documents.some((d) =>
       d.text.includes("original source explains"),

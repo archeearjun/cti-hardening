@@ -474,7 +474,7 @@
     $("step-label").textContent = "02 / USE YOUR AI CHAT";
     $("result-title").textContent = s.title;
     $("result-subtitle").textContent =
-      `${s.phase === "final" ? "Final drafting evidence" : "Early opportunity evidence"} · ready for your AI chat`;
+      `Recommendations first · human approval required before content generation`;
     $("stats").replaceChildren();
     for (const [value, label] of [
       [st.courses, "course snapshots"],
@@ -558,6 +558,16 @@
           for (const item of lesson.items) {
             const entry = el("li", item.title);
             const metrics = item.assessment_capture;
+            entry.append(
+              el(
+                "p",
+                `Evidence state: ${item.capture_coverage || "not inspected"} · ${item.id}` +
+                  (item.provenance
+                    ? ` · ${item.provenance.source_state || "state unrecorded"} · ${item.provenance.status}`
+                    : ""),
+                "small",
+              ),
+            );
             if (item.capture_coverage === "observed_empty")
               entry.append(
                 el(
@@ -620,6 +630,99 @@
       $("tree").append(
         el("p", `Reference: ${r.filename} (${r.coverage}).`, "small"),
       );
+    const reviews = el("details");
+    reviews.append(
+      el("summary", "Classify reference evidence before final drafting"),
+      el(
+        "p",
+        "Unknown references support planning only. To identify actual instructional material, review its original source, record the exact teaching excerpt and locator below. This creates a revised activity evidence snapshot and requires renewed proposal approval. It does not certify semantic accuracy or change the original files.",
+      ),
+    );
+    const candidates = (s.references || [])
+      .filter((r) => !/^Shell_capture_receipt_/.test(r.filename))
+      .map((r) => ({ path: r.filename, doc: r }))
+      .concat(
+        (s.sources || [])
+          .filter((x) => x.kind !== "captured_shell")
+          .flatMap((x) => x.documents.map((d) => ({ path: d.path, doc: d }))),
+      );
+    for (const { path, doc } of candidates) {
+      const box = el("details"),
+        role = el("select"),
+        reviewer = el("input"),
+        locator = el("input"),
+        excerpt = el("textarea"),
+        save = el("button", "Save evidence review"),
+        status = el("p");
+      box.append(el("summary", path + " · " + ActivityQuality.role(s, path)));
+      for (const value of [
+        "planning",
+        "feedback",
+        "learner_practice",
+        "instructional",
+      ]) {
+        const o = el("option", value);
+        o.value = value;
+        role.append(o);
+      }
+      const prior = (s.evidence_reviews || []).find((r) => r.path === path);
+      role.value = prior?.role || "planning";
+      reviewer.value = prior?.reviewer || "";
+      locator.value = prior?.locator || "";
+      excerpt.value = prior?.excerpt || "";
+      for (const [label, input] of [
+        ["Evidence role", role],
+        ["Reviewer name", reviewer],
+        ["Source locator / pages", locator],
+        [
+          "Exact instructional excerpt (at least 80 characters for teaching)",
+          excerpt,
+        ],
+      ]) {
+        const l = el("label", label);
+        l.append(input);
+        box.append(l);
+      }
+      save.onclick = async () => {
+        try {
+          if (busy || session !== s)
+            throw Error("Evidence changed; review the current snapshot.");
+          if (!reviewer.value.trim() || !locator.value.trim())
+            throw Error("Record your name and exact source locator.");
+          const review = {
+            path,
+            role: role.value,
+            reviewer: reviewer.value.trim(),
+            locator: locator.value.trim(),
+            excerpt: excerpt.value.trim(),
+            text_sha256: CourseCtiUnifiedCapture.hashText(doc.text),
+          };
+          const next = {
+            ...s,
+            evidence_reviews: [
+              ...(s.evidence_reviews || []).filter((r) => r.path !== path),
+              review,
+            ],
+          };
+          if (
+            review.role === "instructional" &&
+            !ActivityQuality.reviewedTeaching(next, path, doc)
+          )
+            throw Error(
+              "Teaching requires an exact substantive excerpt from this source. Assessment keys and prior AI results cannot establish teaching.",
+            );
+          session = ActivityApproval.freezeSession(next);
+          output = C.bundleFiles(session, setup);
+          render(session);
+          await updateExports();
+        } catch (e) {
+          status.textContent = e.message;
+        }
+      };
+      box.append(save, status);
+      reviews.append(box);
+    }
+    if (candidates.length) $("tree").append(reviews);
     $("prompt-preview").value = C.handoff(s);
     globalThis.CourseResults?.refreshChecks();
     globalThis.CoursePackets?.refresh();
@@ -657,7 +760,7 @@
       if (controller.signal.aborted)
         throw new DOMException("Processing cancelled", "AbortError");
       const preparedOutput = C.bundleFiles(prepared, setup);
-      session = prepared;
+      session = ActivityApproval.freezeSession(prepared);
       output = preparedOutput;
       $("cancel").hidden = true;
       render(session);
@@ -730,7 +833,7 @@
       if (!["opportunity", "final"].includes(saved.phase))
         throw Error("Saved work has an unsupported stage.");
       const restoredOutput = C.bundleFiles(saved, setup);
-      session = saved;
+      session = ActivityApproval.freezeSession(saved);
       $("title").value = saved.title;
       $("phase").value = saved.phase;
       phaseHelp();
@@ -776,15 +879,16 @@
   function phaseHelp() {
     $("phase-help").textContent =
       $("phase").value === "final"
-        ? "Use a shell capture, or exports with source teaching content. Add an existing outline or feedback if available. The AI returns exact placement and final fields."
+        ? "Use a shell capture, or exports with source teaching content. Add an existing outline or feedback if available. Review recommendations first. Generate fields only from your saved approvals."
         : "Use the original source and initial shell export. Add the Content Map if available. The AI proposes opportunities for partner review.";
   }
   $("title").onchange = $("phase").onchange = () => {
     phaseHelp();
     if (session) {
-      session = { ...session, created_at: new Date().toISOString() };
+      session = { ...session };
       session.title = $("title").value.trim() || session.title;
       session.phase = $("phase").value;
+      session = ActivityApproval.freezeSession(session);
       output = C.bundleFiles(session, setup);
       render(session);
       void updateExports();

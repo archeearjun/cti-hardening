@@ -3,6 +3,9 @@
   const $ = (id) => document.getElementById(id),
     A = globalThis.ActivityDesigner,
     UI = globalThis.CoursePrepUI;
+  let plan = null,
+    recommendations = null;
+  let resultSession = null;
   let result = null,
     importing = false;
   function el(tag, text, cls) {
@@ -37,14 +40,28 @@
     box.append(top, el("pre", f.text));
     return box;
   }
+  function currentPlan() {
+    try {
+      ActivityApproval.assertSaved(plan);
+      return plan;
+    } catch {
+      return null;
+    }
+  }
+  function savePlan(next, session = UI.getSession()) {
+    return ActivityApproval.save(next, session);
+  }
   function render() {
+    renderPlan();
     if (!result) return;
     const check = A.issues(result, UI.getSession());
     $("activities-empty").hidden = true;
     $("activities-result").hidden = false;
     $("activities-title").textContent = result.title;
     const ready = result.activities.filter(
-      (a) => ActivityReadiness.check(result, UI.getSession(), a).canCopy,
+      (a) =>
+        ActivityReadiness.check(result, UI.getSession(), a, currentPlan())
+          .canCopy,
     ).length;
     $("activities-summary").textContent =
       `${ready} draft(s) passed the automated evidence and structure checks; ${result.activities.length - ready} proposal(s) need review or evidence. Human content review is still required. AI recommendation: ${result.summary}`;
@@ -63,7 +80,12 @@
         ),
       );
     for (const a of result.activities) {
-      const readiness = ActivityReadiness.check(result, UI.getSession(), a);
+      const readiness = ActivityReadiness.check(
+        result,
+        UI.getSession(),
+        a,
+        currentPlan(),
+      );
       const card = el("article", undefined, "activity-card panel");
       const head = el("div", undefined, "activity-head");
       const title = el("div");
@@ -322,23 +344,321 @@
     }
     $("result-coverage").textContent = result.coverage_note;
   }
-  function importText(text, replace = false) {
+  function act(fn) {
+    try {
+      fn();
+      warn("");
+      render();
+    } catch (e) {
+      warn(e.message);
+    }
+  }
+  function renderPlan() {
+    $("approval-panel").hidden = !plan;
+    if (!plan) return;
+    let stale = "";
+    try {
+      ActivityApproval.validate(plan, UI.getSession());
+      ActivityApproval.assertSaved(plan);
+    } catch (e) {
+      stale = e.message;
+    }
+    const counts = ["approved", "pending", "held", "rejected"].map(
+      (d) =>
+        plan.entries.filter((e) => e.decision === d).length +
+        " " +
+        (d === "pending" ? "awaiting review" : d),
+    );
+    $("approval-status").textContent =
+      stale ||
+      counts.join(" · ") +
+        ". Decisions saved in this browser. Save work ZIP to restore the evidence and decisions together.";
+    $("generate-approved").disabled =
+      !!stale ||
+      !plan.entries.some(
+        (e) => e.decision === "approved" && e.proposal.type !== "neither",
+      );
+    $("approval-cards").replaceChildren();
+    for (const entry of plan.entries) {
+      const p = entry.proposal;
+      const card = el("article", undefined, "activity-card");
+      card.dataset.proposalId = p.id;
+      card.append(
+        el(
+          "h3",
+          p.title +
+            " · " +
+            (p.type === "neither"
+              ? p.module_decision === "hold"
+                ? "Evidence hold (no activity)"
+                : "No addition"
+              : label(p)),
+        ),
+        el(
+          "p",
+          "Decision: " +
+            entry.decision +
+            " · Proposal revision " +
+            entry.proposal_revision,
+        ),
+        el(
+          "p",
+          [p.placement.course, p.placement.module, p.placement.lesson]
+            .filter(Boolean)
+            .join(" / "),
+        ),
+        el(
+          "p",
+          "Learning goal: " +
+            (p.objective || "Not applicable to no-addition decision"),
+        ),
+        el("p", "Incremental value: " + p.why),
+      );
+      if (p.type !== "neither") {
+        card.append(
+          el(
+            "p",
+            "Estimated time: " +
+              p.minutes +
+              " min · Placement: " +
+              (p.recommendation?.placement_status || "Not specified"),
+          ),
+          el(
+            "p",
+            "Confidence: " +
+              (p.recommendation?.confidence || "Not specified") +
+              " · Limitations: " +
+              (p.recommendation?.limitations || "Not specified"),
+          ),
+        );
+        for (const e of p.evidence)
+          card.append(
+            el("p", "Source: " + e.source_path + " · " + e.locator, "small"),
+          );
+        for (const c of p.recommendation?.existing_practice || [])
+          card.append(
+            el(
+              "p",
+              "Existing practice " + c.item_id + ": " + c.difference,
+              "small",
+            ),
+          );
+      }
+      if (entry.reviewer)
+        card.append(
+          el(
+            "p",
+            "Reviewed by " +
+              entry.reviewer +
+              " · " +
+              entry.decided_at +
+              " · " +
+              entry.note,
+            "small",
+          ),
+        );
+      const noteLabel = el("label", "Review note for " + p.id);
+      const note = el("textarea");
+      note.maxLength = 5000;
+      note.value = entry.note;
+      noteLabel.append(note);
+      card.append(noteLabel);
+      const actions = el("div", undefined, "action-row");
+      for (const [text, decision] of [
+        ["Approve", "approved"],
+        ["Reject", "rejected"],
+        ["Hold for evidence", "held"],
+      ]) {
+        const b = button(text, () =>
+          act(() => {
+            ActivityApproval.assertSaved(plan);
+            plan = savePlan(
+              ActivityApproval.decide(
+                plan,
+                UI.getSession(),
+                p.id,
+                decision,
+                $("reviewer-name").value,
+                note.value,
+              ),
+            );
+          }),
+        );
+        b.disabled = !!stale;
+        actions.append(b);
+      }
+      if (p.type !== "neither") {
+        const details = el("details");
+        details.append(el("summary", "Revise recommendation"));
+        const inputs = {};
+        function input(key, caption, value, choices) {
+          const lab = el("label", caption),
+            n = el(choices ? "select" : "textarea");
+          if (choices)
+            for (const value of choices) {
+              const o = el("option", value);
+              o.value = value;
+              n.append(o);
+            }
+          n.value = value;
+          n.maxLength = 5000;
+          inputs[key] = n;
+          lab.append(n);
+          details.append(lab);
+        }
+        input("type", "Activity type (ungraded)", p.type, [
+          "dialogue",
+          "role_play",
+        ]);
+        for (const [k, title] of [
+          ["title", "Title"],
+          ["objective", "Learning objective"],
+          ["why", "Incremental instructional value"],
+          ["minutes", "Estimated minutes"],
+        ])
+          input(k, title, p[k]);
+        for (const k of Object.keys(p.placement))
+          input(
+            "placement." + k,
+            "Placement: " + k.replaceAll("_", " "),
+            p.placement[k] ?? "",
+          );
+        input(
+          "confidence",
+          "Confidence",
+          p.recommendation?.confidence || "low",
+          ["high", "medium", "low"],
+        );
+        input(
+          "limitations",
+          "Evidence limitations",
+          p.recommendation?.limitations || "",
+        );
+        input(
+          "placement_status",
+          "Placement status",
+          p.recommendation?.placement_status || "provisional",
+          ["exact", "provisional"],
+        );
+        input(
+          "placement_source",
+          "Outline/reference path for provisional placement",
+          p.recommendation?.placement_source || "",
+        );
+        details.append(
+          el(
+            "p",
+            "Existing source citations and practice comparisons are retained. For different evidence or a revised duplication analysis, import revised recommendations from your chat. Saving a revision removes this proposal’s approval; other decisions remain unchanged.",
+            "small",
+          ),
+        );
+        const save = button("Save revision for review", () =>
+          act(() => {
+            ActivityApproval.assertSaved(plan);
+            const next = JSON.parse(JSON.stringify(recommendations));
+            const a = next.activities.find((a) => a.id === p.id);
+            for (const k of ["title", "objective", "why", "type"])
+              a[k] = inputs[k].value;
+            a.minutes = Number(inputs.minutes.value);
+            for (const k of Object.keys(p.placement))
+              a.placement[k] =
+                k === "row"
+                  ? Number(inputs["placement." + k].value) || null
+                  : inputs["placement." + k].value;
+            a.recommendation = {
+              ...(a.recommendation || {}),
+              existing_practice: a.recommendation?.existing_practice || [],
+            };
+            for (const k of [
+              "confidence",
+              "limitations",
+              "placement_status",
+              "placement_source",
+            ])
+              a.recommendation[k] = inputs[k].value;
+            const parsed = A.parse(next);
+            plan = savePlan(
+              ActivityApproval.sync(parsed, UI.getSession(), plan),
+            );
+            recommendations = parsed;
+            if (result.mode === "opportunity") result = parsed;
+          }),
+        );
+        save.disabled = !!stale;
+        details.append(save);
+        card.append(details);
+      }
+      card.append(actions);
+      $("approval-cards").append(card);
+    }
+  }
+  $("save-approval").onclick = () =>
+    plan &&
+    UI.download(
+      JSON.stringify(plan, null, 2),
+      "ACTIVITY_APPROVAL.json",
+      "application/json",
+    );
+  $("generate-approved").onclick = () =>
+    act(() => {
+      ActivityApproval.assertSaved(plan);
+      const packet = ActivityApproval.handoff(
+        plan,
+        UI.getSession(),
+        UI.setup.field_guide,
+      );
+      void UI.zipDownload(
+        {
+          "APPROVED_CONTENT_HANDOFF.txt": packet.text,
+          ...packet.assets,
+          "READ_ME.txt":
+            (packet.oversize
+              ? `Above advisory target: approximately ${packet.estimated_tokens} input tokens. No required text was truncated. Use a chat with sufficient capacity or generate a smaller approved plan; do not silently omit dependencies.\n\n`
+              : "") +
+            "Unzip and send APPROVED_CONTENT_HANDOFF.txt plus any Teaching_PDFs to your work-approved AI chat. Request ACTIVITY_RESULTS.json. Only approved proposals may be drafted. Bring the result back to this unchanged work session. Save work ZIP before closing. Review semantic accuracy before Coursera authoring.",
+        },
+        "Approved_Activity_Handoff.zip",
+        $("generate-approved"),
+      );
+    });
+  function importText(text, replace = false, restoredReview = false) {
     const parsed = A.parse(text);
     const s = UI.getSession();
     if (
       s &&
-      (parsed.bundle_created_at !== s.created_at ||
-        parsed.title !== s.title ||
-        parsed.mode !== s.phase)
+      (parsed.bundle_created_at !== s.created_at || parsed.title !== s.title)
     )
       throw Error(
         "This result does not match the loaded course snapshot and stage. Load its matching work ZIP or revalidate with the current packet.",
       );
-    if (s) ActivityReadiness.resolveDecisions(parsed, s);
-    result =
+    if (s && s.courses.length) ActivityReadiness.resolveDecisions(parsed, s);
+    if (
+      parsed.mode === "final" &&
+      !restoredReview &&
+      parsed.activities.some((a) => a.approval_ref)
+    ) {
+      ActivityApproval.assertSaved(plan);
+      for (const a of parsed.activities) {
+        const problems = ActivityApproval.problems(parsed, s, a, plan);
+        if (problems.length) throw Error(problems.join(" "));
+      }
+    }
+    const nextResult =
       replace || $("result-merge-mode").value === "replace"
         ? parsed
-        : A.merge(result, parsed);
+        : A.merge(result?.mode === parsed.mode ? result : null, parsed);
+    if (parsed.mode === "opportunity" && s) {
+      if (plan) ActivityApproval.assertSaved(plan);
+      const combined =
+        replace || $("result-merge-mode").value === "replace"
+          ? parsed
+          : A.merge(recommendations, parsed);
+      const next = ActivityApproval.sync(combined, s, plan);
+      plan = savePlan(next);
+      recommendations = combined;
+    }
+    result = nextResult;
+    resultSession = s;
     warn("");
     render();
     UI.showView("activities");
@@ -354,7 +674,9 @@
           "Result file exceeds 100 MB. Import the result JSON by itself.",
         );
       let text,
-        saved = null;
+        saved = null,
+        savedPlan = null,
+        savedRecommendations = null;
       if (/\.zip$/i.test(file.name)) {
         const z = await JSZip.loadAsync(await file.arrayBuffer());
         const entry = z.file("ACTIVITY_RESULTS.json");
@@ -365,6 +687,26 @@
         if (entry._data?.uncompressedSize > 8 * 1024 * 1024)
           throw Error("Result JSON exceeds 8 MB.");
         text = await entry.async("string");
+        for (const name of [
+          "ACTIVITY_APPROVAL.json",
+          "ACTIVITY_RECOMMENDATIONS.json",
+        ])
+          if (z.file(name)?._data?.uncompressedSize > 8 * 1024 * 1024)
+            throw Error("Saved approval data exceeds 8 MB.");
+        if (z.file("ACTIVITY_APPROVAL.json")) {
+          if (!$("restore-human-decisions").checked)
+            throw Error(
+              "To restore your own saved decisions, select Restore my saved human decisions. Never restore an approval created by an AI.",
+            );
+          savedPlan = JSON.parse(
+            await z.file("ACTIVITY_APPROVAL.json").async("string"),
+          );
+          if (!z.file("ACTIVITY_RECOMMENDATIONS.json"))
+            throw Error("Approval ZIP is missing its recommendations.");
+          savedRecommendations = A.parse(
+            await z.file("ACTIVITY_RECOMMENDATIONS.json").async("string"),
+          );
+        }
         const se = z.file("SESSION.json");
         if (se) {
           if (se._data?.uncompressedSize > 32 * 1024 * 1024)
@@ -381,13 +723,50 @@
       if (
         saved &&
         (parsed.bundle_created_at !== saved.created_at ||
-          parsed.title !== saved.title ||
-          parsed.mode !== saved.phase)
+          parsed.title !== saved.title)
       )
         throw Error("Saved result and session are from different snapshots.");
-      if (saved) ActivityReadiness.resolveDecisions(parsed, saved);
-      if (saved) await UI.restoreSession(saved);
-      importText(text, !!saved);
+      if (saved?.courses.length)
+        ActivityReadiness.resolveDecisions(parsed, saved);
+      if (saved && !savedPlan && parsed.activities.some((a) => a.approval_ref))
+        throw Error(
+          "This saved final result is missing its approval record. Restore the complete work ZIP; no approval is inferred.",
+        );
+      if (
+        savedPlan &&
+        parsed.mode === "opportunity" &&
+        ActivityApproval.canonical(parsed) !==
+          ActivityApproval.canonical(savedRecommendations)
+      )
+        throw Error(
+          "Saved displayed recommendations and approved plan disagree.",
+        );
+      if (savedPlan) {
+        ActivityApproval.validate(savedPlan, saved);
+        const expected = ActivityApproval.sync(
+          savedRecommendations,
+          saved,
+          savedPlan,
+        );
+        if (
+          ActivityApproval.canonical(expected.entries) !==
+          ActivityApproval.canonical(savedPlan.entries)
+        )
+          throw Error(
+            "Saved recommendations conflict with the approval record.",
+          );
+        // A saved work ZIP may retain an older final draft after a human revises
+        // or revokes its proposal. Restore it for review; readiness still blocks
+        // every stale/unapproved field. Ordinary final imports remain strict.
+      }
+      if (saved) {
+        await CourseCtiDocuments.verify(saved.visual_assets || []);
+        if (savedPlan) savePlan(savedPlan, saved);
+        await UI.restoreSession(saved);
+        plan = savedPlan;
+        recommendations = savedRecommendations;
+      }
+      importText(text, !!saved, !!(saved && savedPlan));
     } catch (e) {
       warn(
         "Could not import: " +
@@ -425,12 +804,25 @@
   $("save-results").onclick = () => {
     if (!result) return;
     const files = {
-      ...(UI.getOutput() || {}),
+      ...(resultSession ? CoursePrep.bundleFiles(resultSession, UI.setup) : {}),
       "ACTIVITY_RESULTS.json": JSON.stringify(result, null, 2),
       "READ_ME.txt": UI.setup.readme,
+      ...(plan
+        ? {
+            "ACTIVITY_APPROVAL.json": JSON.stringify(plan, null, 2),
+            "ACTIVITY_RECOMMENDATIONS.json": JSON.stringify(
+              recommendations,
+              null,
+              2,
+            ),
+          }
+        : {}),
     };
     for (const a of result.activities)
-      if (ActivityReadiness.check(result, UI.getSession(), a).canCopy) {
+      if (
+        ActivityReadiness.check(result, UI.getSession(), a, currentPlan())
+          .canCopy
+      ) {
         const safe = a.id.replace(/[^a-zA-Z0-9_-]/g, "_");
         files[safe + "_Coursera_fields.txt"] = A.text(a);
         if (a.context.text) files[a.context.filename] = a.context.text;
@@ -441,5 +833,6 @@
       $("save-results"),
     );
   };
-  globalThis.CourseResults = { refreshChecks: render };
+  window.addEventListener("storage", () => render());
+  globalThis.CourseResults = { refreshChecks: render, getPlan: () => plan };
 })();

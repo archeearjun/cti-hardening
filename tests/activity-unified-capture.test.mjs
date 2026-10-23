@@ -177,7 +177,7 @@ test("same bookmark archive prepares current CML and keeps opaque role-play conf
     projected.items[0].blocks[0].text,
     original.fingerprints[0].payload.textSample,
   );
-  assert.equal(projected.items[1].coverage, "unread");
+  assert.equal(projected.items[1].coverage, "unsupported");
   assert(
     projected.items[1].notes.some((text) =>
       /native configuration remains/.test(text),

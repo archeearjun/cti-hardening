@@ -3,11 +3,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 
 function context() {
   const ctx = vm.createContext({
+    CourseCtiUnifiedCapture: {
+      pdfs: () => [],
+      hashText: (text) => createHash("sha256").update(text).digest("hex"),
+    },
     console,
     URL,
     TextEncoder,
@@ -32,6 +37,7 @@ function context() {
     "activity-quality",
     "core",
     "designer",
+    "approval",
     "readiness",
     "compact",
   ])
@@ -42,6 +48,9 @@ function context() {
       ),
       ctx,
     );
+  const originalCheck = ctx.ActivityReadiness.check;
+  ctx.ActivityReadiness.check = (r, s, a, plan = ctx.testApprovalPlan) =>
+    originalCheck(r, s, a, plan);
   return ctx;
 }
 const file = (name, data) => {
@@ -131,7 +140,45 @@ function fixture(ctx) {
       reason: "Explain the choice.",
     },
   ];
+  approveFixture(ctx, s, r);
   return { s, r, a };
+}
+function approveFixture(c, s, r) {
+  for (const a of r.activities) {
+    a.recommendation ||= {
+      confidence: "medium",
+      limitations: "Text-only fixture; semantic review required.",
+      placement_status: "exact",
+      placement_source: "",
+      existing_practice: a.design?.comparison || [],
+    };
+  }
+  const proposalResult = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: r.activities.map((a) => ({ ...a, status: "idea", fields: [] })),
+  });
+  // Canonical parsed metadata is what the AI handoff preserves.
+  for (let i = 0; i < r.activities.length; i++)
+    Object.assign(
+      r.activities[i],
+      c.ActivityApproval.proposal(proposalResult.activities[i]),
+    );
+  let plan = c.ActivityApproval.sync(proposalResult, s);
+  for (const a of r.activities)
+    plan = c.ActivityApproval.decide(
+      plan,
+      s,
+      a.id,
+      "approved",
+      "Fixture reviewer",
+    );
+  for (const a of r.activities)
+    a.approval_ref = c.ActivityApproval.reference(
+      plan,
+      plan.entries.find((e) => e.proposal.id === a.id),
+    );
+  c.testApprovalPlan = plan;
 }
 test("CTI adapter allowlists prompt/option text and retains uncertainty without keys or unrelated metadata", () => {
   const c = context(),
@@ -555,6 +602,7 @@ test("self-contained original cases are permitted, missing facts and unlabelled 
   a.fields.find((f) => f.label === "Tasks").text = a.design.learner_task;
   a.fields.find((f) => f.label === "Advanced").text =
     a.design.success_criteria.join(" ");
+  approveFixture(c, s, r);
   assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
   a.fields.find((f) => f.label === "Scenario definition").text =
     "Calculate the truckloads using the site plan.";
@@ -730,6 +778,7 @@ test("PDF evidence cannot borrow readable text from a sibling attachment or item
   assert.equal(resolved.readable, true);
   assert.equal(resolved.docs[0].text, "Use all three dimensions for volume.");
   a.evidence = [{ source_path: path, purpose: "teaching", locator: "page 1" }];
+  approveFixture(c, s, r);
   assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
   a.design.case_facts = [
     {
@@ -1304,7 +1353,7 @@ test("unread external resources retain safe exact links without signed URLs or f
   ];
   const capture = c.CourseCtiAdapter.adapt(raw),
     s = c.CourseShell.toSession(capture, "capture.json", c.CoursePrep);
-  assert.equal(capture.items[0].coverage, "unread");
+  assert.equal(capture.items[0].coverage, "external_body_unread");
   assert.equal(s.sources[0].documents.length, 0);
   const packet = c.CourseCompact.build(s).packets[0].data;
   const refs =
@@ -1438,4 +1487,654 @@ test("captured ingestion failures cannot certify learner text or clear practice 
     c.CourseCtiAdapter.adapt(raw).items[1].assessment_capture.completeness,
     "ingestion_failure",
   );
+});
+
+test("RC1 decisions are per proposal; revision removes only its approval and retains history", () => {
+  const c = context(),
+    { s, r } = fixture(c);
+  const recommendations = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: ["A01", "A02", "A03", "A04"].map((id) => ({
+      ...r.activities[0],
+      id,
+      status: "idea",
+      fields: [],
+    })),
+  });
+  let plan = c.ActivityApproval.sync(recommendations, s);
+  assert(plan.entries.every((e) => e.decision === "pending"));
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "approved",
+    "Human reviewer",
+  );
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A02",
+    "held",
+    "Human reviewer",
+    "Need visual evidence",
+  );
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A03",
+    "rejected",
+    "Human reviewer",
+    "No added value",
+  );
+  assert.deepEqual(
+    Array.from(plan.entries, (e) => e.decision),
+    ["approved", "held", "rejected", "pending"],
+  );
+  const handoff = c.ActivityApproval.handoff(plan, s, "Field guide");
+  const data = JSON.parse(
+    handoff.text.slice(handoff.text.lastIndexOf("\n") + 1),
+  );
+  assert.deepEqual(
+    Array.from(data.approved_proposals, (p) => p.id),
+    ["A01"],
+  );
+  assert.equal(data.mode, "final");
+  recommendations.activities[0].minutes = 12;
+  const revised = c.ActivityApproval.sync(recommendations, s, plan);
+  assert.equal(revised.entries[0].decision, "pending");
+  assert.equal(revised.entries[0].proposal_revision, 2);
+  assert.equal(revised.entries[1].decision, "held");
+  assert.equal(revised.history.length, 3);
+  assert.throws(
+    () => c.ActivityApproval.handoff(revised, s, ""),
+    /Approve at least/,
+  );
+});
+
+test("RC1 rejects unapproved, forged, changed and revoked final approvals", () => {
+  const c = context(),
+    { s, r, a } = fixture(c),
+    plan = c.testApprovalPlan;
+  assert.equal(c.ActivityReadiness.check(r, s, a, null).canCopy, false);
+  for (const patch of [
+    { id: "new" },
+    { type: "role_play" },
+    { objective: "Different purpose" },
+    { placement: { ...a.placement, after_item_id: "elsewhere" } },
+    { approval_ref: { ...a.approval_ref, decision_revision: 99 } },
+  ])
+    assert(c.ActivityApproval.problems(r, s, { ...a, ...patch }, plan).length);
+  const revoked = c.ActivityApproval.decide(
+    plan,
+    s,
+    a.id,
+    "held",
+    "Human reviewer",
+  );
+  assert(c.ActivityApproval.problems(r, s, a, revoked).length);
+  const forged = structuredClone(plan);
+  forged.history = [];
+  assert.throws(() => c.ActivityApproval.validate(forged, s), /human decision/);
+  const injected = c.ActivityDesigner.parse({
+    ...r,
+    approved: true,
+    approval: plan,
+  });
+  assert.equal(
+    injected.approval,
+    undefined,
+    "AI result cannot import human decisions",
+  );
+});
+
+test("RC1 snapshot identity is stage-independent but detects changed source, hierarchy and course", () => {
+  const c = context(),
+    { s, r, a } = fixture(c),
+    plan = c.testApprovalPlan;
+  assert.equal(
+    c.ActivityApproval.identity({ ...s, phase: "opportunity" }).sha256,
+    plan.snapshot.sha256,
+  );
+  assert.equal(
+    c.ActivityReadiness.check(r, { ...s, phase: "opportunity" }, a).canCopy,
+    true,
+  );
+  for (const change of [
+    (x) => (x.title = "Other course"),
+    (x) => (x.created_at = "2026-10-01T00:00:00Z"),
+    (x) => (x.sources[0].documents[0].text += " changed"),
+    (x) => x.courses[0].modules[0].lessons.reverse(),
+  ]) {
+    const altered = structuredClone(s);
+    change(altered);
+    if (JSON.stringify(altered) === JSON.stringify(s))
+      altered.courses[0].modules[0].lessons[0].items.reverse();
+    assert.throws(
+      () => c.ActivityApproval.validate(plan, altered),
+      /stale|different/,
+    );
+  }
+});
+
+test("RC1 save/restore preserves decisions and exact final binding without changing source snapshots", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const before = JSON.stringify(s);
+  const plan = JSON.parse(JSON.stringify(c.testApprovalPlan));
+  const restored = c.ActivityDesigner.parse(JSON.stringify(r));
+  assert.equal(
+    c.ActivityReadiness.check(
+      restored,
+      JSON.parse(before),
+      restored.activities[0],
+      plan,
+    ).canCopy,
+    true,
+  );
+  assert.equal(JSON.stringify(s), before);
+  a.fields[1].text += " Correct answer: B";
+  assert.equal(
+    c.ActivityReadiness.check(r, s, a, plan).canCopy,
+    false,
+    "Approval does not bypass key protection",
+  );
+});
+
+test("RC1 provisional outline concepts can be approved but cannot generate exact authoring fields", () => {
+  const c = context(),
+    { s, r } = fixture(c);
+  s.references.push({
+    filename: "outline.txt",
+    text: "Proposed Module A after the introduction.",
+    coverage: "text",
+  });
+  const rec = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: r.activities.map((a) => ({
+      ...a,
+      status: "idea",
+      fields: [],
+      placement: {
+        ...a.placement,
+        branch_id: "",
+        module_id: "",
+        lesson_id: "",
+        after_item_id: "",
+        before_item_id: "",
+      },
+      recommendation: {
+        ...a.recommendation,
+        placement_status: "provisional",
+        placement_source: "outline.txt",
+      },
+    })),
+  });
+  let plan = c.ActivityApproval.sync(rec, s);
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "approved",
+    "Human reviewer",
+  );
+  assert.equal(plan.entries[0].decision, "approved");
+  assert.throws(
+    () => c.ActivityApproval.handoff(plan, s, ""),
+    /Provisional|unresolved/,
+  );
+});
+
+test("RC1 generation preserves evidence gates and legacy results remain explicit review-only", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const legacy = c.ActivityDesigner.parse(r);
+  delete legacy.activities[0].approval_ref;
+  assert(
+    c.ActivityReadiness.check(
+      legacy,
+      s,
+      legacy.activities[0],
+      null,
+    ).blocking.some((x) => /Legacy results/.test(x)),
+  );
+  const packet = c.CourseCompact.build(s).packets[0];
+  assert.equal(
+    packet.data.mode,
+    "opportunity",
+    "Selecting final stage is not approval",
+  );
+  assert.match(packet.text, /RECOMMENDATION STAGE ONLY/);
+  const rec = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    activities: [{ ...a, status: "idea", fields: [] }],
+  });
+  s.courses[0].modules[0].lessons[0].items[1].assessment_capture.has_unresolved_capture_issues = true;
+  let plan = c.ActivityApproval.sync(rec, s);
+  plan = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "approved",
+    "Human reviewer",
+  );
+  assert.throws(
+    () => c.ActivityApproval.handoff(plan, s, ""),
+    /coverage is incomplete/,
+  );
+});
+
+test("RC1 durable decision saves fail closed on quota failure and cross-tab revisions", () => {
+  const c = context(),
+    { s } = fixture(c),
+    plan = c.testApprovalPlan;
+  const records = new Map();
+  const storage = {
+    getItem: (key) => records.get(key) || null,
+    setItem: (key, value) => records.set(key, value),
+  };
+  assert.throws(
+    () => c.ActivityApproval.assertSaved(plan, storage),
+    /unavailable/,
+  );
+  c.ActivityApproval.save(plan, s, storage);
+  assert.doesNotThrow(() => c.ActivityApproval.assertSaved(plan, storage));
+  const held = c.ActivityApproval.decide(
+    plan,
+    s,
+    "A01",
+    "held",
+    "Other reviewer",
+  );
+  c.ActivityApproval.save(held, s, storage);
+  assert.throws(
+    () => c.ActivityApproval.assertSaved(plan, storage),
+    /another tab/,
+  );
+  assert.throws(
+    () =>
+      c.ActivityApproval.save(plan, s, {
+        setItem() {
+          throw Error("QuotaExceededError");
+        },
+      }),
+    /No new decision was applied/,
+  );
+  assert.doesNotThrow(() => c.ActivityApproval.assertSaved(held, storage));
+});
+
+test("RC1 outline placement stays provisional alongside an existing shell without inventing IDs", () => {
+  const c = context(),
+    { s, r } = fixture(c);
+  s.references.push({
+    filename: "map.txt",
+    text: "Future course, Proposed module.",
+    coverage: "text",
+  });
+  const rec = c.ActivityDesigner.parse({
+    ...r,
+    mode: "opportunity",
+    module_decisions: [
+      {
+        course: "Future course",
+        module: "Proposed module",
+        decision: "dialogue",
+        reason: "Proposed split",
+      },
+    ],
+    activities: r.activities.map((a) => ({
+      ...a,
+      status: "idea",
+      fields: [],
+      placement: { course: "Future course", module: "Proposed module" },
+      recommendation: {
+        ...a.recommendation,
+        placement_status: "provisional",
+        placement_source: "map.txt",
+      },
+    })),
+  });
+  c.ActivityReadiness.resolveDecisions(rec, s);
+  assert.equal(rec.module_decisions[0].branch_id, "");
+  assert.equal(rec.activities[0].placement.module_id, "");
+  const invalid = structuredClone(rec);
+  invalid.activities[0].recommendation.placement_source = "missing.txt";
+  assert.throws(
+    () => c.ActivityReadiness.resolveDecisions(invalid, s),
+    /unresolved/,
+  );
+});
+
+test("RC1 evidence roles: outlines and prior AI are not teaching; explicit instructional review is content-bound", () => {
+  const c = context(),
+    { s, r, a } = fixture(c);
+  const outline = {
+    filename: "outline.txt",
+    coverage: "text",
+    text: "Module one will cover measurement and learners will practise discussing units. This outline describes intended structure, not an instructional explanation.",
+  };
+  s.references.push(outline);
+  a.evidence = [
+    {
+      source_path: outline.filename,
+      purpose: "teaching",
+      locator: "Module one",
+    },
+  ];
+  approveFixture(c, s, r);
+  assert.equal(c.ActivityQuality.source(s, outline.filename).teaching, false);
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, false);
+  assert(
+    c.ActivityReadiness.check(r, s, a).blocking.some((x) =>
+      x.includes("No readable teaching support"),
+    ),
+  );
+  assert.equal(
+    c.CourseCompact.build({ ...s, courses: [] }).packets[0].data.references[0]
+      .evidence_role,
+    "unclassified_context",
+  );
+  const teaching = {
+    filename: "lesson.txt",
+    coverage: "text",
+    text: "Convert metres to centimetres by multiplying the measured length by one hundred. The unit factor preserves the physical length while changing the numerical representation.",
+  };
+  s.references.push(teaching);
+  const review = {
+    path: teaching.filename,
+    role: "instructional",
+    reviewer: "Reviewer",
+    locator: "Paragraph 1",
+    excerpt: teaching.text,
+    text_sha256: c.CourseCtiUnifiedCapture.hashText(teaching.text),
+  };
+  s.evidence_reviews = [review];
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, true);
+  s.sources.push({
+    filename: "ambiguous.imscc",
+    kind: "source_package",
+    documents: [
+      {
+        path: teaching.filename,
+        text: "Another source with the same path",
+        associations: [],
+      },
+    ],
+    unread: [],
+  });
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
+  s.sources.pop();
+  teaching.text += " changed";
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
+  teaching.text = JSON.stringify({
+    format: "course-activity-design",
+    summary: review.excerpt,
+  });
+  review.text_sha256 = c.CourseCtiUnifiedCapture.hashText(teaching.text);
+  assert.equal(c.ActivityQuality.source(s, teaching.filename).teaching, false);
+  a.evidence = [
+    { source_path: "coursera/b1/i1", purpose: "teaching", locator: "i1" },
+  ];
+  approveFixture(c, s, r);
+  assert.equal(c.ActivityReadiness.check(r, s, a).canCopy, true);
+});
+
+function nativeEmptyFixture() {
+  const raw = ctiRaw(),
+    atom = "native_atom";
+  raw.fingerprints.push({
+    ...raw.fingerprints[0],
+    id: "zBBdG",
+    typeName: "ungradedAssignment",
+    name: "Empty authored assessment",
+    payload: {
+      captureContract: {
+        itemId: "zBBdG",
+        complete: true,
+        status: "COMPLETE_BOUND_DRAFT_EMPTY_ASSESSMENT",
+        reasons: [],
+      },
+      directDataEvidence: {
+        method: "BOUND_AUTHORING_DRAFT_API",
+        itemId: "zBBdG",
+        courseId: "b1",
+        atomId: atom,
+        sourceState: "AUTHORING_DRAFT",
+        draftHash: "a".repeat(64),
+        stableSource: true,
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      directDataSources: {
+        atom: {
+          elements: [
+            {
+              id: atom,
+              draft: {
+                content: {
+                  typeName: "staffGradedDraft",
+                  definition: { parts: [] },
+                },
+              },
+            },
+          ],
+        },
+      },
+      explicitEmptyAssessmentEvidence: {
+        method: "EXPLICIT_EMPTY_AUTHORING_DRAFT_PARTS",
+        courseId: "b1",
+        itemId: "zBBdG",
+        atomId: atom,
+        sourceEmpty: true,
+        declaredContentParts: 0,
+      },
+      structuredAssessment: {
+        declaredQuestionCount: 0,
+        questionCount: 0,
+        questions: [],
+        captureCompleteness: {
+          sourceEmpty: true,
+          questionCoverageComplete: true,
+        },
+      },
+    },
+  });
+  return raw;
+}
+test("RC1 native zero-part contract preserves observed-empty across session and packet without mutating the source", () => {
+  const c = context(),
+    raw = nativeEmptyFixture(),
+    before = JSON.stringify(raw);
+  const cap = c.CourseCtiAdapter.adapt(raw),
+    item = cap.items[1];
+  assert.equal(item.coverage, "observed_empty");
+  assert.equal(item.provenance.source_state, "AUTHORING_DRAFT");
+  const s = c.CourseShell.toSession(cap, "original.json", c.CoursePrep);
+  c.CoursePrep.validateSession(s);
+  const packet = c.CourseCompact.build(s).packets[0].data;
+  assert.equal(
+    packet.gaps.find((x) => x.path.endsWith("zBBdG")).capture_state,
+    "observed_empty",
+  );
+  assert.equal(
+    packet.structure[0].module.lessons[0].items[1].provenance.atom_id,
+    "native_atom",
+  );
+  const recovery = c.ActivityQuality.recovery(s, {
+    branch_id: "b1",
+    module_id: "m1",
+  }).join(" ");
+  assert.match(recovery, /Source reconciliation/);
+  assert.match(
+    recovery,
+    /Repeating capture on the unchanged empty editors will not recover/,
+  );
+  assert(!recovery.includes("Read existing practice"));
+  assert.equal(JSON.stringify(raw), before);
+  for (const mutate of [
+    (p) => (p.explicitEmptyAssessmentEvidence.itemId = "wrong"),
+    (p) => (p.directDataEvidence.stableSource = false),
+    (p) =>
+      p.directDataSources.atom.elements[0].draft.content.definition.parts.push(
+        {},
+      ),
+    (p) => (p.structuredAssessment.declaredQuestionCount = 1),
+  ]) {
+    const next = structuredClone(raw);
+    mutate(next.fingerprints[1].payload);
+    assert.notEqual(
+      c.CourseCtiAdapter.adapt(next).items[1].coverage,
+      "observed_empty",
+    );
+  }
+});
+
+test("RC1 supported bound instructions and published reading retain text and distinct provenance, never keys", () => {
+  const c = context(),
+    raw = nativeEmptyFixture(),
+    p = raw.fingerprints[1].payload;
+  delete p.explicitEmptyAssessmentEvidence;
+  p.captureContract.status = "COMPLETE_BOUND_DRAFT_INSTRUCTION_ASSESSMENT";
+  p.directInstructionAssessmentEvidence = {
+    itemId: "zBBdG",
+    courseId: "b1",
+    atomId: "native_atom",
+  };
+  p.structuredAssessment.contentBlocks = [
+    {
+      nativeId: "textBlock~1",
+      text: "Submit a written explanation of the chosen units.",
+      textSha256: c.CourseCtiUnifiedCapture.hashText(
+        "Submit a written explanation of the chosen units.",
+      ),
+    },
+  ];
+  p.structuredAssessment.introduction = {
+    typeName: "cml",
+    definition: {
+      dtdId: "assess/1",
+      value:
+        "<co-content><text>Explain your reasoning before submitting.</text></co-content>",
+    },
+  };
+  p.directDataSources.atom.elements[0].draft.content.definition.introduction =
+    structuredClone(p.structuredAssessment.introduction);
+  p.structuredAssessment.correctAnswers = ["PRIVATE_KEY"];
+  const r = raw.fingerprints[0].payload;
+  const model = {
+    id: "reading_atom",
+    atomId: "reading_atom",
+    courseId: "b1",
+    itemId: "i1",
+    itemType: "READING",
+    draftItemContent: null,
+    parentBranch: { courseId: "b1", isAtomAtLatestVersion: true },
+    publishedItemContent: {
+      content: {
+        dtdId: "assess/1",
+        cmlValue:
+          "<co-content><text>Measure lengths in metres.</text></co-content>",
+      },
+    },
+  };
+  Object.assign(r, {
+    textSample: "Measure lengths in metres.",
+    textSha256: c.CourseCtiUnifiedCapture.hashText(
+      "Measure lengths in metres.",
+    ),
+    textScopeKind: "bound-current-published-cml",
+    textCaptureTruncated: false,
+    captureContract: {
+      itemId: "i1",
+      complete: true,
+      status: "COMPLETE_BOUND_PUBLISHED_READING",
+    },
+    directPublishedReadingEvidence: {
+      method: "BOUND_PUBLISHED_READING_GRAPHQL",
+      stable: true,
+      wholeItemVerified: true,
+      initial: { model },
+      final: { model: structuredClone(model) },
+    },
+  });
+  const cap = c.CourseCtiAdapter.adapt(raw);
+  assert.equal(cap.items[0].coverage, "text_captured");
+  assert.equal(cap.items[0].provenance.source_state, "CURRENT_PUBLISHED");
+  assert(cap.items[1].blocks.some((b) => b.text.includes("Submit a written")));
+  assert(!JSON.stringify(cap).includes("PRIVATE_KEY"));
+  assert(
+    cap.items[1].blocks.some(
+      (b) =>
+        b.field === "Authored learner introduction" &&
+        b.text === "Explain your reasoning before submitting.",
+    ),
+  );
+  raw.fingerprints[0].atomId = "wrong_atom";
+  assert(
+    !c.CourseCtiAdapter.adapt(raw).items[0].blocks.some((b) =>
+      b.text.includes("Measure lengths"),
+    ),
+  );
+  raw.fingerprints[0].atomId = "reading_atom";
+  r.directPublishedReadingEvidence.final.model.itemId = "wrong";
+  assert(
+    !c.CourseCtiAdapter.adapt(raw).items[0].blocks.some((b) =>
+      b.text.includes("Measure lengths"),
+    ),
+  );
+});
+
+test("RC1 focused scope catalogues omissions and includes explicit prerequisites without truncation", () => {
+  const c = context(),
+    { s } = fixture(c);
+  const text = "Shared instruction about unit conversions. ".repeat(1000);
+  s.sources.push({
+    filename: "source.imscc",
+    kind: "source_package",
+    documents: Array.from({ length: 45 }, (_, i) => ({
+      id: "D" + i,
+      path: "doc" + i + ".html",
+      title: "Document " + i,
+      text,
+      coverage: "text",
+      sha256: String(i).padStart(64, "0"),
+    })),
+    unread: [],
+    warnings: [],
+    external_links: [],
+    manifests: [],
+  });
+  s.references.push({
+    filename: "outline.txt",
+    text: "Proposed future module",
+    coverage: "text",
+  });
+  const before = JSON.stringify(s);
+  c.ActivityApproval.freezeSession(s);
+  const index = c.CourseCompact.buildIndex(s);
+  assert.equal(c.CourseCompact.buildIndex(s), index);
+  const result = c.CourseCompact.build(s, {
+    keys: ["C1M1"],
+    includePaths: ["doc3.html", "outline.txt"],
+    target: 100,
+  });
+  const p = result.packets[0];
+  assert(p.oversize);
+  assert.equal(
+    p.data.documents.filter((x) => x.source_file === "source.imscc").length,
+    1,
+  );
+  assert(p.data.references.some((x) => x.source_path === "outline.txt"));
+  assert.equal(p.data.scope.unresolved_associations.length, 44);
+  assert.equal(
+    p.data.blocks[
+      p.data.documents.find((x) => x.source_path === "doc3.html").blocks[0]
+    ],
+    text.trim(),
+  );
+  assert.match(p.data.scope.recovery, /not.*AI-reviewed/);
+  assert.equal(JSON.stringify(s), before);
+  assert.equal(c.ActivityApproval.identity(s), c.ActivityApproval.identity(s));
 });
