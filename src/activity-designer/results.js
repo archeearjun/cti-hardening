@@ -7,7 +7,8 @@
     recommendations = null;
   let resultSession = null;
   let result = null,
-    importing = false;
+    importing = false,
+    overlappingImport = false;
   function el(tag, text, cls) {
     const x = document.createElement(tag);
     if (text !== undefined) x.textContent = text;
@@ -664,10 +665,30 @@
     UI.showView("activities");
     return { title: result.title, activities: result.activities.length };
   }
+  function rejectOverlappingImport() {
+    if (!importing) return false;
+    overlappingImport = true;
+    $("result-import-status").textContent =
+      "An import is still running. The additional request was not imported. Select or paste it again after this import finishes.";
+    return true;
+  }
+  function setImportBusy(busy) {
+    importing = busy;
+    for (const id of [
+      "choose-result",
+      "result-file",
+      "import-result",
+      "restore-human-decisions",
+      "result-merge-mode",
+    ])
+      $(id).disabled = busy;
+  }
   async function importFile(file) {
-    if (!file || importing) return;
-    importing = true;
-    $("choose-result").disabled = true;
+    if (!file || rejectOverlappingImport()) return;
+    overlappingImport = false;
+    setImportBusy(true);
+    $("result-import-status").textContent = "Importing selected file…";
+    let completed = false;
     try {
       if (file.size > 100 * 1024 * 1024)
         throw Error(
@@ -767,6 +788,7 @@
         recommendations = savedRecommendations;
       }
       importText(text, !!saved, !!(saved && savedPlan));
+      completed = true;
     } catch (e) {
       warn(
         "Could not import: " +
@@ -774,8 +796,14 @@
           " Your previous cards are unchanged.",
       );
     } finally {
-      importing = false;
-      $("choose-result").disabled = false;
+      setImportBusy(false);
+      $("result-import-status").textContent =
+        (completed
+          ? "Import complete."
+          : "Import failed. Review the error below.") +
+        (overlappingImport
+          ? " An additional request was not imported. Select or paste it again."
+          : "");
     }
   }
   $("choose-result").onclick = () => $("result-file").click();
@@ -785,6 +813,8 @@
     return pending;
   };
   $("import-result").onclick = () => {
+    if (rejectOverlappingImport()) return;
+    $("result-import-status").textContent = "";
     try {
       importText($("result-json").value);
     } catch (e) {

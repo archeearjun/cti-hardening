@@ -15,6 +15,36 @@ import {
   twoPageTeachingPdfFixture,
 } from "../tests/activity-designer-fixtures.mjs";
 
+// File selection dispatches change before resolving. The chooser is re-enabled
+// only in importFile's finally block, after restoration AND result validation.
+async function importResultFile(page, file) {
+  await page.waitForFunction(
+    () => !document.getElementById("choose-result").disabled,
+  );
+  await page.locator("#result-file").setInputFiles(file);
+  await page.waitForFunction(
+    () => !document.getElementById("choose-result").disabled,
+  );
+  for (const id of [
+    "result-file",
+    "import-result",
+    "restore-human-decisions",
+    "result-merge-mode",
+  ])
+    assert.equal(await page.locator("#" + id).isDisabled(), false);
+}
+async function importedState(page) {
+  return page.evaluate(() => ({
+    session: JSON.stringify(CoursePrepUI.getSession()),
+    plan: JSON.stringify(CourseResults.getPlan()),
+    storedPlan: localStorage.getItem(
+      "cti.activity.approval.v1:" + CourseResults.getPlan().plan_id,
+    ),
+    cards: document.getElementById("activity-cards").innerHTML,
+    decisions: document.getElementById("module-decisions").innerHTML,
+  }));
+}
+
 async function approveResult(page, result, exercisePartial = false) {
   const rec = structuredClone(result);
   rec.mode = "opportunity";
@@ -244,18 +274,14 @@ try {
   const evidenceHash = await page.evaluate(
     () => ActivityApproval.identity(CoursePrepUI.getSession()).sha256,
   );
-  await page
-    .getByText("Choose modules to review", { exact: true })
-    .click();
+  await page.getByText("Choose modules to review", { exact: true }).click();
   await page
     .getByText("Shared references and cross-module prerequisites", {
       exact: true,
     })
     .click();
   await page.locator('#packet-shared input[value="instructions.pdf"]').check();
-  await page
-    .getByText("Choose modules to review", { exact: true })
-    .click();
+  await page.getByText("Choose modules to review", { exact: true }).click();
   const shared = await page.evaluate(
     () => CoursePackets.getModel().packets[0].data,
   );
@@ -516,7 +542,7 @@ try {
   await restored.waitForFunction(() => !!globalThis.CoursePrepUI);
   await restored.locator("#nav-activities").click();
   await restored.locator("#restore-human-decisions").check();
-  await restored.locator("#result-file").setInputFiles({
+  await importResultFile(restored, {
     name: "work.zip",
     mimeType: "application/zip",
     buffer: bytes,
@@ -549,7 +575,7 @@ try {
       .count(),
     0,
   );
-  await restored.locator("#result-file").setInputFiles({
+  await importResultFile(restored, {
     name: "work.zip",
     mimeType: "application/zip",
     buffer: bytes,
@@ -563,7 +589,7 @@ try {
   await revocation.waitForFunction(() => !!globalThis.CoursePrepUI);
   await revocation.locator("#nav-activities").click();
   await revocation.locator("#restore-human-decisions").check();
-  await revocation.locator("#result-file").setInputFiles({
+  await importResultFile(revocation, {
     name: "work.zip",
     mimeType: "application/zip",
     buffer: bytes,
@@ -591,7 +617,7 @@ try {
     null,
     "Held drafts do not export copy-ready field files",
   );
-  await revocation.locator("#result-file").setInputFiles({
+  await importResultFile(revocation, {
     name: "held-work.zip",
     mimeType: "application/zip",
     buffer: heldBytes,
@@ -615,15 +641,69 @@ try {
     /no current human approval/,
   );
   await revocation.close();
-  // Explicitly restore the original reviewed plan for the remaining fixture cases.
-  await restored.locator("#result-file").setInputFiles({
+  // Hold the actual async restore boundary: old Copy buttons are not completion.
+  await restored.evaluate(() => {
+    const restore = CoursePrepUI.restoreSession;
+    CoursePrepUI.restoreSession = async function (saved) {
+      await restore(saved);
+      await new Promise((resolve) => {
+        globalThis.releaseImportRestore = resolve;
+      });
+      CoursePrepUI.restoreSession = restore;
+    };
+  });
+  const pendingRestore = importResultFile(restored, {
     name: "work.zip",
     mimeType: "application/zip",
     buffer: bytes,
   });
-  await restored
-    .getByRole("button", { name: "Copy all fields", exact: true })
-    .waitFor();
+  await restored.waitForFunction(() => !!globalThis.releaseImportRestore);
+  assert.equal(
+    await restored
+      .getByRole("button", { name: "Copy all fields", exact: true })
+      .count(),
+    1,
+    "Copy may already be visible while the import is still running",
+  );
+  for (const id of [
+    "choose-result",
+    "result-file",
+    "import-result",
+    "restore-human-decisions",
+    "result-merge-mode",
+  ])
+    assert.equal(await restored.locator("#" + id).isDisabled(), true);
+  // Programmatic change models an already dispatched second selection. Normal
+  // operator controls are disabled; neither this nor a pasted import may race.
+  await restored.evaluate(() => {
+    const input = document.getElementById("result-file");
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File(["invalid JSON"], "overlapping.json", {
+        type: "application/json",
+      }),
+    );
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert.match(
+    await restored.locator("#result-import-status").innerText(),
+    /additional request was not imported/i,
+  );
+  await restored.evaluate(() => {
+    document.getElementById("result-json").value = "invalid pasted JSON";
+    document
+      .getElementById("import-result")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await restored.evaluate(() => globalThis.releaseImportRestore());
+  await pendingRestore;
+  assert.match(
+    await restored.locator("#result-import-status").innerText(),
+    /Import complete.*additional request was not imported/s,
+  );
+  assert.equal(await restored.locator("#result-error").isVisible(), false);
+  const beforeRejectedImport = await importedState(restored);
   // A well-formed ZIP with invalid module decisions must not replace either state.
   const badSession = structuredClone(snapshot);
   badSession.title = "Another saved course";
@@ -635,12 +715,46 @@ try {
   const badZip = new JSZip();
   badZip.file("SESSION.json", JSON.stringify(badSession));
   badZip.file("ACTIVITY_RESULTS.json", JSON.stringify(badResult));
-  await restored.locator("#result-file").setInputFiles({
+  await importResultFile(restored, {
     name: "invalid-work.zip",
     mimeType: "application/zip",
     buffer: await badZip.generateAsync({ type: "nodebuffer" }),
   });
   await restored.locator("#result-error").waitFor({ state: "visible" });
+  assert.match(
+    await restored.locator("#result-error").innerText(),
+    /Module decision is unresolved or ambiguous/,
+  );
+  assert.deepEqual(
+    await importedState(restored),
+    beforeRejectedImport,
+    "Invalid module IDs cannot replace session, approval, stored decision history or cards",
+  );
+  // A complete work ZIP with a malformed approval record must also be atomic.
+  const invalidApprovalZip = await JSZip.loadAsync(bytes);
+  const invalidApproval = JSON.parse(
+    await invalidApprovalZip.file("ACTIVITY_APPROVAL.json").async("string"),
+  );
+  invalidApproval.schema_version = "invalid-approval-version";
+  invalidApprovalZip.file(
+    "ACTIVITY_APPROVAL.json",
+    JSON.stringify(invalidApproval),
+  );
+  await importResultFile(restored, {
+    name: "invalid-approval.zip",
+    mimeType: "application/zip",
+    buffer: await invalidApprovalZip.generateAsync({ type: "nodebuffer" }),
+  });
+  assert.match(
+    await restored.locator("#result-error").innerText(),
+    /Could not import/,
+  );
+  assert.deepEqual(
+    await importedState(restored),
+    beforeRejectedImport,
+    "Invalid approval restoration preserves all previous evidence and decision state",
+  );
+
   assert.equal(
     (await restored.evaluate(() => CoursePrepUI.getSession())).created_at,
     snapshot.created_at,
@@ -650,7 +764,7 @@ try {
     2,
   );
   // Return to the valid view for the screenshots.
-  await restored.locator("#result-file").setInputFiles({
+  await importResultFile(restored, {
     name: "work.zip",
     mimeType: "application/zip",
     buffer: bytes,
@@ -1121,7 +1235,7 @@ try {
   );
   assert(!requests.some((r) => /openai|gemini|coursera\.org/.test(r.url)));
   console.log(
-    "PASS: gateway, same universal bookmark and .cti.zip import under strict CSP, bulk import, packet metrics/search, failed preparation recovery, stale/wrong placement, packet merging, ZIP save/restore, design gates, complete two-page PDF text/original packet, literal rendering, desktop/mobile. Synthetic course; no live Coursera verification.",
+    "PASS: gateway, same universal bookmark and .cti.zip import under strict CSP, bulk import, packet metrics/search, failed preparation recovery, stale/wrong placement, packet merging, ZIP save/restore, delayed restore with overlapping file/paste rejection, atomic invalid-module/approval rejection and import control recovery, design gates, complete two-page PDF text/original packet, literal rendering, desktop/mobile. Synthetic course; no live Coursera verification.",
   );
 } finally {
   await browser?.close();
